@@ -2,7 +2,7 @@
 name: setup-project
 description: Create a new Copier-managed dstack project from the template bundled with the installed skill. Use when asked to initialize a new project, with an explicit project name or basename($PWD) by default.
 metadata:
-  version: "0.0.0"
+  version: "0.1.0"
 allowed-tools: Read Glob Bash
 ---
 

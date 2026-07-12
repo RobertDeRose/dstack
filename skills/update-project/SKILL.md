@@ -2,7 +2,7 @@
 name: update-project
 description: Update a Copier-managed dstack project to the newest published template tag. Use when asked to inherit template changes while preserving project-owned files, validating the result, and resolving real update conflicts.
 metadata:
-  version: "0.0.0"
+  version: "0.1.0"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 ---
 
