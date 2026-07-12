@@ -1,0 +1,13 @@
+[global]
+disable = ["MD033", "MD036"]
+
+[MD007]
+indent = 2
+
+[MD013]
+line-length = 120
+# Tells rumdl to actively wrap/reflow text rather than just flagging it
+reflow = true
+# Optional: Choose how rumdl wraps sentences
+# Options: "default", "normalize", or "sentence-per-line"
+reflow-mode = "normalize"

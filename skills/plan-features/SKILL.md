@@ -1,0 +1,217 @@
+---
+name: plan-features
+description: Turn an idea or existing project plan into interactive feature designs, a concise human roadmap, project documentation architecture, and an executable Beads dependency graph.
+metadata:
+  version: "0.0.0"
+allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
+---
+
+# Purpose
+
+Use this skill to take project intent from discussion to durable design and ordered work. Beads owns live feature/task
+state. `design.md` owns detailed feature intent. `planned-features.md` remains a concise human roadmap.
+
+## Inputs
+
+Use the user's request together with:
+
+- `bd prime`, current feature roots, ready work, and blocked work;
+- `docs/src/SUMMARY.md` and the pages it links;
+- `docs/src/planned-features.md`;
+- existing feature designs and implemented-feature records;
+- current code, tests, configuration, and architecture evidence when refining an existing project.
+
+## Outputs
+
+Create or update:
+
+- Beads feature roots, lifecycle steps, implementation children, and dependencies;
+- `docs/src/planned-features.md`;
+- `docs/src/features/<num>-<slug>/design.md` for near-term or sufficiently understood features;
+- project-specific reader-facing pages needed to establish durable direction;
+- `docs/src/SUMMARY.md` when navigation changes.
+
+## Execution
+
+## 1. Load Project State
+
+Run:
+
+```bash
+bd prime
+bd list --all --label workflow:feature --json
+bd ready --json
+bd blocked --json
+```
+
+Read the documentation table of contents before selecting detailed pages. Read only the project-specific pages relevant
+to the planning scope, plus relevant completed-feature records and designs.
+
+## 2. Normalize Planning Input
+
+When planning input includes a transcript, meeting notes, or prior agent session, process decisions chronologically:
+
+- treat later explicit user decisions as authoritative over earlier proposals;
+- mark superseded names, payloads, dependencies, and constraints as historical rather than carrying them forward;
+- distinguish repository observations from durable product intent;
+- copy each durable decision into every affected `design.md`, not only the roadmap;
+- record unresolved contradictions as questions instead of selecting a convenient interpretation.
+
+## 3. Run the Design Question Loop
+
+Ask one targeted question at a time. Prioritize questions whose answers change:
+
+- user, operator, integrator, or maintainer outcomes;
+- feature boundaries and non-goals;
+- ownership, data, state, and lifecycle;
+- architecture, integrations, and trust boundaries;
+- failure, recovery, support, rollout, or compatibility behavior;
+- exact reader-facing documentation pages;
+- validation and acceptance;
+- dependency order and parallelism.
+
+Continue until every near-term feature has a clear outcome, explicit boundaries, known dependencies, exact documentation
+impact, validation strategy, and enough design intent for bounded implementation tasks. Record non-blocking unknowns as
+deferred decisions.
+
+## 4. Decompose Features
+
+Create independently valuable and reviewable features. Split work when one item combines unrelated outcomes, ownership
+boundaries, migrations, or operational risks. Prefer early features that retire architectural uncertainty or unblock
+several later features.
+
+Allocate immutable feature numbers in increments of ten:
+
+```text
+010-feature-slug
+020-next-feature
+```
+
+Use the highest assigned number plus ten by default. Use an unused gap only for an intentional insertion. Priority and
+dependency changes never renumber an existing feature.
+
+Create a durable design and lifecycle when the outcome, boundaries, dependencies, validation, and documentation impact
+are known. Keep a feature roadmap-only only when at least one of those elements is materially unresolved, and record the
+exact missing decision.
+
+## 5. Design the Documentation Structure
+
+Choose concrete pages by reader question:
+
+- **Introduction**: purpose, audience, scope, and boundaries;
+- **Architecture**: structure, ownership, interactions, invariants, and durable decisions;
+- **Operator's Manual / Usage**: deployment, configuration, observability, operation, maintenance, recovery, and
+  troubleshooting where applicable;
+- **Development Guide**: build, testing, extension, migration, and maintenance;
+- **Reference**: exact commands, configuration, interfaces, schemas, fields, states, defaults, limits, terminology, and
+  acceptance contracts.
+
+Reuse a page that already owns the topic. Create a focused page for a new durable reader need. Register every new page
+in `docs/src/SUMMARY.md`.
+
+## 6. Create the Feature Design
+
+Create the feature directory and draft `design.md` from:
+
+```text
+docs/src/features/_template/design.md
+```
+
+Preserve concrete user wording, examples, constraints, rejected directions, and planning decisions. In
+**Documentation Impact**, name exact files and assign each planned change to an implementation bead.
+
+## 7. Create the Beads Lifecycle
+
+For each feature ready for durable design, pour the repository formula:
+
+```bash
+bd mol pour feature-lifecycle \
+  --var feature_number=<num> \
+  --var feature_name="<title>" \
+  --var feature_slug=<slug> \
+  --var design_path=docs/src/features/<num>-<slug>/design.md \
+  --var implemented_path=docs/src/features/<num>-<slug>/index.md \
+  --var base_branch=<base> \
+  --json
+```
+
+Record identity on the returned root. For work implemented in another repository, set `implementation_repository`,
+`implementation_path`, and that repository's `base_branch` explicitly:
+
+```bash
+bd update <root-id> \
+  --title "F<num> — <title>" \
+  --add-label workflow:feature \
+  --spec-id docs/src/features/<num>-<slug>/design.md \
+  --set-metadata feature_number=<num> \
+  --set-metadata feature_slug=<slug> \
+  --set-metadata design_path=docs/src/features/<num>-<slug>/design.md \
+  --set-metadata implemented_path=docs/src/features/<num>-<slug>/index.md \
+  --set-metadata base_branch=<base> \
+  --set-metadata implementation_repository=<repository> \
+  --set-metadata implementation_path=<absolute-or-repo-relative-path>
+```
+
+Resolve lifecycle IDs once with `bd mol show <root-id> --json`, then persist them on the root so later agents can load
+only `bd show <root-id> --json`:
+
+```bash
+bd update <root-id> \
+  --set-metadata design_id=<id> \
+  --set-metadata review_architecture_id=<id> \
+  --set-metadata review_simplicity_id=<id> \
+  --set-metadata review_documentation_id=<id> \
+  --set-metadata review_execution_id=<id> \
+  --set-metadata spec_reconcile_id=<id> \
+  --set-metadata implementation_id=<id> \
+  --set-metadata docs_reconcile_id=<id> \
+  --set-metadata validation_id=<id> \
+  --set-metadata review_delivery_id=<id> \
+  --set-metadata review_drift_id=<id> \
+  --set-metadata delivery_id=<id> \
+  --set-metadata workflow_kind=molecule
+```
+
+Lifecycle creation is complete when `bd show <root-id> --json` contains every required lifecycle ID and each ID resolves
+to the intended child.
+
+Migrated legacy roots may be ordinary epics rather than molecules. Their importer stores the same lifecycle ID metadata,
+so downstream skills use one interface for both shapes.
+
+## 8. Create Implementation Beads
+
+Create bounded tasks beneath the lifecycle implementation coordinator. Each task contains:
+
+- one concrete outcome and bounded scope;
+- acceptance criteria;
+- relevant design sections;
+- exact documentation ownership;
+- validation commands or evidence;
+- true prerequisites;
+- parallelism metadata where useful;
+- a practical commit boundary.
+
+Use `parent-child` for hierarchy and `blocks` for actual prerequisites. Independent siblings remain parallel. Every
+implementation child must depend on the lifecycle `spec-reconcile` step so implementation cannot become ready before
+specification review.
+
+## 9. Complete Planning State
+
+Close the lifecycle design step when the draft design and implementation graph exist:
+
+```bash
+bd close <design-step-id> --reason "Planning Q&A complete; draft design and implementation graph created"
+```
+
+Leave the four isolated review steps ready for `/start-feature`.
+
+Update `docs/src/planned-features.md` with concise roadmap narrative, feature ID, Beads root, dependencies, design link,
+sequencing rationale, and status snapshot. Keep detailed intent in `design.md` and live state in Beads.
+
+Commit planning documentation when downstream worktrees need it. Include the feature root ID in the commit message.
+
+## Completion Criteria
+
+Planning is complete when the roadmap is coherent, near-term features have stable IDs and designs, implementation is
+decomposed into bounded Beads work, exact documentation changes and validation are assigned, unresolved blockers are
+explicit, and the next action is `/start-feature <root-id>`.

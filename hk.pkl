@@ -1,0 +1,63 @@
+amends "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Builtins.pkl"
+
+local linters = new Mapping<String, Step> {
+  ["actionlint"] = Builtins.actionlint
+  ["betterleaks"] = (Builtins.betterleaks) { output_summary = "stdout" }
+  ["byte_order_marker"] = Builtins.byte_order_marker
+  ["contextlint"] = Builtins.contextlint
+  ["detect_private_key"] = Builtins.detect_private_key
+  ["fix_smart_quotes"] = Builtins.fix_smart_quotes
+  ["hk_test"] = Builtins.hk_test
+  ["mise"] = Builtins.mise
+  ["markdown-table-formatter"] = new Step {
+    glob = List("**/*.md", "**/*.markdown")
+    check_diff = "markdown-table-formatter --check {{ files }}"
+    fix = "markdown-table-formatter {{ files }}"
+  }
+  ["newlines"] = Builtins.newlines
+  ["pkl"] = Builtins.pkl
+  ["pkl_format"] = Builtins.pkl_format
+  ["python_check_ast"] = Builtins.python_check_ast
+  ["python_debug_statements"] = Builtins.python_debug_statements
+  ["ruff"] = Builtins.ruff
+  ["ruff_format"] = Builtins.ruff_format
+  ["rumdl"] = new Step {
+    glob = List("**/*.md", "**/*.markdown")
+    check = "rumdl check --config .config/rumdl.toml {{ files }}"
+    fix = "rumdl check --config .config/rumdl.toml --fix {{ files }}"
+  }
+  ["shellcheck"] = Builtins.shellcheck
+  ["shellharden"] = Builtins.shellharden
+  ["shfmt"] = Builtins.shfmt
+  ["tombi"] = (Builtins.tombi) {
+    exclude = List("**/mise.toml")
+  }
+  ["tombi_format"] = (Builtins.tombi_format) { output_summary = "stdout" }
+  ["trailing_whitespace"] = Builtins.trailing_whitespace
+  ["ty"] = Builtins.ty
+  ["typos"] = Builtins.typos
+  ["yamlfmt"] = Builtins.yamlfmt
+  ["yamllint"] = Builtins.yamllint
+  ["zizmor"] = (Builtins.zizmor) { output_summary = "stdout" }
+}
+
+hooks {
+  ["commit-msg"] {
+    steps {
+      ["cocogitto_commit_msg"] = Builtins.cocogitto_commit_msg
+    }
+  }
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+  ["check"] {
+    steps = linters
+  }
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+}

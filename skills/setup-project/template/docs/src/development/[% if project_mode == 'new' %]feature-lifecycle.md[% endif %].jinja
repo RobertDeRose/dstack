@@ -1,0 +1,86 @@
+# Feature lifecycle
+
+## Responsibilities
+
+```text
+Beads                                            executable state and dependencies
+docs/src/features/<num>-<slug>/design.md         intended feature behavior and design
+reader-facing docs under docs/src/               current supported behavior
+code and tests                                   implementation evidence
+docs/src/features/<num>-<slug>/index.md          delivered reconciliation and audit record
+```
+
+Workflow commands are installed from `RobertDeRose/dstack` with the `skills` CLI. The CLI manages the agent-specific installation paths and updates; Copier manages this repository scaffold.
+
+## Start a session
+
+```bash
+bd prime
+bd ready --json
+```
+
+## Plan
+
+`/plan-features` asks design-changing questions, defines the documentation architecture, creates numbered feature designs, pours the Beads feature lifecycle, and decomposes implementation into bounded child tasks.
+
+A new feature uses:
+
+```text
+docs/src/features/010-feature-slug/design.md
+feat/010-feature-slug
+```
+
+## Review and start
+
+`/start-feature` activates the worktree and runs four isolated reviews:
+
+1. architecture consistency;
+2. simplicity and maintainability;
+3. documentation readiness;
+4. execution-graph readiness.
+
+It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes `spec-reconcile` only when implementation can proceed without inventing intent.
+
+## Implement
+
+Claim the next ready task beneath the implementation coordinator:
+
+```bash
+bd ready --parent <implementation-id> --claim --json
+bd show <task-id> --json
+```
+
+Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after its acceptance criteria pass.
+
+Discovered work should retain provenance:
+
+```bash
+bd create "Describe discovered work" \
+  --type task \
+  --deps discovered-from:<current-task-id> \
+  --json
+```
+
+Add a blocking edge only when the discovery is required for safe completion.
+
+## Close
+
+`/close-feature` compares delivered code with the design and reader-facing docs, creates a standalone implemented-feature record, runs validation and two holistic reviews, reconciles intentional drift, and then performs an explicit `pr`, `merge`, or `ready` action. With no mode, it asks which action to take.
+
+## Audit
+
+`/audit-project` periodically compares Beads, designs, current docs, implemented-feature records, code, tests, and recent commits. Drift becomes linked Beads work rather than an untracked note.
+
+## Legacy repositories
+
+A repository with active per-feature `tasks.md` files uses the original Markdown workflow. Install the dstack skills and run `/migrate-workflow`. The installed migration helper performs deterministic scanning, numbering, path conversion, Beads import, and task archival; the skill performs semantic design, delivery, and documentation reconciliation. Preserve the existing reader-oriented documentation hierarchy.
+
+During migration, the skill runs the repository documentation checker in migration mode. Strict validation resumes after legacy task files are reconciled and archived.
+
+## Skill maintenance
+
+After editing a canonical skill:
+
+```bash
+npx skills update
+```

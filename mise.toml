@@ -1,0 +1,54 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tools]
+"github:anordal/shellharden" = "latest"
+"npm:@contextlint/cli" = "latest"
+"npm:markdown-table-formatter" = "latest"
+"npm:markdownlint-cli" = "latest"
+actionlint = "latest"
+aube = "latest"
+betterleaks = "latest"
+cocogitto = "latest"
+editorconfig-checker = "latest"
+hk = "latest"
+pkl = "latest"
+ruff = "latest"
+rumdl = "latest"
+shellcheck = "latest"
+shfmt = "latest"
+tombi = "latest"
+ty = "latest"
+typos = "latest"
+uv = "latest"
+yamlfmt = "latest"
+yamllint = "latest"
+zizmor = "latest"
+
+[tasks.release]
+description = "Prepare and optionally push a dstack release using semantic-release"
+alias = "pub"
+quiet = true
+usage = '''
+flag "-p --push" help="Push the release commit and annotated tag to the remote"
+flag "-n --noop" help="Test what semantic-release will do"
+'''
+run = '''
+#!/bin/bash
+
+args=()
+[ -n "${usage_noop}" ] && args+=("--noop")
+
+vargs=("--no-vcs-release")
+[ -z "${usage_push}" ] && vargs+=("--no-push")
+
+uv run semantic-release "${args[@]}" version "${vargs[@]}"
+
+[[ "${args[*]}" =~ --noop ]] && git restore uv.lock || true
+'''
+
+[tasks.release.env]
+GIT_CONFIG_COUNT = 2
+GIT_CONFIG_KEY_0 = "commit.gpgSign"
+GIT_CONFIG_VALUE_0 = "true"
+GIT_CONFIG_KEY_1 = "tag.gpgSign"
+GIT_CONFIG_VALUE_1 = "true"

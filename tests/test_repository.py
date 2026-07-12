@@ -1,0 +1,923 @@
+"""Repository, skill-package, Copier, and Skills CLI validation tests."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import re
+import shutil
+import tomllib
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+from tests.support import (
+    commit_repository,
+    initialize_git,
+    merged_environment,
+    run_command,
+)
+
+
+EXPECTED_SKILLS = {
+    "audit-project",
+    "dstack-core",
+    "close-feature",
+    "implement-feature",
+    "migrate-workflow",
+    "plan-features",
+    "gh-pr-review",
+    "setup-project",
+    "start-feature",
+    "update-project",
+}
+
+REQUIRED_SKILL_SUPPORT = (
+    "skills/dstack-core/references/TRUST-AND-AUTHORITY.md",
+    "skills/gh-pr-review/scripts/review_state.py",
+    "skills/migrate-workflow/references/MIGRATION.md",
+    "skills/migrate-workflow/scripts/adopt-template.py",
+    "skills/migrate-workflow/scripts/migrate-legacy-workflow.py",
+    "skills/setup-project/copier.yml",
+    "skills/setup-project/scripts/setup-project.py",
+    "skills/setup-project/template/docs/src/features/_template/design.md",
+    "skills/update-project/scripts/update-project.py",
+)
+
+REQUIRED_COPIER_QUESTIONS = (
+    "project_name",
+    "project_slug",
+    "project_description",
+    "repository_default_branch",
+    "project_mode",
+    "include_readme",
+)
+
+REQUIRED_TEMPLATE_FILES = (
+    ".beads/formulas/feature-lifecycle.formula.toml",
+    ".gitignore.jinja",
+    "[[ _copier_conf.answers_file ]].jinja",
+    "[% if project_mode == 'new' and include_readme %]README.md[% endif %].jinja",
+    "AGENTS.md.jinja",
+    "docs/[% if project_mode == 'new' %]book.toml[% endif %].jinja",
+    "docs/src/[% if project_mode == 'new' %]SUMMARY.md[% endif %].jinja",
+    "docs/src/features/_template/design.md",
+    "docs/src/features/_template/index.md",
+    "scripts/bootstrap.py",
+    "scripts/check-docs.py",
+)
+
+LEGACY_OR_GENERATED_FILENAMES = {
+    "setup_project.py",
+    "update_project.py",
+    "adopt_template.py",
+    "migrate_workflow.py",
+    "validate_repository.py",
+}
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def load_skill_manifest(skill_md: Path) -> dict[str, Any]:
+    text = skill_md.read_text(encoding="utf-8")
+    match = re.match(r"^---\n(.*?)\n---\n", text, flags=re.DOTALL)
+    assert match is not None, f"Invalid frontmatter: {skill_md}"
+    manifest = yaml.safe_load(match.group(1))
+    assert isinstance(manifest, dict), f"Frontmatter is not a mapping: {skill_md}"
+    return manifest
+
+
+def tracked_or_packaged_files(repository_root: Path) -> list[Path]:
+    if (repository_root / ".git").exists():
+        result = run_command(["git", "ls-files", "-z"], cwd=repository_root)
+        return [
+            repository_root / value
+            for value in result.stdout.split("\0")
+            if value and (repository_root / value).is_file()
+        ]
+
+    return [
+        path
+        for path in repository_root.rglob("*")
+        if path.is_file()
+        and not any(
+            part in {".git", ".pytest_cache", ".ruff_cache", ".rumdl_cache", ".venv", "__pycache__"}
+            for part in path.relative_to(repository_root).parts
+        )
+    ]
+
+
+def setup_generated_project(source: Path, project: Path) -> None:
+    """Render a project while simulating an existing Skills CLI installation."""
+    (project / ".agents/skills/setup-project").mkdir(parents=True)
+    (project / "skills-lock.json").write_text("{}\n", encoding="utf-8")
+    setup = source / "skills/setup-project/scripts/setup-project.py"
+    run_command(
+        [
+            "uv",
+            "run",
+            str(setup),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(source),
+            "--skip-bootstrap",
+            "--json",
+        ],
+        cwd=project,
+    )
+
+
+def configure_project_git(project: Path) -> None:
+    run_command(["git", "config", "user.email", "test@example.com"], cwd=project)
+    run_command(["git", "config", "user.name", "dstack Test"], cwd=project)
+
+
+def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
+    """Create a deterministic embedded-mode-compatible Beads test double."""
+    bd = bin_dir / "bd"
+    bd.parent.mkdir(parents=True, exist_ok=True)
+    bd.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "log = Path(os.environ['DSTACK_BD_LOG'])\n"
+        "with log.open('a', encoding='utf-8') as stream:\n"
+        "    stream.write(' '.join(sys.argv[1:]) + '\\n')\n"
+        "args = sys.argv[1:]\n"
+        "if args == ['--version']:\n"
+        "    print('bd fake-1.0.0')\n"
+        "elif args[:2] == ['info', '--json']:\n"
+        "    print(json.dumps({'database_path': '.beads/embeddeddolt', 'issue_count': 3, 'mode': 'direct'}))\n"
+        "elif args[:2] == ['ready', '--json']:\n"
+        "    print('[]')\n"
+        "elif args[:3] == ['formula', 'show', 'feature-lifecycle']:\n"
+        "    print(json.dumps({'formula': 'feature-lifecycle'}))\n"
+        "else:\n"
+        "    print('unsupported fake bd command: ' + ' '.join(args), file=sys.stderr)\n"
+        "    raise SystemExit(64)\n",
+        encoding="utf-8",
+    )
+    bd.chmod(0o755)
+    return bd
+
+
+def test_skill_set_and_frontmatter(repository_root: Path) -> None:
+    skill_paths = sorted((repository_root / "skills").glob("*/SKILL.md"))
+    loaded = [load_skill_manifest(skill_md) for skill_md in skill_paths]
+    names = [str(manifest["name"]) for manifest in loaded]
+    project = tomllib.loads((repository_root / "pyproject.toml").read_text(encoding="utf-8"))
+    version = project["project"]["version"]
+
+    assert len(names) == len(EXPECTED_SKILLS)
+    assert len(names) == len(set(names)), f"Duplicate skill names: {names}"
+    assert set(names) == EXPECTED_SKILLS
+    assert all(manifest.get("description") for manifest in loaded)
+    for path, manifest in zip(skill_paths, loaded, strict=True):
+        metadata = manifest.get("metadata")
+        assert isinstance(metadata, dict), f"Missing metadata mapping: {path}"
+        assert metadata.get("version") == version, f"Version mismatch: {path}"
+        assert all(isinstance(key, str) and isinstance(value, str) for key, value in metadata.items())
+        allowed_tools = manifest.get("allowed-tools")
+        assert isinstance(allowed_tools, str), f"Missing allowed-tools: {path}"
+        assert allowed_tools.split(), f"Missing allowed-tools: {path}"
+        assert len(allowed_tools.split()) == len(set(allowed_tools.split())), f"Duplicate allowed tool: {path}"
+
+    tracked_text = "\n".join(
+        candidate.read_text(encoding="utf-8", errors="ignore")
+        for candidate in tracked_or_packaged_files(repository_root)
+    )
+    assert "DSTACK" + "_VERSION" not in tracked_text
+
+
+def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
+    def skill(name: str) -> str:
+        return (repository_root / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+
+    migration = skill("migrate-workflow")
+    migration_reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(
+        encoding="utf-8"
+    )
+    assert len(migration.splitlines()) < 170
+    assert "references/MIGRATION.md" in migration
+    for heading in (
+        "## Baseline interpretation",
+        "## Template source and revision",
+        "## Task parser coverage",
+        "## Dependency cycles",
+        "## Beads import and recovery",
+        "## Verification and completion",
+    ):
+        assert heading in migration_reference
+    assert "baseline --write" in migration
+    assert 'git diff --cached --quiet || git commit -m "chore: record pre-migration baseline"' in migration
+    assert 'git diff --cached --quiet || git commit -m "chore: record workflow migration plan"' in migration
+    assert migration.count('test -z "$(git status --porcelain)"') >= 3
+    assert "Do not run `prepare` while scan output or decisions are uncommitted" in migration
+    assert "bd init --stealth" in migration
+    assert 'git commit -m "chore: initialize Beads workflow state"' in migration
+
+    pr_review = skill("gh-pr-review")
+    assert "# Purpose" not in pr_review
+    assert pr_review.count("uv run <skill-dir>/scripts/fetch_comments.py") >= 3
+    assert "every fetched item" in pr_review.casefold()
+    assert "Context only" in pr_review
+    assert "Regardless of whether this cycle created a commit" in pr_review
+    assert "gh pr checks --watch --interval 10" in pr_review
+    assert "intermediate workflow pause" in pr_review
+    assert "successful copilot review request" in " ".join(pr_review.casefold().split())
+    assert "scripts/review_state.py" in pr_review
+
+    setup = skill("setup-project")
+    assert "command -v bd" in setup
+    assert "Do not run `bd prime` or `bd ready` when `bd` is unavailable" in setup
+    setup_script = (repository_root / "skills/setup-project/scripts/setup-project.py").read_text(encoding="utf-8")
+    bootstrap_script = (repository_root / "skills/setup-project/template/scripts/bootstrap.py").read_text(
+        encoding="utf-8"
+    )
+    assert "if beads_initialized:" in setup_script
+    assert "Beads initialization and verification remain outstanding" in setup_script
+    assert 'default="stealth"' in setup_script
+    assert 'default="stealth"' in bootstrap_script
+    assert "if not args.skip_beads:" in bootstrap_script
+    assert "Beads initialization and verification were skipped and remain outstanding" in bootstrap_script
+
+    implementation = skill("implement-feature")
+    assert "git rev-parse HEAD" in implementation
+    assert "specific no-commit justification" in implementation
+    assert "<implementation-epic-id>" not in implementation
+
+    closeout = skill("close-feature")
+    assert "do not reuse pre-fix results" in " ".join(closeout.casefold().split())
+    assert "scripts/check-docs.py" in closeout
+
+    audit = skill("audit-project")
+    assert "Do not report a correction as verified from a pre-fix result" in audit
+
+    start = skill("start-feature")
+    assert "git show-ref --verify --quiet refs/heads/feat/<num>-<slug>" in start
+    assert "Branch exists but has no worktree" in start
+    assert "<implementation-epic-id>" not in start
+
+    update = skill("update-project")
+    assert "path-accounting ledger" in update
+    assert "every changed path" in update.casefold()
+    assert "readiness to resume feature work, which must be false while a path is unclassified" in update
+
+    for name in ("audit-project", "close-feature", "implement-feature", "gh-pr-review"):
+        description = str(load_skill_manifest(repository_root / "skills" / name / "SKILL.md")["description"])
+        assert "Use when" in description, f"Missing invocation trigger in {name}: {description}"
+
+    trust_skills = (
+        "audit-project",
+        "close-feature",
+        "gh-pr-review",
+        "migrate-workflow",
+        "setup-project",
+        "update-project",
+    )
+    for name in trust_skills:
+        content = skill(name)
+        assert "Shared trust contract" in content, name
+        assert "../dstack-core/references/TRUST-AND-AUTHORITY.md" in content, name
+
+
+@pytest.mark.parametrize("relative_path", REQUIRED_SKILL_SUPPORT)
+def test_required_skill_support_exists(repository_root: Path, relative_path: str) -> None:
+    assert (repository_root / relative_path).is_file(), relative_path
+
+
+def test_security_sensitive_skills_require_shared_contract(repository_root: Path) -> None:
+    contract = repository_root / "skills/dstack-core/references/TRUST-AND-AUTHORITY.md"
+    assert contract.is_file()
+    names = ("audit-project", "close-feature", "gh-pr-review", "migrate-workflow", "setup-project", "update-project")
+    for name in names:
+        text = (repository_root / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        assert "../dstack-core/references/TRUST-AND-AUTHORITY.md" in text
+        assert "normative for this workflow" in text
+
+
+def test_repository_contains_no_stale_tracked_files(repository_root: Path) -> None:
+    stale = []
+    for path in tracked_or_packaged_files(repository_root):
+        relative = path.relative_to(repository_root)
+        if (
+            path.name in LEGACY_OR_GENERATED_FILENAMES
+            or path.suffix in {".pyc", ".pyo"}
+            or any(
+                part in {"__pycache__", ".pytest_cache", ".ruff_cache", ".rumdl_cache", ".venv"}
+                for part in relative.parts
+            )
+        ):
+            stale.append(relative.as_posix())
+    assert stale == []
+
+
+def test_hk_rumdl_avoids_nonstandard_diff_headers(repository_root: Path) -> None:
+    config = (repository_root / "hk.pkl").read_text(encoding="utf-8")
+    assert 'check = "rumdl check --config .config/rumdl.toml {{ files }}"' in config
+    assert 'check_diff = "rumdl check --config .config/rumdl.toml --diff {{ files }}"' not in config
+
+
+def test_copier_entry_points_are_consistent(repository_root: Path) -> None:
+    root_config = yaml.safe_load((repository_root / "copier.yml").read_text(encoding="utf-8"))
+    bundled_config = yaml.safe_load((repository_root / "skills/setup-project/copier.yml").read_text(encoding="utf-8"))
+
+    assert root_config["_subdirectory"] == "skills/setup-project/template"
+    assert bundled_config["_subdirectory"] == "template"
+    for question in REQUIRED_COPIER_QUESTIONS:
+        assert question in root_config
+        assert question in bundled_config
+        assert root_config[question] == bundled_config[question]
+
+
+@pytest.mark.parametrize("relative_path", REQUIRED_TEMPLATE_FILES)
+def test_copier_template_contains_required_files(
+    repository_root: Path,
+    relative_path: str,
+) -> None:
+    template = repository_root / "skills/setup-project/template"
+    assert (template / relative_path).is_file(), relative_path
+
+
+def test_feature_design_placeholders_remain_literal(repository_root: Path) -> None:
+    design = (repository_root / "skills/setup-project/template/docs/src/features/_template/design.md").read_text(
+        encoding="utf-8"
+    )
+    assert "{{ feature_number }}" in design
+
+
+def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> None:
+    validate = (repository_root / ".github/workflows/validate.yml").read_text(encoding="utf-8")
+    external = (repository_root / ".github/workflows/external-validation.yml").read_text(encoding="utf-8")
+
+    assert 'pytest -m "not integration and not external"' in validate
+    assert 'pytest "${{ matrix.path }}" -m integration' in validate
+    assert "actions/setup-node" not in validate
+    assert "actions/setup-python@v6" in validate
+    assert "astral-sh/setup-uv@v8" in validate
+
+    assert "workflow_dispatch:" in external
+    assert "schedule:" in external
+    assert "tags:" in external
+    assert '      - "v*"' in external
+    assert "pytest -m external" in external
+    assert "actions/setup-node@v6" in external
+
+
+PYTHON_SOURCES = sorted(
+    path
+    for path in Path(__file__).resolve().parents[1].rglob("*.py")
+    if not any(part in {".git", ".venv", "__pycache__"} for part in path.parts)
+)
+
+
+@pytest.mark.parametrize(
+    "python_source",
+    PYTHON_SOURCES,
+    ids=lambda path: path.relative_to(Path(__file__).resolve().parents[1]).as_posix(),
+)
+def test_python_sources_compile(python_source: Path) -> None:
+    compile(python_source.read_text(encoding="utf-8"), str(python_source), "exec")
+
+
+@pytest.mark.integration
+def test_setup_project_uses_bundled_skill_template_and_records_remote_update_state(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    installed_skill = tmp_path / "installed/setup-project"
+    shutil.copytree(repository_root / "skills/setup-project", installed_skill)
+    project = tmp_path / "bundled-project"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(installed_skill / "scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--skip-bootstrap",
+            "--no-git-init",
+            "--json",
+        ],
+        cwd=tmp_path,
+    )
+    payload = json.loads(result.stdout)
+    manifest = load_skill_manifest(installed_skill / "SKILL.md")
+    version = manifest["metadata"]["version"]
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+
+    assert payload["template_source"] == str(installed_skill)
+    assert payload["template_source_kind"] == "bundled"
+    assert payload["render_vcs_ref"] is None
+    assert payload["update_source"] == "gh:RobertDeRose/dstack"
+    assert payload["skill_version"] == version
+    assert payload["vcs_ref"] == f"v{version}"
+    assert answers["_src_path"] == "gh:RobertDeRose/dstack"
+    assert answers["_commit"] == f"v{version}"
+    assert str(installed_skill) not in (project / ".copier-answers.yml").read_text(encoding="utf-8")
+    assert (project / "docs/src/SUMMARY.md").is_file()
+
+
+@pytest.mark.integration
+def test_setup_project_uses_directory_name_and_preserves_template_tokens(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "example-project"
+    setup_generated_project(tagged_template_source, project)
+
+    assert (project / ".copier-answers.yml").is_file()
+    assert "# example-project" in (project / "README.md").read_text(encoding="utf-8")
+    assert "{{ feature_number }}" in (project / "docs/src/features/_template/design.md").read_text(encoding="utf-8")
+
+    run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
+
+
+@pytest.mark.integration
+def test_copier_update_applies_new_release_and_preserves_project_changes(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "example-project"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+
+    project_index = project / "docs/src/index.md"
+    project_index.write_text(
+        project_index.read_text(encoding="utf-8") + "\nProject-owned update.\n",
+        encoding="utf-8",
+    )
+    commit_repository(project, "Project-specific documentation")
+
+    (tagged_template_source / "skills/setup-project/template/.dstack-release.jinja").write_text(
+        "v0.0.2\n", encoding="utf-8"
+    )
+    commit_repository(tagged_template_source, "dstack v0.0.2", "v0.0.2")
+
+    update = tagged_template_source / "skills/update-project/scripts/update-project.py"
+    run_command(
+        [
+            "uv",
+            "run",
+            str(update),
+            "--destination",
+            str(project),
+            "--vcs-ref",
+            "v0.0.2",
+            "--skip-beads-check",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+
+    assert (project / ".dstack-release").read_text(encoding="utf-8") == "v0.0.2\n"
+    assert "Project-owned update." in project_index.read_text(encoding="utf-8")
+
+
+@pytest.mark.integration
+def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_beads_checks(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "example-project"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+
+    # A dependency environment may legitimately contain conflict-marker examples.
+    ignored = project / ".venv/lib/python3.13/site-packages/example.py"
+    ignored.parent.mkdir(parents=True)
+    ignored.write_text(
+        "<<<<<<< example\nleft\n=======\nright\n>>>>>>> example\n",
+        encoding="utf-8",
+    )
+
+    update = tagged_template_source / "skills/update-project/scripts/update-project.py"
+    packaged_ref = "v0.0.2"
+    (tagged_template_source / "skills/setup-project/template/.dstack-release.jinja").write_text(
+        packaged_ref + "\n", encoding="utf-8"
+    )
+    commit_repository(tagged_template_source, f"dstack {packaged_ref}", packaged_ref)
+
+    fake_bin = tmp_path / "bin"
+    bd_log = tmp_path / "bd.log"
+    write_fake_bd(fake_bin, bd_log)
+    environment = merged_environment(
+        PATH=f"{fake_bin}:{os.environ['PATH']}",
+        DSTACK_BD_LOG=str(bd_log),
+    )
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(update),
+            "--destination",
+            str(project),
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        env=environment,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["vcs_ref"] == packaged_ref
+    assert payload["conflicts"] == []
+    assert payload["beads_checked"] is True
+    assert (project / ".dstack-release").read_text(encoding="utf-8") == packaged_ref + "\n"
+    commands = bd_log.read_text(encoding="utf-8").splitlines()
+    assert "info --json" in commands
+    assert "ready --json --limit 1" in commands
+    assert "formula show feature-lifecycle --json" in commands
+    assert all(not command.startswith("doctor") for command in commands)
+
+
+@pytest.mark.integration
+def test_existing_project_adoption_preserves_project_owned_files(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    legacy = tmp_path / "legacy-project"
+    (legacy / "docs/src/features/alpha").mkdir(parents=True)
+    (legacy / "docs/src/SUMMARY.md").write_text(
+        "# Summary\n\n# Custom Architecture\n\n- [Alpha](features/alpha/design.md)\n",
+        encoding="utf-8",
+    )
+    (legacy / "docs/src/features/alpha/design.md").write_text("# Alpha\n", encoding="utf-8")
+    (legacy / "docs/src/features/alpha/tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    (legacy / "AGENTS.md").write_text("# Existing agent instructions\n", encoding="utf-8")
+    (legacy / ".gitignore").write_text("local-cache/\n", encoding="utf-8")
+    initialize_git(legacy, "Legacy project")
+    original_summary = (legacy / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(legacy),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+
+    assert (legacy / "docs/src/SUMMARY.md").read_text(encoding="utf-8") == original_summary
+    agents = (legacy / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Existing agent instructions" in agents
+    assert "BEGIN DSTACK WORKFLOW" in agents
+    assert "local-cache/" in (legacy / ".gitignore").read_text(encoding="utf-8")
+    for required in (
+        ".copier-answers.yml",
+        ".beads/formulas/feature-lifecycle.formula.toml",
+        "scripts/check-docs.py",
+        "docs/src/features/_template/design.md",
+    ):
+        assert (legacy / required).is_file(), required
+
+    bootstrap = run_command(
+        [
+            "uv",
+            "run",
+            str(legacy / "scripts/bootstrap.py"),
+            "--skip-beads",
+        ],
+        cwd=legacy,
+    )
+    assert "Detected a legacy workflow" in bootstrap.stdout
+    assert "Documentation checks:" in bootstrap.stdout
+
+
+def test_tested_workflow_gaps_are_explicit(repository_root: Path) -> None:
+    plan = (repository_root / "skills/plan-features/SKILL.md").read_text(encoding="utf-8")
+    start = (repository_root / "skills/start-feature/SKILL.md").read_text(encoding="utf-8")
+    close = (repository_root / "skills/close-feature/SKILL.md").read_text(encoding="utf-8")
+    migrate = (repository_root / "skills/migrate-workflow/SKILL.md").read_text(encoding="utf-8")
+    assert "process decisions chronologically" in plan
+    assert "implementation_repository" in plan
+    assert "roadmap-only" in start
+    assert "create a worktree in the planning repository" in start
+    assert all(state in close for state in ("passed", "failed", "unavailable", "waived", "not-applicable"))
+    assert "documentation validation after archival" in migrate
+
+
+def test_bootstrap_supports_json_and_probes_bd_executable(repository_root: Path) -> None:
+    script = (repository_root / "skills/setup-project/template/scripts/bootstrap.py").read_text(encoding="utf-8")
+    assert '"--json"' in script
+    assert '["bd", "--version"]' in script
+    assert '"scaffold_verified"' in script
+
+
+def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
+    script = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'parser.add_argument("--json"' in script
+    assert '["bd", "show", issue_id, "--json"]' in script
+    assert "if note in str(notes)" in script
+
+
+def test_copier_template_has_no_duplicate_possible_destinations(repository_root: Path) -> None:
+    template = repository_root / "skills/setup-project/template"
+    for project_mode in ("new", "existing"):
+        for include_readme in (False, True):
+            rendered: dict[str, str] = {}
+            for path in template.rglob("*"):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(template).as_posix()
+                output = relative
+                output = re.sub(
+                    r"\[% if project_mode == 'new' %\](.*?)\[% endif %\]",
+                    lambda match, mode=project_mode: match.group(1) if mode == "new" else "",
+                    output,
+                )
+                output = re.sub(
+                    r"\[% if project_mode == 'new' and include_readme %\](.*?)\[% endif %\]",
+                    lambda match, mode=project_mode, include=include_readme: (
+                        match.group(1) if mode == "new" and include else ""
+                    ),
+                    output,
+                )
+                output = output.replace(".jinja", "")
+                if not output or output.endswith("/"):
+                    continue
+                previous = rendered.setdefault(output, relative)
+                assert previous == relative, (project_mode, include_readme, output, previous, relative)
+
+
+@pytest.mark.external
+def test_skills_cli_discovers_all_skills(repository_root: Path) -> None:
+    result = run_command(
+        ["npx", "--yes", "skills@latest", "add", ".", "--list"],
+        cwd=repository_root,
+    )
+    output = ANSI_ESCAPE.sub("", result.stdout)
+
+    assert f"Found {len(EXPECTED_SKILLS)} skills" in output
+    for skill in EXPECTED_SKILLS:
+        assert skill in output
+
+
+def test_template_formula_uses_task_implementation_coordinator(repository_root: Path) -> None:
+    formula = (
+        repository_root / "skills/setup-project/template/.beads/formulas/feature-lifecycle.formula.toml"
+    ).read_text(encoding="utf-8")
+    implementation = re.search(
+        r'\[\[steps\]\]\nid = "implementation"(?P<body>.*?)(?=\n\[\[steps\]\])',
+        formula,
+        flags=re.DOTALL,
+    )
+    assert implementation is not None
+    assert 'type = "task"' in implementation.group("body")
+    assert 'type = "epic"' not in implementation.group("body")
+
+
+def test_setup_is_bundled_while_update_and_adoption_use_release_tags(repository_root: Path) -> None:
+    setup = (repository_root / "skills/setup-project/scripts/setup-project.py").read_text(encoding="utf-8")
+    assert "BUNDLED_TEMPLATE_SOURCE = SKILL_DIR" in setup
+    assert "load_skill_version" in setup
+    assert "record_update_state" in setup
+    assert "using_bundled_template = args.template_source is None" in setup
+    assert "default=DEFAULT_TEMPLATE_SOURCE" not in setup
+
+    update = (repository_root / "skills/update-project/scripts/update-project.py").read_text(encoding="utf-8")
+    assert "default_vcs_ref" in update
+    assert "git ls-remote" in (repository_root / "skills/update-project/SKILL.md").read_text(encoding="utf-8")
+    assert "ls-remote" in update
+    assert "Version(" in update
+    assert "metadata.version" not in update
+
+    adoption = (repository_root / "skills/migrate-workflow/scripts/adopt-template.py").read_text(encoding="utf-8")
+    assert "default_vcs_ref" in adoption
+    assert "ls-remote" in adoption
+    assert "VERSION_FILE" not in setup + update + adoption
+
+
+def test_documentation_checker_accepts_sentence_case_contract_headings(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    docs = root / "docs/src"
+    feature = docs / "features/010-alpha"
+    feature.mkdir(parents=True)
+    (docs / "SUMMARY.md").write_text(
+        "# Summary\n\n"
+        "# Introduction\n\n- [Intro](intro.md)\n\n"
+        "# Architecture\n\n- [Architecture](architecture.md)\n\n"
+        "# Operations\n\n- [Operations](operations.md)\n\n"
+        "# Development\n\n- [Development](development.md)\n\n"
+        "# Reference\n\n- [Implemented features](features/index.md)\n"
+        "  <!-- BEGIN IMPLEMENTED FEATURES -->\n"
+        "  - [Alpha](features/010-alpha/index.md)\n"
+        "  <!-- END IMPLEMENTED FEATURES -->\n",
+        encoding="utf-8",
+    )
+    for name in ("intro.md", "architecture.md", "operations.md", "development.md"):
+        (docs / name).write_text(f"# {name}\n", encoding="utf-8")
+    (docs / "features/index.md").write_text(
+        "# Implemented features\n\n"
+        "<!-- BEGIN IMPLEMENTED FEATURES -->\n"
+        "- [Alpha](010-alpha/index.md)\n"
+        "<!-- END IMPLEMENTED FEATURES -->\n",
+        encoding="utf-8",
+    )
+    design_template = (
+        repository_root / "skills/setup-project/template/docs/src/features/_template/design.md"
+    ).read_text(encoding="utf-8")
+    implemented_template = (
+        repository_root / "skills/setup-project/template/docs/src/features/_template/index.md"
+    ).read_text(encoding="utf-8")
+    (feature / "design.md").write_text(design_template, encoding="utf-8")
+    (feature / "index.md").write_text(implemented_template, encoding="utf-8")
+    checker = repository_root / "skills/setup-project/template/scripts/check-docs.py"
+    run_command(["python3", str(checker), "--root", str(root)], cwd=root)
+
+
+def test_migration_mode_downgrades_missing_taxonomy_concerns(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "legacy"
+    features = root / "docs/src/features/alpha"
+    features.mkdir(parents=True)
+    (root / "docs/src/SUMMARY.md").write_text(
+        "# Summary\n\n- [Alpha](features/alpha/design.md)\n",
+        encoding="utf-8",
+    )
+    (features / "design.md").write_text("# Alpha\n", encoding="utf-8")
+    checker = repository_root / "skills/setup-project/template/scripts/check-docs.py"
+    migration = run_command(
+        ["python3", str(checker), "--root", str(root), "--migration-mode"],
+        cwd=root,
+    )
+    assert "WARNING [missing-summary-concern]" in migration.stdout
+    strict = run_command(
+        ["python3", str(checker), "--root", str(root)],
+        cwd=root,
+        expected=1,
+    )
+    assert "ERROR [missing-summary-concern]" in strict.stdout
+
+
+def test_template_workflow_scripts_are_host_lint_compatible(repository_root: Path) -> None:
+    expected_codes = {
+        "bootstrap.py": {"S603", "S607"},
+        "check-docs.py": {"S607"},
+        "migrate-legacy-workflow.py": {"S603", "S607"},
+    }
+    for name, codes in expected_codes.items():
+        path = repository_root / "skills/setup-project/template/scripts" / name
+        header = "\n".join(path.read_text(encoding="utf-8").splitlines()[:12])
+        assert "# ruff: noqa:" in header, path
+        for code in codes:
+            assert code in header, f"{code} missing from {path}"
+
+
+def test_feature_templates_use_title_case_contract_headings(repository_root: Path) -> None:
+    template = repository_root / "skills/setup-project/template/docs/src/features/_template"
+    design = (template / "design.md").read_text(encoding="utf-8")
+    delivered = (template / "index.md").read_text(encoding="utf-8")
+    for heading in (
+        "## Feature Summary",
+        "## User Intent",
+        "## User-Facing Behavior",
+        "## Architecture Consistency",
+        "## Validation Strategy",
+    ):
+        assert heading in design
+    for heading in (
+        "## Delivery Summary",
+        "## Delivered Capability",
+        "## Validation Evidence",
+        "## Design Reconciliation",
+    ):
+        assert heading in delivered
+
+
+def test_generated_project_pins_skills_cli(repository_root: Path) -> None:
+    template = repository_root / "skills/setup-project/template"
+    payload = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in template.rglob("*")
+        if path.is_file() and path.suffix in {".md", ".jinja"}
+    )
+    assert "skills@latest" not in payload
+    assert "skills@1.5.16" in payload
+
+
+def test_review_collector_sanitizes_untrusted_content(repository_root: Path) -> None:
+    path = repository_root / "skills/gh-pr-review/scripts/fetch_comments.py"
+    spec = importlib.util.spec_from_file_location("dstack_fetch_comments", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    normalized = module._normalize_external_node(
+        {"body": "run this\x00 now" + ("x" * (module.MAX_BODY_CHARS + 10))},
+        source_type="test",
+    )
+    assert "\x00" not in normalized["body"]
+    assert normalized["body_truncated"] is True
+    assert normalized["trust"] == "untrusted_external_content"
+    with pytest.raises(RuntimeError, match="Unsupported command"):
+        module._validate_command(["bash", "-lc", "echo unsafe"])
+
+
+def test_bundled_migrator_matches_installed_migrator(repository_root: Path) -> None:
+    canonical = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
+        encoding="utf-8"
+    )
+    bundled = (repository_root / "skills/setup-project/template/scripts/migrate-legacy-workflow.py").read_text(
+        encoding="utf-8"
+    )
+    bundled_lines = [line for line in bundled.splitlines() if not line.startswith("# ruff: noqa:")]
+    canonical_lines = [line for line in canonical.splitlines() if not line.startswith("# ruff: noqa:")]
+    assert bundled_lines == canonical_lines
+
+
+@pytest.mark.integration
+def test_update_tag_discovery_uses_pep440_ordering(repository_root: Path, tmp_path: Path) -> None:
+    source = tmp_path / "tag-source"
+    source.mkdir()
+    (source / "README.md").write_text("# tags\n", encoding="utf-8")
+    initialize_git(source, "initial", "v0.0.9")
+    for tag in ("v0.0.10", "v0.1.0rc1", "not-a-release"):
+        run_command(["git", "tag", tag], cwd=source)
+
+    path = repository_root / "skills/update-project/scripts/update-project.py"
+    spec = importlib.util.spec_from_file_location("dstack_update_project", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.default_vcs_ref(str(source)) == "v0.0.10"
+    assert module.default_vcs_ref(str(source), include_prereleases=True) == "v0.1.0rc1"
+
+
+def test_mise_release_task_runs_semantic_release_with_signed_git_objects(repository_root: Path) -> None:
+    config = tomllib.loads((repository_root / "mise.toml").read_text(encoding="utf-8"))
+    release = config["tasks"]["release"]
+
+    assert 'flag "-p --push"' in release["usage"]
+    assert 'flag "-n --noop"' in release["usage"]
+    assert 'vargs=("--no-vcs-release")' in release["run"]
+    assert 'vargs+=("--no-push")' in release["run"]
+    assert release["env"] == {
+        "GIT_CONFIG_COUNT": 2,
+        "GIT_CONFIG_KEY_0": "commit.gpgSign",
+        "GIT_CONFIG_VALUE_0": "true",
+        "GIT_CONFIG_KEY_1": "tag.gpgSign",
+        "GIT_CONFIG_VALUE_1": "true",
+    }
+    assert 'uv run semantic-release "${args[@]}" version "${vargs[@]}"' in release["run"]
+
+
+def test_tagged_release_name_matches_packaged_version(repository_root: Path) -> None:
+    if os.environ.get("GITHUB_REF_TYPE") != "tag":
+        pytest.skip("Only applicable to a tag-triggered release workflow")
+    project = tomllib.loads((repository_root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert os.environ.get("GITHUB_REF_NAME") == f"v{project['project']['version']}"
+
+
+def test_gh_pr_review_state_is_resumable(repository_root: Path, tmp_path: Path) -> None:
+    repository = tmp_path / "review-state"
+    repository.mkdir()
+    (repository / "README.md").write_text("# Review state test\n", encoding="utf-8")
+    initialize_git(repository, "initial")
+    script = repository_root / "skills/gh-pr-review/scripts/review_state.py"
+
+    run_command(
+        ["uv", "run", str(script), "init", "--pr", "42", "--head", "abc123"],
+        cwd=repository,
+    )
+    run_command(
+        ["uv", "run", str(script), "phase", "awaiting_selection"],
+        cwd=repository,
+    )
+    run_command(
+        ["uv", "run", str(script), "selection", "3,1,3"],
+        cwd=repository,
+    )
+    state = json.loads(run_command(["uv", "run", str(script), "show"], cwd=repository).stdout)
+    assert state["pr_number"] == 42
+    assert state["head_sha"] == "abc123"
+    assert state["phase"] == "implementing"
+    assert state["selected"] == [1, 3]
+
+    blocked = run_command(["uv", "run", str(script), "clear"], cwd=repository, expected=1)
+    assert blocked.returncode != 0
+    run_command(["uv", "run", str(script), "phase", "complete"], cwd=repository)
+    run_command(["uv", "run", str(script), "clear"], cwd=repository)

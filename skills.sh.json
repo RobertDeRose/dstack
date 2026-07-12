@@ -1,0 +1,19 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "groupings": [
+    {
+      "title": "dstack",
+      "description": "The dstack workflow",
+      "skills": [
+        "dstack-core",
+        "setup-project",
+        "plan-features",
+        "start-feature",
+        "implement-feature",
+        "close-feature",
+        "audit-project",
+        "update-project"
+      ]
+    },
+  ]
+}

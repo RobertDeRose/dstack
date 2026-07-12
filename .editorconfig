@@ -1,0 +1,22 @@
+# top-most EditorConfig file
+root = true
+
+# Unix-style newlines with a newline ending every file
+[*]
+end_of_line = lf
+insert_final_newline = true
+charset = utf-8
+
+[[bash]]
+indent_size 	   = 2
+indent_style 	   = space
+shell_variant      = bash
+simplify           = true
+binary_next_line   = false
+# --case-indent
+switch_case_indent = true
+space_redirects    = true
+keep_padding       = false
+# --func-next-line
+function_next_line = false
+minify             = false

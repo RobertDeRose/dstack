@@ -1,0 +1,52 @@
+_min_copier_version: "9.16.0"
+_subdirectory: template
+_answers_file: .copier-answers.yml
+_templates_suffix: .jinja
+_preserve_symlinks: false
+_cleanup_on_error: true
+_envops:
+  variable_start_string: "[["
+  variable_end_string: "]]"
+  block_start_string: "[%"
+  block_end_string: "%]"
+  comment_start_string: "[#"
+  comment_end_string: "#]"
+  keep_trailing_newline: true
+_exclude:
+  - "**/__pycache__"
+  - "**/*.py[co]"
+  - ".DS_Store"
+_message_after_copy: |
+  dstack project scaffold created.
+  Commit the generated files before running `copier update`.
+  Run `uv run scripts/bootstrap.py` to initialize Beads and validate the workflow.
+_message_after_update: |
+  dstack template changes applied.
+  Review the diff and any conflicts, then run `uv run scripts/check-docs.py`.
+project_name:
+  type: str
+  help: Human-readable project name.
+  default: Project
+project_slug:
+  type: str
+  help: Stable lowercase project slug.
+  default: "[[ project_name | lower | replace(' ', '-') | replace('_', '-') ]]"
+project_description:
+  type: str
+  help: One-sentence project description used by starter documentation.
+  default: A documentation-first software project managed with Beads.
+repository_default_branch:
+  type: str
+  help: Default Git branch used by feature worktrees.
+  default: main
+project_mode:
+  type: str
+  choices:
+    New project: new
+    Existing project adoption: existing
+  default: new
+  when: false
+include_readme:
+  type: bool
+  default: true
+  when: false

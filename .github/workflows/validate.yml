@@ -1,0 +1,45 @@
+name: validate
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  static:
+    name: Static validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - run: uv run --frozen --group test pytest -m "not integration and not external" --durations=10
+  integration:
+    name: Integration / ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: copier
+            path: tests/test_repository.py
+          - suite: migration
+            path: tests/test_migrate_legacy_workflow.py
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # astral-sh/setup-uv@v8.3.2
+        with:
+          cache-suffix: ${{ matrix.suite }}
+          python-version: "3.13"
+      - run: uv run --frozen --group test pytest "${{ matrix.path }}" -m integration --durations=10

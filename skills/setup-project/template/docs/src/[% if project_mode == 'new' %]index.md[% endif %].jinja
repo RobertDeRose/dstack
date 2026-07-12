@@ -1,0 +1,17 @@
+# [[ project_name ]] documentation
+
+[[ project_description ]]
+
+This book is the durable source for understanding the project as designed, used, operated, changed, and delivered.
+
+The initial structure is intentionally small. Add project-specific pages only when the design or delivered behavior creates a durable reader need:
+
+- **Introduction** explains what the project is, who it serves, its current scope, and how the documentation is maintained.
+- **Architecture** explains system structure, boundaries, invariants, and durable decisions.
+- **Operator's Manual** explains how to use, deploy, configure, observe, operate, and recover the project where those concerns apply.
+- **Development Guide** explains how contributors build, test, extend, migrate, and maintain the project.
+- **Reference** provides exact lookup material such as commands, configuration, interfaces, schemas, fields, defaults, and acceptance contracts.
+- **Planned Features** is the human roadmap; Beads owns live work state and dependencies.
+- **Implemented Features** preserves one delivery and audit record per completed feature.
+
+A library or local tool may adapt the Operator's Manual into a usage guide. A service may expand it into deployment, health, maintenance, and recovery pages. The project design determines the concrete pages; the template supplies only the documentation concerns.

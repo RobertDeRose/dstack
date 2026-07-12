@@ -1,0 +1,40 @@
+<!-- dstack:generated-readme -->
+# [[ project_name ]]
+
+[[ project_description ]]
+
+This repository uses the dstack documentation-first, Beads-backed development workflow.
+
+## Getting started
+
+Install the workflow skills:
+
+```bash
+npx --yes skills@1.5.16 add RobertDeRose/dstack
+```
+
+Initialize or verify the repository workflow:
+
+```bash
+uv run scripts/bootstrap.py
+bd prime
+```
+
+Use the installed lifecycle skills:
+
+```text
+/plan-features
+/start-feature
+/implement-feature
+/close-feature
+/audit-project
+```
+
+Validate or serve the documentation:
+
+```bash
+uv run scripts/check-docs.py
+mdbook serve docs --open
+```
+
+The project was generated from `RobertDeRose/dstack` with Copier. Commit the scaffold before applying future template updates with `/update-project` or `copier update --defaults`.
