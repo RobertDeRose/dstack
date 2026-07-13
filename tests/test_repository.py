@@ -246,6 +246,9 @@ def write_fake_mise(bin_dir: Path) -> Path:
         "from pathlib import Path\n"
         "args = sys.argv[1:]\n"
         "stage = 'hooks' if args and args[0] == 'x' else (args[0] if args else '')\n"
+        "if log := os.environ.get('DSTACK_MISE_LOG'):\n"
+        "    with Path(log).open('a') as stream:\n"
+        "        stream.write(stage + '\\n')\n"
         "if os.environ.get('DSTACK_MISE_FAIL') == stage:\n"
         "    print(f'{stage} failed', file=sys.stderr)\n"
         "    raise SystemExit(1)\n"
@@ -482,10 +485,11 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "--preflight --json" in update
     assert "path-accounting ledger" in update
     assert "every changed path" in update.casefold()
-    assert (
-        "readiness to resume feature work, which must be false while migration is required or a changed path is "
-        "unclassified" in " ".join(update.split())
-    )
+    normalized_update = " ".join(update.split())
+    assert "readiness to resume feature work, which must be false while migration is required" in normalized_update
+    assert "conflicts or degraded tooling remain" in normalized_update
+    assert "the lock is stale or missing" in normalized_update
+    assert "a changed path is unclassified" in normalized_update
 
     for name in ("audit-project", "close-feature", "implement-feature", "gh-pr-review"):
         description = str(load_skill_manifest(repository_root / "skills" / name / "SKILL.md")["description"])
@@ -569,6 +573,16 @@ def load_setup_module(repository_root: Path) -> Any:
 def load_tooling_module(repository_root: Path) -> Any:
     path = repository_root / "skills/setup-project/template/scripts/setup-tooling.py"
     spec = importlib.util.spec_from_file_location("dstack_setup_tooling", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_update_module(repository_root: Path) -> Any:
+    path = repository_root / "skills/update-project/scripts/update-project.py"
+    spec = importlib.util.spec_from_file_location("dstack_update_project", path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -1280,7 +1294,8 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
         project_overview.read_text(encoding="utf-8") + "\nProject-owned update.\n",
         encoding="utf-8",
     )
-    commit_repository(project, "Project-specific documentation")
+    (project / "mise.lock").write_text("stale\n", encoding="utf-8")
+    commit_repository(project, "Project-specific documentation and stale lock")
 
     (tagged_template_source / "skills/setup-project/template/.dstack-release.jinja").write_text(
         "v0.0.2\n", encoding="utf-8"
@@ -1288,7 +1303,9 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
     commit_repository(tagged_template_source, "dstack v0.0.2", "v0.0.2")
 
     update = tagged_template_source / "skills/update-project/scripts/update-project.py"
-    run_command(
+    fake_bin = tmp_path / "bin"
+    write_fake_mise(fake_bin)
+    result = run_command(
         [
             "uv",
             "run",
@@ -1301,8 +1318,14 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
             "--json",
         ],
         cwd=tagged_template_source,
+        env=merged_environment(PATH=f"{fake_bin}:{os.environ['PATH']}"),
     )
 
+    payload = json.loads(result.stdout)
+    assert payload["tooling"]["status"] == "succeeded"
+    assert payload["conflicts"] == []
+    assert payload["ready_to_resume_feature_work"] is False
+    assert (project / "mise.lock").read_text(encoding="utf-8") != "stale\n"
     assert (project / ".dstack-release").read_text(encoding="utf-8") == "v0.0.2\n"
     assert "Project-owned update." in project_overview.read_text(encoding="utf-8")
 
@@ -1335,6 +1358,7 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
     fake_bin = tmp_path / "bin"
     bd_log = tmp_path / "bd.log"
     write_fake_bd(fake_bin, bd_log)
+    write_fake_mise(fake_bin)
     environment = merged_environment(
         PATH=f"{fake_bin}:{os.environ['PATH']}",
         DSTACK_BD_LOG=str(bd_log),
@@ -1362,6 +1386,224 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
     assert "ready --json --limit 1" in commands
     assert "formula show feature-lifecycle --json" in commands
     assert all(not command.startswith("doctor") for command in commands)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        ("lock", ("failed", "skipped", "skipped")),
+        ("install", ("succeeded", "failed", "skipped")),
+        ("hooks", ("succeeded", "succeeded", "failed")),
+    ],
+)
+def test_update_project_preserves_update_and_reports_degraded_tooling(
+    tagged_template_source: Path,
+    tmp_path: Path,
+    failure: str,
+    expected: tuple[str, str, str],
+) -> None:
+    project = tmp_path / failure
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+    (tagged_template_source / "skills/setup-project/template/.dstack-release.jinja").write_text(
+        "v0.0.2\n", encoding="utf-8"
+    )
+    commit_repository(tagged_template_source, "dstack v0.0.2", "v0.0.2")
+    fake_bin = tmp_path / f"bin-{failure}"
+    write_fake_mise(fake_bin)
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(project),
+            "--vcs-ref",
+            "v0.0.2",
+            "--skip-beads-check",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        env=merged_environment(
+            PATH=f"{fake_bin}:{os.environ['PATH']}",
+            DSTACK_MISE_FAIL=failure,
+        ),
+    )
+    payload = json.loads(result.stdout)
+
+    assert (
+        payload["tooling"]["lock"]["status"],
+        payload["tooling"]["install"]["status"],
+        payload["tooling"]["hooks"]["status"],
+    ) == expected
+    assert payload["tooling"]["status"] == "degraded"
+    assert payload["ready_to_resume_feature_work"] is False
+    assert payload["outstanding"]
+    assert (project / ".dstack-release").read_text(encoding="utf-8") == "v0.0.2\n"
+    assert (project / ".copier-answers.yml").is_file()
+
+
+@pytest.mark.integration
+def test_update_project_skips_generated_code_when_copier_conflicts(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "conflict"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+    readme = project / "README.md"
+    readme.write_text(readme.read_text(encoding="utf-8").replace("mise run check", "mise run project-check"))
+    commit_repository(project, "Customize check command")
+
+    template_readme = tagged_template_source / (
+        "skills/setup-project/template/[% if include_readme %]README.md[% endif %].jinja"
+    )
+    template_readme.write_text(
+        template_readme.read_text(encoding="utf-8").replace("mise run check", "mise run upstream-check"),
+        encoding="utf-8",
+    )
+    commit_repository(tagged_template_source, "dstack v0.0.2", "v0.0.2")
+    fake_bin = tmp_path / "bin-conflict"
+    log = tmp_path / "mise.log"
+    write_fake_mise(fake_bin)
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(project),
+            "--vcs-ref",
+            "v0.0.2",
+            "--skip-beads-check",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        env=merged_environment(
+            PATH=f"{fake_bin}:{os.environ['PATH']}",
+            DSTACK_MISE_LOG=str(log),
+        ),
+        expected=2,
+    )
+    payload = json.loads(result.stdout)
+
+    assert "README.md" in payload["conflicts"]
+    assert payload["tooling"]["status"] == "skipped"
+    assert payload["tooling"]["recovery"] == ["python3 scripts/setup-tooling.py --json"]
+    assert payload["ready_to_resume_feature_work"] is False
+    assert not log.exists()
+
+
+@pytest.mark.parametrize("malformation", ["missing-error", "successful-error"])
+def test_update_project_rejects_malformed_stage_errors(
+    repository_root: Path,
+    tmp_path: Path,
+    malformation: str,
+) -> None:
+    module = load_update_module(repository_root)
+    (tmp_path / "mise.lock").write_text("resolved\n", encoding="utf-8")
+    result: dict[str, Any] = {
+        "status": "succeeded",
+        "mise": "available",
+        "lock": {"status": "succeeded", "path": "mise.lock", "error": None},
+        "install": {"status": "succeeded", "error": None},
+        "hooks": {"status": "succeeded", "error": None},
+        "platforms": module.TOOLING_PLATFORMS,
+        "recovery": [],
+    }
+    if malformation == "missing-error":
+        result["install"].pop("error")
+    else:
+        result["hooks"]["error"] = "unexpected"
+
+    assert module.tooling_result_error(result, tmp_path) is not None
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("payload", "creates_empty_lock"),
+    [
+        ({"status": "succeeded", "recovery": []}, False),
+        (
+            {
+                "status": "succeeded",
+                "mise": "available",
+                "lock": {"status": "succeeded", "path": "mise.lock", "error": None},
+                "install": {"status": "succeeded", "error": None},
+                "hooks": {"status": "succeeded", "error": None},
+                "platforms": ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"],
+                "recovery": [],
+            },
+            True,
+        ),
+    ],
+)
+def test_update_project_rejects_invalid_or_unverified_tooling_success(
+    tagged_template_source: Path,
+    tmp_path: Path,
+    payload: dict[str, Any],
+    creates_empty_lock: bool,
+) -> None:
+    project = tmp_path / "invalid-tooling"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+
+    provisioner = tagged_template_source / "skills/setup-project/template/scripts/setup-tooling.py"
+    provisioner.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "from pathlib import Path\n"
+        + ("Path('mise.lock').write_text('')\n" if creates_empty_lock else "")
+        + f"print(json.dumps({payload!r}))\n",
+        encoding="utf-8",
+    )
+    commit_repository(tagged_template_source, "dstack v0.0.2", "v0.0.2")
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(project),
+            "--vcs-ref",
+            "v0.0.2",
+            "--skip-beads-check",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+    update = json.loads(result.stdout)
+
+    assert update["tooling"]["status"] == "degraded"
+    assert update["tooling"]["lock"]["status"] == "failed"
+    assert update["ready_to_resume_feature_work"] is False
+    assert update["outstanding"] == ["Tooling recovery: python3 scripts/setup-tooling.py --json"]
+
+
+@pytest.mark.integration
+def test_update_project_refuses_a_non_git_destination(repository_root: Path, tmp_path: Path) -> None:
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(tmp_path),
+            "--preflight",
+            "--json",
+        ],
+        cwd=tmp_path,
+        expected=1,
+    )
+    assert "Copier updates require a Git repository" in result.stderr
+    assert not (tmp_path / ".copier-answers.yml").exists()
 
 
 @pytest.mark.integration

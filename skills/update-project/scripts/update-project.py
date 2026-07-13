@@ -434,6 +434,105 @@ def check_beads(root: Path) -> dict[str, Any]:
     }
 
 
+TOOLING_RERUN = "python3 scripts/setup-tooling.py --json"
+TOOLING_PLATFORMS = ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"]
+
+
+def skipped_tooling(*, recovery: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "status": "skipped",
+        "mise": "skipped",
+        "lock": {"status": "skipped", "path": "mise.lock", "error": None},
+        "install": {"status": "skipped", "error": None},
+        "hooks": {"status": "skipped", "error": None},
+        "platforms": TOOLING_PLATFORMS,
+        "recovery": recovery or [],
+    }
+
+
+def failed_tooling(error: str) -> dict[str, Any]:
+    return {
+        "status": "degraded",
+        "mise": "skipped",
+        "lock": {"status": "failed", "path": "mise.lock", "error": error},
+        "install": {"status": "skipped", "error": None},
+        "hooks": {"status": "skipped", "error": None},
+        "platforms": TOOLING_PLATFORMS,
+        "recovery": [TOOLING_RERUN],
+    }
+
+
+def tooling_result_error(result: dict[str, Any], destination: Path) -> str | None:
+    if result.get("status") not in {"succeeded", "degraded", "skipped"}:
+        return "tooling result has an invalid overall status"
+    if result.get("mise") not in {"available", "unavailable", "skipped"}:
+        return "tooling result has an invalid mise status"
+    if result.get("platforms") != TOOLING_PLATFORMS:
+        return "tooling result has an invalid platform contract"
+    recovery = result.get("recovery")
+    if not isinstance(recovery, list) or not all(isinstance(command, str) and command for command in recovery):
+        return "tooling result has invalid recovery commands"
+
+    allowed = {
+        "lock": {"succeeded", "failed", "skipped"},
+        "install": {"succeeded", "failed", "skipped"},
+        "hooks": {"succeeded", "failed", "skipped", "skipped-no-git"},
+    }
+    for name, statuses in allowed.items():
+        stage = result.get(name)
+        if not isinstance(stage, dict) or stage.get("status") not in statuses:
+            return f"tooling result has an invalid {name} stage"
+        if "error" not in stage:
+            return f"tooling result is missing the {name} error field"
+        error = stage["error"]
+        if error is not None and not isinstance(error, str):
+            return f"tooling result has an invalid {name} error"
+        if stage["status"] == "failed" and not error:
+            return f"tooling result is missing the {name} failure error"
+        if stage["status"] != "failed" and error is not None:
+            return f"tooling result has an unexpected {name} error"
+    if result["lock"].get("path") != "mise.lock":
+        return "tooling result has an invalid lock path"
+
+    lock = destination / "mise.lock"
+    if result["lock"]["status"] == "succeeded" and (not lock.is_file() or lock.stat().st_size == 0):
+        return "tooling reported a successful lock without a nonempty mise.lock"
+    if result["status"] == "succeeded":
+        if result["mise"] != "available" or any(result[name]["status"] != "succeeded" for name in allowed):
+            return "tooling result has inconsistent successful stages"
+        if recovery:
+            return "successful tooling result unexpectedly contains recovery commands"
+    return None
+
+
+def provision_tooling(destination: Path) -> dict[str, Any]:
+    script = destination / "scripts/setup-tooling.py"
+    if not script.is_file():
+        return failed_tooling("scripts/setup-tooling.py is not present after the template update")
+
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(script), "--json"],
+            cwd=destination,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        completed = subprocess.CompletedProcess([sys.executable, str(script), "--json"], 127, "", str(exc))
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        result = None
+    if completed.returncode == 0 and isinstance(result, dict):
+        error = tooling_result_error(result, destination)
+        if error is None:
+            return result
+    else:
+        error = (completed.stderr or completed.stdout or "tooling provisioner returned invalid output").strip()[-2_000:]
+    return failed_tooling(error)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--destination", "-d", type=Path, default=Path.cwd())
@@ -531,15 +630,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     docs_validated = False
     beads_health: dict[str, Any] | None = None
     warnings: list[str] = []
+    tooling = skipped_tooling()
     if not args.pretend:
         conflicts = scan_conflicts(destination, baseline_rejects=baseline_rejects)
         if conflicts:
+            tooling = skipped_tooling(recovery=[TOOLING_RERUN])
             print("Copier produced unresolved conflicts:", file=sys.stderr)
             for path in conflicts:
                 print(f"  - {path}", file=sys.stderr)
-            return 2
+        else:
+            tooling = provision_tooling(destination)
+            if tooling["status"] != "succeeded":
+                warnings.append("Tooling reconciliation is incomplete; run the reported recovery commands")
 
-        if not args.skip_docs_check:
+        if not conflicts and not args.skip_docs_check:
             checker = destination / "scripts/check-docs.py"
             if checker.exists():
                 run(
@@ -551,7 +655,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 warnings.append("scripts/check-docs.py is not present; documentation validation skipped")
 
-        if not args.skip_beads_check:
+        if not conflicts and not args.skip_beads_check:
             if not bd_available(destination):
                 warnings.append("bd is unavailable or its launcher cannot execute; Beads health checks skipped")
             else:
@@ -583,6 +687,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "beads_checked": beads_health is not None,
         "beads_health": beads_health,
         "warnings": warnings,
+        "tooling": tooling,
+        "outstanding": [f"Tooling recovery: {command}" for command in tooling["recovery"]],
+        "ready_to_resume_feature_work": bool(
+            not args.pretend and not conflicts and tooling["status"] == "succeeded" and not changed
+        ),
         "preflight": preflight,
     }
 
@@ -599,10 +708,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Beads health checks passed:")
             for command in beads_health["commands"]:
                 print(f"  - {command}")
+        print(f"Tooling reconciliation: {tooling['status']}")
+        for command in tooling["recovery"]:
+            print(f"Tooling recovery: {command}")
         for warning in warnings:
             print(f"Warning: {warning}")
         print("Review the diff and commit the template update as a dedicated change.")
-    return 0
+    return 2 if conflicts else 0
 
 
 if __name__ == "__main__":

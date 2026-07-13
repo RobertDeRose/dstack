@@ -101,10 +101,14 @@ The helper:
 8. checks only Git-visible modified and untracked files for coherent conflict markers, Git unmerged paths, and newly
    produced `.rej` files;
 9. ignores dependency environments and other Git-ignored content such as `.venv`;
-10. runs `scripts/check-docs.py` when present;
-11. runs storage-mode-neutral Beads smoke checks with `bd info --json` and `bd ready --json --limit 1`;
-12. validates the project feature formula when present;
-13. reports the selected release, resolved Copier commit, changed files, validation, warnings, and conflicts.
+10. when conflict-free, runs `python3 scripts/setup-tooling.py --json` to refresh `mise.lock`, install with `--locked`,
+    and reconcile hooks before documentation or Beads checks;
+11. when conflicted, skips all generated project code, reports tooling as skipped, and names the recovery command;
+12. runs `scripts/check-docs.py` when present;
+13. runs storage-mode-neutral Beads smoke checks with `bd info --json` and `bd ready --json --limit 1`;
+14. validates the project feature formula when present;
+15. reports the selected release, resolved Copier commit, changed files, tooling stages, validation, warnings,
+    conflicts, and readiness.
 
 `bd doctor` is not used because it is not supported by every Beads storage mode.
 
@@ -128,7 +132,8 @@ is ambiguous; absence of a textual conflict is not acceptance. Reconciliation is
 missing from the ledger or classified only as `unknown`.
 
 After every path is accounted for, rerun project-specific validation against the final files and commit the template
-update as a dedicated boundary before resuming feature work.
+update as a dedicated boundary before resuming feature work. A degraded tooling result is unresolved: run each reported
+recovery command and verify a current nonempty `mise.lock` before classifying the update ready.
 
 ## Return
 
@@ -140,6 +145,8 @@ Report:
 4. discovered or explicitly requested release tag and resolved revision;
 5. changed files and the complete path-accounting ledger;
 6. real update conflicts and resolutions;
-7. documentation and Beads validation;
-8. warnings and any unclassified path;
-9. readiness to resume feature work, which must be false while migration is required or a changed path is unclassified.
+7. separate tooling availability, lock, install, and hook states plus exact recovery commands;
+8. documentation and Beads validation;
+9. warnings and any unclassified path;
+10. readiness to resume feature work, which must be false while migration is required, conflicts or degraded tooling
+    remain, the lock is stale or missing, or a changed path is unclassified.
