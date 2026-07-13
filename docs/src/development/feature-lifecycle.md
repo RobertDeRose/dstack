@@ -1,0 +1,97 @@
+# Feature lifecycle
+
+## Responsibilities
+
+```text
+Beads                                            executable state and dependencies
+docs/src/features/<num>-<slug>/design.md         intended feature behavior and design
+reader-facing docs under docs/src/               current supported behavior
+code and tests                                   implementation evidence
+docs/src/features/<num>-<slug>/index.md          delivered reconciliation and audit record
+```
+
+Workflow commands are installed from `RobertDeRose/dstack` with the `skills` CLI. The CLI manages the agent-specific
+installation paths and updates; Copier manages this repository scaffold.
+
+## Start a session
+
+```bash
+bd prime
+bd ready --type epic --label workflow:feature --json --limit 0
+bd ready --json
+```
+
+## Plan
+
+`/plan-features` asks design-changing questions, defines the documentation architecture, creates numbered feature
+designs, pours one Beads epic/molecule per feature, and decomposes lifecycle and implementation into bounded child
+tasks. It recommends the next feature by canonical number/slug and human name rather than by an opaque Beads hash.
+
+A new feature uses:
+
+```text
+docs/src/features/010-feature-slug/design.md
+feat/010-feature-slug
+```
+
+## Review and start
+
+`/start-feature <num>-<slug>` resolves the human feature reference through Beads, activates the worktree, and runs four
+isolated reviews. `F<num>`, an exact feature name, or a unique name fragment also resolves; the Beads ID remains
+internal mutation/audit evidence.
+
+The feature root is an epic. Lifecycle tasks are direct children, and bounded implementation tasks sit beneath the
+implementation coordinator task. A milestone is not used as the feature container.
+
+The reviews are:
+
+1. architecture consistency;
+2. simplicity and maintainability;
+3. documentation readiness;
+4. execution-graph readiness.
+
+It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes
+`spec-reconcile` only when implementation can proceed without inventing intent.
+
+## Implement
+
+Claim the next ready task beneath the implementation coordinator:
+
+```bash
+bd ready --parent <implementation-id> --claim --json
+bd show <task-id> --json
+```
+
+Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation
+aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and
+close the task only after its acceptance criteria pass.
+
+Discovered work should retain provenance:
+
+```bash
+bd create "Describe discovered work" \
+  --type task \
+  --deps discovered-from:<current-task-id> \
+  --json
+```
+
+Add a blocking edge only when the discovery is required for safe completion.
+
+## Close
+
+`/close-feature` compares delivered code with the design and reader-facing docs, creates a standalone
+implemented-feature record, runs validation and two holistic reviews, reconciles intentional drift, and then performs an
+explicit `pr`, `merge`, or `ready` action. With no mode, it asks which action to take.
+
+## Audit
+
+`/audit-project` periodically compares Beads, designs, current docs, implemented-feature records, code, tests, and
+recent commits. Drift becomes linked Beads work rather than an untracked note.
+
+## Skill maintenance
+
+After editing a canonical skill:
+
+```bash
+npx skills update
+```

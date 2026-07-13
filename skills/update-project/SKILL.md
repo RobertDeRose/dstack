@@ -119,9 +119,9 @@ Build a path-accounting ledger from the helper's changed-file output plus `git s
 
 For each path, record the upstream change, local behavior that must remain, resolution, and validation evidence:
 
-| Path | Classification | Upstream/local intent | Resolution | Validation |
-|---|---|---|---|---|
-| `…` | template change accepted | … | … | … |
+| Path | Classification           | Upstream/local intent | Resolution | Validation |
+|------|--------------------------|-----------------------|------------|------------|
+| `…`  | template change accepted | …                     | …          | …          |
 
 Preserve project-owned architecture, operations, development, reference, roadmap, and feature history. Stop when a path
 is ambiguous; absence of a textual conflict is not acceptance. Reconciliation is incomplete while any changed path is

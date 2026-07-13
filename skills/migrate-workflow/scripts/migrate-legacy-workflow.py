@@ -672,9 +672,7 @@ def add_global_dependency_findings(features: list[dict[str, Any]]) -> list[list[
     blocking_cycles = dependency_cycles(features)
     traversal_cycles = beads_traversal_cycles(features)
     blocking_keys = {canonical_cycle(cycle) for cycle in blocking_cycles}
-    findings = [
-        (cycle, "Feature dependency cycle: " + " -> ".join(cycle)) for cycle in blocking_cycles
-    ]
+    findings = [(cycle, "Feature dependency cycle: " + " -> ".join(cycle)) for cycle in blocking_cycles]
     findings.extend(
         (
             cycle,
@@ -1691,11 +1689,7 @@ def bd_dep(root: Path, issue_id: str, depends_on: str, dep_type: str = "blocks")
 def bd_dependency_types(root: Path, issue_id: str) -> dict[str, str]:
     output = run_command(["bd", "dep", "list", issue_id, "--json"], cwd=root)
     dependencies = parse_bd_issue_list(output, command="bd dep list --json")
-    return {
-        str(item["id"]): str(item.get("dependency_type") or "blocks")
-        for item in dependencies
-        if item.get("id")
-    }
+    return {str(item["id"]): str(item.get("dependency_type") or "blocks") for item in dependencies if item.get("id")}
 
 
 def bd_remove_dep(root: Path, issue_id: str, depends_on: str) -> None:
@@ -2297,9 +2291,7 @@ def set_dependency_relation(
     )
     for item in candidate_manifest.get("features", []):
         item["conflicts"] = [
-            conflict
-            for conflict in item.get("conflicts", [])
-            if not str(conflict).startswith(CYCLE_CONFLICT_PREFIXES)
+            conflict for conflict in item.get("conflicts", []) if not str(conflict).startswith(CYCLE_CONFLICT_PREFIXES)
         ]
     add_global_dependency_findings(candidate_manifest["features"])
 
@@ -2635,8 +2627,7 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
         else:
             for cycle in graph_cycles(graph):
                 errors.append(
-                    "Imported Beads graph contains a traversal cycle: "
-                    + render_typed_cycle(cycle, relationships)
+                    "Imported Beads graph contains a traversal cycle: " + render_typed_cycle(cycle, relationships)
                 )
 
     for path in sorted((root / "docs/src").rglob("*.md")) if (root / "docs/src").exists() else []:

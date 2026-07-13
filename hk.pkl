@@ -7,6 +7,10 @@ local linters = new Mapping<String, Step> {
   ["byte_order_marker"] = Builtins.byte_order_marker
   ["contextlint"] = Builtins.contextlint
   ["detect_private_key"] = Builtins.detect_private_key
+  ["docs"] = new Step {
+    glob = List("docs/src/**/*.md", "docs/book.toml", "scripts/check-docs.py")
+    check = "uv run scripts/check-docs.py && mdbook build docs"
+  }
   ["fix_smart_quotes"] = Builtins.fix_smart_quotes
   ["hk_test"] = Builtins.hk_test
   ["mise"] = Builtins.mise

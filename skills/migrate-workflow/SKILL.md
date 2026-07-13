@@ -139,10 +139,10 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
 ```
 
-The importer must reuse deterministic migration identities, stop on true duplicates, validate both the blocking DAG
-and the complete feature-root traversal graph, and refuse to treat `related` as a cycle-breaking relation. See **Beads
-import and recovery** for partial imports, duplicate records, or post-import dependency correction. Commit manifest and
-roadmap changes from the import.
+The importer must reuse deterministic migration identities, stop on true duplicates, validate both the blocking DAG and
+the complete feature-root traversal graph, and refuse to treat `related` as a cycle-breaking relation. See
+**Beads import and recovery** for partial imports, duplicate records, or post-import dependency correction. Commit
+manifest and roadmap changes from the import.
 
 ## Gate 6: Reconcile and finalize
 
@@ -181,8 +181,8 @@ every check affected by a fix. Treat a repository with no tests as an explicit l
 Migration is complete only when every feature has one stable number and Beads root; parser coverage, the blocking DAG,
 and the complete Beads traversal graph are clean; repeated import is idempotent; live work comes from Beads; designs and
 delivered records preserve intent; roadmap, code, tests, docs, Beads, and delivery history agree; legacy tasks are
-archived or deliberately
-removed; all available validation passes; each boundary is committed; and the final worktree is clean.
+archived or deliberately removed; all available validation passes; each boundary is committed; and the final worktree is
+clean.
 
 ## Return
 

@@ -97,7 +97,7 @@ pyproject.toml                     # package version, pytest, Ruff, and uv confi
 uv.lock                            # reproducible test dependency lock
 mise.toml                          # tools and release publication task
 copier.yml                         # Git-repository Copier entry point
-scripts/release.py                 # synchronized version, commit, tag, and push helper
+docs/                              # mdBook usage, architecture, development, and reference documentation
 skills/
   dstack-core/
     SKILL.md
@@ -139,18 +139,24 @@ the space-separated `allowed-tools` field.
 dstack releases use stable `vX.Y.Z` Git tags. `/update-project` discovers the latest eligible published tag and refuses
 to fall back to an untagged `HEAD`.
 
-Prepare a release with the mise task. It updates `[project].version`, `uv.lock`, and every skill's `metadata.version`;
-creates a `chore(release): <version>` commit; and creates an annotated `v<version>` tag:
+Prepare a release with the mise task. Python Semantic Release updates `[project].version`, `uv.lock`, and every skill's
+`metadata.version`, then creates a signed release commit and signed annotated `v<version>` tag. It does not push unless
+requested:
 
 ```bash
-mise run publish <version>
+mise run release
+mise run release --push
 ```
 
-After preparation, mise prompts before pushing the release commit and tag. The prompt defaults to no. Bypass the prompt
-and push automatically with the opt-in switch:
+A configured Git signing key is required. Use `mise run release --noop` to inspect the next release without committing
+or tagging.
+
+The full documentation and command reference lives in the [dstack book](docs/src/index.md). Validate the repository and
+documentation with:
 
 ```bash
-mise run publish <version> --push
+mise run check
+mise run docs:check
 ```
 
 Use the fast static suite while editing:

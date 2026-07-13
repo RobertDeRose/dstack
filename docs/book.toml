@@ -1,0 +1,14 @@
+[book]
+title = "dstack"
+description = "Documentation-first, Beads-backed workflows for agent-assisted software projects."
+authors = ["Robert DeRose"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/RobertDeRose/dstack"
+edit-url-template = "https://github.com/RobertDeRose/dstack/edit/main/docs/{path}"

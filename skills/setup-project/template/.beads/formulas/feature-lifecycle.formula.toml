@@ -48,7 +48,11 @@ id = "review-architecture"
 title = "F{{feature_number}} — Review architecture: {{feature_name}}"
 type = "task"
 priority = 1
-labels = ["workflow:feature-lifecycle", "phase:spec-review", "review:architecture"]
+labels = [
+  "workflow:feature-lifecycle",
+  "phase:spec-review",
+  "review:architecture"
+]
 needs = ["design"]
 metadata = { feature_number = "{{feature_number}}", feature_slug = "{{feature_slug}}", feature_name = "{{feature_name}}", workflow_phase = "spec-review", review_kind = "architecture", design_path = "{{design_path}}" }
 description = """
@@ -60,7 +64,11 @@ id = "review-simplicity"
 title = "F{{feature_number}} — Review simplicity: {{feature_name}}"
 type = "task"
 priority = 1
-labels = ["workflow:feature-lifecycle", "phase:spec-review", "review:simplicity"]
+labels = [
+  "workflow:feature-lifecycle",
+  "phase:spec-review",
+  "review:simplicity"
+]
 needs = ["design"]
 metadata = { feature_number = "{{feature_number}}", feature_slug = "{{feature_slug}}", feature_name = "{{feature_name}}", workflow_phase = "spec-review", review_kind = "simplicity", design_path = "{{design_path}}" }
 description = """
@@ -72,7 +80,11 @@ id = "review-documentation"
 title = "F{{feature_number}} — Review documentation: {{feature_name}}"
 type = "task"
 priority = 1
-labels = ["workflow:feature-lifecycle", "phase:spec-review", "review:documentation"]
+labels = [
+  "workflow:feature-lifecycle",
+  "phase:spec-review",
+  "review:documentation"
+]
 needs = ["design"]
 metadata = { feature_number = "{{feature_number}}", feature_slug = "{{feature_slug}}", feature_name = "{{feature_name}}", workflow_phase = "spec-review", review_kind = "documentation", design_path = "{{design_path}}" }
 description = """
@@ -125,7 +137,11 @@ id = "docs-reconcile"
 title = "F{{feature_number}} — Reconcile documentation: {{feature_name}}"
 type = "task"
 priority = 1
-labels = ["workflow:feature-lifecycle", "phase:closeout", "closeout:documentation"]
+labels = [
+  "workflow:feature-lifecycle",
+  "phase:closeout",
+  "closeout:documentation"
+]
 needs = ["implementation"]
 metadata = { feature_number = "{{feature_number}}", feature_slug = "{{feature_slug}}", feature_name = "{{feature_name}}", workflow_phase = "closeout", closeout_kind = "documentation", design_path = "{{design_path}}", implemented_path = "{{implemented_path}}" }
 description = """

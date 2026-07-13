@@ -244,7 +244,7 @@ def next_feature(root: Path) -> dict[str, Any]:
                 ]
             )
         )
-    return min(eligible, key=feature_sort_key)
+    return dict(min(eligible, key=feature_sort_key))
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

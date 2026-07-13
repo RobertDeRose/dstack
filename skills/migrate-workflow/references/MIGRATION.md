@@ -61,8 +61,9 @@ Default adoption:
 uv run <skill-dir>/scripts/adopt-template.py --json
 ```
 
-The installed skill defaults to `gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies it before
-Copier runs. If tags cannot be discovered, supply an explicitly reviewed revision; never silently use GitHub `HEAD`.
+The installed skill defaults to `gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies it
+before Copier runs. If tags cannot be discovered, supply an explicitly reviewed revision; never silently use GitHub
+`HEAD`.
 
 For a fork, local repository, branch, or commit:
 
@@ -76,8 +77,8 @@ uv run <skill-dir>/scripts/adopt-template.py \
 Adoption merges marked dstack sections into `AGENTS.md` and `.gitignore`. It installs dstack-owned files such as the
 lifecycle formula, documentation checker, feature templates, and Copier state. Existing Copier answers are backed up,
 then rebased to the tagged template that was rendered so later updates start from the reconciled baseline. Missing
-project scaffold files are copied. Existing project-owned files are preserved; the generated alternatives are placed under
-`migration/template-adoption-candidates/` for explicit manual reconciliation. Replaced dstack framework files are
+project scaffold files are copied. Existing project-owned files are preserved; the generated alternatives are placed
+under `migration/template-adoption-candidates/` for explicit manual reconciliation. Replaced dstack framework files are
 backed up under `migration/template-adoption-backup/`.
 
 For every `manual_merge` path, compare the current file with the candidate and merge only the needed documentation
@@ -89,8 +90,8 @@ uv run scripts/check-docs.py --migration-mode
 test ! -e migration/template-adoption-candidates
 ```
 
-Migration mode keeps broken links and unsafe paths as errors while reporting legacy headings, missing taxonomy
-concerns, unnumbered feature paths, task files, and missing implemented-feature markers as warnings.
+Migration mode keeps broken links and unsafe paths as errors while reporting legacy headings, missing taxonomy concerns,
+unnumbered feature paths, task files, and missing implemented-feature markers as warnings.
 
 Initialize Beads only after adoption is committed:
 
