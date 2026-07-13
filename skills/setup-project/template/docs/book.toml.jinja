@@ -1,6 +1,6 @@
 [book]
-title = [[ project_name | tojson ]]
-description = [[ project_purpose | tojson ]]
+title = [[ project_name | to_json(ensure_ascii=False) | replace('\u007f', '\\u007f') ]]
+description = [[ project_purpose | to_json(ensure_ascii=False) | replace('\u007f', '\\u007f') ]]
 authors = []
 language = "en"
 src = "src"

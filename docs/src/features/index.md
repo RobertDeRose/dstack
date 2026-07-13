@@ -1,6 +1,7 @@
 # Implemented features
 
-This index lists features that have completed implementation, documentation reconciliation, validation, and delivery.
+This index tracks features during close-out and after delivery. Each record states its current reconciliation,
+validation, and delivery status.
 
 Each feature record explains:
 
@@ -17,5 +18,5 @@ here only during close-out.
 ## Feature index
 
 <!-- BEGIN IMPLEMENTED FEATURES -->
-_No features have completed close-out yet._
+- [F010 — Purposeful project scaffold](010-purposeful-project-scaffold/index.md)
 <!-- END IMPLEMENTED FEATURES -->

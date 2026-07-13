@@ -26,5 +26,5 @@
 - [Planned features](planned-features.md)
 - [Implemented features](features/index.md)
   <!-- BEGIN IMPLEMENTED FEATURES -->
-  <!-- Add delivered feature pages here, indented by two spaces. -->
+  - [F010 — Purposeful project scaffold](features/010-purposeful-project-scaffold/index.md)
   <!-- END IMPLEMENTED FEATURES -->

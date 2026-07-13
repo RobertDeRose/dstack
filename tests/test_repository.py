@@ -61,13 +61,13 @@ REQUIRED_COPIER_QUESTIONS = (
 )
 
 SETUP_BRIEF = {
-    "project_purpose": 'Coordinate [reader](missing.md) devices with a literal \\ path, café text, and "quotes".',
+    "project_purpose": 'Coordinate [reader](missing.md) 😀 devices with a literal \\ path, café text, and "quotes".',
     "project_users": 'Operators who own "reader" fleets [team].',
     "project_scope": "Provisioning, health checks, and `status` workflows.",
     "project_boundaries": "Firmware # updates and identity-provider <admin> remain external.",
     "project_kind": "service",
 }
-PUNCTUATED_PROJECT_NAME = 'A "quoted" \\ café [project]'
+PUNCTUATED_PROJECT_NAME = 'A "quoted" \\ café 😀 [project]'
 
 SETUP_BRIEF_ARGS = [
     "--purpose",
@@ -178,6 +178,7 @@ def setup_generated_project(
     name: str | None = None,
     entrypoint: str = "repository",
     include_readme: bool = True,
+    brief: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Render a project while simulating an existing Skills CLI installation."""
     installed_skill = project / ".agents/skills/setup-project"
@@ -188,6 +189,19 @@ def setup_generated_project(
     )
     (project / "skills-lock.json").write_text("{}\n", encoding="utf-8")
     setup = source / "skills/setup-project/scripts/setup-project.py"
+    selected_brief = {**(brief or SETUP_BRIEF), "project_kind": kind}
+    brief_args = [
+        "--purpose",
+        selected_brief["project_purpose"],
+        "--users",
+        selected_brief["project_users"],
+        "--scope",
+        selected_brief["project_scope"],
+        "--boundaries",
+        selected_brief["project_boundaries"],
+        "--project-kind",
+        selected_brief["project_kind"],
+    ]
     result = run_command(
         [
             "uv",
@@ -199,7 +213,7 @@ def setup_generated_project(
             *(["--template-source", str(source)] if entrypoint == "repository" else []),
             "--skip-post-setup",
             *([] if include_readme else ["--delete-readme"]),
-            *[kind if value == SETUP_BRIEF["project_kind"] else value for value in SETUP_BRIEF_ARGS],
+            *brief_args,
             "--json",
         ],
         cwd=project,
@@ -672,9 +686,9 @@ def test_setup_project_renders_the_factual_book_matrix(
     kind: str,
     guidance: str,
 ) -> None:
-    expected_name = 'A "quoted" &#92; café &#91;project&#93;'
+    expected_name = 'A "quoted" &#92; café 😀 &#91;project&#93;'
     expected_purpose = (
-        'Coordinate &#91;reader&#93;(missing.md) devices with a literal &#92; path, café text, and "quotes".'
+        'Coordinate &#91;reader&#93;(missing.md) 😀 devices with a literal &#92; path, café text, and "quotes".'
     )
     expected_users = 'Operators who own "reader" fleets &#91;team&#93;.'
     expected_scope = "Provisioning, health checks, and &#96;status&#96; workflows."
@@ -757,6 +771,25 @@ def test_setup_project_renders_the_factual_book_matrix(
         )
         run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
         run_command(["mdbook", "build", "docs"], cwd=project)
+
+
+@pytest.mark.integration
+def test_book_toml_round_trips_accepted_single_line_controls(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    controls = "".join(chr(value) for value in (*range(1, 10), 11, 12, *range(14, 32), 127))
+    name = f"Control {controls} project"
+    purpose = f"Control {controls} purpose."
+    setup_generated_project(
+        tagged_template_source,
+        tmp_path / "controls",
+        name=name,
+        brief={**SETUP_BRIEF, "project_purpose": purpose},
+    )
+    book = tomllib.loads((tmp_path / "controls/docs/book.toml").read_text(encoding="utf-8"))["book"]
+    assert book["title"] == name
+    assert book["description"] == purpose
 
 
 @pytest.mark.integration

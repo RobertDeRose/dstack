@@ -39,10 +39,16 @@ strictly a new-project workflow: it does not generate bootstrap or migration scr
 repository. If `.copier-answers.yml` already exists, `/setup-project` asks whether to run `/update-project` and proceeds
 only after explicit approval. Other existing project files are routed to `/migrate-workflow`.
 
-Direct invocation for a Codex/universal project installation:
+`/setup-project` collects the structured brief interactively. Direct invocation for a Codex/universal project
+installation supplies the same required fields explicitly:
 
 ```bash
-uv run .agents/skills/setup-project/scripts/setup-project.py "Reader Control Plane"
+uv run .agents/skills/setup-project/scripts/setup-project.py "Reader Control Plane" \
+  --purpose "Coordinate reader devices from one control plane." \
+  --users "Operators responsible for reader fleets." \
+  --scope "Provisioning and health workflows for supported readers." \
+  --boundaries "Firmware and identity-provider administration remain external." \
+  --project-kind service
 ```
 
 ## Update Skills and Generated Projects
