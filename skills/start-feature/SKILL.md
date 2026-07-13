@@ -109,9 +109,18 @@ feature root when appropriate:
 bd update <feature-root> --claim
 ```
 
-## 4. Run Four Isolated Reviews
+## 4. Build Context Once, Then Run Four Reviews
 
-Launch isolated subagents with distinct goals. Claim the matching lifecycle task before recording each review.
+Launch exactly one fresh, read-only context builder before any reviewer. Store its packet in the subagent run's
+ephemeral artifact directory, never in the repository. The packet must contain factual evidence only: feature authority
+and identity, reviewed requirements, relevant architecture and prior decisions, changed/current source paths, Beads
+graph and acceptance criteria, documentation impact, validation evidence, and exact source locations. It must not
+contain findings, recommendations, or a verdict.
+
+Launch exactly four role reviewers with `context: fresh`, giving each the same packet and its distinct goal below. Each
+reviewer independently reasons from the packet, verifies evidence critical to its role, and reads additional source only
+when needed. Claim the matching lifecycle task before recording each review. Do not add general-purpose or confidence
+reviewers unless a distinct uncovered risk or the user explicitly requires one.
 
 ### Architecture Consistency
 
@@ -142,7 +151,11 @@ bd update <review-task-id> --claim
 bd update <review-task-id> --append-notes "<findings and resolution>"
 ```
 
-Review is complete when all four review beads contain independently produced evidence, findings, and dispositions.
+Review is complete when all four review beads contain independently produced evidence, findings, and dispositions. If
+reconciliation changes a reviewed domain, resume only its original reviewer. Refresh the shared packet only after broad
+design, architecture, task-graph, or documentation-structure changes. Launch a fresh replacement only when the original
+cannot be resumed or the fix materially changes that role's scope; provide the original packet, finding, resolution, and
+post-review diff.
 
 ## 5. Reconcile the Specification
 

@@ -95,9 +95,16 @@ not close validation until required evidence is complete and current. `unavailab
 explicitly waives that exact check. A waiver must record the command, reason, affected commit, accepting user decision,
 and residual risk.
 
-## 4. Run Two Holistic Reviews
+## 4. Build Context Once, Then Run Two Holistic Reviews
 
-Launch two isolated subagents.
+Launch exactly one fresh, read-only context builder. Store its packet in the subagent run's ephemeral artifact
+directory, never in the repository. The factual packet covers feature authority, reviewed requirements, implementation
+diff, architecture and reference contracts, reader documentation, implemented record, roadmap/navigation, Beads history,
+and validation evidence with exact source locations. It contains no findings, recommendations, or verdict.
+
+Then launch exactly two reviewers with `context: fresh`, giving both the same packet and their distinct roles below.
+Each reviewer reasons independently, verifies evidence critical to its role, and reads additional source only when
+needed. Do not add confidence reviewers without a distinct uncovered risk or an explicit user request.
 
 ### Delivery Reviewer
 
@@ -109,8 +116,13 @@ compliance.
 Compare implementation, design, reader-facing docs, architecture decisions, reference contracts, implemented-feature
 record, roadmap, and Beads history. Distinguish intentional evolution from accidental drift.
 
-Claim the matching review task and record each finding and resolution. Resolve actionable findings. After the final
-review fix, rerun every affected formatter, linter, build, test, feature-specific command, and
+Claim the matching review task and record each finding and resolution. Resolve actionable findings. Resume only the
+reviewer whose domain changed: delivery for code/tests/failure/security changes, drift for design/docs/roadmap/Beads
+changes, or both for cross-domain fixes. Refresh the shared packet only after broad design, architecture, task-graph, or
+documentation-structure changes. Launch a fresh replacement only when the original cannot be resumed or the fix
+materially changes that role's scope; provide the original packet, findings, resolutions, and post-review diff.
+
+After the final review fix, rerun every affected formatter, linter, build, test, feature-specific command, and
 `uv run scripts/check-docs.py`. Update the validation bead with the post-fix commands and outcomes; do not reuse pre-fix
 results. Close each review and the validation step only when no actionable finding remains and validation reflects the
 final worktree state.

@@ -108,6 +108,24 @@ smallest complete scope, update documentation in the same work unit, validate, r
 quality/security/maintainability review, record evidence, commit with the Beads ID, and close only after acceptance
 criteria pass.
 
+### Review orchestration
+
+Initial reviewers always use fresh context. A workflow with two or more review roles first launches exactly one fresh,
+read-only context builder. It writes an ephemeral factual packet covering authority, requirements, architecture, changed
+files, Beads state, documentation impact, validation evidence, and exact source locations. The packet contains no
+findings, recommendations, or verdict and is never committed.
+
+Pass that same packet to each fresh role reviewer. Reviewers reason independently, verify role-critical evidence, and
+read extra source only when the packet is insufficient. `/implement-feature` uses one fresh reviewer per task without a
+context builder; `/start-feature` uses one context builder plus four reviewers; `/close-feature` uses one context
+builder plus two reviewers. Do not add confidence reviewers without a distinct uncovered risk or an explicit user
+request.
+
+After a fix, resume only the original reviewers whose domains changed. Do not launch fresh follow-up reviewers unless
+the original cannot be resumed or the fix materially changes the review scope. Give a replacement the original packet
+when one exists, plus findings, resolutions, and the post-review diff. Refresh the shared packet only after broad
+design, architecture, task-graph, or documentation-structure changes.
+
 ### Commit messages
 
 For multiline messages, write the message to a temporary file and use `git commit -F <file>`; one argument containing

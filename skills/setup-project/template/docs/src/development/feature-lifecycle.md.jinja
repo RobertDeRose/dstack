@@ -42,12 +42,14 @@ internal mutation/audit evidence.
 The feature root is an epic. Lifecycle tasks are direct children, and bounded implementation tasks sit beneath the
 implementation coordinator task. A milestone is not used as the feature container.
 
-The reviews are:
+One fresh, read-only context builder gathers a factual evidence packet once. Four fresh reviewers share that packet and independently cover:
 
 1. architecture consistency;
 2. simplicity and maintainability;
 3. documentation readiness;
 4. execution-graph readiness.
+
+The packet contains factual source locations but no findings, recommendations, or verdict. Reviewers read extra source when it is insufficient. Do not add confidence reviewers without a distinct uncovered risk or user request. Fix verification resumes only affected reviewers; fresh replacements are used only when an original is unavailable or the scope materially changes, and receive the original evidence and post-review diff. Refresh a shared packet only after broad design, architecture, task-graph, or documentation-structure changes.
 
 It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes `spec-reconcile` only when implementation can proceed without inventing intent. A successful start records the canonical feature in repository-local Git configuration so `/implement-feature` can resume it from the base worktree when no selector is supplied.
 
@@ -60,7 +62,7 @@ bd ready --parent <implementation-id> --claim --json
 bd show <task-id> --json
 ```
 
-Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after its acceptance criteria pass. `/implement-feature` then claims the next ready child and continues until the implementation coordinator closes. It pauses only when every remaining child is blocked on explicit user decisions; native planned work should never reach that state.
+Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after its acceptance criteria pass. Each task gets exactly one fresh reviewer; fixes resume that reviewer. A fresh replacement is allowed only when the original is unavailable or scope materially changes. `/implement-feature` then claims the next ready child and continues until the implementation coordinator closes. It pauses only when every remaining child is blocked on explicit user decisions; native planned work should never reach that state.
 
 Discovered work should retain provenance:
 
@@ -75,7 +77,7 @@ Add a blocking edge only when the discovery is required for safe completion.
 
 ## Close
 
-`/close-feature` compares delivered code with the design and reader-facing docs, creates a standalone implemented-feature record, runs validation and two holistic reviews, reconciles intentional drift, and then performs an explicit `pr`, `merge`, or `ready` action. With no mode, it asks which action to take. Merge mode uses `git merge --ff-only` unless the target repository's `AGENTS.md` explicitly permits merge commits; it never falls back to a merge commit after a failed fast-forward.
+`/close-feature` compares delivered code with the design and reader-facing docs, creates a standalone implemented-feature record, and runs validation. One fresh context builder supplies a factual packet to two fresh holistic reviewers for delivery and drift. They follow the neutrality, extra-source, refresh, confidence-review, and replacement rules above; fixes resume only the affected reviewer. The workflow then performs an explicit `pr`, `merge`, or `ready` action. With no mode, it asks which action to take. Merge mode uses `git merge --ff-only` unless the target repository's `AGENTS.md` explicitly permits merge commits; it never falls back to a merge commit after a failed fast-forward.
 
 ## Audit
 

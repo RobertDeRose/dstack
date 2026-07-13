@@ -72,10 +72,13 @@ out of the reader-facing book.
 ## 3. Validate and Review
 
 Run task-specific validation, `uv run scripts/check-docs.py` when documentation changes, and repository-standard checks.
-Launch an isolated review focused on correctness, security, maintainability, test adequacy, and compliance with the
-selected task and design.
+Launch exactly one initial reviewer with `context: fresh`, focused on correctness, security, maintainability, test
+adequacy, and compliance with the selected task and design. A separate context builder is unnecessary for this single
+scoped reviewer. Do not add confidence reviewers without a distinct uncovered risk or an explicit user request.
 
-Resolve actionable findings. Record commands, outcomes, limitations, findings, and fixes:
+Resolve actionable findings. Resume the same reviewer to verify fixes. Use a fresh replacement only if the original
+cannot be resumed or the fix materially changes the reviewed scope; provide it the original findings, resolutions, and
+post-review diff. Record commands, outcomes, limitations, findings, and fixes:
 
 ```bash
 bd update <task-id> --append-notes "Validation and review evidence: ..."

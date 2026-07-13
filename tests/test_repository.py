@@ -361,11 +361,17 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         repository_root / "skills/setup-project/template/AGENTS.md.jinja",
     ):
         agents = agents_path.read_text(encoding="utf-8")
+        normalized_agents = " ".join(agents.split())
         assert "git commit -F <file>" in agents
         assert "multiple `-m` flags" in agents
         assert "escaped `\\n`" in agents
         assert "git merge --ff-only" in agents
         assert "never create a merge commit" in agents
+        assert "Initial reviewers always use fresh context" in agents
+        assert "one context builder plus four reviewers" in normalized_agents
+        assert "one context builder plus two reviewers" in normalized_agents
+        assert "resume only the original reviewers whose domains changed" in normalized_agents
+        assert "original packet when one exists" in normalized_agents
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (repository_root / "skills/setup-project/template" / relative).exists()
 
@@ -383,10 +389,16 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "git config --unset-all dstack.activeFeature" in implementation
     assert "immediately return to this selection step" in normalized_implementation
     assert "remaining open child is blocked by missing user decisions" in normalized_implementation
+    assert "exactly one initial reviewer with `context: fresh`" in normalized_implementation
+    assert "Resume the same reviewer" in implementation
+    assert "A separate context builder is unnecessary" in implementation
+    assert "Use a fresh replacement only if the original" in normalized_implementation
+    assert "distinct uncovered risk or an explicit user request" in normalized_implementation
     assert "specific no-commit justification" in implementation
     assert "<implementation-epic-id>" not in implementation
 
     closeout = skill("close-feature")
+    normalized_closeout = " ".join(closeout.split())
     assert "resolve-feature.py --next" not in closeout
     assert "feat/<num>-<slug>" in closeout
     assert "do not reuse pre-fix results" in " ".join(closeout.casefold().split())
@@ -394,6 +406,13 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "git -C <base-worktree> merge --ff-only" in closeout
     assert "git -C <base-worktree> status --porcelain" in closeout
     assert "never fall back to a merge commit" in closeout
+    assert "Launch exactly one fresh, read-only context builder" in closeout
+    assert "launch exactly two reviewers with `context: fresh`" in closeout
+    assert "Resume only the reviewer whose domain changed" in normalized_closeout
+    assert "no findings, recommendations, or verdict" in normalized_closeout
+    assert "reads additional source only when needed" in normalized_closeout
+    assert "Refresh the shared packet only after broad" in normalized_closeout
+    assert "distinct uncovered risk or an explicit user request" in normalized_closeout
     assert "AGENTS.md" in closeout
 
     audit = skill("audit-project")
@@ -406,6 +425,25 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "resolve-feature.py" in start
     assert "canonical" in start.casefold()
     assert "git -C <worktree-path> config dstack.activeFeature" in start
+    assert "Launch exactly one fresh, read-only context builder" in start
+    assert "Launch exactly four role reviewers with `context: fresh`" in start
+    assert "resume only its original reviewer" in start
+    normalized_start = " ".join(start.split())
+    assert "must not contain findings, recommendations, or a verdict" in normalized_start
+    assert "reads additional source only when needed" in normalized_start
+    assert "Refresh the shared packet only after broad" in normalized_start
+    assert "distinct uncovered risk or the user explicitly requires one" in normalized_start
+
+    for lifecycle_path in (
+        repository_root / "docs/src/development/feature-lifecycle.md",
+        repository_root / "skills/setup-project/template/docs/src/development/feature-lifecycle.md.jinja",
+    ):
+        lifecycle = " ".join(lifecycle_path.read_text(encoding="utf-8").split())
+        assert "no findings, recommendations, or verdict" in lifecycle
+        assert "read extra source" in lifecycle
+        assert "confidence reviewers" in lifecycle
+        assert "Refresh a shared packet only after broad" in lifecycle
+        assert "original is unavailable or" in lifecycle
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update
@@ -747,6 +785,11 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert "escaped `\\n`" in agents
         assert "git merge --ff-only" in agents
         assert "never create a merge commit" in agents
+        assert "Initial reviewers always use fresh context" in agents
+        assert "one context builder plus four reviewers" in agents
+        assert "one context builder plus two reviewers" in agents
+        assert "resume only the original reviewers whose domains changed" in agents
+        assert "original packet when one exists" in agents
 
         answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
         expected_brief = {**SETUP_BRIEF, "project_kind": kind}
