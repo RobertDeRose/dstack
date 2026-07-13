@@ -70,6 +70,9 @@ not infer missing facts from the project name or fabricate defaults.
 - Default branch: `main`.
 - Beads: initialize with `bd init --stealth --skip-agents` when `bd` is available; otherwise complete documentation
   setup and report Beads initialization as outstanding.
+- Tooling: after rendering and optional Git initialization, resolve `mise.lock` for Linux/macOS x64/ARM64, install with
+  `mise install --locked`, then install repository-local hk hooks separately. These steps require mise and network
+  access.
 
 ## Execution
 
@@ -99,7 +102,9 @@ uv run <skill-dir>/scripts/setup-project.py "Reader Control Plane" \
 ```
 
 The setup helper performs post-render initialization itself. It does not generate `scripts/bootstrap.py`,
-`scripts/migrate-legacy-workflow.py`, or a migration guide in the new project.
+`scripts/migrate-legacy-workflow.py`, or a migration guide in the new project. Use `--skip-post-setup` to skip tooling,
+Beads, and documentation setup while preserving exact recovery commands. `--no-git-init` still resolves and installs
+tools but reports hook installation as `skipped-no-git`.
 
 ## Verification
 
@@ -115,6 +120,10 @@ docs/src/planned-features.md
 docs/src/features/_template/design.md
 docs/src/features/_template/index.md
 scripts/check-docs.py
+scripts/setup-tooling.py
+mise.toml
+hk.pkl
+.config/rumdl.toml
 ```
 
 Confirm these new-project-inappropriate paths do not exist:
@@ -128,7 +137,14 @@ scripts/migrate-legacy-workflow.py
 Verify `.copier-answers.yml` records the official update source and installed skill release, not a path inside the skill
 installation. Verify generated `AGENTS.md` requires real multiline commit messages via `git commit -F <file>` (never
 multiple `-m` flags or escaped `\n`) and permits only `git merge --ff-only` into `main`. The helper runs
-`uv run scripts/check-docs.py` as part of setup.
+`uv run scripts/check-docs.py` as part of setup. A successful tooling run creates a nonempty `mise.lock`, installs with
+`--locked`, and runs `mise x -- hk install --mise`. If mise, resolution, installation, or hook setup fails, the scaffold
+remains intact and the JSON `tooling` object reports separate `mise`, `lock`, `install`, and `hooks` states, supported
+platforms, bounded error text, and exact recovery commands. Rerun recovery with:
+
+```bash
+python3 scripts/setup-tooling.py --json
+```
 
 Check availability before invoking Beads verification:
 
@@ -155,6 +171,6 @@ initialization and verification as outstanding.
 ## Return
 
 Report project name, slug, purpose, users, scope, boundaries, kind, destination, bundled render source, skill version,
-recorded update source/revision, Git result, Beads result, documentation validation, outstanding work, and the next
-`/plan-features` action. If setup was routed to `/update-project`, report the user's consent decision and do not claim
-setup ran.
+recorded update source/revision, Git result, Beads result, documentation validation, the complete `tooling` status,
+outstanding recovery commands, and the next `/plan-features` action. If setup was routed to `/update-project`, report
+the user's consent decision and do not claim setup ran.

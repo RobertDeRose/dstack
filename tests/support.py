@@ -41,6 +41,8 @@ def initialize_git(repository: Path, message: str, tag: str | None = None) -> No
     run_command(["git", "init", "-b", "main"], cwd=repository)
     run_command(["git", "config", "user.email", "test@example.com"], cwd=repository)
     run_command(["git", "config", "user.name", "dstack Test"], cwd=repository)
+    run_command(["git", "config", "commit.gpgSign", "false"], cwd=repository)
+    run_command(["git", "config", "tag.gpgSign", "false"], cwd=repository)
     commit_repository(repository, message, tag)
 
 

@@ -49,7 +49,13 @@ REQUIRED_GENERATED_PATHS = (
     Path("docs/src/planned-features.md"),
     Path("docs/src/features/_template/design.md"),
     Path("docs/src/features/_template/index.md"),
+    Path("docs/src/development/tooling.md"),
+    Path("docs/src/reference/tooling.md"),
+    Path("mise.toml"),
+    Path("hk.pkl"),
+    Path(".config/rumdl.toml"),
     Path("scripts/check-docs.py"),
+    Path("scripts/setup-tooling.py"),
 )
 
 # A project-local skills installation can exist before the project scaffold does.
@@ -302,6 +308,40 @@ def validate_docs(destination: Path, *, quiet: bool) -> None:
     run_checked(command, cwd=destination, quiet=quiet)
 
 
+def skipped_tooling() -> dict[str, Any]:
+    return {
+        "status": "skipped",
+        "mise": "skipped",
+        "lock": {"status": "skipped", "path": "mise.lock", "error": None},
+        "install": {"status": "skipped", "error": None},
+        "hooks": {"status": "skipped", "error": None},
+        "platforms": ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"],
+        "recovery": ["python3 scripts/setup-tooling.py --json"],
+    }
+
+
+def provision_tooling(destination: Path) -> dict[str, Any]:
+    command = [sys.executable, "scripts/setup-tooling.py", "--json"]
+    completed = subprocess.run(command, cwd=destination, check=False, capture_output=True, text=True)
+    try:
+        result = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        result = None
+    if completed.returncode == 0 and isinstance(result, dict):
+        return result
+
+    error = (completed.stderr or completed.stdout or "tooling provisioner returned invalid output").strip()[-2_000:]
+    return {
+        "status": "degraded",
+        "mise": "skipped",
+        "lock": {"status": "failed", "path": "mise.lock", "error": error},
+        "install": {"status": "skipped", "error": None},
+        "hooks": {"status": "skipped", "error": None},
+        "platforms": ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"],
+        "recovery": ["python3 scripts/setup-tooling.py --json"],
+    }
+
+
 def initialize_git(destination: Path, branch: str, *, quiet: bool) -> bool:
     probe = subprocess.run(
         ["git", "-C", str(destination), "rev-parse", "--show-toplevel"],
@@ -482,6 +522,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     docs_validated = False
     post_setup_ran = False
     outstanding: list[str] = []
+    tooling = skipped_tooling() if args.skip_post_setup else provision_tooling(destination)
+    outstanding.extend(f"Tooling recovery: {command}" for command in tooling["recovery"])
     if not args.skip_post_setup:
         verify_scaffold(destination)
         if args.skip_beads:
@@ -519,6 +561,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "beads_available": beads_is_available,
         "beads_initialized": beads_initialized,
         "readme_created": (destination / "README.md").exists(),
+        "tooling": tooling,
         "outstanding": outstanding,
     }
 
@@ -539,6 +582,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Install Beads, run 'bd init --stealth --skip-agents', then verify the feature-lifecycle formula.")
         if docs_validated:
             print("Documentation scaffold validation passed.")
+        print(f"Tooling provisioning: {tooling['status']}")
+        for command in tooling["recovery"]:
+            print(f"Tooling recovery: {command}")
         print("Commit the initial scaffold before applying Copier updates.")
     return 0
 

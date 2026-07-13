@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,7 @@ REQUIRED_TEMPLATE_FILES = (
     "docs/src/features/_template/design.md",
     "docs/src/features/_template/index.md",
     "scripts/check-docs.py",
+    "scripts/setup-tooling.py",
 )
 
 FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES = (
@@ -231,6 +233,29 @@ def setup_generated_project(
 def configure_project_git(project: Path) -> None:
     run_command(["git", "config", "user.email", "test@example.com"], cwd=project)
     run_command(["git", "config", "user.name", "dstack Test"], cwd=project)
+    run_command(["git", "config", "commit.gpgSign", "false"], cwd=project)
+    run_command(["git", "config", "tag.gpgSign", "false"], cwd=project)
+
+
+def write_fake_mise(bin_dir: Path) -> Path:
+    mise = bin_dir / "mise"
+    mise.parent.mkdir(parents=True, exist_ok=True)
+    mise.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, sys\n"
+        "from pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "stage = 'hooks' if args and args[0] == 'x' else (args[0] if args else '')\n"
+        "if os.environ.get('DSTACK_MISE_FAIL') == stage:\n"
+        "    print(f'{stage} failed', file=sys.stderr)\n"
+        "    raise SystemExit(1)\n"
+        "if stage == 'lock':\n"
+        "    (Path.cwd() / 'mise.lock').write_text('linux-x64\\nlinux-arm64\\nmacos-x64\\nmacos-arm64\\n')\n"
+        "raise SystemExit(0)\n",
+        encoding="utf-8",
+    )
+    mise.chmod(0o755)
+    return mise
 
 
 def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
@@ -541,6 +566,16 @@ def load_setup_module(repository_root: Path) -> Any:
     return module
 
 
+def load_tooling_module(repository_root: Path) -> Any:
+    path = repository_root / "skills/setup-project/template/scripts/setup-tooling.py"
+    spec = importlib.util.spec_from_file_location("dstack_setup_tooling", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_setup_project_requires_and_validates_the_project_brief(repository_root: Path) -> None:
     module = load_setup_module(repository_root)
 
@@ -564,6 +599,80 @@ def test_setup_project_requires_and_validates_the_project_brief(repository_root:
         )
         with pytest.raises(SystemExit, match=message):
             module.project_brief(invalid_args)
+
+
+@pytest.mark.parametrize(
+    ("failure", "has_git", "expected"),
+    [
+        (None, True, ("succeeded", "succeeded", "succeeded", "succeeded")),
+        ("missing", True, ("degraded", "skipped", "skipped", "skipped")),
+        ("lock", True, ("degraded", "failed", "skipped", "skipped")),
+        ("install", True, ("degraded", "succeeded", "failed", "skipped")),
+        ("hooks", True, ("degraded", "succeeded", "succeeded", "failed")),
+        (None, False, ("degraded", "succeeded", "succeeded", "skipped-no-git")),
+    ],
+)
+def test_tooling_provisioner_reports_independent_stage_outcomes(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str | None,
+    has_git: bool,
+    expected: tuple[str, str, str, str],
+) -> None:
+    module = load_tooling_module(repository_root)
+    project = tmp_path / "project"
+    project.mkdir()
+    if has_git:
+        (project / ".git").mkdir()
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(module.shutil, "which", lambda _command: None if failure == "missing" else "/bin/mise")
+
+    def fake_run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert cwd == project
+        commands.append(command)
+        stage_name = "hooks" if command[1] == "x" else command[1]
+        if stage_name == "lock" and failure != "lock":
+            (project / "mise.lock").write_text("resolved\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, int(failure == stage_name), "", f"{stage_name} failed")
+
+    monkeypatch.setattr(module, "run", fake_run)
+    result = module.provision(project)
+
+    assert (
+        result["status"],
+        result["lock"]["status"],
+        result["install"]["status"],
+        result["hooks"]["status"],
+    ) == expected
+    assert result["platforms"] == ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"]
+    assert all(isinstance(command, str) and command for command in result["recovery"])
+    if failure is None and has_git:
+        assert commands == [module.LOCK_COMMAND, module.INSTALL_COMMAND, module.HOOK_COMMAND]
+        assert result["recovery"] == []
+    if failure == "lock":
+        assert result["lock"]["error"] == "lock failed"
+    if failure == "install":
+        assert result["install"]["error"] == "install failed"
+    if failure == "hooks":
+        assert result["hooks"]["error"] == "hooks failed"
+
+
+def test_tooling_provisioner_converts_launch_errors_to_structured_failure(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_tooling_module(repository_root)
+    monkeypatch.setattr(module.shutil, "which", lambda _command: "/broken/mise")
+    monkeypatch.setattr(module.subprocess, "run", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("broken")))
+
+    result = module.provision(tmp_path)
+
+    assert result["status"] == "degraded"
+    assert result["lock"] == {"status": "failed", "path": "mise.lock", "error": "broken"}
+    assert result["recovery"][-1] == "python3 scripts/setup-tooling.py --json"
 
 
 def test_setup_project_rejects_unknown_project_kind(repository_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -681,6 +790,171 @@ def test_setup_project_uses_bundled_skill_template_and_records_remote_update_sta
     assert (project / "docs/src/SUMMARY.md").is_file()
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (project / relative).exists(), relative
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("no_git", [False, True])
+def test_setup_project_provisions_tooling_and_reports_no_git_separately(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+    no_git: bool,
+) -> None:
+    project = tmp_path / f"tooling-{no_git}"
+    bin_dir = tmp_path / "bin"
+    write_fake_mise(bin_dir)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--skip-beads",
+            *(["--no-git-init"] if no_git else []),
+            *SETUP_BRIEF_ARGS,
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=merged_environment(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}"),
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["tooling"]["lock"] == {"status": "succeeded", "path": "mise.lock", "error": None}
+    assert payload["tooling"]["install"]["status"] == "succeeded"
+    assert payload["tooling"]["hooks"]["status"] == ("skipped-no-git" if no_git else "succeeded")
+    assert payload["tooling"]["status"] == ("degraded" if no_git else "succeeded")
+    assert (project / "mise.lock").read_text(encoding="utf-8").splitlines() == [
+        "linux-x64",
+        "linux-arm64",
+        "macos-x64",
+        "macos-arm64",
+    ]
+    assert payload["outstanding"] == (["Tooling recovery: mise x -- hk install --mise"] if no_git else []) + [
+        "Beads initialization and verification"
+    ]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("failure", "expected_stages", "recovery"),
+    [
+        ("missing", ("unavailable", "skipped", "skipped", "skipped"), ["python3 scripts/setup-tooling.py --json"]),
+        (
+            "lock",
+            ("available", "failed", "skipped", "skipped"),
+            [
+                "mise lock --yes --platform linux-x64,linux-arm64,macos-x64,macos-arm64",
+                "python3 scripts/setup-tooling.py --json",
+            ],
+        ),
+        (
+            "install",
+            ("available", "succeeded", "failed", "skipped"),
+            ["mise install --locked", "python3 scripts/setup-tooling.py --json"],
+        ),
+        (
+            "hooks",
+            ("available", "succeeded", "succeeded", "failed"),
+            ["mise x -- hk install --mise"],
+        ),
+    ],
+)
+def test_setup_project_preserves_scaffold_and_reports_tooling_failures(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+    failure: str,
+    expected_stages: tuple[str, str, str, str],
+    recovery: list[str],
+) -> None:
+    project = tmp_path / failure
+    bin_dir = tmp_path / f"bin-{failure}"
+    bin_dir.mkdir()
+    if failure == "missing":
+        for command in ("uv", "git", "mdbook"):
+            executable = shutil.which(command)
+            assert executable is not None
+            (bin_dir / command).symlink_to(executable)
+        path = str(bin_dir)
+    else:
+        write_fake_mise(bin_dir)
+        path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--skip-beads",
+            *SETUP_BRIEF_ARGS,
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=merged_environment(PATH=path, DSTACK_MISE_FAIL=failure),
+    )
+    payload = json.loads(result.stdout)
+    tooling = payload["tooling"]
+
+    assert (
+        tooling["mise"],
+        tooling["lock"]["status"],
+        tooling["install"]["status"],
+        tooling["hooks"]["status"],
+    ) == expected_stages
+    assert tooling["status"] == "degraded"
+    assert tooling["recovery"] == recovery
+    assert payload["outstanding"] == [
+        *(f"Tooling recovery: {command}" for command in recovery),
+        "Beads initialization and verification",
+    ]
+    assert (project / ".copier-answers.yml").is_file()
+    assert payload["docs_validated"] is True
+
+
+@pytest.mark.integration
+def test_setup_project_skip_does_not_execute_override_project_code(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "executed"
+    provisioner = tagged_template_source / "skills/setup-project/template/scripts/setup-tooling.py"
+    provisioner.write_text(
+        f"#!/usr/bin/env python3\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n",
+        encoding="utf-8",
+    )
+    commit_repository(tagged_template_source, "Malicious provisioner fixture", "v1.1.0")
+    project = tmp_path / "skipped"
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v1.1.0",
+            "--skip-post-setup",
+            *SETUP_BRIEF_ARGS,
+            "--json",
+        ],
+        cwd=tmp_path,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["tooling"]["status"] == "skipped"
+    assert not marker.exists()
+    assert (project / "scripts/setup-tooling.py").is_file()
 
 
 @pytest.mark.integration
@@ -869,6 +1143,8 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert {field: payload[field] for field in expected_brief} == expected_brief
         assert answers["project_name"] == PUNCTUATED_PROJECT_NAME
         assert payload["readme_created"] is include_readme
+        assert payload["tooling"]["status"] == "skipped"
+        assert payload["tooling"]["recovery"] == ["python3 scripts/setup-tooling.py --json"]
         assert payload["template_source_kind"] == ("override" if entrypoint == "repository" else "bundled")
         assert answers["_src_path"] == (
             str(tagged_template_source) if entrypoint == "repository" else "gh:RobertDeRose/dstack"
@@ -1234,6 +1510,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     fake_bin = tmp_path / "bin"
     bd_log = tmp_path / "bd.log"
     write_fake_bd(fake_bin, bd_log)
+    write_fake_mise(fake_bin)
     result = run_command(
         [
             "uv",
@@ -1256,7 +1533,8 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     assert payload["post_setup_ran"] is True
     assert payload["docs_validated"] is True
     assert payload["beads_initialized"] is True
-    assert payload["outstanding"] == []
+    assert payload["tooling"]["hooks"]["status"] == "skipped-no-git"
+    assert payload["outstanding"] == ["Tooling recovery: mise x -- hk install --mise"]
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "--version" in commands
     assert "init --skip-agents --stealth --quiet" in commands
