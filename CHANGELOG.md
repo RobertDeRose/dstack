@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.2.1 (2026-07-13)
+
+### Bug Fixes
+
+- Reject recursive Beads relationships
+  ([`06ada6e`](https://github.com/RobertDeRose/dstack/commit/06ada6eb683ea72f12e8c733ec568d7c4f695130))
+
+
 ## v0.2.0 (2026-07-12)
 
 ### Features
