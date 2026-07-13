@@ -71,7 +71,11 @@ out of the reader-facing book.
 
 ## 3. Validate and Review
 
-Run task-specific validation, `uv run scripts/check-docs.py` when documentation changes, and repository-standard checks.
+While iterating, run the smallest focused checks that cover the changed behavior. After the scoped implementation and
+review fixes stabilize, run task-specific validation, `uv run scripts/check-docs.py` when documentation changes, and the
+full repository-standard suite once before commit. Rerun the full suite only when it failed or a subsequent fix affects
+broad/shared behavior; otherwise rerun only impacted focused checks.
+
 Launch exactly one initial reviewer with `context: fresh`, focused on correctness, security, maintainability, test
 adequacy, and compliance with the selected task and design. A separate context builder is unnecessary for this single
 scoped reviewer. Do not add confidence reviewers without a distinct uncovered risk or an explicit user request.
