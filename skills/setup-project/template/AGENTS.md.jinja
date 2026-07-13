@@ -1,4 +1,18 @@
-# AGENTS.md — [[ project_name ]]
+[% macro markdown(value) -%]
+[[ value
+  | replace("&", "&amp;")
+  | replace("#", "&#35;")
+  | replace("\\", "&#92;")
+  | replace("<", "&lt;")
+  | replace(">", "&gt;")
+  | replace("[", "&#91;")
+  | replace("]", "&#93;")
+  | replace("*", "&#42;")
+  | replace("_", "&#95;")
+  | replace("`", "&#96;")
+]]
+[%- endmacro %]
+# AGENTS.md — [[ markdown(project_name) ]]
 
 <!-- BEGIN DSTACK WORKFLOW -->
 ## dstack workflow

@@ -1,7 +1,21 @@
+[% macro markdown(value) -%]
+[[ value
+  | replace("&", "&amp;")
+  | replace("#", "&#35;")
+  | replace("\\", "&#92;")
+  | replace("<", "&lt;")
+  | replace(">", "&gt;")
+  | replace("[", "&#91;")
+  | replace("]", "&#93;")
+  | replace("*", "&#42;")
+  | replace("_", "&#95;")
+  | replace("`", "&#96;")
+]]
+[%- endmacro %]
 <!-- dstack:generated-readme -->
-# [[ project_name ]]
+# [[ markdown(project_name) ]]
 
-[[ project_purpose ]]
+[[ markdown(project_purpose) ]]
 
 This repository uses the dstack documentation-first, Beads-backed development workflow.
 

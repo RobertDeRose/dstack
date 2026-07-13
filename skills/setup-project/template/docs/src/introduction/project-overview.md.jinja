@@ -1,23 +1,35 @@
-# [[ project_name ]] overview
+[% macro markdown(value) -%]
+[[ value
+  | replace("&", "&amp;")
+  | replace("#", "&#35;")
+  | replace("\\", "&#92;")
+  | replace("<", "&lt;")
+  | replace(">", "&gt;")
+  | replace("[", "&#91;")
+  | replace("]", "&#93;")
+  | replace("*", "&#42;")
+  | replace("_", "&#95;")
+  | replace("`", "&#96;")
+]]
+[%- endmacro %]
+# [[ markdown(project_name) ]] overview
 
-Use this page to establish the shared context every reader needs before entering architecture, operations, development, or reference material.
+- Project kind: `[[ markdown(project_kind) ]]`
 
 ## Purpose
 
-Describe the problem the project solves and the outcome it is intended to create.
+[[ markdown(project_purpose) ]]
 
 ## Intended users
 
-Identify users, operators, integrators, maintainers, and other important audiences.
+[[ markdown(project_users) ]]
 
 ## Current scope
 
-Describe what the project currently supports. Keep planned behavior in [Planned Features](../planned-features.md), not in present-tense product claims.
+[[ markdown(project_scope) ]]
+
+Future behavior belongs in [Planned features](../planned-features.md) until delivered.
 
 ## Boundaries
 
-State important exclusions, ownership boundaries, and neighboring systems or responsibilities.
-
-## Current status
-
-Summarize maturity, support expectations, and any material limitations readers must understand.
+[[ markdown(project_boundaries) ]]

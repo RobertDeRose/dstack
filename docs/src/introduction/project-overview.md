@@ -15,8 +15,9 @@ documentation, implementation evidence, and delivery records remain aligned.
 ## Current scope
 
 dstack ships installable agent skills, a versioned Copier template, Beads lifecycle formulas, safe
-setup/update/migration helpers, documentation validation, and GitHub review workflows. It supports new projects, legacy
-workflow migration, planned feature delivery, close-out, and drift audits.
+setup/update/migration helpers, documentation validation, and GitHub review workflows. New-project setup records an
+explicit purpose, intended users, current scope, key boundaries, and project kind, then renders only factual initial
+reader pages. dstack also supports legacy workflow migration, planned feature delivery, close-out, and drift audits.
 
 Future behavior belongs in [Planned Features](../planned-features.md) until delivered.
 

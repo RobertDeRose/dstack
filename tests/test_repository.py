@@ -61,12 +61,14 @@ REQUIRED_COPIER_QUESTIONS = (
 )
 
 SETUP_BRIEF = {
-    "project_purpose": 'Coordinate "reader" devices from one control plane \\ café [docs].',
+    "project_purpose": 'Coordinate [reader](missing.md) devices with a literal \\ path, café text, and "quotes".',
     "project_users": "Operators responsible for reader fleets.",
     "project_scope": "Provisioning and health workflows for supported readers.",
     "project_boundaries": "Firmware and identity-provider administration remain external.",
     "project_kind": "service",
 }
+PUNCTUATED_PROJECT_NAME = 'A "quoted" \\ café [project]'
+
 SETUP_BRIEF_ARGS = [
     "--purpose",
     SETUP_BRIEF["project_purpose"],
@@ -98,6 +100,35 @@ FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES = (
     "scripts/bootstrap.py",
     "scripts/migrate-legacy-workflow.py",
 )
+
+REMOVED_CONTENT_FREE_DOCS = (
+    "docs/src/index.md",
+    "docs/src/architecture/index.md",
+    "docs/src/operations/index.md",
+    "docs/src/development/index.md",
+    "docs/src/reference/index.md",
+)
+
+INITIAL_READER_MARKDOWN = {
+    "SUMMARY.md",
+    "development/feature-lifecycle.md",
+    "features/_template/design.md",
+    "features/_template/index.md",
+    "features/index.md",
+    "introduction/documentation-conventions.md",
+    "introduction/project-overview.md",
+    "planned-features.md",
+}
+
+KIND_GUIDANCE = {
+    "library": "compatibility",
+    "cli": "exit behavior",
+    "service": "observability",
+    "application": "getting-started",
+    "infrastructure": "inventory",
+    "documentation": "publication",
+    "other": "No documentation concern is presumed",
+}
 
 LEGACY_OR_GENERATED_FILENAMES = {
     "setup_project.py",
@@ -139,7 +170,13 @@ def tracked_or_packaged_files(repository_root: Path) -> list[Path]:
     ]
 
 
-def setup_generated_project(source: Path, project: Path) -> None:
+def setup_generated_project(
+    source: Path,
+    project: Path,
+    *,
+    kind: str = "service",
+    name: str | None = None,
+) -> None:
     """Render a project while simulating an existing Skills CLI installation."""
     installed_skill = project / ".agents/skills/setup-project"
     installed_skill.mkdir(parents=True)
@@ -154,12 +191,13 @@ def setup_generated_project(source: Path, project: Path) -> None:
             "uv",
             "run",
             str(setup),
+            *([name] if name else []),
             "--destination",
             str(project),
             "--template-source",
             str(source),
             "--skip-post-setup",
-            *SETUP_BRIEF_ARGS,
+            *[kind if value == SETUP_BRIEF["project_kind"] else value for value in SETUP_BRIEF_ARGS],
             "--json",
         ],
         cwd=project,
@@ -461,6 +499,12 @@ def test_new_project_template_excludes_migration_only_files(
     assert not (template / relative_path).exists(), relative_path
 
 
+@pytest.mark.parametrize("relative_path", REMOVED_CONTENT_FREE_DOCS)
+def test_new_project_template_omits_content_free_reader_pages(repository_root: Path, relative_path: str) -> None:
+    template_source = repository_root / "skills/setup-project/template" / f"{relative_path}.jinja"
+    assert not template_source.exists(), relative_path
+
+
 def test_feature_design_placeholders_remain_literal(repository_root: Path) -> None:
     design = (repository_root / "skills/setup-project/template/docs/src/features/_template/design.md").read_text(
         encoding="utf-8"
@@ -616,6 +660,51 @@ def test_setup_project_uses_directory_name_and_preserves_template_tokens(
 
 
 @pytest.mark.integration
+def test_setup_project_renders_the_factual_book_for_every_kind(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    for kind, guidance in KIND_GUIDANCE.items():
+        project = tmp_path / kind
+        setup_generated_project(tagged_template_source, project, kind=kind, name=PUNCTUATED_PROJECT_NAME)
+
+        docs = project / "docs/src"
+        assert {path.relative_to(docs).as_posix() for path in docs.rglob("*.md")} == INITIAL_READER_MARKDOWN
+        assert all(not (project / relative).exists() for relative in REMOVED_CONTENT_FREE_DOCS)
+
+        answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+        assert answers["project_kind"] == kind
+        assert answers["project_name"] == PUNCTUATED_PROJECT_NAME
+        overview = (docs / "introduction/project-overview.md").read_text(encoding="utf-8")
+        assert all(SETUP_BRIEF[field] in overview for field in ("project_users", "project_scope", "project_boundaries"))
+        assert "&#91;reader&#93;(missing.md)" in overview
+        assert f"`{kind}`" in overview
+        assert guidance in (docs / "introduction/documentation-conventions.md").read_text(encoding="utf-8")
+        assert "&#91;reader&#93;(missing.md)" in (project / "README.md").read_text(encoding="utf-8")
+        book = tomllib.loads((project / "docs/book.toml").read_text(encoding="utf-8"))["book"]
+        assert book["title"] == PUNCTUATED_PROJECT_NAME
+        assert book["description"] == SETUP_BRIEF["project_purpose"]
+
+        summary = (docs / "SUMMARY.md").read_text(encoding="utf-8")
+        assert set(re.findall(r"\]\(([^)]+)\)", summary)) == {
+            "development/feature-lifecycle.md",
+            "features/index.md",
+            "introduction/documentation-conventions.md",
+            "introduction/project-overview.md",
+            "planned-features.md",
+        }
+
+        reader_text = "\n".join(
+            path.read_text(encoding="utf-8") for path in docs.rglob("*.md") if "_template" not in path.parts
+        )
+        assert all(
+            phrase not in reader_text for phrase in ("Describe the", "Explain how", "Summarize current", "Record only")
+        )
+        run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
+        run_command(["mdbook", "build", "docs"], cwd=project)
+
+
+@pytest.mark.integration
 def test_copier_update_applies_new_release_and_preserves_project_changes(
     tagged_template_source: Path,
     tmp_path: Path,
@@ -625,9 +714,9 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
     configure_project_git(project)
     commit_repository(project, "Initial generated project")
 
-    project_index = project / "docs/src/index.md"
-    project_index.write_text(
-        project_index.read_text(encoding="utf-8") + "\nProject-owned update.\n",
+    project_overview = project / "docs/src/introduction/project-overview.md"
+    project_overview.write_text(
+        project_overview.read_text(encoding="utf-8") + "\nProject-owned update.\n",
         encoding="utf-8",
     )
     commit_repository(project, "Project-specific documentation")
@@ -654,7 +743,7 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
     )
 
     assert (project / ".dstack-release").read_text(encoding="utf-8") == "v0.0.2\n"
-    assert "Project-owned update." in project_index.read_text(encoding="utf-8")
+    assert "Project-owned update." in project_overview.read_text(encoding="utf-8")
 
 
 @pytest.mark.integration

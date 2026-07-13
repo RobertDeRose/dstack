@@ -1,6 +1,20 @@
+[% macro markdown(value) -%]
+[[ value
+  | replace("&", "&amp;")
+  | replace("#", "&#35;")
+  | replace("\\", "&#92;")
+  | replace("<", "&lt;")
+  | replace(">", "&gt;")
+  | replace("[", "&#91;")
+  | replace("]", "&#93;")
+  | replace("*", "&#42;")
+  | replace("_", "&#95;")
+  | replace("`", "&#96;")
+]]
+[%- endmacro %]
 # Summary
 
-[Project documentation](index.md)
+[[ markdown(project_name) ]] documentation
 
 # Introduction
 
@@ -9,20 +23,14 @@
 
 # Architecture
 
-- [Architecture overview](architecture/index.md)
-
 # Operator's manual
-
-- [Operations overview](operations/index.md)
 
 # Development guide
 
-- [Development overview](development/index.md)
 - [Feature lifecycle](development/feature-lifecycle.md)
 
 # Reference
 
-- [Reference overview](reference/index.md)
 - [Planned features](planned-features.md)
 - [Implemented features](features/index.md)
   <!-- BEGIN IMPLEMENTED FEATURES -->

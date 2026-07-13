@@ -1,10 +1,27 @@
+[% macro markdown(value) -%]
+[[ value
+  | replace("&", "&amp;")
+  | replace("#", "&#35;")
+  | replace("\\", "&#92;")
+  | replace("<", "&lt;")
+  | replace(">", "&gt;")
+  | replace("[", "&#91;")
+  | replace("]", "&#93;")
+  | replace("*", "&#42;")
+  | replace("_", "&#95;")
+  | replace("`", "&#96;")
+]]
+[%- endmacro %]
 # Planned features
 
-This page is the human-readable roadmap. Beads is authoritative for live status, dependencies, claims, and ready-work selection.
+This page is the human-readable roadmap. Beads is authoritative for live status, dependencies, claims, and ready-work
+selection.
 
 ## Project direction
 
-Summarize current project goals, major constraints, sequencing rationale, and cross-cutting decisions.
+- Purpose: [[ markdown(project_purpose) ]]
+- Current scope: [[ markdown(project_scope) ]]
+- Boundaries: [[ markdown(project_boundaries) ]]
 
 ## Roadmap conventions
 
@@ -15,21 +32,9 @@ Summarize current project goals, major constraints, sequencing rationale, and cr
 - Human workflow references use `<num>-<slug>`, `F<num>`, or the feature name. Root hashes are retained only for audit.
 - Live execution state is queried through Beads.
 - Completed features move into [Implemented features](features/index.md).
-- Distant speculative features may remain roadmap-only until enough intent exists for a lifecycle and `design.md`.
-- Live lifecycle state is summarized as `design`, `spec-review`, `implementation`, `close-out`, `delivery-ready`, `delivered`, `deferred`, or `blocked`.
 
 ## Feature map
 
-| Feature | Beads root | Roadmap state | Dependencies | Design |
-|---|---|---|---|---|
-| _No features planned yet_ | — | — | — | — |
-
-## Open project decisions
-
-Record only project-level decisions that affect multiple features. Feature-local questions belong in the feature design and Beads review steps.
-
-## Recommended next work
-
-Use the dstack feature resolver through `/plan-features` or `/start-feature` to select the next ready feature epic by
-Beads readiness, priority, and feature number. Record the recommended command as `/start-feature <num>-<slug>` and keep
-this narrative synchronized during planning and close-out.
+| Feature                   | Beads root | Roadmap state | Dependencies | Design |
+|---------------------------|------------|---------------|--------------|--------|
+| _No features planned yet_ | —          | —             | —            | —      |

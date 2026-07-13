@@ -16,6 +16,13 @@
 Skills CLI installs and updates workflow code. Copier records and applies scaffold evolution. Beads owns executable
 work. Git commits and tests provide implementation evidence. No helper silently substitutes one authority for another.
 
+## Template rendering boundary
+
+New-project setup treats the structured project brief as the only source for initial product facts. Every project kind
+receives the same minimal reader file set; kind changes only the future-concern guidance in documentation conventions.
+The template omits architecture, usage, development-overview, and reference-overview pages until implementation creates
+concrete content for them. Copier records the brief so later template renders remain deterministic.
+
 ## Safety invariants
 
 - New-project setup does not overwrite or migrate existing project content.
