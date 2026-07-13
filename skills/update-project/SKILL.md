@@ -2,7 +2,7 @@
 name: update-project
 description: Update an existing Copier-managed dstack project to the latest eligible tagged template release, or route a legacy Markdown workflow through migration before updating.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 ---
 

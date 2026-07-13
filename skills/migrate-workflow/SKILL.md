@@ -2,7 +2,7 @@
 name: migrate-workflow
 description: Migrate an existing repository from the legacy planned-features.md plus per-feature design.md/tasks.md workflow to dstack's Copier- and Beads-based workflow. Use when asked to adopt dstack, convert legacy workflow state, or resume an interrupted workflow migration.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 ---
 
