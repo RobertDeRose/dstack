@@ -24,7 +24,7 @@ bd ready --json
 
 `/plan-features` asks design-changing questions, defines the documentation architecture, creates numbered feature
 designs, pours one Beads epic/molecule per feature, and decomposes lifecycle and implementation into bounded child
-tasks. It recommends the next feature by canonical number/slug and human name rather than by an opaque Beads hash.
+tasks. Native planning resolves every decision needed by those tasks before implementation; unresolved decision gaps may remain only on imported migration work with explicit reconciliation blockers. It recommends the next feature by canonical number/slug and human name rather than by an opaque Beads hash.
 
 A new feature uses:
 
@@ -49,7 +49,7 @@ The reviews are:
 3. documentation readiness;
 4. execution-graph readiness.
 
-It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes `spec-reconcile` only when implementation can proceed without inventing intent.
+It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes `spec-reconcile` only when implementation can proceed without inventing intent. A successful start records the canonical feature in repository-local Git configuration so `/implement-feature` can resume it from the base worktree when no selector is supplied.
 
 ## Implement
 
@@ -60,7 +60,7 @@ bd ready --parent <implementation-id> --claim --json
 bd show <task-id> --json
 ```
 
-Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after its acceptance criteria pass.
+Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after its acceptance criteria pass. `/implement-feature` then claims the next ready child and continues until the implementation coordinator closes. It pauses only when every remaining child is blocked on explicit user decisions; native planned work should never reach that state.
 
 Discovered work should retain provenance:
 
@@ -75,7 +75,7 @@ Add a blocking edge only when the discovery is required for safe completion.
 
 ## Close
 
-`/close-feature` compares delivered code with the design and reader-facing docs, creates a standalone implemented-feature record, runs validation and two holistic reviews, reconciles intentional drift, and then performs an explicit `pr`, `merge`, or `ready` action. With no mode, it asks which action to take.
+`/close-feature` compares delivered code with the design and reader-facing docs, creates a standalone implemented-feature record, runs validation and two holistic reviews, reconciles intentional drift, and then performs an explicit `pr`, `merge`, or `ready` action. With no mode, it asks which action to take. Merge mode uses `git merge --ff-only` unless the target repository's `AGENTS.md` explicitly permits merge commits; it never falls back to a merge commit after a failed fast-forward.
 
 ## Audit
 

@@ -23,6 +23,8 @@ Delivery authority:
 - Invocation authorizes local reconciliation, validation, workflow commits, and Beads updates for the selected feature.
 - Only explicit `pr` mode authorizes pull-request creation. Only explicit `merge` mode authorizes merge and post-merge
   worktree removal. `ready` and no-action mode authorize neither.
+- Merge mode authorizes a fast-forward-only merge by default. A merge commit is authorized only when the target
+  repository's `AGENTS.md` explicitly states that merge commits are accepted.
 - The workflow never force-pushes, deletes a remote branch, bypasses hooks, or removes a worktree before a confirmed
   merge.
 - Holistic-review subagents are read-only.
@@ -140,8 +142,25 @@ is confirmed.
 
 ### `merge`
 
-Merge through the repository-approved worktree flow. After success, record the merge commit, close delivery, close the
-feature root, verify navigation and the implemented record, and remove the worktree.
+Read the target repository's `AGENTS.md` merge policy. Resolve the worktree that has `<base-branch>` checked out from
+`git worktree list --porcelain`; do not assume the current directory is the base worktree. Verify its branch and require
+a clean worktree without stashing, deleting, or including unrelated changes:
+
+```bash
+git -C <base-worktree> branch --show-current  # must equal <base-branch>
+test -z "$(git -C <base-worktree> status --porcelain)"
+git -C <base-worktree> merge --ff-only feat/<num>-<slug>
+git -C <base-worktree> merge-base --is-ancestor feat/<num>-<slug> <base-branch>
+```
+
+If the base worktree is missing, dirty, or on another branch, stop before merging. If `--ff-only` fails, report that the
+feature must be updated or rebased; never fall back to a merge commit. Only an explicit repository policy in `AGENTS.md`
+may replace this default with a merge-commit flow. User selection of `merge` alone does not authorize a merge commit.
+
+After success, record the fast-forward target (or explicitly authorized merge commit), close delivery, close the feature
+root, verify navigation and the implemented record, and remove the worktree. If `dstack.activeFeature` still equals this
+feature, clear that repository-local setting after confirmed delivery. Never push or delete a remote branch unless
+separately authorized.
 
 Return one readiness state: `ready for delivery`, `ready after reconciliation fixes`,
 `blocked by implementation/docs mismatch`, or `blocked by incomplete validation`, together with the canonical feature

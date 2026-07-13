@@ -107,10 +107,18 @@ relationships. A `related` edge is contextual, but `bd list` still traverses it.
 - **Semantic decisions**;
 - **Dependency cycles**.
 
+For each imported feature or task, find missing outcomes, boundaries, acceptance, ownership, dependencies,
+documentation, validation, or alternatives. If execution needs a user decision, run the **Design Question Loop** from
+`/plan-features`: ask one at a time, persist answers in the migration plan, designs, and roadmap, and reconcile the
+planned graph until work is executable without invented intent. Gate 5 carries those decisions into Beads.
+
+If the user stops or defers reconciliation, retain the task with `migration:reconciliation` provenance and a blocking
+reconciliation bead, then report semantic reconciliation pending. Only migration may retain unresolved decision tasks.
+
 Record every decision and rationale, update roadmap prose when semantics change, then commit:
 
 ```bash
-git add migration docs/src/planned-features.md
+git add migration docs/src/planned-features.md docs/src/features
 git diff --cached --quiet || git commit -m "chore: record workflow migration plan"
 test -z "$(git status --porcelain)"
 ```
@@ -147,7 +155,9 @@ manifest and roadmap changes from the import.
 ## Gate 6: Reconcile and finalize
 
 Reconcile active/delivered designs, implementation, reader-facing docs, validation evidence, Beads state, and delivery
-history. Do not fabricate designs for untouched `planned` or `deferred` features. See **Semantic reconciliation**.
+history. Do not fabricate designs for untouched `planned` or `deferred` features. See **Semantic reconciliation**. Rerun
+that loop for imported tasks lacking executable intent and persist answers in Beads, designs, and the roadmap. Resolve
+every question or add an explicit user-deferred `migration:reconciliation` blocker.
 
 After reconciliation, run migration-mode documentation validation, then preview and apply archival:
 
@@ -170,10 +180,9 @@ bd blocked --json
 bd ready --json
 ```
 
-The migration verifier checks the manifest graph and, with `--beads`, the actual imported feature-root relationships.
-`bd dep cycles` is still useful for readiness diagnostics, but it checks blocking cycles only and cannot replace this
-verification. Run repository-native formatting, linting, documentation build, tests, and feature-specific checks. Rerun
-every check affected by a fix. Treat a repository with no tests as an explicit limitation, not a failed suite. See
+The verifier checks the manifest graph and, with `--beads`, imported feature-root relationships. `bd dep cycles` helps
+readiness diagnosis but checks blocking cycles only. Run repository-native formatting, linting, docs, tests, and feature
+checks; rerun checks affected by fixes. A repository with no tests has an explicit limitation, not a failed suite. See
 **Verification and completion**.
 
 ## Completion criteria
@@ -181,8 +190,7 @@ every check affected by a fix. Treat a repository with no tests as an explicit l
 Migration is complete only when every feature has one stable number and Beads root; parser coverage, the blocking DAG,
 and the complete Beads traversal graph are clean; repeated import is idempotent; live work comes from Beads; designs and
 delivered records preserve intent; roadmap, code, tests, docs, Beads, and delivery history agree; legacy tasks are
-archived or deliberately removed; all available validation passes; each boundary is committed; and the final worktree is
-clean.
+archived or removed; validation passes; each boundary is committed; and the final worktree is clean.
 
 ## Return
 

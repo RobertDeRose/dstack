@@ -126,7 +126,9 @@ scripts/migrate-legacy-workflow.py
 ```
 
 Verify `.copier-answers.yml` records the official update source and installed skill release, not a path inside the skill
-installation. The helper runs `uv run scripts/check-docs.py` as part of setup.
+installation. Verify generated `AGENTS.md` requires real multiline commit messages via `git commit -F <file>` (never
+multiple `-m` flags or escaped `\n`) and permits only `git merge --ff-only` into `main`. The helper runs
+`uv run scripts/check-docs.py` as part of setup.
 
 Check availability before invoking Beads verification:
 

@@ -320,6 +320,11 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Do not run `prepare` while scan output or decisions are uncommitted" in migration
     assert "bd init --stealth" in migration
     assert 'git commit -m "chore: initialize Beads workflow state"' in migration
+    assert "Design Question Loop" in migration
+    assert "migration:reconciliation" in migration
+    assert "Only migration may retain" in migration
+    assert "git add migration docs/src/planned-features.md docs/src/features" in migration
+    assert "Gate 5 carries those decisions into Beads" in migration
 
     pr_review = skill("gh-pr-review")
     assert "# Purpose" not in pr_review
@@ -349,13 +354,35 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "unsafe=False" in setup_script
     assert "Beads initialization and verification remain outstanding" in setup_script
     assert 'default="stealth"' in setup_script
+    assert "git commit -F <file>" in setup
+    assert "git merge --ff-only" in setup
+    for agents_path in (
+        repository_root / "AGENTS.md",
+        repository_root / "skills/setup-project/template/AGENTS.md.jinja",
+    ):
+        agents = agents_path.read_text(encoding="utf-8")
+        assert "git commit -F <file>" in agents
+        assert "multiple `-m` flags" in agents
+        assert "escaped `\\n`" in agents
+        assert "git merge --ff-only" in agents
+        assert "never create a merge commit" in agents
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (repository_root / "skills/setup-project/template" / relative).exists()
 
+    planning = skill("plan-features")
+    assert "every native implementation task is executable without another" in planning
+    assert "create no implementation tasks" in planning
+    assert "only imported migration work" in planning
+
     implementation = skill("implement-feature")
+    normalized_implementation = " ".join(implementation.split())
     assert "git rev-parse HEAD" in implementation
     assert "resolve-feature.py --next" not in implementation
     assert "feat/<num>-<slug>" in implementation
+    assert "dstack.activeFeature" in implementation
+    assert "git config --unset-all dstack.activeFeature" in implementation
+    assert "immediately return to this selection step" in normalized_implementation
+    assert "remaining open child is blocked by missing user decisions" in normalized_implementation
     assert "specific no-commit justification" in implementation
     assert "<implementation-epic-id>" not in implementation
 
@@ -364,6 +391,10 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "feat/<num>-<slug>" in closeout
     assert "do not reuse pre-fix results" in " ".join(closeout.casefold().split())
     assert "scripts/check-docs.py" in closeout
+    assert "git -C <base-worktree> merge --ff-only" in closeout
+    assert "git -C <base-worktree> status --porcelain" in closeout
+    assert "never fall back to a merge commit" in closeout
+    assert "AGENTS.md" in closeout
 
     audit = skill("audit-project")
     assert "Do not report a correction as verified from a pre-fix result" in audit
@@ -374,6 +405,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "<implementation-epic-id>" not in start
     assert "resolve-feature.py" in start
     assert "canonical" in start.casefold()
+    assert "git -C <worktree-path> config dstack.activeFeature" in start
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update
@@ -709,6 +741,12 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert {path.relative_to(docs).as_posix() for path in docs.rglob("*.md")} == INITIAL_READER_MARKDOWN
         assert all(not (project / relative).exists() for relative in REMOVED_CONTENT_FREE_DOCS)
         assert (project / "README.md").exists() is include_readme
+        agents = (project / "AGENTS.md").read_text(encoding="utf-8")
+        assert "git commit -F <file>" in agents
+        assert "multiple `-m` flags" in agents
+        assert "escaped `\\n`" in agents
+        assert "git merge --ff-only" in agents
+        assert "never create a merge commit" in agents
 
         answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
         expected_brief = {**SETUP_BRIEF, "project_kind": kind}

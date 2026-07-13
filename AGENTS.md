@@ -110,13 +110,17 @@ criteria pass.
 
 ### Commit messages
 
-Use a real multiline message via `git commit -F <file>` or a single multiline `-m` argument. Never construct commit
-bodies with multiple `-m` flags or escaped `\n` text; commit messages must contain actual newlines.
+For multiline messages, write the message to a temporary file and use `git commit -F <file>`; one argument containing
+literal newlines is also valid. A single `-m` is acceptable only for a subject-only commit. Never construct bodies with
+multiple `-m` flags or escaped `\n` text. Verify the resulting message before recording its SHA in Beads.
 
 ### Worktrees and delivery
 
 Feature branches use `feat/<num>-<slug>`. When `wt` is available, treat JSON output from `wt switch --format json` as
 authoritative for branch and path.
+
+Only fast-forward merges into `main` are accepted. Use `git merge --ff-only`; never create a merge commit and never fall
+back to one when fast-forwarding fails.
 
 A no-mode `/close-feature` completes close-out and then asks for one explicit action:
 

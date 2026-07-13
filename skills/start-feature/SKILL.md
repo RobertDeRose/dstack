@@ -171,6 +171,15 @@ bd ready --parent <implementation-id> --json
 ```
 
 At least one implementation child should now be ready unless the design intentionally contains only a gate or deferred
-work. Return the canonical feature reference and human name first, followed by the root ID for auditability, worktree,
+work. Persist the successfully prepared feature as this repository's implementation default:
+
+```bash
+git -C <worktree-path> config dstack.activeFeature <num>-<slug>
+```
+
+Set this only after specification reconciliation and implementation-readiness checks pass. The value is repository-local
+Git state, so a later `/implement-feature` invocation can resume the feature even when invoked from the base worktree.
+
+Return the canonical feature reference and human name first, followed by the root ID for auditability, worktree,
 reviewed-design commit, review findings, decisions made, remaining blockers, and next ready implementation task. Any
 recommended continuation must use `/implement-feature <num>-<slug>` rather than only the Beads hash.

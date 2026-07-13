@@ -71,9 +71,16 @@ Ask one targeted question at a time. Prioritize questions whose answers change:
 - validation and acceptance;
 - dependency order and parallelism.
 
-Continue until every near-term feature has a clear outcome, explicit boundaries, known dependencies, exact documentation
-impact, validation strategy, and enough design intent for bounded implementation tasks. Record non-blocking unknowns as
-deferred decisions.
+Continue until every feature receiving implementation tasks has a clear outcome, explicit boundaries, known
+dependencies, exact documentation impact, validation strategy, and enough design intent for every task to execute
+without choosing product policy. Audit each proposed task explicitly: an implementation agent must be able to satisfy
+its acceptance criteria without asking the user to select behavior, schema, UX, compatibility, dependency, ownership, or
+rollout policy.
+
+Ask now about every decision that could materially change a task's implementation or acceptance. Record an unknown as a
+deferred decision only when it does not block or alter any planned task, and name its owner and trigger for revisiting.
+Implementation-ready designs must have no open decision required by their tasks. If the user ends planning before the
+loop completes, do not create tasks for the unresolved scope; report planning as incomplete instead.
 
 ## 4. Decompose Features
 
@@ -92,8 +99,9 @@ Use the highest assigned number plus ten by default. Use an unused gap only for 
 dependency changes never renumber an existing feature.
 
 Create a durable design and lifecycle when the outcome, boundaries, dependencies, validation, and documentation impact
-are known. Keep a feature roadmap-only only when at least one of those elements is materially unresolved, and record the
-exact missing decision.
+are known. Keep a feature roadmap-only when those elements remain unresolved, but create no implementation tasks for it.
+Native planning must never encode a missing user decision as an implementation blocker; only imported migration work may
+temporarily retain such a gap.
 
 ## 5. Design the Documentation Structure
 
@@ -195,7 +203,7 @@ so downstream skills use one interface for both shapes.
 Create bounded tasks beneath the lifecycle implementation coordinator. Each task contains:
 
 - one concrete outcome and bounded scope;
-- acceptance criteria;
+- acceptance criteria that require no new user decision;
 - relevant design sections;
 - exact documentation ownership;
 - validation commands or evidence;
@@ -214,6 +222,10 @@ F<num> <task-key> — <concrete outcome>
 Store `feature_number`, `feature_slug`, and `feature_name` on every lifecycle and implementation task. The feature epic
 remains the single parent/container; the implementation coordinator is a task gate with bounded tasks beneath it, not a
 second feature epic or a milestone.
+
+Before completing the graph, reject or rewrite any native task containing `TBD`, unresolved alternatives, "decide",
+"choose", or research whose result selects required product behavior. Research tasks may gather implementation facts
+only when every possible result fits an already-decided contract.
 
 ## 9. Complete Planning State
 
@@ -235,7 +247,9 @@ Commit planning documentation when downstream worktrees need it. Include the fea
 
 Planning is complete when the roadmap is coherent, each feature is one human-named Beads epic with lifecycle/tasks
 beneath it, near-term features have stable numbers and designs, implementation is decomposed into bounded work, exact
-documentation changes and validation are assigned, and unresolved blockers are explicit.
+documentation changes and validation are assigned, and every native implementation task is executable without another
+user decision. Unresolved decision blockers are permitted only on work imported by `/migrate-workflow` and must carry
+explicit reconciliation provenance.
 
 Select the recommended feature from Beads rather than manually copying a hash:
 
