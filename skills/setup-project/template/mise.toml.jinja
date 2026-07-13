@@ -1,0 +1,39 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[tools]
+hk = "1.49.0"
+node = "lts"
+mdbook = "latest"
+uv = "latest"
+rumdl = "latest"
+typos = "latest"
+"npm:markdown-table-formatter" = "latest"
+
+[env]
+HK_MISE = 1
+
+[tasks.check]
+description = "Run repository validation"
+run = "hk check -a"
+
+[tasks.fix]
+description = "Apply deterministic repository fixes"
+run = "hk fix -a"
+
+[tasks."docs:check"]
+description = "Validate and build the documentation"
+depends = ["docs:build"]
+run = "uv run scripts/check-docs.py"
+
+[tasks."docs:build"]
+description = "Build the documentation site"
+run = "mdbook build docs"
+
+[tasks."docs:serve"]
+description = "Serve the documentation site locally"
+usage = 'arg "[port]" help="Port to serve on" default="3000"'
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+mdbook serve docs --port "${usage_port:-3000}"
+'''

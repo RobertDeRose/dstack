@@ -1,0 +1,32 @@
+# Tooling reference
+
+## Files
+
+| File                       | Contract                                                                    |
+|----------------------------|-----------------------------------------------------------------------------|
+| `mise.toml`                | Declares project tools, environment, and named tasks.                       |
+| `mise.lock`                | Project-owned resolved downloads; commit it.                                |
+| `hk.pkl`                   | Defines the shared check/fix/pre-commit step map.                           |
+| `.config/rumdl.toml`       | Configures Markdown linting and deterministic fixes.                        |
+| `scripts/setup-tooling.py` | Resolves the lock, installs tools, installs hooks, and returns JSON status. |
+
+## Tools
+
+The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` mdBook, uv, rumdl, typos, and
+`npm:markdown-table-formatter` releases. Both hk Pkl imports use `1.49.0`.
+
+## Tasks
+
+| Task         | Behavior                                                             |
+|--------------|----------------------------------------------------------------------|
+| `check`      | Run all hk checks without requesting fixes.                          |
+| `fix`        | Apply deterministic hk fixes to the working tree.                    |
+| `docs:check` | Build the book, then validate documentation metadata and navigation. |
+| `docs:build` | Build the mdBook site.                                               |
+| `docs:serve` | Serve mdBook on port 3000 by default or a supplied port.             |
+
+The committed lock targets `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`. Windows is not part of this
+POSIX-shell task contract.
+
+Provisioning reports separate mise availability, lock, install, and hook states. Overall status is `succeeded`,
+`degraded`, or `skipped`; failed or skipped stages include exact recovery commands.

@@ -1,0 +1,57 @@
+amends "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Builtins.pkl"
+
+local linters = new Mapping<String, Step> {
+  ["byte_order_marker"] = Builtins.byte_order_marker
+  ["check_case_conflict"] = Builtins.check_case_conflict
+  ["check_executables_have_shebangs"] = Builtins.check_executables_have_shebangs
+  ["check_merge_conflict"] = Builtins.check_merge_conflict
+  ["detect_private_key"] = Builtins.detect_private_key
+  ["docs"] = new Step {
+    depends = "mise"
+    glob = List("docs/src/**/*.md", "docs/book.toml", "scripts/check-docs.py")
+    check = "uv run scripts/check-docs.py && mdbook build docs"
+  }
+  ["fix_smart_quotes"] = (Builtins.fix_smart_quotes) {
+    depends = "byte_order_marker"
+  }
+  ["markdown-table-formatter"] = new Step {
+    depends = "fix_smart_quotes"
+    glob = List("**/*.md", "**/*.markdown")
+    check_diff = "markdown-table-formatter --check {{ files }}"
+    fix = "markdown-table-formatter {{ files }}"
+  }
+  ["mise"] = (Builtins.mise) {
+    depends = "trailing_whitespace"
+  }
+  ["newlines"] = (Builtins.newlines) {
+    depends = "markdown-table-formatter"
+  }
+  ["rumdl"] = new Step {
+    depends = "newlines"
+    glob = List("**/*.md", "**/*.markdown")
+    check = "rumdl check --config .config/rumdl.toml {{ files }}"
+    fix = "rumdl check --config .config/rumdl.toml --fix {{ files }}"
+  }
+  ["trailing_whitespace"] = (Builtins.trailing_whitespace) {
+    depends = "rumdl"
+  }
+  ["typos"] = (Builtins.typos) {
+    depends = "mise"
+  }
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+  ["check"] {
+    steps = linters
+  }
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+}

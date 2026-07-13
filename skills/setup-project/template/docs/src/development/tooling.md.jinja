@@ -1,0 +1,35 @@
+# Developer tooling
+
+The repository uses mise to provide project tools and named tasks. Install mise, then run:
+
+```bash
+mise install --locked
+```
+
+Use the same commands locally and in automation:
+
+```bash
+mise run check
+mise run fix
+mise run docs:check
+mise run docs:serve
+```
+
+`check` is read-only. `fix` changes the working tree. The pre-commit hook may fix files while safely stashing unrelated
+unstaged work.
+
+## Hooks and recovery
+
+Setup installs repository-local hk hooks when the destination is a Git repository. To restore tooling after an offline
+or degraded setup, run:
+
+```bash
+python3 scripts/setup-tooling.py --json
+```
+
+The command preserves the scaffold when resolution, installation, or hook setup fails and reports the failed stage and
+recovery commands. A repository created without Git can install hooks after Git initialization with:
+
+```bash
+mise x -- hk install --mise
+```

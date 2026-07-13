@@ -27,19 +27,28 @@ empty page merely to fill a category. Keep navigation, feature designs, and vali
 
 ## Concerns for this [[ project_kind ]] project
 
-[% if project_kind == "library" %] Add focused pages when the library has concrete installation or usage, public API and
-compatibility, diagnostics, development, or architecture decisions to document. [% elif project_kind == "cli" %] Add
-focused pages when the CLI has concrete installation or usage, commands, configuration, files, exit behavior,
-troubleshooting, development, or architecture decisions to document. [% elif project_kind == "service" %] Add focused
-pages when the service has concrete deployment, operations, health, observability, recovery, interfaces, configuration,
-development, architecture, or security-boundary facts to document. [% elif project_kind == "application" %] Add focused
-pages when the application has concrete getting-started, user workflow, configuration, troubleshooting, development, or
-architecture facts to document. [% elif project_kind == "infrastructure" %] Add focused pages when the infrastructure
-project has concrete environment, deployment, operations, recovery, inventory, configuration, security, development, or
-architecture facts to document. [% elif project_kind == "documentation" %] Add focused pages when the documentation
-project has concrete authoring, development, structure, style, publication, or reference facts to document. [% else %]
+[% if project_kind == "library" -%]
+Add focused pages when the library has concrete installation or usage, public API and compatibility, diagnostics,
+development, or architecture decisions to document.
+[%- elif project_kind == "cli" -%]
+Add focused pages when the CLI has concrete installation or usage, commands, configuration, files, exit behavior,
+troubleshooting, development, or architecture decisions to document.
+[%- elif project_kind == "service" -%]
+Add focused pages when the service has concrete deployment, operations, health, observability, recovery, interfaces,
+configuration, development, architecture, or security-boundary facts to document.
+[%- elif project_kind == "application" -%]
+Add focused pages when the application has concrete getting-started, user workflow, configuration, troubleshooting,
+development, or architecture facts to document.
+[%- elif project_kind == "infrastructure" -%]
+Add focused pages when the infrastructure project has concrete environment, deployment, operations, recovery, inventory,
+configuration, security, development, or architecture facts to document.
+[%- elif project_kind == "documentation" -%]
+Add focused pages when the documentation project has concrete authoring, development, structure, style, publication, or
+reference facts to document.
+[%- else -%]
 No documentation concern is presumed for this project kind. Add a focused page only when a durable reader question has a
-concrete answer. [% endif %]
+concrete answer.
+[%- endif %]
 
 ## Feature documentation
 

@@ -88,8 +88,13 @@ REQUIRED_TEMPLATE_FILES = (
     "[[ _copier_conf.answers_file ]].jinja",
     "[% if include_readme %]README.md[% endif %].jinja",
     "AGENTS.md.jinja",
+    ".config/rumdl.toml",
+    "hk.pkl",
+    "mise.toml.jinja",
     "docs/book.toml.jinja",
     "docs/src/SUMMARY.md.jinja",
+    "docs/src/development/tooling.md.jinja",
+    "docs/src/reference/tooling.md.jinja",
     "docs/src/features/_template/design.md",
     "docs/src/features/_template/index.md",
     "scripts/check-docs.py",
@@ -112,12 +117,14 @@ REMOVED_CONTENT_FREE_DOCS = (
 INITIAL_READER_MARKDOWN = {
     "SUMMARY.md",
     "development/feature-lifecycle.md",
+    "development/tooling.md",
     "features/_template/design.md",
     "features/_template/index.md",
     "features/index.md",
     "introduction/documentation-conventions.md",
     "introduction/project-overview.md",
     "planned-features.md",
+    "reference/tooling.md",
 }
 
 KIND_GUIDANCE = {
@@ -791,6 +798,71 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert "resume only the original reviewers whose domains changed" in agents
         assert "original packet when one exists" in agents
 
+        mise_config = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+        assert mise_config["tools"] == {
+            "hk": "1.49.0",
+            "node": "lts",
+            "mdbook": "latest",
+            "uv": "latest",
+            "rumdl": "latest",
+            "typos": "latest",
+            "npm:markdown-table-formatter": "latest",
+        }
+        assert mise_config["tasks"] == {
+            "check": {"description": "Run repository validation", "run": "hk check -a"},
+            "fix": {"description": "Apply deterministic repository fixes", "run": "hk fix -a"},
+            "docs:check": {
+                "description": "Validate and build the documentation",
+                "depends": ["docs:build"],
+                "run": "uv run scripts/check-docs.py",
+            },
+            "docs:build": {"description": "Build the documentation site", "run": "mdbook build docs"},
+            "docs:serve": {
+                "description": "Serve the documentation site locally",
+                "usage": 'arg "[port]" help="Port to serve on" default="3000"',
+                "run": ('#!/usr/bin/env bash\nset -euo pipefail\nmdbook serve docs --port "${usage_port:-3000}"\n'),
+            },
+        }
+        assert mise_config["env"] == {"HK_MISE": 1}
+        assert "hooks" not in mise_config
+
+        hk_config = (project / "hk.pkl").read_text(encoding="utf-8")
+        assert hk_config.count("v1.49.0/hk@1.49.0") == 2
+        assert hk_config.count('stash = "git"') == 1
+        step_config = hk_config.split("\nhooks {", 1)[0]
+        assert set(re.findall(r'^  \["([^\"]+)"\] =', step_config, flags=re.MULTILINE)) == {
+            "byte_order_marker",
+            "check_case_conflict",
+            "check_executables_have_shebangs",
+            "check_merge_conflict",
+            "detect_private_key",
+            "docs",
+            "fix_smart_quotes",
+            "markdown-table-formatter",
+            "mise",
+            "newlines",
+            "rumdl",
+            "trailing_whitespace",
+            "typos",
+        }
+        for dependency in (
+            'depends = "byte_order_marker"',
+            'depends = "fix_smart_quotes"',
+            'depends = "markdown-table-formatter"',
+            'depends = "newlines"',
+            'depends = "rumdl"',
+            'depends = "trailing_whitespace"',
+            'depends = "mise"',
+        ):
+            assert dependency in hk_config
+        assert set(re.findall(r'^  \["(pre-commit|check|fix)"\]', hk_config, flags=re.MULTILINE)) == {
+            "pre-commit",
+            "check",
+            "fix",
+        }
+        assert (project / ".config/rumdl.toml").is_file()
+        assert "mise.lock" not in (project / ".gitignore").read_text(encoding="utf-8")
+
         answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
         expected_brief = {**SETUP_BRIEF, "project_kind": kind}
         assert {field: answers[field] for field in expected_brief} == expected_brief
@@ -830,6 +902,9 @@ def test_setup_project_renders_the_factual_book_matrix(
             readme = (project / "README.md").read_text(encoding="utf-8")
             assert f"# {expected_name}" in readme
             assert expected_purpose in readme
+            assert "mise run docs:check" in readme
+            assert "mise run docs:serve" in readme
+            assert "uv run scripts/check-docs.py" not in readme
 
         book = tomllib.loads((project / "docs/book.toml").read_text(encoding="utf-8"))["book"]
         assert book["title"] == PUNCTUATED_PROJECT_NAME
@@ -839,7 +914,9 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert re.findall(r"\]\(([^)]+)\)", summary) == [
             "introduction/project-overview.md",
             "introduction/documentation-conventions.md",
+            "development/tooling.md",
             "development/feature-lifecycle.md",
+            "reference/tooling.md",
             "planned-features.md",
             "features/index.md",
         ]
@@ -852,6 +929,45 @@ def test_setup_project_renders_the_factual_book_matrix(
         )
         run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
         run_command(["mdbook", "build", "docs"], cwd=project)
+
+
+@pytest.mark.external
+def test_generated_hk_serializes_fixes_and_preserves_unstaged_work(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    required = ("hk", "mise", "mdbook", "uv", "rumdl", "typos", "markdown-table-formatter")
+    missing = [tool for tool in required if shutil.which(tool) is None]
+    if missing:
+        pytest.skip(f"Live generated-tooling validation requires: {', '.join(missing)}")
+
+    project = tmp_path / "tooling"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+    run_command(["mise", "trust", "-y"], cwd=project)
+
+    tasks = json.loads(run_command(["mise", "tasks", "--json"], cwd=project).stdout)
+    assert {task["name"] for task in tasks} == {"check", "fix", "docs:check", "docs:build", "docs:serve"}
+    run_command(["hk", "config", "dump"], cwd=project)
+    run_command(["hk", "check", "-a"], cwd=project)
+
+    markdown = project / "race.md"
+    markdown.write_text("# Race\n\n| A | B |\n|---|---|\n| one | two |  \n", encoding="utf-8")
+    mise_toml = project / "mise.toml"
+    mise_toml.write_text(
+        mise_toml.read_text(encoding="utf-8").replace('hk = "1.49.0"', 'hk="1.49.0"  '),
+        encoding="utf-8",
+    )
+    run_command(["git", "add", "race.md", "mise.toml"], cwd=project)
+    readme = project / "README.md"
+    readme.write_text(readme.read_text(encoding="utf-8") + "\nUnstaged project note.\n", encoding="utf-8")
+
+    run_command(["hk", "run", "pre-commit"], cwd=project)
+    run_command(["git", "diff", "--cached", "--check"], cwd=project)
+    run_command(["mise", "fmt", "--check"], cwd=project)
+    assert readme.read_text(encoding="utf-8").endswith("\nUnstaged project note.\n")
+    assert "race.md" in run_command(["git", "diff", "--cached", "--name-only"], cwd=project).stdout
 
 
 @pytest.mark.integration

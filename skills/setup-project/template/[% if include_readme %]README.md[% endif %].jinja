@@ -47,11 +47,14 @@ Use the installed lifecycle skills:
 /audit-project
 ```
 
-Validate or serve the documentation:
+Install the locked developer tools, then validate or serve the documentation:
 
 ```bash
-uv run scripts/check-docs.py
-mdbook serve docs --open
+mise install --locked
+mise run docs:check
+mise run docs:serve
 ```
+
+Run the complete quality contract with `mise run check`; apply deterministic fixes with `mise run fix`.
 
 The project was generated from `RobertDeRose/dstack` with Copier. Commit the scaffold before applying future template updates with `/update-project` or `copier update --defaults`.
