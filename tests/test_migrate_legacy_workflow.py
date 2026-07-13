@@ -209,6 +209,7 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
                     "type": flag("--type", "task"),
                     "status": flag("--status", "open"),
                     "parent": flag("--parent"),
+                    "dependencies": {},
                     "labels": [value for value in labels_raw.split(",") if value],
                     "metadata": json.loads(metadata_raw),
                 }
@@ -251,6 +252,29 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
                     issue["status"] = "closed"
                     save()
                 print("ok")
+            elif args[:2] == ["dep", "add"]:
+                issue = issues.get(args[2])
+                if issue is not None:
+                    issue.setdefault("dependencies", {})[args[3]] = flag("--type", "blocks")
+                    save()
+                print("ok")
+            elif args[:2] == ["dep", "remove"]:
+                issue = issues.get(args[2])
+                if issue is not None:
+                    issue.setdefault("dependencies", {}).pop(args[3], None)
+                    save()
+                print("ok")
+            elif args[:2] == ["dep", "list"]:
+                issue = issues.get(args[2], {})
+                values = []
+                for dependency_id, dependency_type in issue.get("dependencies", {}).items():
+                    dependency = issues.get(dependency_id)
+                    if dependency is None:
+                        continue
+                    value = dict(dependency)
+                    value["dependency_type"] = dependency_type
+                    values.append(value)
+                print(json.dumps(values))
             else:
                 print("ok")
             """
@@ -501,7 +525,7 @@ def test_dependency_cycle_is_preflighted_before_beads_mutation(
     assert "must be resolved before Beads import" in result.stderr
     assert not (state_dir / "called").exists()
 
-    run_migrator(
+    related = run_migrator(
         tmp_path,
         "dependency",
         "alpha",
@@ -509,12 +533,156 @@ def test_dependency_cycle_is_preflighted_before_beads_mutation(
         "related",
         "--reason",
         "Alpha is a follow-up, not a hard prerequisite.",
+        expected=2,
+    )
+    assert "bd list" in related.stderr
+    assert "use `remove`" in related.stderr
+    features = features_by_slug(tmp_path)
+    assert features["alpha"]["dependencies"] == ["beta"]
+    assert features["alpha"]["related_dependencies"] == []
+
+    run_migrator(
+        tmp_path,
+        "dependency",
+        "alpha",
+        "beta",
+        "remove",
+        "--reason",
+        "Beta already depends on alpha, so the reverse inferred edge is redundant.",
     )
     run_migrator(tmp_path, "scan", "--write")
     features = features_by_slug(tmp_path)
     assert features["alpha"]["dependencies"] == []
-    assert features["alpha"]["related_dependencies"] == ["beta"]
-    assert not any("Feature dependency cycle" in item for feature in features.values() for item in feature["conflicts"])
+    assert features["alpha"]["related_dependencies"] == []
+    assert features["alpha"]["removed_dependencies"] == ["beta"]
+    assert not any("cycle" in item.casefold() for feature in features.values() for item in feature["conflicts"])
+
+
+@pytest.mark.integration
+def test_rescan_detects_legacy_mixed_relationship_cycle_before_import(tmp_path: Path) -> None:
+    create_cyclic_project(tmp_path)
+    run_migrator(tmp_path, "scan", "--write")
+
+    manifest_path = tmp_path / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    alpha = next(feature for feature in manifest["features"] if feature["slug"] == "alpha")
+    alpha["dependency_overrides"]["beta"] = {
+        "relation": "related",
+        "reason": "Legacy migration downgraded the reverse edge to related.",
+        "decided_at": "2026-07-13T00:00:00+00:00",
+    }
+    alpha["dependencies"] = []
+    alpha["related_dependencies"] = ["beta"]
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    run_migrator(tmp_path, "scan", "--write")
+    features = features_by_slug(tmp_path)
+    findings = [item for feature in features.values() for item in feature["conflicts"]]
+    assert any("Feature Beads traversal cycle" in item for item in findings)
+    assert any("-[related]->" in item and "-[blocks]->" in item for item in findings)
+
+    bin_dir = tmp_path / "fake-bin"
+    state_dir = tmp_path / "fake-bd-state"
+    bin_dir.mkdir()
+    state_dir.mkdir()
+    fake_bd = bin_dir / "bd"
+    fake_bd.write_text(
+        "#!/usr/bin/env python3\n"
+        "from pathlib import Path\n"
+        "import os\n"
+        "Path(os.environ['FAKE_BD_STATE'], 'called').write_text('yes')\n",
+        encoding="utf-8",
+    )
+    fake_bd.chmod(0o755)
+    env = merged_environment(
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+        FAKE_BD_STATE=str(state_dir),
+    )
+
+    result = run_migrator(tmp_path, "import-beads", "--apply", env=env, expected=2)
+    assert "recursive Beads traversal" in result.stderr
+    assert not (state_dir / "called").exists()
+
+
+@pytest.mark.integration
+def test_dependency_command_reconciles_imported_beads_and_manifest(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+
+    features = features_by_slug(legacy_project)
+    alpha_root = features["alpha"]["beads"]["root_id"]
+    beta_root = features["beta"]["beads"]["root_id"]
+    issues_path = state_dir / "issues.json"
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    assert issues[beta_root]["dependencies"][alpha_root] == "blocks"
+
+    run_migrator(
+        legacy_project,
+        "dependency",
+        "beta",
+        "alpha",
+        "remove",
+        "--reason",
+        "The imported roadmap edge was disproven during semantic reconciliation.",
+        env=env,
+    )
+
+    updated = features_by_slug(legacy_project)["beta"]
+    assert updated["dependencies"] == []
+    assert updated["removed_dependencies"] == ["alpha"]
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    assert alpha_root not in issues[beta_root]["dependencies"]
+    commands = [json.loads(line) for line in (state_dir / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert ["dep", "remove", beta_root, alpha_root] in commands
+    run_migrator(
+        legacy_project,
+        "verify",
+        "--beads",
+        "--skip-docs-check",
+        env=env,
+    )
+
+
+@pytest.mark.integration
+def test_verify_beads_detects_actual_mixed_relationship_cycle(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+
+    features = features_by_slug(legacy_project)
+    alpha_root = features["alpha"]["beads"]["root_id"]
+    beta_root = features["beta"]["beads"]["root_id"]
+    run_command(
+        ["bd", "dep", "add", alpha_root, beta_root, "--type", "related"],
+        cwd=legacy_project,
+        env=env,
+    )
+    commands_path = legacy_project / "fake-bd-state/commands.jsonl"
+    commands_path.write_text("", encoding="utf-8")
+
+    result = run_migrator(
+        legacy_project,
+        "verify",
+        "--beads",
+        "--skip-docs-check",
+        env=env,
+        expected=1,
+    )
+    assert "Imported Beads graph contains a traversal cycle" in result.stderr
+    assert "-[related]->" in result.stderr
+    assert "-[blocks]->" in result.stderr
+    verify_commands = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
+    assert not any(command and command[0] == "list" for command in verify_commands)
+    assert any(command[:2] == ["dep", "list"] for command in verify_commands)
 
 
 @pytest.mark.integration

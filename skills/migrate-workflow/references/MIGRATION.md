@@ -187,25 +187,29 @@ arrays.
 
 ## Dependency cycles
 
-Only `blocks` affects ready-work calculation. Use `related` for context and `remove` for a false inferred relationship.
-
-Record a decision:
-
-```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py dependency F030 F050 related \
-  --reason "F030 follows F050 but is not a hard prerequisite."
-```
+`blocks` affects ready-work calculation. Both `blocks` and `related` relationships are traversed by commands such as
+`bd list`, and parent relationships are part of the same feature-root traversal graph. Therefore, a relation may be
+non-blocking and still be unsafe when it closes a recursive traversal path.
 
 Allowed relations:
 
 ```text
-blocks   hard prerequisite; affects bd ready
-related  contextual relationship; does not block
-remove   remove the inferred relationship
+blocks   hard prerequisite; affects bd ready and is traversed by bd list
+related  contextual relationship; does not block, but is still traversed by bd list
+remove   remove a false, redundant, or directionally duplicated inferred relationship
 ```
 
-The complete feature graph is validated before Beads mutation. Update roadmap prose whenever the semantic relationship
-changes.
+Use `related` only when the complete graph remains acyclic. It is not a way to break a reciprocal dependency. When F030
+already blocks on F050, a reverse F050-to-F030 relationship normally adds no information and should be removed instead:
+
+```bash
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py dependency F050 F030 remove \
+  --reason "F030 already blocks on F050; the reverse inferred edge is redundant and would create recursive traversal."
+```
+
+Preserve useful context in the reason, roadmap prose, design, or Beads notes rather than adding a redundant reverse
+edge. The migration command validates the blocking DAG and the complete `blocks`/`related`/parent traversal graph before
+Beads mutation. Update roadmap prose whenever the semantic relationship changes.
 
 ## Preparing numbered paths
 
@@ -242,8 +246,13 @@ The preflight validates:
 - lifecycle formula syntax and unique step IDs;
 - formula dependency cycles;
 - Beads issue-type blocker compatibility;
-- complete feature dependency cycles;
+- the blocking feature dependency DAG;
+- the complete feature-root traversal graph across `blocks`, `related`, and parent relationships;
 - legacy task parser coverage.
+
+A clean `bd dep cycles` result is not sufficient evidence for the complete graph because that command reports blocking
+cycles. The migration preflight additionally rejects mixed relationship cycles that would make recursive traversal
+commands such as `bd list` repeat indefinitely.
 
 Apply only after preflight succeeds:
 
@@ -263,6 +272,11 @@ When a partial import exists:
 
 When duplicates are reported, do not delete issues blindly. Compare migration identity, parent/root, notes, and history;
 retain the manifest-backed canonical record, record the decision, and remove only a proven duplicate.
+
+When an imported feature relationship must be corrected, rerun the same `dependency` command with an evidence-backed
+reason. After import has started, the helper reconciles the Beads edge and migration manifest together. Do not run
+`bd dep remove` and then hand-edit `migration/workflow-migration.json`; that can leave the durable audit state and Beads
+state disagreeing.
 
 The importer creates one feature root per roadmap feature, lifecycle/review tasks, live implementation tasks, hard and
 related dependencies, evidence notes, and reconciliation work. Legacy `T000` and `T999` become lifecycle evidence rather
@@ -319,6 +333,10 @@ bd dep cycles
 bd blocked --json
 bd ready --json
 ```
+
+`verify --beads` validates both the manifest relationships and the actual imported feature-root graph. Keep
+`bd dep cycles` as a blocking/readiness diagnostic, but do not use it as the sole graph-safety check because it does not
+report mixed `blocks`/`related` traversal cycles.
 
 Run repository-native formatting, linting, documentation build, tests, and feature-specific checks. If no tests exist,
 record that limitation instead of treating pytest exit code 5 as a failed suite. After any fix, rerun every affected

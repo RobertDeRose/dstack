@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
 import hashlib
 import io
 import json
@@ -111,6 +112,10 @@ VALID_CLASSIFICATIONS = {
     "deferred",
     "needs_review",
 }
+CYCLE_CONFLICT_PREFIXES = (
+    "Feature dependency cycle:",
+    "Feature Beads traversal cycle:",
+)
 
 LIFECYCLE_METADATA_KEYS = {
     "design": "design_id",
@@ -581,8 +586,7 @@ def canonical_cycle(nodes: Sequence[str]) -> tuple[str, ...]:
     return min(rotations)
 
 
-def dependency_cycles(features: Sequence[Mapping[str, Any]]) -> list[list[str]]:
-    graph = {str(feature["slug"]): [str(value) for value in feature.get("dependencies", [])] for feature in features}
+def graph_cycles(graph: Mapping[str, Sequence[str]]) -> list[list[str]]:
     state: dict[str, int] = {}
     stack: list[str] = []
     cycles: set[tuple[str, ...]] = set()
@@ -607,11 +611,80 @@ def dependency_cycles(features: Sequence[Mapping[str, Any]]) -> list[list[str]]:
     return [[*list(cycle), cycle[0]] for cycle in sorted(cycles) if cycle]
 
 
-def add_global_dependency_findings(features: list[dict[str, Any]]) -> list[list[str]]:
-    cycles = dependency_cycles(features)
+def feature_relationships(feature: Mapping[str, Any], *, include_related: bool) -> dict[str, str]:
+    relationships = {str(value): "blocks" for value in feature.get("dependencies", [])}
+    if not include_related:
+        return relationships
+    for value in feature.get("related_dependencies", []):
+        relationships.setdefault(str(value), "related")
+    parent = feature.get("parent_feature")
+    if parent:
+        relationships.setdefault(str(parent), "related(parent)")
+    return relationships
+
+
+def feature_relationship_graph(
+    features: Sequence[Mapping[str, Any]],
+    *,
+    include_related: bool,
+) -> dict[str, list[str]]:
+    return {
+        str(feature["slug"]): sorted(feature_relationships(feature, include_related=include_related))
+        for feature in features
+    }
+
+
+def dependency_cycles(features: Sequence[Mapping[str, Any]]) -> list[list[str]]:
+    return graph_cycles(feature_relationship_graph(features, include_related=False))
+
+
+def beads_traversal_cycles(features: Sequence[Mapping[str, Any]]) -> list[list[str]]:
+    """Return cycles across every feature relationship traversed by ``bd list``."""
+    return graph_cycles(feature_relationship_graph(features, include_related=True))
+
+
+def render_typed_cycle(cycle: Sequence[str], relationships: Mapping[tuple[str, str], str]) -> str:
+    if not cycle:
+        return ""
+    rendered = [str(cycle[0])]
+    for index in range(len(cycle) - 1):
+        source = str(cycle[index])
+        target = str(cycle[index + 1])
+        rendered.append(f"-[{relationships.get((source, target), 'unknown')}]-> {target}")
+    return " ".join(rendered)
+
+
+def render_relationship_cycle(cycle: Sequence[str], features: Sequence[Mapping[str, Any]]) -> str:
     by_slug = {str(feature["slug"]): feature for feature in features}
-    for cycle in cycles:
-        message = "Feature dependency cycle: " + " -> ".join(cycle)
+    relationships = {
+        (source, target): relation
+        for source, feature in by_slug.items()
+        for target, relation in feature_relationships(feature, include_related=True).items()
+    }
+    return render_typed_cycle(cycle, relationships)
+
+
+def cycle_contains_edge(cycle: Sequence[str], source: str, target: str) -> bool:
+    return any(cycle[index] == source and cycle[index + 1] == target for index in range(len(cycle) - 1))
+
+
+def add_global_dependency_findings(features: list[dict[str, Any]]) -> list[list[str]]:
+    blocking_cycles = dependency_cycles(features)
+    traversal_cycles = beads_traversal_cycles(features)
+    blocking_keys = {canonical_cycle(cycle) for cycle in blocking_cycles}
+    findings = [
+        (cycle, "Feature dependency cycle: " + " -> ".join(cycle)) for cycle in blocking_cycles
+    ]
+    findings.extend(
+        (
+            cycle,
+            "Feature Beads traversal cycle: " + render_relationship_cycle(cycle, features),
+        )
+        for cycle in traversal_cycles
+        if canonical_cycle(cycle) not in blocking_keys
+    )
+    by_slug = {str(feature["slug"]): feature for feature in features}
+    for cycle, message in findings:
         conflict_id = finding_id(message)
         for slug in cycle[:-1]:
             feature = by_slug[slug]
@@ -627,7 +700,7 @@ def add_global_dependency_findings(features: list[dict[str, Any]]) -> list[list[
                 feature["computed_classification"] = "needs_review"
                 if not feature.get("classification_override"):
                     feature["classification"] = "needs_review"
-    return cycles
+    return traversal_cycles
 
 
 def build_manifest(
@@ -1336,7 +1409,7 @@ def run_command(
     return (result.stdout or "").strip()
 
 
-def parse_bd_issue_list(output: str) -> list[dict[str, Any]]:
+def parse_bd_issue_list(output: str, *, command: str = "bd list --json") -> list[dict[str, Any]]:
     if not output.strip():
         return []
     value = json.loads(output)
@@ -1347,7 +1420,7 @@ def parse_bd_issue_list(output: str) -> list[dict[str, Any]]:
                 value = candidate
                 break
     if not isinstance(value, list):
-        message = "bd list --json returned an unexpected payload"
+        message = f"{command} returned an unexpected payload"
         raise MigrationError(message)
     return [item for item in value if isinstance(item, dict)]
 
@@ -1615,6 +1688,63 @@ def bd_dep(root: Path, issue_id: str, depends_on: str, dep_type: str = "blocks")
     )
 
 
+def bd_dependency_types(root: Path, issue_id: str) -> dict[str, str]:
+    output = run_command(["bd", "dep", "list", issue_id, "--json"], cwd=root)
+    dependencies = parse_bd_issue_list(output, command="bd dep list --json")
+    return {
+        str(item["id"]): str(item.get("dependency_type") or "blocks")
+        for item in dependencies
+        if item.get("id")
+    }
+
+
+def bd_remove_dep(root: Path, issue_id: str, depends_on: str) -> None:
+    run_command(["bd", "dep", "remove", issue_id, depends_on], cwd=root)
+
+
+def reconcile_bd_relation(
+    root: Path,
+    *,
+    issue_id: str,
+    depends_on: str,
+    relation: str,
+) -> None:
+    existing = bd_dependency_types(root, issue_id).get(depends_on)
+    desired = None if relation == "remove" else relation
+    if existing == desired:
+        return
+    if existing is not None:
+        bd_remove_dep(root, issue_id, depends_on)
+    if desired is not None:
+        bd_dep(root, issue_id, depends_on, desired)
+
+
+def bd_feature_relationship_graph(
+    root: Path,
+    features: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, list[str]], dict[tuple[str, str], str]]:
+    slug_by_id = {
+        str(feature.get("beads", {}).get("root_id")): str(feature["slug"])
+        for feature in features
+        if feature.get("beads", {}).get("root_id")
+    }
+    graph = {str(feature["slug"]): [] for feature in features}
+    relationships: dict[tuple[str, str], str] = {}
+    for feature in features:
+        source = str(feature["slug"])
+        issue_id = str(feature.get("beads", {}).get("root_id") or "")
+        if not issue_id:
+            continue
+        for dependency_id, relation in bd_dependency_types(root, issue_id).items():
+            target = slug_by_id.get(dependency_id)
+            if target is None:
+                continue
+            graph[source].append(target)
+            relationships[(source, target)] = relation
+        graph[source] = sorted(set(graph[source]))
+    return graph, relationships
+
+
 def load_formula(root: Path) -> dict[str, Any]:
     path = root / FORMULA_PATH
     if not path.exists():
@@ -1695,13 +1825,24 @@ def preflight_import(manifest: Mapping[str, Any], formula: Mapping[str, Any]) ->
             + ", ".join(unparsed)
             + ". Extend the parser or resolve the finding after manually mapping the task state."
         )
-    cycles = dependency_cycles([feature for feature in manifest.get("features", []) if isinstance(feature, dict)])
-    if cycles:
-        rendered = "; ".join(" -> ".join(cycle) for cycle in cycles)
+    features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
+    blocking_cycles = dependency_cycles(features)
+    if blocking_cycles:
+        rendered = "; ".join(" -> ".join(cycle) for cycle in blocking_cycles)
         raise MigrationError(
-            "Feature dependency cycles must be resolved before Beads import: "
+            "Feature blocking dependency cycles must be resolved before Beads import: "
             + rendered
-            + ". Use the dependency command to downgrade one edge to related or remove it."
+            + ". Remove or correct one inferred edge. Do not downgrade it to related: "
+            "bd list traverses related edges too."
+        )
+    traversal_cycles = beads_traversal_cycles(features)
+    if traversal_cycles:
+        rendered = "; ".join(render_relationship_cycle(cycle, features) for cycle in traversal_cycles)
+        raise MigrationError(
+            "Feature relationships would create recursive Beads traversal: "
+            + rendered
+            + ". Remove or correct one inferred edge; related is only valid when the complete traversal graph remains "
+            "acyclic."
         )
 
 
@@ -2119,47 +2260,84 @@ def set_dependency_relation(
     if not reason.strip():
         msg = "--reason is required when changing a dependency relation"
         raise MigrationError(msg)
-    if manifest.get("beads_import_started"):
-        msg = (
-            "Dependency overrides must be settled before Beads import starts. "
-            "Reconcile an already-imported edge directly in Beads."
-        )
-        raise MigrationError(msg)
-    overrides = feature.setdefault("dependency_overrides", {})
-    overrides[dependency["slug"]] = {
+
+    decided_at = utc_now()
+    candidate_manifest = copy.deepcopy(manifest)
+    candidate_feature = selected_features(candidate_manifest, [requested])[0]
+    candidate_dependency = selected_features(candidate_manifest, [dependency_requested])[0]
+    overrides = candidate_feature.setdefault("dependency_overrides", {})
+    overrides[candidate_dependency["slug"]] = {
         "relation": relation,
         "reason": reason.strip(),
-        "decided_at": utc_now(),
+        "decided_at": decided_at,
     }
     known = {
         str(value)
         for field_name in ("dependencies", "related_dependencies", "removed_dependencies")
-        for value in feature.get(field_name, [])
+        for value in candidate_feature.get(field_name, [])
     }
-    known.add(str(dependency["slug"]))
-    feature["dependencies"] = sorted(
+    known.add(str(candidate_dependency["slug"]))
+    candidate_feature["dependencies"] = sorted(
         value for value in known if str(overrides.get(value, {}).get("relation", "blocks")) == "blocks"
     )
-    feature["related_dependencies"] = sorted(
+    candidate_feature["related_dependencies"] = sorted(
         value for value in known if str(overrides.get(value, {}).get("relation", "blocks")) == "related"
     )
-    feature["removed_dependencies"] = sorted(
+    candidate_feature["removed_dependencies"] = sorted(
         value for value in known if str(overrides.get(value, {}).get("relation", "blocks")) == "remove"
     )
-    feature.setdefault("migration_decisions", []).append(
+    candidate_feature.setdefault("migration_decisions", []).append(
         {
-            "at": utc_now(),
+            "at": decided_at,
             "kind": "dependency_relation",
-            "dependency": dependency["slug"],
+            "dependency": candidate_dependency["slug"],
             "relation": relation,
             "reason": reason.strip(),
         }
     )
-    for candidate in manifest.get("features", []):
-        candidate["conflicts"] = [
-            item for item in candidate.get("conflicts", []) if not str(item).startswith("Feature dependency cycle:")
+    for item in candidate_manifest.get("features", []):
+        item["conflicts"] = [
+            conflict
+            for conflict in item.get("conflicts", [])
+            if not str(conflict).startswith(CYCLE_CONFLICT_PREFIXES)
         ]
-    add_global_dependency_findings(manifest["features"])
+    add_global_dependency_findings(candidate_manifest["features"])
+
+    source_slug = str(candidate_feature["slug"])
+    target_slug = str(candidate_dependency["slug"])
+    offending_cycles = [
+        cycle
+        for cycle in beads_traversal_cycles(candidate_manifest["features"])
+        if cycle_contains_edge(cycle, source_slug, target_slug)
+    ]
+    if relation != "remove" and offending_cycles:
+        rendered = "; ".join(
+            render_relationship_cycle(cycle, candidate_manifest["features"]) for cycle in offending_cycles
+        )
+        hint = (
+            "`bd list` traverses `related` edges, so use `remove` or correct the roadmap direction instead."
+            if relation == "related"
+            else "Use `remove` or correct the roadmap direction instead."
+        )
+        msg = (
+            f"Cannot set this relationship to {relation}: it participates in a Beads traversal cycle: "
+            f"{rendered}. {hint}"
+        )
+        raise MigrationError(msg)
+
+    if manifest.get("beads_import_started"):
+        issue_id = str(feature.get("beads", {}).get("root_id") or "")
+        depends_on = str(dependency.get("beads", {}).get("root_id") or "")
+        if not issue_id or not depends_on:
+            msg = (
+                "Cannot reconcile an imported dependency until both feature root IDs are recorded in the migration "
+                "manifest. Rerun import-beads recovery first."
+            )
+            raise MigrationError(msg)
+        reconcile_bd_relation(root, issue_id=issue_id, depends_on=depends_on, relation=relation)
+
+    manifest.clear()
+    manifest.update(candidate_manifest)
     save_manifest_and_report(root, manifest_path, report_path, manifest)
     print(f"Set F{feature['number']} {feature['slug']} -> F{dependency['number']} {dependency['slug']} as {relation}.")
 
@@ -2407,8 +2585,13 @@ def finalize_migration(
 def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: bool) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    mapping = {feature["slug"]: f"{feature['number']}-{feature['slug']}" for feature in manifest.get("features", [])}
-    for feature in manifest.get("features", []):
+    features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
+    mapping = {feature["slug"]: f"{feature['number']}-{feature['slug']}" for feature in features}
+    for cycle in beads_traversal_cycles(features):
+        errors.append(
+            "Migration manifest contains a Beads traversal cycle: " + render_relationship_cycle(cycle, features)
+        )
+    for feature in features:
         source = root / feature["source_dir"]
         target = root / feature["target_dir"]
         if manifest.get("migration_prepared") and not target.exists() and feature.get("has_design"):
@@ -2443,6 +2626,18 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
                 )
                 if result.returncode != 0:
                     errors.append(f"Cannot resolve Beads root {root_id} for {feature['slug']}")
+
+    if verify_beads:
+        try:
+            graph, relationships = bd_feature_relationship_graph(root, features)
+        except MigrationError as exc:
+            errors.append(f"Cannot inspect imported Beads relationships: {exc}")
+        else:
+            for cycle in graph_cycles(graph):
+                errors.append(
+                    "Imported Beads graph contains a traversal cycle: "
+                    + render_typed_cycle(cycle, relationships)
+                )
 
     for path in sorted((root / "docs/src").rglob("*.md")) if (root / "docs/src").exists() else []:
         text = read_text(path)
@@ -2661,7 +2856,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     dependency = subparsers.add_parser(
         "dependency",
-        help="Record a migration-time feature dependency relation override",
+        help="Record or reconcile a feature dependency relation during migration",
     )
     add_common_arguments(dependency)
     dependency.add_argument("feature", help="Dependent feature slug, F number, or numbered slug")

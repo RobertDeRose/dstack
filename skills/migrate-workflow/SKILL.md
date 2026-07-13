@@ -99,7 +99,8 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py scan --write
 ```
 
 Review counts, parser coverage, classifications, numbering, renames, dependencies, and findings. Stop on an unparsed
-`tasks.md` file or dependency cycle. Use these reference sections as needed:
+`tasks.md` file or any cycle in the effective Beads feature traversal graph, including `blocks`, `related`, and parent
+relationships. A `related` edge is contextual, but `bd list` still traverses it. Use these reference sections as needed:
 
 - **Task parser coverage**;
 - **Roadmap identity**;
@@ -138,9 +139,10 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
 ```
 
-The importer must reuse deterministic migration identities and stop on true duplicates. See
-**Beads import and recovery** for partial imports or duplicate records. Commit manifest and roadmap changes from the
-import.
+The importer must reuse deterministic migration identities, stop on true duplicates, validate both the blocking DAG
+and the complete feature-root traversal graph, and refuse to treat `related` as a cycle-breaking relation. See **Beads
+import and recovery** for partial imports, duplicate records, or post-import dependency correction. Commit manifest and
+roadmap changes from the import.
 
 ## Gate 6: Reconcile and finalize
 
@@ -168,15 +170,18 @@ bd blocked --json
 bd ready --json
 ```
 
-Run repository-native formatting, linting, documentation build, tests, and feature-specific checks. Rerun every check
-affected by a fix. Treat a repository with no tests as an explicit limitation, not a failed suite. See
+The migration verifier checks the manifest graph and, with `--beads`, the actual imported feature-root relationships.
+`bd dep cycles` is still useful for readiness diagnostics, but it checks blocking cycles only and cannot replace this
+verification. Run repository-native formatting, linting, documentation build, tests, and feature-specific checks. Rerun
+every check affected by a fix. Treat a repository with no tests as an explicit limitation, not a failed suite. See
 **Verification and completion**.
 
 ## Completion criteria
 
-Migration is complete only when every feature has one stable number and Beads root; parser coverage and dependency
-graphs are clean; repeated import is idempotent; live work comes from Beads; designs and delivered records preserve
-intent; roadmap, code, tests, docs, Beads, and delivery history agree; legacy tasks are archived or deliberately
+Migration is complete only when every feature has one stable number and Beads root; parser coverage, the blocking DAG,
+and the complete Beads traversal graph are clean; repeated import is idempotent; live work comes from Beads; designs and
+delivered records preserve intent; roadmap, code, tests, docs, Beads, and delivery history agree; legacy tasks are
+archived or deliberately
 removed; all available validation passes; each boundary is committed; and the final worktree is clean.
 
 ## Return
