@@ -40,39 +40,57 @@ test -z "$(git status --porcelain)"
 The conditional commit makes this resumable when the baseline is already committed and unchanged. See
 **Baseline interpretation** for missing documentation tooling, zero-test repositories, or explicit baseline commands.
 
-## Gate 2: Adopt, checkpoint, then initialize Beads without a commit
+## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
-Render and verify the pinned dstack template, then initialize Beads in stealth mode:
+Render the latest tagged new-project template into an isolated directory and adopt its managed state:
 
 ```bash
-uv run <skill-dir>/scripts/adopt-template.py
-uv run scripts/bootstrap.py --skip-beads
+uv run <skill-dir>/scripts/adopt-template.py --json
 ```
 
-Before committing adoption, run the repository's Markdown formatter or heading-capitalization check against only the new
-dstack-managed template files under `docs/src/features/_template/`. Apply its project-native style without weakening the
-repository lint policy, then checkpoint:
+The adoption helper copies missing scaffold files, merges marked dstack blocks in `AGENTS.md` and `.gitignore`, and
+updates only dstack-owned framework files directly. If Copier state already exists, it backs up the old answers and
+rebases `.copier-answers.yml` to the tagged template that was actually rendered. When an existing project-owned file
+differs from the rendered new-project structure, it preserves the project file and writes the rendered candidate under:
+
+```text
+migration/template-adoption-candidates/<same-relative-path>
+```
+
+Inspect every path in `manual_merge`. Merge only the workflow structure the existing project needs into the current
+file; do not replace project-specific navigation, architecture, operations, or reference content wholesale. Record the
+resolution, then remove `migration/template-adoption-candidates/`. The candidate directory is temporary and must not be
+committed. Validate the reconciled structure in migration mode:
 
 ```bash
+uv run scripts/check-docs.py --migration-mode
+```
+
+Before committing adoption, run the repository's Markdown formatter or heading-capitalization check against new or
+changed dstack-managed files. Apply project-native style without weakening lint policy, then checkpoint:
+
+```bash
+test ! -e migration/template-adoption-candidates
 git add -A
 git diff --cached --quiet || git commit -m "chore: adopt dstack workflow"
 test -z "$(git status --porcelain)"
 ```
 
-If `bd` exists, initialize it without allowing Beads to create an independent commit:
+If `bd` exists, initialize it directly in stealth mode without installing extra agent files, then verify the formula:
 
 ```bash
-uv run scripts/bootstrap.py --beads-mode stealth
+bd init --stealth --skip-agents
+bd formula show feature-lifecycle --json
 bd prime
 git add .beads
 git diff --cached --quiet || git commit -m "chore: initialize Beads workflow state"
 test -z "$(git status --porcelain)"
 ```
 
-`bd init --stealth` must not create its own commit. If the installed Beads version does not support `--stealth`, stop
-and report the compatibility decision instead of silently creating an extra commit. If `bd` is unavailable, record Beads
-setup as outstanding and stop before Gate 5. See **Template source and revision** for forks, local sources, or missing
-tags.
+`bd init --stealth` must not create an independent commit. If the installed Beads version does not support `--stealth`,
+stop and report the compatibility decision instead of silently creating an extra commit. If `bd` is unavailable, record
+Beads setup as outstanding and stop before Gate 5. See **Template source and revision** for forks, local sources, or
+missing tags.
 
 ## Gate 3: Scan, decide, and checkpoint
 

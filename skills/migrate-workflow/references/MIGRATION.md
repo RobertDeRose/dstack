@@ -51,41 +51,53 @@ Because `adopt-template.py` requires a clean worktree, commit the written baseli
 
 ## Template source and revision
 
-Beads initialization may create a repository commit. Commit Copier adoption first, then run `scripts/bootstrap.py` with
-Beads enabled. Record the before/after `HEAD`; preserve an auto-created Beads commit and use a separate conditional
-commit only for normalized text files or other remaining `.beads` changes.
+Adoption renders the current tagged **new-project** template into a temporary directory first. It does not depend on a
+migration script copied into the target project. Commit the reconciled Copier adoption before initializing Beads so the
+framework and workflow-state boundaries remain distinct.
 
 Default adoption:
 
 ```bash
-uv run <skill-dir>/scripts/adopt-template.py
+uv run <skill-dir>/scripts/adopt-template.py --json
 ```
 
-The installed skill defaults to `gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies it
-before Copier runs. If tags cannot be discovered, supply an explicitly reviewed revision; never silently use GitHub
-`HEAD`.
+The installed skill defaults to `gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies it before
+Copier runs. If tags cannot be discovered, supply an explicitly reviewed revision; never silently use GitHub `HEAD`.
 
 For a fork, local repository, branch, or commit:
 
 ```bash
 uv run <skill-dir>/scripts/adopt-template.py \
   --template-source <git-url-or-path> \
-  --vcs-ref <tag-branch-or-commit>
+  --vcs-ref <tag-branch-or-commit> \
+  --json
 ```
 
-Adoption preserves the existing `docs/src/SUMMARY.md` and project documentation, merges marked dstack sections into
-`AGENTS.md` and `.gitignore`, and installs workflow scripts, the lifecycle formula, and feature templates. Replaced
-framework files are backed up under `migration/template-adoption-backup/`.
+Adoption merges marked dstack sections into `AGENTS.md` and `.gitignore`. It installs dstack-owned files such as the
+lifecycle formula, documentation checker, feature templates, and Copier state. Existing Copier answers are backed up,
+then rebased to the tagged template that was rendered so later updates start from the reconciled baseline. Missing
+project scaffold files are copied. Existing project-owned files are preserved; the generated alternatives are placed under
+`migration/template-adoption-candidates/` for explicit manual reconciliation. Replaced dstack framework files are
+backed up under `migration/template-adoption-backup/`.
 
-Bootstrap detects unnumbered feature directories, live `tasks.md` files, or an existing migration manifest and invokes
-migration-aware documentation checks:
+For every `manual_merge` path, compare the current file with the candidate and merge only the needed documentation
+structure, links, markers, or conventions. Preserve project-specific content. Remove the candidate directory before the
+adoption checkpoint:
 
 ```bash
-uv run scripts/bootstrap.py --skip-beads
+uv run scripts/check-docs.py --migration-mode
+test ! -e migration/template-adoption-candidates
 ```
 
-Migration mode keeps broken links and unsafe paths as errors while reporting legacy headings, missing taxonomy concerns,
-unnumbered feature paths, task files, and missing implemented-feature markers as warnings.
+Migration mode keeps broken links and unsafe paths as errors while reporting legacy headings, missing taxonomy
+concerns, unnumbered feature paths, task files, and missing implemented-feature markers as warnings.
+
+Initialize Beads only after adoption is committed:
+
+```bash
+bd init --stealth --skip-agents
+bd formula show feature-lifecycle --json
+```
 
 ## Task parser coverage
 

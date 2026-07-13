@@ -9,10 +9,13 @@ Run before selecting work:
 
 ```bash
 bd prime
+bd ready --type epic --label workflow:feature --json --limit 0
 bd ready --json
 ```
 
-Inspect selected work with `bd show <id> --json`. Read structured metadata before prose.
+Select features by canonical `<num>-<slug>`, `F<num>`, or human name through the dstack lifecycle skills. Use the Beads
+ID returned by the skill for mutations, but do not expose an opaque hash as the primary workflow command. Inspect
+selected work with `bd show <id> --json` and read structured metadata before prose.
 
 ### Sources of truth
 
@@ -30,11 +33,21 @@ Use Beads instead of Markdown TODO lists for executable work. Use `bd remember` 
 Allocate immutable, zero-padded feature numbers in increments of ten:
 
 ```text
-docs/src/features/010-project-bootstrap/
-feat/010-project-bootstrap
+docs/src/features/010-first-capability/
+feat/010-first-capability
 ```
 
-Store `feature_number`, `feature_slug`, `design_path`, `implemented_path`, and `base_branch` on the Beads feature root. Never renumber a feature because its priority or dependency order changes.
+Each feature is one Beads epic (a poured molecule uses epic hierarchy with workflow semantics). Store
+`feature_number`, `feature_slug`, `feature_name`, `design_path`, `implemented_path`, and `base_branch` on that root. Put
+lifecycle tasks and bounded implementation tasks beneath the epic. The implementation coordinator remains a task gate,
+not a second feature or milestone. Never renumber a feature because priority or dependency order changes.
+
+Start features with a human reference, for example:
+
+```text
+/start-feature 010-first-capability
+/start-feature "First capability"
+```
 
 ### Documentation placement
 
@@ -68,7 +81,6 @@ The workflow commands are:
 /implement-feature
 /close-feature
 /audit-project
-/migrate-workflow
 ```
 
 The Skills CLI manages skill files. Copier manages this repository scaffold through `.copier-answers.yml`.
@@ -98,7 +110,4 @@ merge
 leave ready with no delivery action
 ```
 
-### Legacy workflow migration
-
-A repository still uses the original workflow when feature directories contain active `tasks.md` files or `planned-features.md` is treated as the live task database. Run `/migrate-workflow`; its installed script performs mechanical conversion while the skill handles design, delivery, and documentation reconciliation. Preserve mature project-specific documentation navigation.
 <!-- END DSTACK WORKFLOW -->

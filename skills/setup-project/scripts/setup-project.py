@@ -8,7 +8,7 @@
 # ]
 # ///
 # ruff: noqa: S603, S607
-"""Create a Copier-managed dstack project from the template bundled with this skill."""
+"""Create and initialize a new Copier-managed dstack project."""
 
 from __future__ import annotations
 
@@ -33,37 +33,31 @@ DEFAULT_UPDATE_SOURCE = "gh:RobertDeRose/dstack"
 FRONTMATTER_PATTERN = re.compile(r"\A---\n(?P<frontmatter>.*?)\n---(?:\n|\Z)", re.DOTALL)
 VERSION_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 RELEASE_TAG_PATTERN = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
-
+REQUIRED_GENERATED_PATHS = (
+    Path(".copier-answers.yml"),
+    Path("AGENTS.md"),
+    Path(".beads/formulas/feature-lifecycle.formula.toml"),
+    Path("docs/book.toml"),
+    Path("docs/src/SUMMARY.md"),
+    Path("docs/src/planned-features.md"),
+    Path("docs/src/features/_template/design.md"),
+    Path("docs/src/features/_template/index.md"),
+    Path("scripts/check-docs.py"),
+)
 
 # A project-local skills installation can exist before the project scaffold does.
-ALLOWED_EXISTING_ENTRIES = {
-    ".agents",
-    ".aider",
-    ".augment",
-    ".claude",
-    ".codex",
-    ".continue",
-    ".cursor",
-    ".factory",
-    ".github",
-    ".kilocode",
-    ".opencode",
-    ".windsurf",
-    "agent",
-    "skills",
-    "skills-lock.json",
-}
+ALLOWED_EXISTING_ENTRIES = {".git", "skills-lock.json"}
 
 
 def load_yaml_mapping(path: Path, *, label: str) -> dict[str, Any]:
     try:
         loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
-        msg = f"Unable to read {label} from {path}: {exc}"
-        raise SystemExit(msg) from exc
+        message = f"Unable to read {label} from {path}: {exc}"
+        raise SystemExit(message) from exc
     if not isinstance(loaded, dict):
-        msg = f"{label.capitalize()} must be a mapping: {path}"
-        raise SystemExit(msg)
+        message = f"{label.capitalize()} must be a mapping: {path}"
+        raise SystemExit(message)
     return loaded
 
 
@@ -71,25 +65,25 @@ def load_skill_version(path: Path = SKILL_MANIFEST) -> str:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        msg = f"Unable to read installed skill metadata from {path}: {exc}"
-        raise SystemExit(msg) from exc
+        message = f"Unable to read installed skill metadata from {path}: {exc}"
+        raise SystemExit(message) from exc
     match = FRONTMATTER_PATTERN.match(text)
     if match is None:
-        msg = f"Installed skill has invalid frontmatter: {path}"
-        raise SystemExit(msg)
+        message = f"Installed skill has invalid frontmatter: {path}"
+        raise SystemExit(message)
     try:
         manifest = yaml.safe_load(match.group("frontmatter"))
     except yaml.YAMLError as exc:
-        msg = f"Unable to parse installed skill metadata from {path}: {exc}"
-        raise SystemExit(msg) from exc
+        message = f"Unable to parse installed skill metadata from {path}: {exc}"
+        raise SystemExit(message) from exc
     if not isinstance(manifest, dict):
-        msg = f"Installed skill frontmatter must be a mapping: {path}"
-        raise SystemExit(msg)
+        message = f"Installed skill frontmatter must be a mapping: {path}"
+        raise SystemExit(message)
     metadata = manifest.get("metadata")
     version = metadata.get("version") if isinstance(metadata, dict) else None
     if not isinstance(version, str) or VERSION_PATTERN.fullmatch(version) is None:
-        msg = f"Installed skill metadata.version must be a stable X.Y.Z value: {path}"
-        raise SystemExit(msg)
+        message = f"Installed skill metadata.version must be a stable X.Y.Z value: {path}"
+        raise SystemExit(message)
     return version
 
 
@@ -110,23 +104,23 @@ def validate_bundled_template() -> None:
     missing = [path for path in required if not path.exists()]
     if missing:
         shown = ", ".join(str(path) for path in missing)
-        msg = f"The installed setup-project skill is incomplete; missing: {shown}"
-        raise SystemExit(msg)
+        message = f"The installed setup-project skill is incomplete; missing: {shown}"
+        raise SystemExit(message)
 
 
 def validate_template_source(source: str) -> None:
     if any(character in source for character in ("\n", "\r", "\x00")):
-        msg = "Template source contains prohibited control characters"
-        raise SystemExit(msg)
+        message = "Template source contains prohibited control characters"
+        raise SystemExit(message)
     if Path(source).expanduser().exists():
         return
     if source.startswith(("gh:", "gl:", "https://", "ssh://", "git@")):
         return
-    msg = (
+    message = (
         "Unsupported template source. Use an existing local path or an explicit "
         "gh:, gl:, https://, ssh://, or git@ source."
     )
-    raise SystemExit(msg)
+    raise SystemExit(message)
 
 
 def is_remote_template_source(source: str) -> bool:
@@ -137,8 +131,8 @@ def selected_vcs_ref(template_source: str, requested: str | None) -> str | None:
     if requested:
         return requested
     if is_remote_template_source(template_source):
-        msg = "A remote template override requires an explicit --vcs-ref."
-        raise SystemExit(msg)
+        message = "A remote template override requires an explicit --vcs-ref."
+        raise SystemExit(message)
     return None
 
 
@@ -188,9 +182,34 @@ def require_release_tag(source: str, vcs_ref: str | None) -> str | None:
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     if not slug:
-        msg = "Project name must contain at least one letter or number"
-        raise ValueError(msg)
+        message = "Project name must contain at least one letter or number"
+        raise ValueError(message)
     return slug
+
+
+def run_checked(command: Sequence[str], *, cwd: Path, quiet: bool) -> subprocess.CompletedProcess[str]:
+    if not quiet:
+        print("+", " ".join(command))
+    completed = subprocess.run(
+        list(command),
+        cwd=cwd,
+        check=False,
+        capture_output=quiet,
+        text=True,
+    )
+    if completed.returncode != 0:
+        if quiet:
+            if completed.stdout:
+                print(completed.stdout, file=sys.stderr, end="")
+            if completed.stderr:
+                print(completed.stderr, file=sys.stderr, end="")
+        raise subprocess.CalledProcessError(
+            completed.returncode,
+            list(command),
+            output=completed.stdout,
+            stderr=completed.stderr,
+        )
+    return completed
 
 
 def bd_available(cwd: Path) -> bool:
@@ -200,10 +219,55 @@ def bd_available(cwd: Path) -> bool:
     return completed.returncode == 0
 
 
-def run(command: Sequence[str], *, cwd: Path, quiet: bool = False) -> None:
-    if not quiet:
-        print("+", " ".join(command))
-    subprocess.run(list(command), cwd=cwd, check=True)
+def ensure_trailing_newline(path: Path) -> None:
+    if not path.is_file():
+        return
+    content = path.read_bytes()
+    if content and not content.endswith(b"\n"):
+        path.write_bytes(content + b"\n")
+
+
+def initialize_beads(destination: Path, args: argparse.Namespace, *, quiet: bool) -> None:
+    command = ["bd", "init", "--skip-agents"]
+    if args.beads_mode == "stealth":
+        command.append("--stealth")
+    elif args.beads_mode == "contributor":
+        command.append("--contributor")
+    elif args.beads_mode == "server":
+        command.append("--server")
+    if quiet:
+        command.append("--quiet")
+    run_checked(command, cwd=destination, quiet=quiet)
+    for integration in args.setup:
+        run_checked(["bd", "setup", integration], cwd=destination, quiet=quiet)
+    run_checked(
+        ["bd", "formula", "show", "feature-lifecycle", "--json"],
+        cwd=destination,
+        quiet=True,
+    )
+    ensure_trailing_newline(destination / ".beads/metadata.json")
+    ensure_trailing_newline(destination / ".beads/config.yaml")
+
+
+def verify_scaffold(destination: Path) -> None:
+    missing = [path for path in REQUIRED_GENERATED_PATHS if not (destination / path).is_file()]
+    if missing:
+        details = "\n".join(f"  - {path}" for path in missing)
+        message = f"Workflow scaffold is incomplete:\n{details}"
+        raise SystemExit(message)
+    forbidden = [Path("scripts/bootstrap.py"), Path("scripts/migrate-legacy-workflow.py"), Path("MIGRATION.md")]
+    unexpected = [path for path in forbidden if (destination / path).exists()]
+    if unexpected:
+        details = "\n".join(f"  - {path}" for path in unexpected)
+        message = f"New-project scaffold contains migration-only files:\n{details}"
+        raise SystemExit(message)
+
+
+def validate_docs(destination: Path, *, quiet: bool) -> None:
+    command = ["uv", "run", "scripts/check-docs.py"]
+    if quiet:
+        command.append("--json")
+    run_checked(command, cwd=destination, quiet=quiet)
 
 
 def initialize_git(destination: Path, branch: str, *, quiet: bool) -> bool:
@@ -216,8 +280,8 @@ def initialize_git(destination: Path, branch: str, *, quiet: bool) -> bool:
     if probe.returncode == 0:
         return False
     if shutil.which("git") is None:
-        msg = "Git is required for Copier-managed template updates"
-        raise SystemExit(msg)
+        message = "Git is required for Copier-managed template updates"
+        raise SystemExit(message)
 
     result = subprocess.run(
         ["git", "-C", str(destination), "init", "-b", branch],
@@ -226,19 +290,19 @@ def initialize_git(destination: Path, branch: str, *, quiet: bool) -> bool:
         text=True,
     )
     if result.returncode != 0:
-        run(["git", "init"], cwd=destination, quiet=quiet)
-        run(["git", "branch", "-M", branch], cwd=destination, quiet=quiet)
+        run_checked(["git", "init"], cwd=destination, quiet=quiet)
+        run_checked(["git", "branch", "-M", branch], cwd=destination, quiet=quiet)
     return True
 
 
 def is_skills_cli_entry(entry: Path) -> bool:
-    if entry.name == "skills-lock.json":
-        return True
+    """Accept an installed skills tree, but not unrelated files beside it."""
     if not entry.is_dir():
         return False
-    if entry.name == "skills" and any(entry.glob("*/SKILL.md")):
-        return True
-    return any(entry.glob("skills/*/SKILL.md"))
+    skill_root = entry if entry.name == "skills" else entry / "skills"
+    if not skill_root.is_dir() or not any(skill_root.glob("*/SKILL.md")):
+        return False
+    return all(path.is_relative_to(skill_root) for path in entry.rglob("*"))
 
 
 def unexpected_entries(destination: Path) -> list[Path]:
@@ -256,11 +320,7 @@ def unexpected_entries(destination: Path) -> list[Path]:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "project_name",
-        nargs="?",
-        help="Human-readable project name; defaults to basename($PWD).",
-    )
+    parser.add_argument("project_name", nargs="?", help="Human-readable project name; defaults to basename($PWD).")
     parser.add_argument(
         "--destination",
         "-d",
@@ -284,13 +344,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Tag, branch, or commit for --template-source. The bundled template does not accept this option.",
     )
     parser.add_argument("--delete-readme", action="store_true")
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Allow generation into a directory containing non-skill files.",
-    )
     parser.add_argument("--no-git-init", action="store_true")
-    parser.add_argument("--skip-bootstrap", action="store_true")
+    parser.add_argument("--skip-post-setup", action="store_true")
     parser.add_argument("--skip-beads", action="store_true")
     parser.add_argument(
         "--beads-mode",
@@ -317,13 +372,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if using_bundled_template:
         if args.vcs_ref is not None:
-            msg = "--vcs-ref is only valid with an explicit --template-source override"
-            raise SystemExit(msg)
+            message = "--vcs-ref is only valid with an explicit --template-source override"
+            raise SystemExit(message)
         validate_bundled_template()
         template_source = str(BUNDLED_TEMPLATE_SOURCE)
         render_vcs_ref = None
         update_source = DEFAULT_UPDATE_SOURCE
-        recorded_vcs_ref = f"v{skill_version}"
+        recorded_vcs_ref: str | None = f"v{skill_version}"
         resolved_template_commit = None
     else:
         template_source = args.template_source
@@ -335,23 +390,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     project_name = (args.project_name or Path.cwd().name).strip()
     if not project_name:
-        msg = "Project name cannot be empty"
-        raise SystemExit(msg)
+        message = "Project name cannot be empty"
+        raise SystemExit(message)
     project_slug = args.project_slug or slugify(project_name)
 
     answers = destination / ".copier-answers.yml"
     if answers.exists():
-        msg = f"{destination} is already Copier-managed; use /update-project"
-        raise SystemExit(msg)
+        message = (
+            f"{destination} is already Copier-managed. /setup-project will not modify it; "
+            "offer /update-project and run it only after the user agrees."
+        )
+        raise SystemExit(message)
 
     existing = unexpected_entries(destination)
-    if existing and not args.overwrite:
+    if existing:
         shown = "\n".join(f"  - {entry.name}" for entry in existing[:25])
-        msg = (
-            "Destination contains project files. Use /migrate-workflow for an existing "
-            "project, or rerun with --overwrite after reviewing these entries:\n" + shown
+        raise SystemExit(
+            "Destination contains project files. New-project setup will not adopt or migrate them. "
+            "Use /migrate-workflow for an existing project:\n" + shown
         )
-        raise SystemExit(msg)
 
     destination.mkdir(parents=True, exist_ok=True)
     run_copy(
@@ -362,23 +419,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             "project_slug": project_slug,
             "project_description": args.description,
             "repository_default_branch": args.default_branch,
-            "project_mode": "new",
             "include_readme": not args.delete_readme,
         },
         vcs_ref=render_vcs_ref,
         defaults=True,
-        overwrite=args.overwrite,
+        overwrite=False,
         quiet=args.quiet or args.json,
         unsafe=False,
     )
 
     if not answers.exists():
-        msg = "Copier completed without creating .copier-answers.yml"
-        raise SystemExit(msg)
+        message = "Copier completed without creating .copier-answers.yml"
+        raise SystemExit(message)
     if using_bundled_template:
         if recorded_vcs_ref is None:
-            msg = "Bundled template setup did not determine a published update tag"
-            raise AssertionError(msg)
+            message = "Bundled template setup did not determine a published update tag"
+            raise AssertionError(message)
         record_update_state(answers, source=update_source, commit=recorded_vcs_ref)
     else:
         answer_data = load_yaml_mapping(answers, label="Copier answers")
@@ -388,21 +444,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.no_git_init:
         git_initialized = initialize_git(destination, args.default_branch, quiet=args.quiet or args.json)
 
-    beads_available = bd_available(destination)
-    bootstrap_ran = False
-    bootstrap = destination / "scripts/bootstrap.py"
-    if not args.skip_bootstrap and bootstrap.exists():
-        command = ["uv", "run", str(bootstrap)]
-        if args.skip_beads or not beads_available:
-            command.append("--skip-beads")
+    beads_is_available = bd_available(destination)
+    beads_initialized = False
+    docs_validated = False
+    post_setup_ran = False
+    outstanding: list[str] = []
+    if not args.skip_post_setup:
+        verify_scaffold(destination)
+        if args.skip_beads:
+            outstanding.append("Beads initialization and verification")
+        elif beads_is_available:
+            initialize_beads(destination, args, quiet=args.quiet or args.json)
+            beads_initialized = True
         else:
-            command.extend(("--beads-mode", args.beads_mode))
-            for integration in args.setup:
-                command.extend(("--setup", integration))
-        if args.quiet or args.json:
-            command.append("--quiet")
-        run(command, cwd=destination, quiet=args.quiet or args.json)
-        bootstrap_ran = True
+            outstanding.append("Beads initialization and verification")
+        validate_docs(destination, quiet=args.quiet or args.json)
+        docs_validated = True
+        verify_scaffold(destination)
+        post_setup_ran = True
+    else:
+        outstanding.append("Post-setup scaffold and documentation validation")
+        if not args.skip_beads:
+            outstanding.append("Beads initialization and verification")
 
     result = {
         "project_name": project_name,
@@ -417,10 +480,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "resolved_template_commit": resolved_template_commit,
         "copier_answers": str(answers),
         "git_initialized": git_initialized,
-        "bootstrap_ran": bootstrap_ran,
-        "beads_available": beads_available,
-        "beads_initialized": bootstrap_ran and beads_available and not args.skip_beads,
+        "post_setup_ran": post_setup_ran,
+        "docs_validated": docs_validated,
+        "beads_available": beads_is_available,
+        "beads_initialized": beads_initialized,
         "readme_created": (destination / "README.md").exists(),
+        "outstanding": outstanding,
     }
 
     if args.json:
@@ -431,15 +496,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Template: {template_source} ({recorded_vcs_ref or 'unversioned override'})")
         print(f"Future update source: {update_source}")
         print(f"Copier state: {answers}")
-        beads_initialized = bootstrap_ran and beads_available and not args.skip_beads
         if beads_initialized:
-            print("Beads initialized. Next: run 'bd prime' and 'bd ready --json', then use /plan-features.")
+            print("Beads initialized. Next: run 'bd prime', then use /plan-features.")
         elif args.skip_beads:
-            print("Beads initialization was skipped and remains outstanding.")
-            print("After initializing Beads, run 'bd prime' and 'bd ready --json' before /plan-features.")
-        else:
-            print("warning: bd is not installed; Beads initialization and verification remain outstanding")
-            print("Install Beads, run 'uv run scripts/bootstrap.py', then run 'bd prime' and 'bd ready --json'.")
+            print("Beads initialization and verification remain outstanding because --skip-beads was supplied.")
+        elif not beads_is_available:
+            print("warning: bd is unavailable; Beads initialization and verification remain outstanding")
+            print("Install Beads, run 'bd init --stealth --skip-agents', then verify the feature-lifecycle formula.")
+        if docs_validated:
+            print("Documentation scaffold validation passed.")
         print("Commit the initial scaffold before applying Copier updates.")
     return 0
 

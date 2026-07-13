@@ -11,6 +11,8 @@ Summarize current project goals, major constraints, sequencing rationale, and cr
 - Feature numbers are stable and zero-padded: `010`, `020`, `030`.
 - Directory names use `<num>-<slug>`.
 - Detailed intent belongs in each feature's `design.md`.
+- Each feature is one Beads epic/molecule; lifecycle and implementation work are tasks beneath it.
+- Human workflow references use `<num>-<slug>`, `F<num>`, or the feature name. Root hashes are retained only for audit.
 - Live execution state is queried through Beads.
 - Completed features move into [Implemented features](features/index.md).
 - Distant speculative features may remain roadmap-only until enough intent exists for a lifecycle and `design.md`.
@@ -28,4 +30,6 @@ Record only project-level decisions that affect multiple features. Feature-local
 
 ## Recommended next work
 
-Use `bd ready --json` and dependency/risk context to identify the next feature or task. Keep this narrative synchronized during planning and close-out.
+Use the dstack feature resolver through `/plan-features` or `/start-feature` to select the next ready feature epic by
+Beads readiness, priority, and feature number. Record the recommended command as `/start-feature <num>-<slug>` and keep
+this narrative synchronized during planning and close-out.

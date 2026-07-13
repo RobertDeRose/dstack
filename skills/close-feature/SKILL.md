@@ -8,8 +8,9 @@ allowed-tools: Read Glob Grep Edit Write Bash Task AskUserQuestion
 
 # Purpose
 
-Use this skill after the lifecycle implementation coordinator closes. It converts delivered code into reconciled,
-validated, auditable product state.
+Use this skill after the lifecycle implementation coordinator closes. Accept the same human feature selectors as
+`/start-feature`. It converts delivered code into reconciled, validated, auditable product state. Resolve `<core-dir>`
+as the installed `../dstack-core` skill directory.
 
 ## Shared trust contract
 
@@ -37,17 +38,22 @@ Delivery authority:
 
 ## 1. Activate and Inspect
 
-Run:
+Run `bd prime`, then resolve the supplied feature selector. When the selector is omitted, infer it only from an active
+`feat/<num>-<slug>` branch. If the current branch is not a feature branch, stop and require a selector rather than
+closing unrelated ready work:
 
 ```bash
-bd prime
-bd show <feature-root> --json
+branch=$(git branch --show-current)
+feature_selector=${branch#feat/}  # only when branch matches feat/*
+uv run <core-dir>/scripts/resolve-feature.py "<feature-selector>" --json
+bd show <resolved-root-id> --json
 ```
 
-Resolve `docs_reconcile_id`, `validation_id`, `review_delivery_id`, `review_drift_id`, and `delivery_id` from root
-metadata. Query the full molecule or child list only to repair missing metadata. Activate and verify
-`feat/<num>-<slug>`. Inspect commits, implementation, tests, and changed files before deciding whether documentation is
-accurate.
+Use the returned root ID for Beads operations and its canonical `<num>-<slug>` reference for worktrees, reports, and
+delivery commands. Resolve `docs_reconcile_id`, `validation_id`, `review_delivery_id`, `review_drift_id`, and
+`delivery_id` from root metadata. Query the full molecule or child list only to repair missing metadata. Activate and
+verify `feat/<num>-<slug>`. Inspect commits, implementation, tests, and changed files before deciding whether
+documentation is accurate.
 
 Continue only after all lifecycle IDs resolve, the active worktree is `feat/<num>-<slug>`, the implementation
 coordinator is closed, and no open `migration:reconciliation` task blocks close-out.
@@ -138,5 +144,5 @@ Merge through the repository-approved worktree flow. After success, record the m
 feature root, verify navigation and the implemented record, and remove the worktree.
 
 Return one readiness state: `ready for delivery`, `ready after reconciliation fixes`,
-`blocked by implementation/docs mismatch`, or `blocked by incomplete validation`, together with docs, evidence, reviews,
-commit, action, and Beads changes.
+`blocked by implementation/docs mismatch`, or `blocked by incomplete validation`, together with the canonical feature
+reference and human name, root ID, docs, evidence, reviews, commit, action, and Beads changes.

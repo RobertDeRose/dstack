@@ -1709,6 +1709,7 @@ def create_feature_root(root: Path, feature: dict[str, Any]) -> str:
     metadata = {
         "feature_number": feature["number"],
         "feature_slug": feature["slug"],
+        "feature_name": feature["title"],
         "design_path": feature["design_path"],
         "implemented_path": feature["implemented_path"],
         "base_branch": "main",
@@ -1786,6 +1787,7 @@ def create_lifecycle_steps(
                 "migration_key": (f"legacy-feature:{feature['number']}:{feature['slug']}:lifecycle:{step_id}"),
                 "feature_number": feature["number"],
                 "feature_slug": feature["slug"],
+                "feature_name": feature["title"],
             }
         )
         issue_id = bd_create(
@@ -1850,6 +1852,7 @@ def create_legacy_implementation_tasks(
             "migration_key": f"legacy-feature:{feature['number']}:{feature['slug']}:task:{label}",
             "feature_number": feature["number"],
             "feature_slug": feature["slug"],
+            "feature_name": feature["title"],
         }
         description_parts = [
             f"Imported from `{feature['legacy_tasks_path']}`.",
@@ -1866,7 +1869,7 @@ def create_legacy_implementation_tasks(
             acceptance_parts.append("Completion constraint: " + task["completion_constraint"])
         issue_id = bd_create(
             root,
-            title=f"{label} {task['title']}",
+            title=f"F{feature['number']} {label} — {task['title']}",
             issue_type="task",
             parent=implementation_id,
             labels=("migration:legacy-task", f"legacy-task:{label.casefold()}"),
@@ -1956,7 +1959,7 @@ def apply_imported_states(
             )
             reconciliation_id = bd_create(
                 root,
-                title=f"Reconcile migrated status — F{feature['number']}",
+                title=f"F{feature['number']} — Reconcile migrated status: {feature['title']}",
                 issue_type="task",
                 parent=root_id,
                 labels=("migration:reconciliation", "review:drift"),
@@ -2016,9 +2019,9 @@ def ensure_bd_available(root: Path, *, init_beads: bool) -> None:
     beads_dir = root / ".beads"
     if not beads_dir.exists():
         if not init_beads:
-            msg = "Beads is not initialized. Run scripts/bootstrap.py or pass --init-beads."
+            msg = "Beads is not initialized. Run bd init --stealth --skip-agents or pass --init-beads."
             raise MigrationError(msg)
-        run_command(["bd", "init", "--skip-agents"], cwd=root, capture=False)
+        run_command(["bd", "init", "--stealth", "--skip-agents"], cwd=root, capture=False)
     ensure_trailing_newline(root / ".beads/metadata.json")
     ensure_trailing_newline(root / ".beads/config.yaml")
 

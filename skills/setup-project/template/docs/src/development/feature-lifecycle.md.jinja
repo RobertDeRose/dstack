@@ -16,12 +16,15 @@ Workflow commands are installed from `RobertDeRose/dstack` with the `skills` CLI
 
 ```bash
 bd prime
+bd ready --type epic --label workflow:feature --json --limit 0
 bd ready --json
 ```
 
 ## Plan
 
-`/plan-features` asks design-changing questions, defines the documentation architecture, creates numbered feature designs, pours the Beads feature lifecycle, and decomposes implementation into bounded child tasks.
+`/plan-features` asks design-changing questions, defines the documentation architecture, creates numbered feature
+designs, pours one Beads epic/molecule per feature, and decomposes lifecycle and implementation into bounded child
+tasks. It recommends the next feature by canonical number/slug and human name rather than by an opaque Beads hash.
 
 A new feature uses:
 
@@ -32,7 +35,14 @@ feat/010-feature-slug
 
 ## Review and start
 
-`/start-feature` activates the worktree and runs four isolated reviews:
+`/start-feature <num>-<slug>` resolves the human feature reference through Beads, activates the worktree, and runs
+four isolated reviews. `F<num>`, an exact feature name, or a unique name fragment also resolves; the Beads ID remains
+internal mutation/audit evidence.
+
+The feature root is an epic. Lifecycle tasks are direct children, and bounded implementation tasks sit beneath the
+implementation coordinator task. A milestone is not used as the feature container.
+
+The reviews are:
 
 1. architecture consistency;
 2. simplicity and maintainability;
@@ -70,12 +80,6 @@ Add a blocking edge only when the discovery is required for safe completion.
 ## Audit
 
 `/audit-project` periodically compares Beads, designs, current docs, implemented-feature records, code, tests, and recent commits. Drift becomes linked Beads work rather than an untracked note.
-
-## Legacy repositories
-
-A repository with active per-feature `tasks.md` files uses the original Markdown workflow. Install the dstack skills and run `/migrate-workflow`. The installed migration helper performs deterministic scanning, numbering, path conversion, Beads import, and task archival; the skill performs semantic design, delivery, and documentation reconciliation. Preserve the existing reader-oriented documentation hierarchy.
-
-During migration, the skill runs the repository documentation checker in migration mode. Strict validation resumes after legacy task files are reconciled and archived.
 
 ## Skill maintenance
 

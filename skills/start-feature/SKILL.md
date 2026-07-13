@@ -8,22 +8,38 @@ allowed-tools: Read Glob Grep Edit Write Bash Task AskUserQuestion
 
 # Purpose
 
-Use this skill for any planned feature root. It owns bounded promotion of roadmap-only migrated roots, specification
-review, worktree activation, and implementation-readiness reconciliation.
+Use this skill for any planned feature epic. The user may identify it by canonical `<num>-<slug>`, `F<num>`, exact
+feature name, unique name fragment, or Beads ID. It owns bounded promotion of roadmap-only migrated roots, specification
+review, worktree activation, and implementation-readiness reconciliation. Resolve `<core-dir>` as the installed
+`../dstack-core` skill directory.
 
 ## Execution
 
 ## 1. Resolve Feature Context
 
-Run:
+Run `bd prime`, then resolve a human selector through Beads. With a supplied selector:
 
 ```bash
-bd prime
-bd show <feature-root> --json
+uv run <core-dir>/scripts/resolve-feature.py "<feature-selector>" --json
 ```
 
-Read root metadata first. It should provide feature identity, paths, base branch, implementation repository/path,
-workflow kind, and lifecycle IDs.
+When the user invokes `/start-feature` without a selector, select the next ready feature epic instead of asking for or
+copying an opaque ID:
+
+```bash
+uv run <core-dir>/scripts/resolve-feature.py --next --json
+```
+
+Use the returned `id` for Beads mutations and `feature_reference` for branches, paths, messages, and subsequent workflow
+commands:
+
+```bash
+bd show <resolved-root-id> --json
+```
+
+The selected issue must be an epic carrying `workflow:feature`. Read root metadata first. It should provide feature
+number, slug, human name, paths, base branch, implementation repository/path, workflow kind, and lifecycle IDs. Stop on
+an ambiguous selector and show the resolver's human-readable candidates; do not guess or append characters to an ID.
 
 When the selected root is roadmap-only and lacks `design.md` or lifecycle metadata, do not stop or ask the user to
 invoke another skill. Run the bounded single-feature planning phase from `/plan-features`: resolve only the missing
@@ -155,5 +171,6 @@ bd ready --parent <implementation-id> --json
 ```
 
 At least one implementation child should now be ready unless the design intentionally contains only a gate or deferred
-work. Return the root ID, worktree, reviewed-design commit, review findings, decisions made, remaining blockers, and the
-next ready implementation task.
+work. Return the canonical feature reference and human name first, followed by the root ID for auditability, worktree,
+reviewed-design commit, review findings, decisions made, remaining blockers, and next ready implementation task. Any
+recommended continuation must use `/implement-feature <num>-<slug>` rather than only the Beads hash.

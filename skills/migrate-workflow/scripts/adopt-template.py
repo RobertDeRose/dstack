@@ -4,6 +4,7 @@
 # requires-python = ">=3.13"
 # dependencies = [
 #     "copier>=9.16,<10",
+#     "PyYAML>=6.0,<7",
 # ]
 # ///
 # ruff: noqa: S603, S607
@@ -21,11 +22,48 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+import yaml
 from copier import run_copy
 
 
 DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"
 RELEASE_TAG_PATTERN = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
+CURRENT_ANSWER_KEYS = (
+    "project_name",
+    "project_slug",
+    "project_description",
+    "repository_default_branch",
+    "include_readme",
+)
+
+
+def load_answers(path: Path) -> dict[str, object]:
+    try:
+        value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        message = f"Unable to read Copier answers from {path}: {exc}"
+        raise SystemExit(message) from exc
+    if not isinstance(value, dict):
+        message = f"Copier answers must be a mapping: {path}"
+        raise SystemExit(message)
+    return {str(key): item for key, item in value.items()}
+
+
+def preserve_current_answer_values(path: Path, existing: dict[str, object]) -> None:
+    """Keep current question values Copier omitted from its rendered answers file."""
+    rendered = load_answers(path)
+    changed = False
+    for key in CURRENT_ANSWER_KEYS:
+        if key not in rendered and key in existing:
+            rendered[key] = existing[key]
+            changed = True
+    if not changed:
+        return
+    path.write_text(
+        "# This file is managed by Copier. Do not edit it manually.\n"
+        + yaml.safe_dump(rendered, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
 
 
 def validate_template_source(source: str) -> None:
@@ -132,6 +170,15 @@ def require_release_tag(source: str, vcs_ref: str | None) -> str | None:
 
 
 BACKUP_ROOT = Path("migration/template-adoption-backup")
+CANDIDATE_ROOT = Path("migration/template-adoption-candidates")
+DSTACK_MANAGED_PREFIXES = (
+    ".beads/formulas/",
+    "docs/src/features/_template/",
+)
+DSTACK_MANAGED_FILES = {
+    ".copier-answers.yml",
+    "scripts/check-docs.py",
+}
 AGENTS_BEGIN = "<!-- BEGIN DSTACK WORKFLOW -->"
 AGENTS_END = "<!-- END DSTACK WORKFLOW -->"
 GITIGNORE_BEGIN = "# BEGIN DSTACK WORKFLOW"
@@ -192,7 +239,10 @@ def merge_block(target: Path, generated: Path, begin: str, end: str) -> bool:
     finish = current.find(end)
     if start >= 0 and finish >= start:
         finish += len(end)
-        updated = current[:start].rstrip() + "\n\n" + block + current[finish:].lstrip("\n")
+        prefix = current[:start].rstrip()
+        suffix = current[finish:].strip("\n")
+        parts = [part for part in (prefix, block, suffix) if part]
+        updated = "\n\n".join(parts) + "\n"
     else:
         updated = current.rstrip() + "\n\n" + block + "\n"
     if updated == current:
@@ -218,13 +268,37 @@ def backup_and_copy(source: Path, target: Path, root: Path) -> str:
     return "replaced"
 
 
+def is_dstack_managed(relative: Path) -> bool:
+    key = relative.as_posix()
+    return key in DSTACK_MANAGED_FILES or any(key.startswith(prefix) for prefix in DSTACK_MANAGED_PREFIXES)
+
+
+def preserve_or_stage_candidate(source: Path, target: Path, root: Path) -> str:
+    """Copy missing scaffold files, but stage conflicts for explicit manual reconciliation."""
+    relative = target.relative_to(root)
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        return "created"
+    if filecmp.cmp(source, target, shallow=False):
+        return "preserved"
+
+    candidate = root / CANDIDATE_ROOT / relative
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, candidate)
+    return "manual-merge"
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project_name", nargs="?", help="Defaults to basename($PWD).")
     parser.add_argument("--destination", "-d", type=Path, default=Path.cwd())
     parser.add_argument("--project-slug")
     parser.add_argument("--default-branch", default="main")
-    parser.add_argument("--template-source", default=DEFAULT_TEMPLATE_SOURCE)
+    parser.add_argument(
+        "--template-source",
+        help="Template source override; defaults to existing Copier state or the official dstack repository.",
+    )
     parser.add_argument("--vcs-ref")
     parser.add_argument("--allow-dirty", action="store_true")
     parser.add_argument("--quiet", action="store_true")
@@ -235,33 +309,41 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     root = git_root(args.destination.expanduser().resolve())
-    validate_template_source(args.template_source)
-    vcs_ref = default_vcs_ref(args.template_source, args.vcs_ref)
-    resolved_template_commit = require_release_tag(args.template_source, vcs_ref)
     answers = root / ".copier-answers.yml"
-    if answers.exists():
-        msg = f"{answers} already exists; use /update-project instead"
-        raise SystemExit(msg)
+    answers_existed = answers.is_file()
+    existing_answers = load_answers(answers) if answers_existed else {}
+    recorded_source = str(existing_answers.get("_src_path") or "").strip()
+    template_source = args.template_source or recorded_source or DEFAULT_TEMPLATE_SOURCE
+    validate_template_source(template_source)
+    vcs_ref = default_vcs_ref(template_source, args.vcs_ref)
+    resolved_template_commit = require_release_tag(template_source, vcs_ref)
     dirty = git_status(root)
     if dirty and not args.allow_dirty:
         preview = "\n".join(f"  {line}" for line in dirty[:25])
         raise SystemExit("Commit or stash changes before adopting the template:\n" + preview)
 
-    project_name = (args.project_name or root.name).strip()
-    project_slug = args.project_slug or slugify(project_name)
+    recorded_name = str(existing_answers.get("project_name") or "").strip()
+    recorded_slug = str(existing_answers.get("project_slug") or "").strip()
+    recorded_description = str(existing_answers.get("project_description") or "").strip()
+    recorded_branch = str(existing_answers.get("repository_default_branch") or "").strip()
+    recorded_readme = existing_answers.get("include_readme")
+    project_name = (args.project_name or recorded_name or root.name).strip()
+    project_slug = args.project_slug or recorded_slug or slugify(project_name)
+    project_description = recorded_description or "A documentation-first software project managed with Beads."
+    default_branch = args.default_branch if args.default_branch != "main" else recorded_branch or args.default_branch
+    include_readme = recorded_readme if isinstance(recorded_readme, bool) else True
 
     with tempfile.TemporaryDirectory(prefix="dstack-adopt-") as temporary:
         rendered = Path(temporary) / "rendered"
         run_copy(
-            args.template_source,
+            template_source,
             rendered,
             data={
                 "project_name": project_name,
                 "project_slug": project_slug,
-                "project_description": "A documentation-first software project managed with Beads.",
-                "repository_default_branch": args.default_branch,
-                "project_mode": "existing",
-                "include_readme": False,
+                "project_description": project_description,
+                "repository_default_branch": default_branch,
+                "include_readme": include_readme,
             },
             vcs_ref=vcs_ref,
             defaults=True,
@@ -269,10 +351,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             quiet=args.quiet or args.json,
             unsafe=False,
         )
+        preserve_current_answer_values(rendered / ".copier-answers.yml", existing_answers)
 
         created: list[str] = []
         replaced: list[str] = []
         preserved: list[str] = []
+        manual_merge: list[str] = []
         for source in sorted(path for path in rendered.rglob("*") if path.is_file()):
             relative = source.relative_to(rendered)
             target = root / relative
@@ -287,31 +371,52 @@ def main(argv: Sequence[str] | None = None) -> int:
                 (created if changed else preserved).append(key)
                 continue
 
-            status = backup_and_copy(source, target, root)
-            {"created": created, "replaced": replaced, "preserved": preserved}[status].append(key)
+            if is_dstack_managed(relative):
+                status = backup_and_copy(source, target, root)
+            else:
+                status = preserve_or_stage_candidate(source, target, root)
+            {
+                "created": created,
+                "replaced": replaced,
+                "preserved": preserved,
+                "manual-merge": manual_merge,
+            }[status].append(key)
 
     if not answers.exists():
         msg = "Template adoption did not create .copier-answers.yml"
         raise SystemExit(msg)
+    adopted_answers = load_answers(answers)
 
     result = {
         "project_name": project_name,
         "project_slug": project_slug,
         "destination": str(root),
-        "template_source": args.template_source,
+        "template_source": template_source,
+        "copier_state": "rebased-existing" if answers_existed else "created",
+        "previous_copier_source": existing_answers.get("_src_path"),
+        "previous_copier_commit": existing_answers.get("_commit"),
+        "recorded_copier_source": adopted_answers.get("_src_path"),
+        "recorded_copier_commit": adopted_answers.get("_commit"),
         "vcs_ref": vcs_ref,
         "resolved_template_commit": resolved_template_commit,
         "created": created,
         "replaced": replaced,
         "preserved": preserved,
+        "manual_merge": manual_merge,
         "backup_root": str(root / BACKUP_ROOT),
+        "candidate_root": str(root / CANDIDATE_ROOT),
     }
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
         print(f"Adopted dstack Copier state in {root}")
-        print(f"Created: {len(created)}; replaced with backup: {len(replaced)}; preserved: {len(preserved)}")
-        print("Next: initialize Beads, then run the legacy workflow migration scan.")
+        print(
+            f"Created: {len(created)}; replaced with backup: {len(replaced)}; "
+            f"preserved: {len(preserved)}; manual merge: {len(manual_merge)}"
+        )
+        if manual_merge:
+            print(f"Reconcile generated candidates under {root / CANDIDATE_ROOT}, then remove that directory.")
+        print("Next: validate the reconciled scaffold, initialize Beads, then scan the legacy workflow.")
     return 0
 
 

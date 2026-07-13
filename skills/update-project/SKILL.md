@@ -1,6 +1,6 @@
 ---
 name: update-project
-description: Update a Copier-managed dstack project to the newest published template tag. Use when asked to inherit template changes while preserving project-owned files, validating the result, and resolving real update conflicts.
+description: Update an existing Copier-managed dstack project to the latest eligible tagged template release, or route a legacy Markdown workflow through migration before updating.
 metadata:
   version: "0.1.0"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
@@ -8,9 +8,9 @@ allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 
 # Purpose
 
-Use this skill to inherit newer workflow, formula, script, and scaffold changes from the published dstack Copier
-template. Copier uses `.copier-answers.yml` and a three-way update so project-owned changes remain local while template
-changes are applied.
+Use this skill for an existing repository. It first decides whether the repository is ready for a Copier update or still
+needs legacy-workflow migration. A normal update discovers the latest eligible tagged release from the Git source
+recorded in `.copier-answers.yml`, then applies Copier's three-way update so project-owned changes remain local.
 
 Resolve `<skill-dir>` as the directory containing this `SKILL.md`.
 
@@ -22,22 +22,51 @@ normative for this workflow. If it conflicts with this skill, follow the more re
 
 Update-specific authority:
 
-- Invocation authorizes a local Copier update and its dedicated reconciliation commit. It does not authorize push,
-  merge, force-push, branch deletion, or unrelated project changes.
-- The default command queries the Git source recorded in `.copier-answers.yml` for tags and selects the newest stable
-  PEP 440-compatible `vX.Y.Z` release. Projects created by `/setup-project` record `gh:RobertDeRose/dstack`.
-- The installed skill's `metadata.version` is not the update target. Updating skills and updating a generated project
+- Invocation authorizes preflight inspection. It authorizes a local Copier update and dedicated reconciliation commit
+  only after the repository passes migration routing. It does not authorize push, merge, force-push, branch deletion, or
+  unrelated project changes.
+- The default update queries the Git source recorded in `.copier-answers.yml` for tags and selects the newest stable PEP
+  440-compatible `vX.Y.Z` release.
+- The installed skill's `metadata.version` is not the update target. Skill installation and generated-project updates
   are independent operations.
 - Explicit development revisions must be reported before mutation and never result from an implicit fallback to `HEAD`.
 
-## Preconditions
+## 1. Route legacy repositories before update
 
-- `.copier-answers.yml` exists at the Git root and records a Git-backed `_src_path` plus `_commit`;
-- the initial scaffold has been committed;
+Run the non-mutating preflight first:
+
+```bash
+uv run <skill-dir>/scripts/update-project.py --preflight --json
+```
+
+The helper inspects:
+
+- whether `.copier-answers.yml` exists;
+- active `tasks.md` files anywhere in the project, excluding tool, template, archive, migration, and vendored
+  directories;
+- initialized Beads state, without treating a copied formula as an initialized database.
+
+When `recommended_workflow` is `migrate-workflow`, do not run Copier update. Explain the detected task files and missing
+Beads state, then ask exactly one question with `AskUserQuestion`: `Run /migrate-workflow now?`
+
+- If the user agrees, execute `/migrate-workflow` and let that workflow adopt the current tagged template, manually
+  reconcile the rendered new-project structure, initialize Beads, and import the legacy task state.
+- If the user declines, stop without running Copier or changing files.
+- After migration completes and commits its checkpoints, rerun this preflight before considering an update.
+
+This routing applies whether Copier state is already present or absent. A repository with legacy `tasks.md` files and no
+Beads state must migrate before template update.
+
+## 2. Update preconditions
+
+Continue only when preflight recommends `update-project` and:
+
+- `.copier-answers.yml` records a Git-backed `_src_path` plus `_commit`;
+- the initial scaffold or completed migration checkpoint is committed;
 - the worktree is clean unless the user explicitly accepts a dirty update;
 - the recorded Git source contains at least one eligible release tag.
 
-## Execution
+## 3. Apply the tagged update
 
 Update to the newest stable published release:
 
@@ -61,24 +90,25 @@ tag and refuses to fall back silently.
 
 The helper:
 
-1. resolves the Git root and reads the Copier source and previous revision from `.copier-answers.yml`;
-2. runs `git ls-remote --tags` against that source and selects the greatest eligible tag using PEP 440 version ordering
-   unless `--vcs-ref` is supplied;
-3. excludes prereleases by default and includes them only with `--prereleases`;
-4. verifies that a selected release tag exists before modifying the project;
-5. requires a clean worktree by default;
-6. applies the Copier update;
-7. checks only Git-visible modified and untracked project files for coherent conflict markers, Git unmerged paths, and
-   newly produced `.rej` files;
-8. ignores dependency environments and other Git-ignored content such as `.venv`;
-9. runs `scripts/check-docs.py` when present;
-10. runs storage-mode-neutral Beads smoke checks with `bd info --json` and `bd ready --json --limit 1`;
-11. validates the project feature formula when present;
-12. reports the requested release, resolved Copier commit, changed files, validation, warnings, and conflicts.
+1. resolves the Git root and performs migration routing before any tag lookup or mutation;
+2. reads the Copier source and previous revision from `.copier-answers.yml`;
+3. runs `git ls-remote --tags` against that source and selects the greatest eligible tag using PEP 440 ordering unless
+   `--vcs-ref` is supplied;
+4. excludes prereleases by default and includes them only with `--prereleases`;
+5. verifies that a selected release tag exists before modifying the project;
+6. requires a clean worktree by default;
+7. applies the Copier update;
+8. checks only Git-visible modified and untracked files for coherent conflict markers, Git unmerged paths, and newly
+   produced `.rej` files;
+9. ignores dependency environments and other Git-ignored content such as `.venv`;
+10. runs `scripts/check-docs.py` when present;
+11. runs storage-mode-neutral Beads smoke checks with `bd info --json` and `bd ready --json --limit 1`;
+12. validates the project feature formula when present;
+13. reports the selected release, resolved Copier commit, changed files, validation, warnings, and conflicts.
 
 `bd doctor` is not used because it is not supported by every Beads storage mode.
 
-## Reconciliation
+## 4. Reconcile every changed path
 
 Build a path-accounting ledger from the helper's changed-file output plus `git status --short` and
 `git diff --name-status`. Every changed path must appear exactly once with one classification:
@@ -87,16 +117,15 @@ Build a path-accounting ledger from the helper's changed-file output plus `git s
 - `project change preserved`;
 - `conflict resolved`.
 
-For each path, record the upstream change, local behavior that must remain, resolution taken, and validation evidence.
-Use a table such as:
+For each path, record the upstream change, local behavior that must remain, resolution, and validation evidence:
 
-| Path | Classification           | Upstream/local intent | Resolution | Validation |
-|------|--------------------------|-----------------------|------------|------------|
-| `…`  | template change accepted | …                     | …          | …          |
+| Path | Classification | Upstream/local intent | Resolution | Validation |
+|---|---|---|---|---|
+| `…` | template change accepted | … | … | … |
 
 Preserve project-owned architecture, operations, development, reference, roadmap, and feature history. Stop when a path
-is ambiguous; do not infer acceptance from the absence of a textual conflict. Reconciliation is incomplete while any
-changed path is missing from the ledger or classified only as `unknown`.
+is ambiguous; absence of a textual conflict is not acceptance. Reconciliation is incomplete while any changed path is
+missing from the ledger or classified only as `unknown`.
 
 After every path is accounted for, rerun project-specific validation against the final files and commit the template
 update as a dedicated boundary before resuming feature work.
@@ -105,12 +134,12 @@ update as a dedicated boundary before resuming feature work.
 
 Report:
 
-1. destination and Copier source;
-2. previous Copier revision;
-3. discovered or explicitly requested release tag and resolved revision;
-4. changed files and the complete path-accounting ledger;
-5. real update conflicts and their resolutions, if any;
-6. documentation validation;
-7. Beads smoke-check results;
+1. preflight route, legacy task files, Beads-state result, and user consent decision when migration was offered;
+2. destination and Copier source;
+3. previous Copier revision;
+4. discovered or explicitly requested release tag and resolved revision;
+5. changed files and the complete path-accounting ledger;
+6. real update conflicts and resolutions;
+7. documentation and Beads validation;
 8. warnings and any unclassified path;
-9. readiness to resume feature work, which must be false while a path is unclassified.
+9. readiness to resume feature work, which must be false while migration is required or a changed path is unclassified.

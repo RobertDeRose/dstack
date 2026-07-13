@@ -37,6 +37,7 @@ EXPECTED_SKILLS = {
 
 REQUIRED_SKILL_SUPPORT = (
     "skills/dstack-core/references/TRUST-AND-AUTHORITY.md",
+    "skills/dstack-core/scripts/resolve-feature.py",
     "skills/gh-pr-review/scripts/review_state.py",
     "skills/migrate-workflow/references/MIGRATION.md",
     "skills/migrate-workflow/scripts/adopt-template.py",
@@ -52,7 +53,6 @@ REQUIRED_COPIER_QUESTIONS = (
     "project_slug",
     "project_description",
     "repository_default_branch",
-    "project_mode",
     "include_readme",
 )
 
@@ -60,14 +60,19 @@ REQUIRED_TEMPLATE_FILES = (
     ".beads/formulas/feature-lifecycle.formula.toml",
     ".gitignore.jinja",
     "[[ _copier_conf.answers_file ]].jinja",
-    "[% if project_mode == 'new' and include_readme %]README.md[% endif %].jinja",
+    "[% if include_readme %]README.md[% endif %].jinja",
     "AGENTS.md.jinja",
-    "docs/[% if project_mode == 'new' %]book.toml[% endif %].jinja",
-    "docs/src/[% if project_mode == 'new' %]SUMMARY.md[% endif %].jinja",
+    "docs/book.toml.jinja",
+    "docs/src/SUMMARY.md.jinja",
     "docs/src/features/_template/design.md",
     "docs/src/features/_template/index.md",
-    "scripts/bootstrap.py",
     "scripts/check-docs.py",
+)
+
+FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES = (
+    "MIGRATION.md",
+    "scripts/bootstrap.py",
+    "scripts/migrate-legacy-workflow.py",
 )
 
 LEGACY_OR_GENERATED_FILENAMES = {
@@ -112,7 +117,12 @@ def tracked_or_packaged_files(repository_root: Path) -> list[Path]:
 
 def setup_generated_project(source: Path, project: Path) -> None:
     """Render a project while simulating an existing Skills CLI installation."""
-    (project / ".agents/skills/setup-project").mkdir(parents=True)
+    installed_skill = project / ".agents/skills/setup-project"
+    installed_skill.mkdir(parents=True)
+    (installed_skill / "SKILL.md").write_text(
+        "---\nname: setup-project\ndescription: Test installation.\n---\n",
+        encoding="utf-8",
+    )
     (project / "skills-lock.json").write_text("{}\n", encoding="utf-8")
     setup = source / "skills/setup-project/scripts/setup-project.py"
     run_command(
@@ -124,7 +134,7 @@ def setup_generated_project(source: Path, project: Path) -> None:
             str(project),
             "--template-source",
             str(source),
-            "--skip-bootstrap",
+            "--skip-post-setup",
             "--json",
         ],
         cwd=project,
@@ -152,8 +162,19 @@ def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
         "    print('bd fake-1.0.0')\n"
         "elif args[:2] == ['info', '--json']:\n"
         "    print(json.dumps({'database_path': '.beads/embeddeddolt', 'issue_count': 3, 'mode': 'direct'}))\n"
-        "elif args[:2] == ['ready', '--json']:\n"
-        "    print('[]')\n"
+        "elif args and args[0] == 'init':\n"
+        "    beads = Path.cwd() / '.beads'\n"
+        "    beads.mkdir(exist_ok=True)\n"
+        "    (beads / 'metadata.json').write_text('{}\\n', encoding='utf-8')\n"
+        "    (beads / 'config.yaml').write_text('mode: fake\\n', encoding='utf-8')\n"
+        "elif args and args[0] == 'list' and '--json' in args:\n"
+        "    print(os.environ.get('DSTACK_BD_FEATURES', '[]'))\n"
+        "elif args and args[0] == 'ready' and '--json' in args:\n"
+        "    if '--type' in args:\n"
+        "        features = json.loads(os.environ.get('DSTACK_BD_FEATURES', '[]'))\n"
+        "        print(json.dumps([item for item in features if item.get('ready', True)]))\n"
+        "    else:\n"
+        "        print('[]')\n"
         "elif args[:3] == ['formula', 'show', 'feature-lifecycle']:\n"
         "    print(json.dumps({'formula': 'feature-lifecycle'}))\n"
         "else:\n"
@@ -201,7 +222,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     migration_reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(
         encoding="utf-8"
     )
-    assert len(migration.splitlines()) < 170
+    assert len(migration.splitlines()) < 200
     assert "references/MIGRATION.md" in migration
     for heading in (
         "## Baseline interpretation",
@@ -233,24 +254,30 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
 
     setup = skill("setup-project")
     assert "command -v bd" in setup
-    assert "Do not run `bd prime` or `bd ready` when `bd` is unavailable" in setup
+    assert "Do not run `bd prime` when `bd` is unavailable" in setup
+    assert "Run /update-project instead?" in setup
+    assert "only when the user agrees" in setup
+    assert "has no overwrite mode" in setup
     setup_script = (repository_root / "skills/setup-project/scripts/setup-project.py").read_text(encoding="utf-8")
-    bootstrap_script = (repository_root / "skills/setup-project/template/scripts/bootstrap.py").read_text(
-        encoding="utf-8"
-    )
-    assert "if beads_initialized:" in setup_script
+    assert "def initialize_beads(" in setup_script
+    assert "def verify_scaffold(" in setup_script
+    assert 'parser.add_argument("--overwrite"' not in setup_script
+    assert 'parser.add_argument("--skip-bootstrap"' not in setup_script
     assert "Beads initialization and verification remain outstanding" in setup_script
     assert 'default="stealth"' in setup_script
-    assert 'default="stealth"' in bootstrap_script
-    assert "if not args.skip_beads:" in bootstrap_script
-    assert "Beads initialization and verification were skipped and remain outstanding" in bootstrap_script
+    for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
+        assert not (repository_root / "skills/setup-project/template" / relative).exists()
 
     implementation = skill("implement-feature")
     assert "git rev-parse HEAD" in implementation
+    assert "resolve-feature.py --next" not in implementation
+    assert "feat/<num>-<slug>" in implementation
     assert "specific no-commit justification" in implementation
     assert "<implementation-epic-id>" not in implementation
 
     closeout = skill("close-feature")
+    assert "resolve-feature.py --next" not in closeout
+    assert "feat/<num>-<slug>" in closeout
     assert "do not reuse pre-fix results" in " ".join(closeout.casefold().split())
     assert "scripts/check-docs.py" in closeout
 
@@ -261,11 +288,18 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "git show-ref --verify --quiet refs/heads/feat/<num>-<slug>" in start
     assert "Branch exists but has no worktree" in start
     assert "<implementation-epic-id>" not in start
+    assert "resolve-feature.py" in start
+    assert "canonical" in start.casefold()
 
     update = skill("update-project")
+    assert "Run /migrate-workflow now?" in update
+    assert "--preflight --json" in update
     assert "path-accounting ledger" in update
     assert "every changed path" in update.casefold()
-    assert "readiness to resume feature work, which must be false while a path is unclassified" in update
+    assert (
+        "readiness to resume feature work, which must be false while migration is required or a changed path is "
+        "unclassified" in " ".join(update.split())
+    )
 
     for name in ("audit-project", "close-feature", "implement-feature", "gh-pr-review"):
         description = str(load_skill_manifest(repository_root / "skills" / name / "SKILL.md")["description"])
@@ -328,6 +362,8 @@ def test_copier_entry_points_are_consistent(repository_root: Path) -> None:
 
     assert root_config["_subdirectory"] == "skills/setup-project/template"
     assert bundled_config["_subdirectory"] == "template"
+    assert "project_mode" not in root_config
+    assert "project_mode" not in bundled_config
     for question in REQUIRED_COPIER_QUESTIONS:
         assert question in root_config
         assert question in bundled_config
@@ -341,6 +377,15 @@ def test_copier_template_contains_required_files(
 ) -> None:
     template = repository_root / "skills/setup-project/template"
     assert (template / relative_path).is_file(), relative_path
+
+
+@pytest.mark.parametrize("relative_path", FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES)
+def test_new_project_template_excludes_migration_only_files(
+    repository_root: Path,
+    relative_path: str,
+) -> None:
+    template = repository_root / "skills/setup-project/template"
+    assert not (template / relative_path).exists(), relative_path
 
 
 def test_feature_design_placeholders_remain_literal(repository_root: Path) -> None:
@@ -399,7 +444,7 @@ def test_setup_project_uses_bundled_skill_template_and_records_remote_update_sta
             str(installed_skill / "scripts/setup-project.py"),
             "--destination",
             str(project),
-            "--skip-bootstrap",
+            "--skip-post-setup",
             "--no-git-init",
             "--json",
         ],
@@ -420,6 +465,63 @@ def test_setup_project_uses_bundled_skill_template_and_records_remote_update_sta
     assert answers["_commit"] == f"v{version}"
     assert str(installed_skill) not in (project / ".copier-answers.yml").read_text(encoding="utf-8")
     assert (project / "docs/src/SUMMARY.md").is_file()
+    for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
+        assert not (project / relative).exists(), relative
+
+
+@pytest.mark.integration
+def test_setup_project_refuses_existing_copier_state_without_mutation(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "managed-project"
+    project.mkdir()
+    answers = project / ".copier-answers.yml"
+    original = "_src_path: gh:example/project\n_commit: v1.2.3\n"
+    answers.write_text(original, encoding="utf-8")
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+        ],
+        cwd=tmp_path,
+        expected=1,
+    )
+
+    assert "offer /update-project and run it only after the user agrees" in result.stderr
+    assert answers.read_text(encoding="utf-8") == original
+    assert sorted(path.name for path in project.iterdir()) == [".copier-answers.yml"]
+
+
+@pytest.mark.integration
+def test_setup_project_routes_existing_non_skill_project_files_to_migration(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "existing-project"
+    workflow = project / ".github/workflows/ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text("name: Existing CI\n", encoding="utf-8")
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+        ],
+        cwd=tmp_path,
+        expected=1,
+    )
+
+    assert "Use /migrate-workflow for an existing project" in result.stderr
+    assert workflow.read_text(encoding="utf-8") == "name: Existing CI\n"
+    assert not (project / ".copier-answers.yml").exists()
 
 
 @pytest.mark.integration
@@ -537,6 +639,55 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
 
 
 @pytest.mark.integration
+def test_update_preflight_routes_legacy_tasks_without_beads_to_migration(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "legacy-managed-project"
+    feature = project / "docs/src/features/alpha"
+    feature.mkdir(parents=True)
+    (feature / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    (project / "tasks.md").write_text("# Project tasks\n", encoding="utf-8")
+    (project / "vendor/example").mkdir(parents=True)
+    (project / "vendor/example/tasks.md").write_text("# Vendored tasks\n", encoding="utf-8")
+    (project / ".copier-answers.yml").write_text(
+        "_src_path: gh:RobertDeRose/dstack\n_commit: v0.0.1\n",
+        encoding="utf-8",
+    )
+    formula = project / ".beads/formulas/feature-lifecycle.formula.toml"
+    formula.parent.mkdir(parents=True)
+    formula.write_text('formula = "feature-lifecycle"\n', encoding="utf-8")
+    initialize_git(project, "legacy managed project")
+    update = repository_root / "skills/update-project/scripts/update-project.py"
+
+    result = run_command(
+        ["uv", "run", str(update), "--destination", str(project), "--preflight", "--json"],
+        cwd=project,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["recommended_workflow"] == "migrate-workflow"
+    assert payload["beads_state_present"] is False
+    assert payload["legacy_task_files"] == ["docs/src/features/alpha/tasks.md", "tasks.md"]
+
+    blocked = run_command(
+        ["uv", "run", str(update), "--destination", str(project), "--json"],
+        cwd=project,
+        expected=1,
+    )
+    assert "offer /migrate-workflow and run it only after the user agrees" in blocked.stderr
+    assert "Legacy task files:" in blocked.stderr
+
+    (project / ".beads/metadata.json").write_text("{}\n", encoding="utf-8")
+    initialized = run_command(
+        ["uv", "run", str(update), "--destination", str(project), "--preflight", "--json"],
+        cwd=project,
+    )
+    initialized_payload = json.loads(initialized.stdout)
+    assert initialized_payload["recommended_workflow"] == "update-project"
+    assert initialized_payload["beads_state_present"] is True
+
+
+@pytest.mark.integration
 def test_existing_project_adoption_preserves_project_owned_files(
     tagged_template_source: Path,
     tmp_path: Path,
@@ -555,7 +706,7 @@ def test_existing_project_adoption_preserves_project_owned_files(
     original_summary = (legacy / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
 
     adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
-    run_command(
+    result = run_command(
         [
             "uv",
             "run",
@@ -570,6 +721,7 @@ def test_existing_project_adoption_preserves_project_owned_files(
         ],
         cwd=tagged_template_source,
     )
+    payload = json.loads(result.stdout)
 
     assert (legacy / "docs/src/SUMMARY.md").read_text(encoding="utf-8") == original_summary
     agents = (legacy / "AGENTS.md").read_text(encoding="utf-8")
@@ -583,18 +735,76 @@ def test_existing_project_adoption_preserves_project_owned_files(
         "docs/src/features/_template/design.md",
     ):
         assert (legacy / required).is_file(), required
+    assert "docs/src/SUMMARY.md" in payload["manual_merge"]
+    candidate = legacy / "migration/template-adoption-candidates/docs/src/SUMMARY.md"
+    assert candidate.is_file()
+    assert candidate.read_text(encoding="utf-8") != original_summary
+    for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
+        assert not (legacy / relative).exists(), relative
 
-    bootstrap = run_command(
+    validation = run_command(
+        ["uv", "run", str(legacy / "scripts/check-docs.py"), "--migration-mode"],
+        cwd=legacy,
+    )
+    assert "Documentation checks:" in validation.stdout
+
+
+@pytest.mark.integration
+def test_existing_project_adoption_rebases_prior_copier_state(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "managed-legacy-project"
+    feature = project / "docs/src/features/alpha"
+    feature.mkdir(parents=True)
+    (feature / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    answers = project / ".copier-answers.yml"
+    original_answers = (
+        f"_src_path: {tagged_template_source}\n"
+        "_commit: v0.0.0\n"
+        "project_name: Managed legacy project\n"
+        "project_slug: managed-legacy-project\n"
+        "project_description: Existing managed project.\n"
+        "repository_default_branch: trunk\n"
+        "include_readme: false\n"
+    )
+    answers.write_text(original_answers, encoding="utf-8")
+    initialize_git(project, "managed legacy project")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    result = run_command(
         [
             "uv",
             "run",
-            str(legacy / "scripts/bootstrap.py"),
-            "--skip-beads",
+            str(adopt),
+            "--destination",
+            str(project),
+            "--vcs-ref",
+            "v0.0.1",
+            "--json",
         ],
-        cwd=legacy,
+        cwd=tagged_template_source,
     )
-    assert "Detected a legacy workflow" in bootstrap.stdout
-    assert "Documentation checks:" in bootstrap.stdout
+    payload = json.loads(result.stdout)
+
+    assert payload["copier_state"] == "rebased-existing"
+    assert payload["template_source"] == str(tagged_template_source)
+    assert payload["previous_copier_commit"] == "v0.0.0"
+    assert payload["recorded_copier_commit"] == "v0.0.1"
+    assert payload["vcs_ref"] == "v0.0.1"
+    updated_answers = yaml.safe_load(answers.read_text(encoding="utf-8"))
+    assert updated_answers["_src_path"] == str(tagged_template_source)
+    assert updated_answers["_commit"] == "v0.0.1"
+    assert updated_answers["project_name"] == "Managed legacy project"
+    assert updated_answers["project_description"] == "Existing managed project."
+    assert updated_answers["repository_default_branch"] == "trunk"
+    assert updated_answers["include_readme"] is False
+    backup = project / "migration/template-adoption-backup/.copier-answers.yml"
+    assert backup.read_text(encoding="utf-8") == original_answers
+    assert ".copier-answers.yml" in payload["replaced"]
+    assert (project / "scripts/check-docs.py").is_file()
+    for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
+        assert not (project / relative).exists(), relative
 
 
 def test_tested_workflow_gaps_are_explicit(repository_root: Path) -> None:
@@ -610,11 +820,43 @@ def test_tested_workflow_gaps_are_explicit(repository_root: Path) -> None:
     assert "documentation validation after archival" in migrate
 
 
-def test_bootstrap_supports_json_and_probes_bd_executable(repository_root: Path) -> None:
-    script = (repository_root / "skills/setup-project/template/scripts/bootstrap.py").read_text(encoding="utf-8")
-    assert '"--json"' in script
-    assert '["bd", "--version"]' in script
-    assert '"scaffold_verified"' in script
+@pytest.mark.integration
+def test_setup_helper_runs_post_setup_without_generating_bootstrap(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "new-project"
+    fake_bin = tmp_path / "bin"
+    bd_log = tmp_path / "bd.log"
+    write_fake_bd(fake_bin, bd_log)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--no-git-init",
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=merged_environment(
+            PATH=f"{fake_bin}:{os.environ['PATH']}",
+            DSTACK_BD_LOG=str(bd_log),
+        ),
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["post_setup_ran"] is True
+    assert payload["docs_validated"] is True
+    assert payload["beads_initialized"] is True
+    assert payload["outstanding"] == []
+    commands = bd_log.read_text(encoding="utf-8").splitlines()
+    assert "--version" in commands
+    assert "init --skip-agents --stealth --quiet" in commands
+    assert "formula show feature-lifecycle --json" in commands
+    for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
+        assert not (project / relative).exists(), relative
 
 
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
@@ -628,31 +870,21 @@ def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -
 
 def test_copier_template_has_no_duplicate_possible_destinations(repository_root: Path) -> None:
     template = repository_root / "skills/setup-project/template"
-    for project_mode in ("new", "existing"):
-        for include_readme in (False, True):
-            rendered: dict[str, str] = {}
-            for path in template.rglob("*"):
-                if not path.is_file():
-                    continue
-                relative = path.relative_to(template).as_posix()
-                output = relative
-                output = re.sub(
-                    r"\[% if project_mode == 'new' %\](.*?)\[% endif %\]",
-                    lambda match, mode=project_mode: match.group(1) if mode == "new" else "",
-                    output,
-                )
-                output = re.sub(
-                    r"\[% if project_mode == 'new' and include_readme %\](.*?)\[% endif %\]",
-                    lambda match, mode=project_mode, include=include_readme: (
-                        match.group(1) if mode == "new" and include else ""
-                    ),
-                    output,
-                )
-                output = output.replace(".jinja", "")
-                if not output or output.endswith("/"):
-                    continue
-                previous = rendered.setdefault(output, relative)
-                assert previous == relative, (project_mode, include_readme, output, previous, relative)
+    for include_readme in (False, True):
+        rendered: dict[str, str] = {}
+        for path in template.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(template).as_posix()
+            output = re.sub(
+                r"\[% if include_readme %\](.*?)\[% endif %\]",
+                lambda match, include=include_readme: match.group(1) if include else "",
+                relative,
+            ).replace(".jinja", "")
+            if not output or output.endswith("/"):
+                continue
+            previous = rendered.setdefault(output, relative)
+            assert previous == relative, (include_readme, output, previous, relative)
 
 
 @pytest.mark.external
@@ -668,18 +900,111 @@ def test_skills_cli_discovers_all_skills(repository_root: Path) -> None:
         assert skill in output
 
 
-def test_template_formula_uses_task_implementation_coordinator(repository_root: Path) -> None:
-    formula = (
-        repository_root / "skills/setup-project/template/.beads/formulas/feature-lifecycle.formula.toml"
-    ).read_text(encoding="utf-8")
-    implementation = re.search(
-        r'\[\[steps\]\]\nid = "implementation"(?P<body>.*?)(?=\n\[\[steps\]\])',
-        formula,
-        flags=re.DOTALL,
+def test_template_formula_names_feature_tasks_and_uses_one_epic_container(repository_root: Path) -> None:
+    formula_path = repository_root / "skills/setup-project/template/.beads/formulas/feature-lifecycle.formula.toml"
+    formula = tomllib.loads(formula_path.read_text(encoding="utf-8"))
+    steps = formula["steps"]
+    implementation = next(step for step in steps if step["id"] == "implementation")
+
+    assert implementation["type"] == "task"
+    assert all(step["title"].startswith("F{{feature_number}} — ") for step in steps)
+    assert all("workflow:feature" not in step["labels"] for step in steps)
+    assert all("workflow:feature-lifecycle" in step["labels"] for step in steps)
+    for step in steps:
+        assert step["metadata"]["feature_number"] == "{{feature_number}}"
+        assert step["metadata"]["feature_slug"] == "{{feature_slug}}"
+        assert step["metadata"]["feature_name"] == "{{feature_name}}"
+
+    plan = (repository_root / "skills/plan-features/SKILL.md").read_text(encoding="utf-8")
+    assert "The returned root is the feature epic" in plan
+    assert "not a second feature epic or a milestone" in " ".join(plan.split())
+
+
+@pytest.mark.integration
+def test_feature_resolver_selects_epics_by_human_reference_and_readiness(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    features = [
+        {
+            "id": "passport-mol-active",
+            "title": "F005 — Already active",
+            "issue_type": "epic",
+            "status": "in_progress",
+            "priority": 0,
+            "ready": True,
+            "metadata": {
+                "feature_number": "005",
+                "feature_slug": "already-active",
+                "feature_name": "Already active",
+            },
+        },
+        {
+            "id": "passport-mol-1p9",
+            "title": "F020 — Core payloads and state",
+            "issue_type": "epic",
+            "status": "open",
+            "priority": 2,
+            "ready": True,
+            "metadata": {
+                "feature_number": "020",
+                "feature_slug": "core-payloads-and-state",
+                "feature_name": "Core payloads and state",
+            },
+        },
+        {
+            "id": "passport-mol-tzq",
+            "title": "F010 — Conduit REST list response validation",
+            "issue_type": "epic",
+            "status": "open",
+            "priority": 1,
+            "ready": True,
+            "metadata": {
+                "feature_number": "010",
+                "feature_slug": "conduit-rest-list-response-validation",
+                "feature_name": "Conduit REST list response validation",
+            },
+        },
+    ]
+    fake_bin = tmp_path / "bin"
+    bd_log = tmp_path / "bd.log"
+    write_fake_bd(fake_bin, bd_log)
+    environment = merged_environment(
+        PATH=f"{fake_bin}:{os.environ['PATH']}",
+        DSTACK_BD_LOG=str(bd_log),
+        DSTACK_BD_FEATURES=json.dumps(features),
     )
-    assert implementation is not None
-    assert 'type = "task"' in implementation.group("body")
-    assert 'type = "epic"' not in implementation.group("body")
+    resolver = repository_root / "skills/dstack-core/scripts/resolve-feature.py"
+
+    next_result = run_command(
+        ["uv", "run", str(resolver), "--root", str(tmp_path), "--next", "--json"],
+        cwd=tmp_path,
+        env=environment,
+    )
+    selected = json.loads(next_result.stdout)
+    assert selected["id"] == "passport-mol-tzq"
+    assert selected["feature_reference"] == "010-conduit-rest-list-response-validation"
+    assert selected["recommended_command"] == "/start-feature 010-conduit-rest-list-response-validation"
+
+    named_result = run_command(
+        [
+            "uv",
+            "run",
+            str(resolver),
+            "Core payloads and state",
+            "--root",
+            str(tmp_path),
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=environment,
+    )
+    named = json.loads(named_result.stdout)
+    assert named["id"] == "passport-mol-1p9"
+    assert named["feature_reference"] == "020-core-payloads-and-state"
+    commands = bd_log.read_text(encoding="utf-8").splitlines()
+    assert any(command.startswith("ready --type epic --label workflow:feature") for command in commands)
+    assert all("list --ready" not in command for command in commands)
 
 
 def test_setup_is_bundled_while_update_and_adoption_use_release_tags(repository_root: Path) -> None:
@@ -771,11 +1096,7 @@ def test_migration_mode_downgrades_missing_taxonomy_concerns(
 
 
 def test_template_workflow_scripts_are_host_lint_compatible(repository_root: Path) -> None:
-    expected_codes = {
-        "bootstrap.py": {"S603", "S607"},
-        "check-docs.py": {"S607"},
-        "migrate-legacy-workflow.py": {"S603", "S607"},
-    }
+    expected_codes = {"check-docs.py": {"S607"}}
     for name, codes in expected_codes.items():
         path = repository_root / "skills/setup-project/template/scripts" / name
         header = "\n".join(path.read_text(encoding="utf-8").splitlines()[:12])
@@ -835,16 +1156,11 @@ def test_review_collector_sanitizes_untrusted_content(repository_root: Path) -> 
         module._validate_command(["bash", "-lc", "echo unsafe"])
 
 
-def test_bundled_migrator_matches_installed_migrator(repository_root: Path) -> None:
-    canonical = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
-        encoding="utf-8"
-    )
-    bundled = (repository_root / "skills/setup-project/template/scripts/migrate-legacy-workflow.py").read_text(
-        encoding="utf-8"
-    )
-    bundled_lines = [line for line in bundled.splitlines() if not line.startswith("# ruff: noqa:")]
-    canonical_lines = [line for line in canonical.splitlines() if not line.startswith("# ruff: noqa:")]
-    assert bundled_lines == canonical_lines
+def test_migrator_is_owned_only_by_migration_skill(repository_root: Path) -> None:
+    canonical = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
+    bundled = repository_root / "skills/setup-project/template/scripts/migrate-legacy-workflow.py"
+    assert canonical.is_file()
+    assert not bundled.exists()
 
 
 @pytest.mark.integration

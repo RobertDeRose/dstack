@@ -34,7 +34,10 @@ The project name defaults to `basename "$PWD"`. Override it explicitly:
 
 The setup skill renders the Copier template bundled inside the installed skill, without downloading a second copy from
 GitHub. It creates `.copier-answers.yml`, records the corresponding published dstack release as the future update
-baseline, initializes Git when needed, initializes Beads when available, and validates the documentation scaffold.
+baseline, initializes Git when needed, initializes Beads when available, and validates the documentation scaffold. It is
+strictly a new-project workflow: it does not generate bootstrap or migration scripts and does not merge an existing
+repository. If `.copier-answers.yml` already exists, `/setup-project` asks whether to run `/update-project` and proceeds
+only after explicit approval. Other existing project files are routed to `/migrate-workflow`.
 
 Direct invocation for a Codex/universal project installation:
 
@@ -54,9 +57,11 @@ npx skills update
 /update-project
 ```
 
-The project update helper reads the Git source recorded in `.copier-answers.yml`, queries its published tags, selects
-the newest stable PEP 440 release, and then runs Copier's three-way update. Project-specific evolution is preserved
-where possible. Use `--vcs-ref` only for an explicitly reviewed development revision.
+The project update helper first checks Copier state, legacy `tasks.md` files, and initialized Beads state. When active
+legacy task files exist without Beads, `/update-project` offers `/migrate-workflow` and runs it only after approval.
+Otherwise it reads the Git source recorded in `.copier-answers.yml`, queries its published tags, selects the newest
+stable PEP 440 release, and runs Copier's three-way update. Project-specific evolution is preserved where possible. Use
+`--vcs-ref` only for an explicitly reviewed development revision.
 
 ## Migrate an Existing Project
 
@@ -66,18 +71,24 @@ For a repository using the original `planned-features.md` plus per-feature `task
 /migrate-workflow
 ```
 
-The migration skill adopts Copier state, preserves the existing reader-facing documentation hierarchy, migrates live
-task state into Beads, and archives legacy task files after verification.
+The migration skill renders the latest tagged new-project template with Copier into an isolated directory, copies
+missing workflow files, stages conflicting project-owned files as explicit manual-merge candidates, backs up and rebases
+existing Copier state to the adopted tagged template, initializes Beads, migrates live task state, and archives legacy
+task files after verification. It does not overwrite project-specific navigation or product documentation wholesale.
 
 ## Feature Workflow
 
 ```text
 /plan-features
-/start-feature
-/implement-feature
-/close-feature
+/start-feature 010-feature-name
+/implement-feature 010-feature-name
+/close-feature 010-feature-name
 /audit-project
 ```
+
+Each feature is one Beads epic, or a molecule when created from the lifecycle formula. Lifecycle gates and bounded
+implementation tasks live below that epic. Human workflow commands use the stable `<number>-<slug>`, `F<number>`, or
+feature name; opaque Beads IDs remain internal mutation and audit references.
 
 ## Repository Layout
 
@@ -91,6 +102,7 @@ skills/
   dstack-core/
     SKILL.md
     references/TRUST-AND-AUTHORITY.md
+    scripts/resolve-feature.py       # human feature selector and next-ready resolver
   setup-project/
     SKILL.md
     copier.yml                     # bundled/local Copier entry point

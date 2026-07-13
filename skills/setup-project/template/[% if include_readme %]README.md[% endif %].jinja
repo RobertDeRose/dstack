@@ -13,20 +13,23 @@ Install the workflow skills:
 npx --yes skills@1.5.16 add RobertDeRose/dstack
 ```
 
-Initialize or verify the repository workflow:
+The setup workflow already validates the scaffold and initializes Beads when `bd` is available. Start a session with:
 
 ```bash
-uv run scripts/bootstrap.py
 bd prime
+bd ready --type epic --label workflow:feature --json --limit 0
 ```
+
+If setup reported Beads as outstanding, initialize it once with `bd init --stealth --skip-agents`, then rerun the commands
+above.
 
 Use the installed lifecycle skills:
 
 ```text
 /plan-features
-/start-feature
-/implement-feature
-/close-feature
+/start-feature <number>-<slug>
+/implement-feature <number>-<slug>
+/close-feature <number>-<slug>
 /audit-project
 ```
 

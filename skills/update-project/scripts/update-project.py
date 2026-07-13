@@ -47,6 +47,21 @@ IGNORED_SCAN_DIRS = {
     "node_modules",
     "target",
 }
+LEGACY_TASK_IGNORED_DIRS = IGNORED_SCAN_DIRS | {
+    ".agents",
+    ".beads",
+    ".codex",
+    ".cursor",
+    ".github",
+    "_template",
+    "archive",
+    "archived",
+    "migration",
+    "skills",
+    "third_party",
+    "vendor",
+    "vendors",
+}
 
 
 def run(
@@ -120,6 +135,62 @@ def git_status(root: Path) -> list[str]:
         text=True,
     )
     return [line for line in completed.stdout.splitlines() if line.strip()]
+
+
+def legacy_task_files(root: Path) -> list[str]:
+    """Return active legacy task files without treating tools, templates, or archives as live state."""
+    found: list[str] = []
+    for current, directories, filenames in os.walk(root):
+        directories[:] = [
+            directory
+            for directory in directories
+            if directory not in LEGACY_TASK_IGNORED_DIRS and not directory.startswith(".")
+        ]
+        if not any(filename.casefold() == "tasks.md" for filename in filenames):
+            continue
+        current_path = Path(current)
+        for filename in filenames:
+            if filename.casefold() == "tasks.md":
+                found.append((current_path / filename).relative_to(root).as_posix())
+    return sorted(found)
+
+
+def beads_state_present(root: Path) -> bool:
+    """Detect initialized Beads state without counting a copied formula as a database."""
+    beads = root / ".beads"
+    markers = (
+        beads / "metadata.json",
+        beads / "config.yaml",
+        beads / "beads.db",
+        beads / "issues.jsonl",
+        beads / "embeddeddolt",
+        beads / "dolt",
+    )
+    return any(path.exists() for path in markers)
+
+
+def project_preflight(root: Path, answers_file: str) -> dict[str, Any]:
+    tasks = legacy_task_files(root)
+    beads_present = beads_state_present(root)
+    answers = root / answers_file
+    if tasks and not beads_present:
+        route = "migrate-workflow"
+        reason = "legacy feature tasks exist but Beads has not been initialized"
+    elif answers.is_file():
+        route = "update-project"
+        reason = "Copier state exists"
+    else:
+        route = "migrate-workflow"
+        reason = "Copier state is missing from an existing repository"
+    return {
+        "destination": str(root),
+        "answers_file": str(answers),
+        "answers_exists": answers.is_file(),
+        "legacy_task_files": tasks,
+        "beads_state_present": beads_present,
+        "recommended_workflow": route,
+        "reason": reason,
+    }
 
 
 def nul_paths(command: Sequence[str], *, root: Path) -> set[str]:
@@ -368,6 +439,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--destination", "-d", type=Path, default=Path.cwd())
     parser.add_argument("--answers-file", default=".copier-answers.yml")
     parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Inspect Copier, legacy task, and Beads state without querying tags or modifying files.",
+    )
+    parser.add_argument(
         "--vcs-ref",
         help=(
             "Specific template tag, commit, branch, or HEAD. Defaults to the newest "
@@ -389,14 +465,29 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     destination = git_root(args.destination.expanduser().resolve())
-    answers = destination / args.answers_file
-    if not answers.exists():
-        msg = (
-            f"{answers} is missing; use /setup-project for a new repository or "
-            "/migrate-workflow for an existing repository"
-        )
-        raise SystemExit(msg)
+    preflight = project_preflight(destination, args.answers_file)
+    if args.preflight:
+        if args.json:
+            print(json.dumps(preflight, indent=2, sort_keys=True))
+        else:
+            print(f"Recommended workflow: /{preflight['recommended_workflow']}")
+            print(f"Reason: {preflight['reason']}")
+            for path in preflight["legacy_task_files"]:
+                print(f"  - {path}")
+        return 0
 
+    if preflight["recommended_workflow"] == "migrate-workflow":
+        tasks = preflight["legacy_task_files"]
+        details = "\n".join(f"  - {path}" for path in tasks)
+        message = (
+            f"{preflight['reason']}. Do not run Copier update yet; offer /migrate-workflow "
+            "and run it only after the user agrees."
+        )
+        if details:
+            message += f"\nLegacy task files:\n{details}"
+        raise SystemExit(message)
+
+    answers = destination / args.answers_file
     answer_data = load_answers(answers)
     source = str(answer_data.get("_src_path") or "").strip()
     if not source:
@@ -492,6 +583,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "beads_checked": beads_health is not None,
         "beads_health": beads_health,
         "warnings": warnings,
+        "preflight": preflight,
     }
 
     if args.json:

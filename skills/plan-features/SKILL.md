@@ -9,7 +9,8 @@ allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 # Purpose
 
 Use this skill to take project intent from discussion to durable design and ordered work. Beads owns live feature/task
-state. `design.md` owns detailed feature intent. `planned-features.md` remains a concise human roadmap.
+state. `design.md` owns detailed feature intent. `planned-features.md` remains a concise human roadmap. Resolve
+`<core-dir>` as the installed `../dstack-core` skill directory so feature selection uses its deterministic resolver.
 
 ## Inputs
 
@@ -39,7 +40,7 @@ Run:
 
 ```bash
 bd prime
-bd list --all --label workflow:feature --json
+bd list --all --type epic --label workflow:feature --json --limit 0
 bd ready --json
 bd blocked --json
 ```
@@ -135,16 +136,20 @@ bd mol pour feature-lifecycle \
   --json
 ```
 
-Record identity on the returned root. For work implemented in another repository, set `implementation_repository`,
+The returned root is the feature epic (a poured molecule is an epic with workflow semantics). Keep exactly one
+`workflow:feature` label on that root; lifecycle and implementation tasks remain descendants and use their own labels.
+Normalize and record identity immediately. For work implemented in another repository, set `implementation_repository`,
 `implementation_path`, and that repository's `base_branch` explicitly:
 
 ```bash
 bd update <root-id> \
+  --type epic \
   --title "F<num> — <title>" \
   --add-label workflow:feature \
   --spec-id docs/src/features/<num>-<slug>/design.md \
   --set-metadata feature_number=<num> \
   --set-metadata feature_slug=<slug> \
+  --set-metadata feature_name="<title>" \
   --set-metadata design_path=docs/src/features/<num>-<slug>/design.md \
   --set-metadata implemented_path=docs/src/features/<num>-<slug>/index.md \
   --set-metadata base_branch=<base> \
@@ -172,8 +177,15 @@ bd update <root-id> \
   --set-metadata workflow_kind=molecule
 ```
 
-Lifecycle creation is complete when `bd show <root-id> --json` contains every required lifecycle ID and each ID resolves
-to the intended child.
+Lifecycle creation is complete when `bd show <root-id> --json` reports an epic, contains every required lifecycle ID,
+and each ID resolves to the intended child. Confirm the human selector resolves back to that root:
+
+```bash
+uv run <core-dir>/scripts/resolve-feature.py <num>-<slug> --json
+```
+
+Do not use an opaque Beads hash as the primary feature reference in roadmap recommendations or user-facing workflow
+commands. Preserve the root ID in metadata, reports, and commit evidence where auditability requires it.
 
 Migrated legacy roots may be ordinary epics rather than molecules. Their importer stores the same lifecycle ID metadata,
 so downstream skills use one interface for both shapes.
@@ -193,7 +205,15 @@ Create bounded tasks beneath the lifecycle implementation coordinator. Each task
 
 Use `parent-child` for hierarchy and `blocks` for actual prerequisites. Independent siblings remain parallel. Every
 implementation child must depend on the lifecycle `spec-reconcile` step so implementation cannot become ready before
-specification review.
+specification review. Name bounded tasks for recognition outside a tree view:
+
+```text
+F<num> <task-key> — <concrete outcome>
+```
+
+Store `feature_number`, `feature_slug`, and `feature_name` on every lifecycle and implementation task. The feature epic
+remains the single parent/container; the implementation coordinator is a task gate with bounded tasks beneath it, not a
+second feature epic or a milestone.
 
 ## 9. Complete Planning State
 
@@ -205,13 +225,24 @@ bd close <design-step-id> --reason "Planning Q&A complete; draft design and impl
 
 Leave the four isolated review steps ready for `/start-feature`.
 
-Update `docs/src/planned-features.md` with concise roadmap narrative, feature ID, Beads root, dependencies, design link,
-sequencing rationale, and status snapshot. Keep detailed intent in `design.md` and live state in Beads.
+Update `docs/src/planned-features.md` with concise roadmap narrative, canonical `<num>-<slug>` feature reference, Beads
+root ID for auditability, dependencies, design link, sequencing rationale, and status snapshot. Keep detailed intent in
+`design.md` and live state in Beads.
 
 Commit planning documentation when downstream worktrees need it. Include the feature root ID in the commit message.
 
 ## Completion Criteria
 
-Planning is complete when the roadmap is coherent, near-term features have stable IDs and designs, implementation is
-decomposed into bounded Beads work, exact documentation changes and validation are assigned, unresolved blockers are
-explicit, and the next action is `/start-feature <root-id>`.
+Planning is complete when the roadmap is coherent, each feature is one human-named Beads epic with lifecycle/tasks
+beneath it, near-term features have stable numbers and designs, implementation is decomposed into bounded work, exact
+documentation changes and validation are assigned, and unresolved blockers are explicit.
+
+Select the recommended feature from Beads rather than manually copying a hash:
+
+```bash
+uv run <core-dir>/scripts/resolve-feature.py --next --json
+```
+
+Return the helper's `recommended_command`, such as `/start-feature 010-conduit-rest-list-response-validation`, together
+with the human feature name and root ID. Never append characters to a Beads ID or recommend an opaque ID when the
+canonical number/slug or exact feature name is available.

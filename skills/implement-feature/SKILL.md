@@ -8,23 +8,29 @@ allowed-tools: Read Glob Grep Edit Write Bash Task
 
 # Purpose
 
-Use this skill after `/start-feature` closes `spec-reconcile`. Beads selects executable work; `design.md` supplies
-intended behavior and design constraints.
+Use this skill after `/start-feature` closes `spec-reconcile`. Accept the same human feature selectors as
+`/start-feature`. Beads selects executable work; `design.md` supplies intended behavior and design constraints. Resolve
+`<core-dir>` as the installed `../dstack-core` skill directory.
 
 ## Execution
 
 ## 1. Load Minimal Context
 
-Run:
+Run `bd prime`, then resolve the supplied feature selector. When the selector is omitted, infer it only from an active
+`feat/<num>-<slug>` branch. If the current branch is not a feature branch, stop and require a selector rather than
+choosing unrelated ready work:
 
 ```bash
-bd prime
-bd show <feature-root> --json
+branch=$(git branch --show-current)
+feature_selector=${branch#feat/}  # only when branch matches feat/*
+uv run <core-dir>/scripts/resolve-feature.py "<feature-selector>" --json
+bd show <resolved-root-id> --json
 ```
 
-Resolve the implementation coordinator from root metadata `implementation_id`. Query the feature children only as a
-one-time metadata repair path. This keeps the normal context load independent of total feature size and works for both
-molecules and migrated parent-child lifecycles. Activate and verify `feat/<num>-<slug>`.
+Use the returned root ID only for Beads operations and the returned `<num>-<slug>` reference for worktree, reporting,
+and continuation commands. Resolve the implementation coordinator from root metadata `implementation_id`. Query the
+feature children only as a one-time metadata repair path. This keeps the normal context load independent of total
+feature size and works for both molecules and migrated parent-child lifecycles. Activate and verify `feat/<num>-<slug>`.
 
 Select a user-specified task or atomically claim the next ready child:
 
@@ -110,5 +116,6 @@ bd update <implementation-id> --append-notes "Implementation acceptance evidence
 bd close <implementation-id> --reason "Required implementation work complete; acceptance verified"
 ```
 
-Return feature/task IDs, worktree, changes, documentation updated, validation, isolated review, commit SHA, discovered
-work, implementation progress, and the next ready lifecycle item.
+Return the canonical feature reference and human name, feature/task IDs, worktree, changes, documentation updated,
+validation, isolated review, commit SHA, discovered work, implementation progress, and the next ready lifecycle item.
+Recommend subsequent invocations with the canonical feature reference rather than only a Beads hash.
