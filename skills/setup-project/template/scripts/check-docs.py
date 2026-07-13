@@ -24,14 +24,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
-SECTION_ALIASES: dict[str, tuple[str, ...]] = {
-    "Introduction": ("Introduction",),
-    "Architecture": ("Architecture", "Architecture Design"),
-    "Operations": ("Operator's Manual", "Operations", "Usage Guide"),
-    "Development": ("Development Guide", "Development"),
-    "Reference": ("Reference",),
-}
-
 DESIGN_HEADINGS = (
     "Feature Summary",
     "User Intent",
@@ -189,14 +181,6 @@ def validate_links(root: Path, markdown_files: Iterable[Path]) -> list[Finding]:
     return findings
 
 
-def summary_sections(summary: str) -> set[str]:
-    return {
-        normalize_heading(line[2:])
-        for line in summary.splitlines()
-        if line.startswith("# ") and normalize_heading(line) != "# summary"
-    }
-
-
 def validate_summary(root: Path, *, migration_mode: bool) -> tuple[list[Finding], set[Path]]:
     findings: list[Finding] = []
     summary_path = root / "docs/src/SUMMARY.md"
@@ -212,18 +196,6 @@ def validate_summary(root: Path, *, migration_mode: bool) -> tuple[list[Finding]
         return findings, set()
 
     summary = read_text(summary_path)
-    sections = summary_sections(summary)
-    for concern, aliases in SECTION_ALIASES.items():
-        if not any(normalize_heading(alias) in sections for alias in aliases):
-            add(
-                findings,
-                severity="warning" if migration_mode else "error",
-                code="missing-summary-concern",
-                path=summary_path,
-                message=f"Missing documentation concern {concern!r}; accepted headings: {', '.join(aliases)}",
-                root=root,
-            )
-
     target_paths: set[Path] = set()
     for target in local_links(summary):
         target_paths.add((summary_path.parent / target).resolve())

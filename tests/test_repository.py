@@ -1149,28 +1149,20 @@ def test_setup_is_bundled_while_update_and_adoption_use_release_tags(repository_
     assert "VERSION_FILE" not in setup + update + adoption
 
 
-def test_documentation_checker_accepts_sentence_case_contract_headings(
-    repository_root: Path,
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "project"
+def write_valid_documentation_tree(repository_root: Path, root: Path) -> None:
     docs = root / "docs/src"
     feature = docs / "features/010-alpha"
     feature.mkdir(parents=True)
     (docs / "SUMMARY.md").write_text(
         "# Summary\n\n"
-        "# Introduction\n\n- [Intro](intro.md)\n\n"
-        "# Architecture\n\n- [Architecture](architecture.md)\n\n"
-        "# Operations\n\n- [Operations](operations.md)\n\n"
-        "# Development\n\n- [Development](development.md)\n\n"
-        "# Reference\n\n- [Implemented features](features/index.md)\n"
+        "- [Overview](overview.md)\n"
+        "- [Implemented features](features/index.md)\n"
         "  <!-- BEGIN IMPLEMENTED FEATURES -->\n"
         "  - [Alpha](features/010-alpha/index.md)\n"
         "  <!-- END IMPLEMENTED FEATURES -->\n",
         encoding="utf-8",
     )
-    for name in ("intro.md", "architecture.md", "operations.md", "development.md"):
-        (docs / name).write_text(f"# {name}\n", encoding="utf-8")
+    (docs / "overview.md").write_text("# Overview\n", encoding="utf-8")
     (docs / "features/index.md").write_text(
         "# Implemented features\n\n"
         "<!-- BEGIN IMPLEMENTED FEATURES -->\n"
@@ -1178,42 +1170,102 @@ def test_documentation_checker_accepts_sentence_case_contract_headings(
         "<!-- END IMPLEMENTED FEATURES -->\n",
         encoding="utf-8",
     )
-    design_template = (
-        repository_root / "skills/setup-project/template/docs/src/features/_template/design.md"
-    ).read_text(encoding="utf-8")
-    implemented_template = (
-        repository_root / "skills/setup-project/template/docs/src/features/_template/index.md"
-    ).read_text(encoding="utf-8")
-    (feature / "design.md").write_text(design_template, encoding="utf-8")
-    (feature / "index.md").write_text(implemented_template, encoding="utf-8")
-    checker = repository_root / "skills/setup-project/template/scripts/check-docs.py"
-    run_command(["python3", str(checker), "--root", str(root)], cwd=root)
+    template = repository_root / "skills/setup-project/template/docs/src/features/_template"
+    (feature / "design.md").write_text((template / "design.md").read_text(encoding="utf-8"), encoding="utf-8")
+    (feature / "index.md").write_text((template / "index.md").read_text(encoding="utf-8"), encoding="utf-8")
 
 
-def test_migration_mode_downgrades_missing_taxonomy_concerns(
+def test_documentation_checker_accepts_variable_summary_structure(
     repository_root: Path,
     tmp_path: Path,
 ) -> None:
-    root = tmp_path / "legacy"
-    features = root / "docs/src/features/alpha"
-    features.mkdir(parents=True)
-    (root / "docs/src/SUMMARY.md").write_text(
-        "# Summary\n\n- [Alpha](features/alpha/design.md)\n",
-        encoding="utf-8",
-    )
-    (features / "design.md").write_text("# Alpha\n", encoding="utf-8")
+    root = tmp_path / "project"
+    write_valid_documentation_tree(repository_root, root)
     checker = repository_root / "skills/setup-project/template/scripts/check-docs.py"
-    migration = run_command(
-        ["python3", str(checker), "--root", str(root), "--migration-mode"],
-        cwd=root,
-    )
-    assert "WARNING [missing-summary-concern]" in migration.stdout
-    strict = run_command(
-        ["python3", str(checker), "--root", str(root)],
-        cwd=root,
-        expected=1,
-    )
-    assert "ERROR [missing-summary-concern]" in strict.stdout
+    result = run_command(["python3", str(checker), "--root", str(root)], cwd=root)
+    assert "missing-summary-concern" not in result.stdout
+
+
+def test_documentation_checker_copies_are_identical(repository_root: Path) -> None:
+    assert (repository_root / "scripts/check-docs.py").read_bytes() == (
+        repository_root / "skills/setup-project/template/scripts/check-docs.py"
+    ).read_bytes()
+
+
+@pytest.mark.parametrize(
+    ("case", "code"),
+    [
+        ("broken-link", "broken-link"),
+        ("internal-design", "internal-design-in-summary"),
+        ("task-navigation", "task-file-in-summary"),
+        ("invalid-markers", "invalid-implemented-feature-markers"),
+        ("reversed-markers", "reversed-implemented-feature-markers"),
+        ("invalid-feature-directory", "invalid-feature-directory"),
+        ("missing-feature-design", "missing-feature-design"),
+        ("invalid-feature-design", "legacy-or-incomplete-design"),
+        ("invalid-implemented-record", "legacy-or-incomplete-implemented-record"),
+        ("unregistered-summary-record", "implemented-feature-not-in-summary"),
+        ("unregistered-index-record", "implemented-feature-not-in-index"),
+    ],
+)
+def test_documentation_checker_preserves_existing_safety_contracts(
+    repository_root: Path,
+    tmp_path: Path,
+    case: str,
+    code: str,
+) -> None:
+    root = tmp_path / case
+    write_valid_documentation_tree(repository_root, root)
+    docs = root / "docs/src"
+    summary = docs / "SUMMARY.md"
+    feature = docs / "features/010-alpha"
+
+    if case == "broken-link":
+        summary.write_text(summary.read_text(encoding="utf-8") + "- [Missing](missing.md)\n", encoding="utf-8")
+    elif case == "internal-design":
+        summary.write_text(
+            summary.read_text(encoding="utf-8") + "- [Design](features/010-alpha/design.md)\n",
+            encoding="utf-8",
+        )
+    elif case == "task-navigation":
+        (feature / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+        summary.write_text(
+            summary.read_text(encoding="utf-8") + "- [Tasks](features/010-alpha/tasks.md)\n",
+            encoding="utf-8",
+        )
+    elif case == "invalid-markers":
+        summary.write_text(
+            summary.read_text(encoding="utf-8").replace("  <!-- END IMPLEMENTED FEATURES -->\n", ""),
+            encoding="utf-8",
+        )
+    elif case == "reversed-markers":
+        value = summary.read_text(encoding="utf-8")
+        value = value.replace("BEGIN IMPLEMENTED FEATURES", "TEMP IMPLEMENTED FEATURES")
+        value = value.replace("END IMPLEMENTED FEATURES", "BEGIN IMPLEMENTED FEATURES")
+        summary.write_text(value.replace("TEMP IMPLEMENTED FEATURES", "END IMPLEMENTED FEATURES"), encoding="utf-8")
+    elif case == "invalid-feature-directory":
+        feature.rename(feature.with_name("alpha"))
+    elif case == "missing-feature-design":
+        (feature / "design.md").unlink()
+    elif case == "invalid-feature-design":
+        (feature / "design.md").write_text("# Alpha\n", encoding="utf-8")
+    elif case == "invalid-implemented-record":
+        (feature / "index.md").write_text("# Alpha\n", encoding="utf-8")
+    elif case == "unregistered-summary-record":
+        summary.write_text(
+            summary.read_text(encoding="utf-8").replace("  - [Alpha](features/010-alpha/index.md)\n", ""),
+            encoding="utf-8",
+        )
+    else:
+        index = docs / "features/index.md"
+        index.write_text(
+            index.read_text(encoding="utf-8").replace("- [Alpha](010-alpha/index.md)\n", ""),
+            encoding="utf-8",
+        )
+
+    checker = repository_root / "skills/setup-project/template/scripts/check-docs.py"
+    result = run_command(["python3", str(checker), "--root", str(root)], cwd=root, expected=1)
+    assert f"ERROR [{code}]" in result.stdout
 
 
 def test_template_workflow_scripts_are_host_lint_compatible(repository_root: Path) -> None:
