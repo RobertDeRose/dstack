@@ -115,8 +115,8 @@ parse Copier answers or project kind because absent pages are valid for every ki
 - No generated reader page may contain unresolved replacement instructions asking the project owner to supply project
   facts.
 - Workflow guidance in documentation conventions, feature lifecycle, and internal feature templates is allowed.
-- `planned-features.md` must contain brief-derived direction and truthful empty states rather than “summarize” or
-  “record” prompts.
+- `planned-features.md` must contain brief-derived direction and truthful empty states rather than "summarize" or
+  "record" prompts.
 
 ### Quality Requirements
 

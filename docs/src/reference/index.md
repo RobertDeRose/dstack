@@ -11,6 +11,19 @@
 | `mise run release`    | Run semantic-release with signed commits and tags; pushing is opt-in. |
 | `uv run pytest`       | Run all repository tests.                                             |
 
+## Setup project brief
+
+| Copier answer        | Helper flag      | Contract                                                                                          |
+|----------------------|------------------|---------------------------------------------------------------------------------------------------|
+| `project_purpose`    | `--purpose`      | Required, non-empty, single-line problem and intended outcome.                                    |
+| `project_users`      | `--users`        | Required, non-empty, single-line intended users.                                                  |
+| `project_scope`      | `--scope`        | Required, non-empty, single-line current supported scope.                                         |
+| `project_boundaries` | `--boundaries`   | Required, non-empty, single-line exclusions and boundaries.                                       |
+| `project_kind`       | `--project-kind` | One of `library`, `cli`, `service`, `application`, `infrastructure`, `documentation`, or `other`. |
+
+The helper rejects NUL, CR, and LF in brief values. It preserves Unicode, quotes, backslashes, and Markdown punctuation.
+The result JSON and `.copier-answers.yml` record all five values.
+
 ## Workflow paths
 
 | Path                                             | Contract                                               |

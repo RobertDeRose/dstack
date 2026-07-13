@@ -51,10 +51,34 @@ REQUIRED_SKILL_SUPPORT = (
 REQUIRED_COPIER_QUESTIONS = (
     "project_name",
     "project_slug",
-    "project_description",
+    "project_purpose",
+    "project_users",
+    "project_scope",
+    "project_boundaries",
+    "project_kind",
     "repository_default_branch",
     "include_readme",
 )
+
+SETUP_BRIEF = {
+    "project_purpose": 'Coordinate "reader" devices from one control plane \\ café [docs].',
+    "project_users": "Operators responsible for reader fleets.",
+    "project_scope": "Provisioning and health workflows for supported readers.",
+    "project_boundaries": "Firmware and identity-provider administration remain external.",
+    "project_kind": "service",
+}
+SETUP_BRIEF_ARGS = [
+    "--purpose",
+    SETUP_BRIEF["project_purpose"],
+    "--users",
+    SETUP_BRIEF["project_users"],
+    "--scope",
+    SETUP_BRIEF["project_scope"],
+    "--boundaries",
+    SETUP_BRIEF["project_boundaries"],
+    "--project-kind",
+    SETUP_BRIEF["project_kind"],
+]
 
 REQUIRED_TEMPLATE_FILES = (
     ".beads/formulas/feature-lifecycle.formula.toml",
@@ -135,6 +159,7 @@ def setup_generated_project(source: Path, project: Path) -> None:
             "--template-source",
             str(source),
             "--skip-post-setup",
+            *SETUP_BRIEF_ARGS,
             "--json",
         ],
         cwd=project,
@@ -258,11 +283,15 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Run /update-project instead?" in setup
     assert "only when the user agrees" in setup
     assert "has no overwrite mode" in setup
+    assert "one question at a time" in setup
+    assert all(flag in setup for flag in ("--purpose", "--users", "--scope", "--boundaries", "--project-kind"))
     setup_script = (repository_root / "skills/setup-project/scripts/setup-project.py").read_text(encoding="utf-8")
     assert "def initialize_beads(" in setup_script
     assert "def verify_scaffold(" in setup_script
     assert 'parser.add_argument("--overwrite"' not in setup_script
     assert 'parser.add_argument("--skip-bootstrap"' not in setup_script
+    assert "overwrite=False" in setup_script
+    assert "unsafe=False" in setup_script
     assert "Beads initialization and verification remain outstanding" in setup_script
     assert 'default="stealth"' in setup_script
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
@@ -370,6 +399,50 @@ def test_copier_entry_points_are_consistent(repository_root: Path) -> None:
         assert root_config[question] == bundled_config[question]
 
 
+def load_setup_module(repository_root: Path) -> Any:
+    path = repository_root / "skills/setup-project/scripts/setup-project.py"
+    spec = importlib.util.spec_from_file_location("dstack_setup_project", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_setup_project_requires_and_validates_the_project_brief(repository_root: Path) -> None:
+    module = load_setup_module(repository_root)
+
+    with pytest.raises(SystemExit, match=r"requires --purpose, --users, --scope, --boundaries, --project-kind"):
+        module.project_brief(module.parse_args([]))
+
+    for kind in module.PROJECT_KINDS:
+        values = [kind if value == SETUP_BRIEF["project_kind"] else value for value in SETUP_BRIEF_ARGS]
+        assert module.project_brief(module.parse_args(values)) == SETUP_BRIEF | {"project_kind": kind}
+
+    for invalid, message in (
+        ("   ", "must not be blank"),
+        ("bad\nvalue", "must be a single line"),
+        ("\nleading", "must be a single line"),
+        ("trailing\r", "must be a single line"),
+        ("\rwrapped\n", "must be a single line"),
+        ("bad\x00value", "must be a single line"),
+    ):
+        invalid_args = module.parse_args(
+            [invalid if value == SETUP_BRIEF["project_purpose"] else value for value in SETUP_BRIEF_ARGS]
+        )
+        with pytest.raises(SystemExit, match=message):
+            module.project_brief(invalid_args)
+
+
+def test_setup_project_rejects_unknown_project_kind(repository_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    module = load_setup_module(repository_root)
+    args = ["unknown" if value == SETUP_BRIEF["project_kind"] else value for value in SETUP_BRIEF_ARGS]
+    with pytest.raises(SystemExit):
+        module.parse_args(args)
+    error = capsys.readouterr().err
+    assert all(kind in error for kind in module.PROJECT_KINDS)
+
+
 @pytest.mark.parametrize("relative_path", REQUIRED_TEMPLATE_FILES)
 def test_copier_template_contains_required_files(
     repository_root: Path,
@@ -446,6 +519,7 @@ def test_setup_project_uses_bundled_skill_template_and_records_remote_update_sta
             str(project),
             "--skip-post-setup",
             "--no-git-init",
+            *SETUP_BRIEF_ARGS,
             "--json",
         ],
         cwd=tmp_path,
@@ -463,6 +537,8 @@ def test_setup_project_uses_bundled_skill_template_and_records_remote_update_sta
     assert payload["vcs_ref"] == f"v{version}"
     assert answers["_src_path"] == "gh:RobertDeRose/dstack"
     assert answers["_commit"] == f"v{version}"
+    assert {key: answers[key] for key in SETUP_BRIEF} == SETUP_BRIEF
+    assert {key: payload[key] for key in SETUP_BRIEF} == SETUP_BRIEF
     assert str(installed_skill) not in (project / ".copier-answers.yml").read_text(encoding="utf-8")
     assert (project / "docs/src/SUMMARY.md").is_file()
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
@@ -688,22 +764,16 @@ def test_update_preflight_routes_legacy_tasks_without_beads_to_migration(
 
 
 @pytest.mark.integration
-def test_existing_project_adoption_preserves_project_owned_files(
+def test_pre_f010_unmanaged_project_adoption_is_unsupported(
     tagged_template_source: Path,
     tmp_path: Path,
 ) -> None:
     legacy = tmp_path / "legacy-project"
     (legacy / "docs/src/features/alpha").mkdir(parents=True)
-    (legacy / "docs/src/SUMMARY.md").write_text(
-        "# Summary\n\n# Custom Architecture\n\n- [Alpha](features/alpha/design.md)\n",
-        encoding="utf-8",
-    )
-    (legacy / "docs/src/features/alpha/design.md").write_text("# Alpha\n", encoding="utf-8")
-    (legacy / "docs/src/features/alpha/tasks.md").write_text("# Tasks\n", encoding="utf-8")
-    (legacy / "AGENTS.md").write_text("# Existing agent instructions\n", encoding="utf-8")
-    (legacy / ".gitignore").write_text("local-cache/\n", encoding="utf-8")
+    summary = legacy / "docs/src/SUMMARY.md"
+    summary.write_text("# Summary\n\n# Custom Architecture\n", encoding="utf-8")
     initialize_git(legacy, "Legacy project")
-    original_summary = (legacy / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
+    original_summary = summary.read_text(encoding="utf-8")
 
     adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
     result = run_command(
@@ -720,44 +790,21 @@ def test_existing_project_adoption_preserves_project_owned_files(
             "--json",
         ],
         cwd=tagged_template_source,
+        expected=1,
     )
-    payload = json.loads(result.stdout)
 
-    assert (legacy / "docs/src/SUMMARY.md").read_text(encoding="utf-8") == original_summary
-    agents = (legacy / "AGENTS.md").read_text(encoding="utf-8")
-    assert "Existing agent instructions" in agents
-    assert "BEGIN DSTACK WORKFLOW" in agents
-    assert "local-cache/" in (legacy / ".gitignore").read_text(encoding="utf-8")
-    for required in (
-        ".copier-answers.yml",
-        ".beads/formulas/feature-lifecycle.formula.toml",
-        "scripts/check-docs.py",
-        "docs/src/features/_template/design.md",
-    ):
-        assert (legacy / required).is_file(), required
-    assert "docs/src/SUMMARY.md" in payload["manual_merge"]
-    candidate = legacy / "migration/template-adoption-candidates/docs/src/SUMMARY.md"
-    assert candidate.is_file()
-    assert candidate.read_text(encoding="utf-8") != original_summary
-    for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
-        assert not (legacy / relative).exists(), relative
-
-    validation = run_command(
-        ["uv", "run", str(legacy / "scripts/check-docs.py"), "--migration-mode"],
-        cwd=legacy,
-    )
-    assert "Documentation checks:" in validation.stdout
+    assert 'Question "project_purpose" is required' in result.stderr
+    assert summary.read_text(encoding="utf-8") == original_summary
+    assert not (legacy / ".copier-answers.yml").exists()
 
 
 @pytest.mark.integration
-def test_existing_project_adoption_rebases_prior_copier_state(
+def test_pre_f010_managed_project_adoption_is_unsupported(
     tagged_template_source: Path,
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "managed-legacy-project"
-    feature = project / "docs/src/features/alpha"
-    feature.mkdir(parents=True)
-    (feature / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+    project.mkdir()
     answers = project / ".copier-answers.yml"
     original_answers = (
         f"_src_path: {tagged_template_source}\n"
@@ -784,27 +831,11 @@ def test_existing_project_adoption_rebases_prior_copier_state(
             "--json",
         ],
         cwd=tagged_template_source,
+        expected=1,
     )
-    payload = json.loads(result.stdout)
 
-    assert payload["copier_state"] == "rebased-existing"
-    assert payload["template_source"] == str(tagged_template_source)
-    assert payload["previous_copier_commit"] == "v0.0.0"
-    assert payload["recorded_copier_commit"] == "v0.0.1"
-    assert payload["vcs_ref"] == "v0.0.1"
-    updated_answers = yaml.safe_load(answers.read_text(encoding="utf-8"))
-    assert updated_answers["_src_path"] == str(tagged_template_source)
-    assert updated_answers["_commit"] == "v0.0.1"
-    assert updated_answers["project_name"] == "Managed legacy project"
-    assert updated_answers["project_description"] == "Existing managed project."
-    assert updated_answers["repository_default_branch"] == "trunk"
-    assert updated_answers["include_readme"] is False
-    backup = project / "migration/template-adoption-backup/.copier-answers.yml"
-    assert backup.read_text(encoding="utf-8") == original_answers
-    assert ".copier-answers.yml" in payload["replaced"]
-    assert (project / "scripts/check-docs.py").is_file()
-    for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
-        assert not (project / relative).exists(), relative
+    assert 'Question "project_purpose" is required' in result.stderr
+    assert answers.read_text(encoding="utf-8") == original_answers
 
 
 def test_tested_workflow_gaps_are_explicit(repository_root: Path) -> None:
@@ -837,6 +868,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
             "--destination",
             str(project),
             "--no-git-init",
+            *SETUP_BRIEF_ARGS,
             "--json",
         ],
         cwd=tmp_path,

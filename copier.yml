@@ -31,10 +31,29 @@ project_slug:
   type: str
   help: Stable lowercase project slug.
   default: "[[ project_name | lower | replace(' ', '-') | replace('_', '-') ]]"
-project_description:
+project_purpose:
   type: str
-  help: One-sentence project description used by starter documentation.
-  default: A documentation-first software project managed with Beads.
+  help: One-sentence description of the problem and intended outcome.
+project_users:
+  type: str
+  help: One-sentence description of the intended users.
+project_scope:
+  type: str
+  help: One-sentence description of current supported scope.
+project_boundaries:
+  type: str
+  help: One-sentence description of key exclusions and ownership boundaries.
+project_kind:
+  type: str
+  help: Project kind used to tailor documentation guidance.
+  choices:
+    - library
+    - cli
+    - service
+    - application
+    - infrastructure
+    - documentation
+    - other
 repository_default_branch:
   type: str
   help: Default Git branch used by feature worktrees.

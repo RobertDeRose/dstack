@@ -33,6 +33,13 @@ DEFAULT_UPDATE_SOURCE = "gh:RobertDeRose/dstack"
 FRONTMATTER_PATTERN = re.compile(r"\A---\n(?P<frontmatter>.*?)\n---(?:\n|\Z)", re.DOTALL)
 VERSION_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 RELEASE_TAG_PATTERN = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
+PROJECT_KINDS = ("library", "cli", "service", "application", "infrastructure", "documentation", "other")
+BRIEF_FLAGS = {
+    "project_purpose": "--purpose",
+    "project_users": "--users",
+    "project_scope": "--scope",
+    "project_boundaries": "--boundaries",
+}
 REQUIRED_GENERATED_PATHS = (
     Path(".copier-answers.yml"),
     Path("AGENTS.md"),
@@ -187,6 +194,31 @@ def slugify(value: str) -> str:
     return slug
 
 
+def project_brief(args: argparse.Namespace) -> dict[str, str]:
+    missing = [flag for field, flag in BRIEF_FLAGS.items() if not getattr(args, field.removeprefix("project_"))]
+    if args.project_kind is None:
+        missing.append("--project-kind")
+    if missing:
+        message = "New-project setup requires " + ", ".join(missing)
+        if "--project-kind" in missing:
+            message += "; accepted kinds: " + ", ".join(PROJECT_KINDS)
+        raise SystemExit(message)
+
+    brief: dict[str, str] = {}
+    for field, flag in BRIEF_FLAGS.items():
+        raw_value = getattr(args, field.removeprefix("project_"))
+        if any(character in raw_value for character in ("\x00", "\r", "\n")):
+            message = f"{flag} must be a single line without NUL, CR, or LF characters"
+            raise SystemExit(message)
+        value = raw_value.strip()
+        if not value:
+            message = f"{flag} must not be blank"
+            raise SystemExit(message)
+        brief[field] = value
+    brief["project_kind"] = args.project_kind
+    return brief
+
+
 def run_checked(command: Sequence[str], *, cwd: Path, quiet: bool) -> subprocess.CompletedProcess[str]:
     if not quiet:
         print("+", " ".join(command))
@@ -329,11 +361,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Destination directory; defaults to the current directory.",
     )
     parser.add_argument("--project-slug")
-    parser.add_argument(
-        "--description",
-        default="A documentation-first software project managed with Beads.",
-        help="One-line project description used by the generated README.",
-    )
+    parser.add_argument("--purpose", help="One-sentence description of the problem and intended outcome.")
+    parser.add_argument("--users", help="One-sentence description of the intended users.")
+    parser.add_argument("--scope", help="One-sentence description of current supported scope.")
+    parser.add_argument("--boundaries", help="One-sentence description of key exclusions and ownership boundaries.")
+    parser.add_argument("--project-kind", choices=PROJECT_KINDS)
     parser.add_argument("--default-branch", default="main")
     parser.add_argument(
         "--template-source",
@@ -410,6 +442,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Use /migrate-workflow for an existing project:\n" + shown
         )
 
+    brief = project_brief(args)
     destination.mkdir(parents=True, exist_ok=True)
     run_copy(
         template_source,
@@ -417,7 +450,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         data={
             "project_name": project_name,
             "project_slug": project_slug,
-            "project_description": args.description,
+            **brief,
             "repository_default_branch": args.default_branch,
             "include_readme": not args.delete_readme,
         },
@@ -470,6 +503,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = {
         "project_name": project_name,
         "project_slug": project_slug,
+        **brief,
         "destination": str(destination),
         "template_source": template_source,
         "template_source_kind": "bundled" if using_bundled_template else "override",

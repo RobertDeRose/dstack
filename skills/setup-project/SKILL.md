@@ -47,6 +47,19 @@ Inspect the destination before invoking the helper.
 The helper independently refuses an existing `.copier-answers.yml`; this is a non-interactive safety backstop, not
 permission to invoke `/update-project` automatically.
 
+## Project brief
+
+Before invoking the helper, collect missing facts with `AskUserQuestion`, one question at a time, in this order:
+
+1. `--purpose`: one sentence describing the problem and intended outcome;
+2. `--users`: one sentence describing intended users;
+3. `--scope`: one sentence describing current supported scope;
+4. `--boundaries`: one sentence describing key exclusions and ownership boundaries;
+5. `--project-kind`: select `library`, `cli`, `service`, `application`, `infrastructure`, `documentation`, or `other`.
+
+Selecting the kind is confirmation; do not ask a second confirmation question. Values must be non-empty single lines. Do
+not infer missing facts from the project name or fabricate defaults.
+
 ## Defaults
 
 - Project name: supplied value, otherwise `basename "$PWD"`.
@@ -61,29 +74,28 @@ permission to invoke `/update-project` automatically.
 ## Execution
 
 ```bash
-uv run <skill-dir>/scripts/setup-project.py [project-name]
+uv run <skill-dir>/scripts/setup-project.py [project-name] \
+  --purpose "<problem and outcome>" \
+  --users "<intended users>" \
+  --scope "<current supported scope>" \
+  --boundaries "<key exclusions and ownership boundaries>" \
+  --project-kind <kind>
 ```
 
-Examples:
+The project name remains optional and defaults to `basename "$PWD"`. Add `--destination <path>` to target another new
+directory or `--delete-readme` to omit the starter README.
+
+Development-only template overrides retain the same required brief flags:
 
 ```bash
-# Uses basename "$PWD" and writes into the current directory.
-uv run <skill-dir>/scripts/setup-project.py
-
-# Uses an explicit name and writes into the current directory.
-uv run <skill-dir>/scripts/setup-project.py "Reader Control Plane"
-
-# Writes into another new directory.
 uv run <skill-dir>/scripts/setup-project.py "Reader Control Plane" \
-  --destination ../reader-control-plane
-
-# Omits the generated starter README.
-uv run <skill-dir>/scripts/setup-project.py --delete-readme
-
-# Development only: render a reviewed local checkout or an explicitly pinned remote source.
-uv run <skill-dir>/scripts/setup-project.py --template-source ../dstack
-uv run <skill-dir>/scripts/setup-project.py \
-  --template-source gh:example/dstack-fork --vcs-ref <reviewed-tag-or-commit>
+  --purpose "Coordinate reader devices from one control plane." \
+  --users "Operators responsible for reader fleets." \
+  --scope "Provisioning and health workflows for supported readers." \
+  --boundaries "Reader firmware and identity-provider administration remain external." \
+  --project-kind service \
+  --template-source gh:example/dstack-fork \
+  --vcs-ref <reviewed-tag-or-commit>
 ```
 
 The setup helper performs post-render initialization itself. It does not generate `scripts/bootstrap.py`,
@@ -140,6 +152,7 @@ initialization and verification as outstanding.
 
 ## Return
 
-Report project name, slug, destination, bundled render source, skill version, recorded update source/revision, Git
-result, Beads result, documentation validation, outstanding work, and the next `/plan-features` action. If setup was
-routed to `/update-project`, report the user's consent decision and do not claim setup ran.
+Report project name, slug, purpose, users, scope, boundaries, kind, destination, bundled render source, skill version,
+recorded update source/revision, Git result, Beads result, documentation validation, outstanding work, and the next
+`/plan-features` action. If setup was routed to `/update-project`, report the user's consent decision and do not claim
+setup ran.
