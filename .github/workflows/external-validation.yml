@@ -23,4 +23,8 @@ jobs:
       - uses: actions/setup-node@v6 # zizmor: ignore[cache-poisoning]
         with:
           node-version: 24
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        with:
+          cache: false
+          install: false
       - run: uv run --frozen --group test pytest -m external --durations=10

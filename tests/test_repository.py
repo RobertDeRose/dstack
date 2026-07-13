@@ -673,6 +673,24 @@ def test_tooling_provisioner_reports_independent_stage_outcomes(
         assert result["hooks"]["error"] == "hooks failed"
 
 
+def test_tooling_provisioner_isolates_project_lock_from_global_mise_tools(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_tooling_module(repository_root)
+    captured: dict[str, Any] = {}
+
+    def fake_run(*_args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    module.run(["mise", "install"], tmp_path)
+
+    assert captured["env"]["MISE_GLOBAL_CONFIG_FILE"] == os.devnull
+
+
 def test_tooling_provisioner_converts_launch_errors_to_structured_failure(
     repository_root: Path,
     tmp_path: Path,
@@ -745,6 +763,8 @@ def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> No
     assert '      - "v*"' in external
     assert "pytest -m external" in external
     assert "actions/setup-node@v6" in external
+    assert "jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d" in external
+    assert "install: false" in external
 
 
 PYTHON_SOURCES = sorted(
@@ -1222,25 +1242,37 @@ def test_setup_project_renders_the_factual_book_matrix(
 
 
 @pytest.mark.external
-def test_generated_hk_serializes_fixes_and_preserves_unstaged_work(
+def test_generated_tooling_contract_end_to_end(
     tagged_template_source: Path,
     tmp_path: Path,
 ) -> None:
-    required = ("hk", "mise", "mdbook", "uv", "rumdl", "typos", "markdown-table-formatter")
-    missing = [tool for tool in required if shutil.which(tool) is None]
-    if missing:
-        pytest.skip(f"Live generated-tooling validation requires: {', '.join(missing)}")
+    if shutil.which("mise") is None:
+        pytest.skip("Live generated-tooling validation requires mise")
 
     project = tmp_path / "tooling"
     setup_generated_project(tagged_template_source, project)
+    fix_target = project / "fix.md"
+    fix_target.write_text("# Fix target\n", encoding="utf-8")
     configure_project_git(project)
     commit_repository(project, "Initial generated project")
     run_command(["mise", "trust", "-y"], cwd=project)
 
+    tooling = json.loads(run_command(["python3", "scripts/setup-tooling.py", "--json"], cwd=project).stdout)
+    assert tooling["status"] == "succeeded"
+    lock = (project / "mise.lock").read_text(encoding="utf-8")
+    assert all(platform in lock for platform in ("linux-x64", "linux-arm64", "macos-x64", "macos-arm64"))
+    run_command(["git", "add", "mise.lock"], cwd=project)
+    run_command(["git", "commit", "--no-verify", "-m", "Commit resolved tooling"], cwd=project)
+
     tasks = json.loads(run_command(["mise", "tasks", "--json"], cwd=project).stdout)
     assert {task["name"] for task in tasks} == {"check", "fix", "docs:check", "docs:build", "docs:serve"}
-    run_command(["hk", "config", "dump"], cwd=project)
-    run_command(["hk", "check", "-a"], cwd=project)
+    run_command(["mise", "x", "--", "hk", "config", "dump"], cwd=project)
+    legacy_hook = project / ".git/hooks/pre-commit"
+    if not legacy_hook.is_file():
+        hook_config = run_command(["git", "config", "--local", "--get-regexp", "^hook\\."], cwd=project).stdout
+        assert "hk" in hook_config
+    run_command(["mise", "run", "check"], cwd=project)
+    run_command(["mise", "run", "docs:build"], cwd=project)
 
     markdown = project / "race.md"
     markdown.write_text("# Race\n\n| A | B |\n|---|---|\n| one | two |  \n", encoding="utf-8")
@@ -1253,11 +1285,20 @@ def test_generated_hk_serializes_fixes_and_preserves_unstaged_work(
     readme = project / "README.md"
     readme.write_text(readme.read_text(encoding="utf-8") + "\nUnstaged project note.\n", encoding="utf-8")
 
-    run_command(["hk", "run", "pre-commit"], cwd=project)
-    run_command(["git", "diff", "--cached", "--check"], cwd=project)
+    run_command(["git", "commit", "-m", "Exercise installed hook"], cwd=project)
     run_command(["mise", "fmt", "--check"], cwd=project)
     assert readme.read_text(encoding="utf-8").endswith("\nUnstaged project note.\n")
-    assert "race.md" in run_command(["git", "diff", "--cached", "--name-only"], cwd=project).stdout
+    assert markdown.is_file()
+
+    fix_target.write_text("# Updated target  \n", encoding="utf-8")
+    run_command(["mise", "run", "fix"], cwd=project)
+    assert fix_target.read_text(encoding="utf-8") == "# Updated target\n"
+    assert "fix.md" in run_command(["git", "status", "--short"], cwd=project).stdout
+
+    run_command(["git", "restore", "--staged", "fix.md"], cwd=project)
+    run_command(["git", "restore", "README.md", "fix.md"], cwd=project)
+    run_command(["mise", "run", "check"], cwd=project)
+    assert run_command(["git", "status", "--short"], cwd=project).stdout == ""
 
 
 @pytest.mark.integration

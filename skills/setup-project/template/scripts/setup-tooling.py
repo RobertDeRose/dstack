@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -48,7 +49,14 @@ def command_error(result: subprocess.CompletedProcess[str]) -> str:
 
 def run(command: Sequence[str], project_root: Path) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(list(command), cwd=project_root, check=False, capture_output=True, text=True)
+        return subprocess.run(
+            list(command),
+            cwd=project_root,
+            env=os.environ | {"MISE_GLOBAL_CONFIG_FILE": os.devnull},
+            check=False,
+            capture_output=True,
+            text=True,
+        )
     except OSError as exc:
         return subprocess.CompletedProcess(list(command), 127, "", str(exc))
 
