@@ -62,9 +62,9 @@ REQUIRED_COPIER_QUESTIONS = (
 
 SETUP_BRIEF = {
     "project_purpose": 'Coordinate [reader](missing.md) devices with a literal \\ path, café text, and "quotes".',
-    "project_users": "Operators responsible for reader fleets.",
-    "project_scope": "Provisioning and health workflows for supported readers.",
-    "project_boundaries": "Firmware and identity-provider administration remain external.",
+    "project_users": 'Operators who own "reader" fleets [team].',
+    "project_scope": "Provisioning, health checks, and `status` workflows.",
+    "project_boundaries": "Firmware # updates and identity-provider <admin> remain external.",
     "project_kind": "service",
 }
 PUNCTUATED_PROJECT_NAME = 'A "quoted" \\ café [project]'
@@ -176,7 +176,9 @@ def setup_generated_project(
     *,
     kind: str = "service",
     name: str | None = None,
-) -> None:
+    entrypoint: str = "repository",
+    include_readme: bool = True,
+) -> dict[str, Any]:
     """Render a project while simulating an existing Skills CLI installation."""
     installed_skill = project / ".agents/skills/setup-project"
     installed_skill.mkdir(parents=True)
@@ -186,7 +188,7 @@ def setup_generated_project(
     )
     (project / "skills-lock.json").write_text("{}\n", encoding="utf-8")
     setup = source / "skills/setup-project/scripts/setup-project.py"
-    run_command(
+    result = run_command(
         [
             "uv",
             "run",
@@ -194,14 +196,15 @@ def setup_generated_project(
             *([name] if name else []),
             "--destination",
             str(project),
-            "--template-source",
-            str(source),
+            *(["--template-source", str(source)] if entrypoint == "repository" else []),
             "--skip-post-setup",
+            *([] if include_readme else ["--delete-readme"]),
             *[kind if value == SETUP_BRIEF["project_kind"] else value for value in SETUP_BRIEF_ARGS],
             "--json",
         ],
         cwd=project,
     )
+    return json.loads(result.stdout)
 
 
 def configure_project_git(project: Path) -> None:
@@ -660,39 +663,91 @@ def test_setup_project_uses_directory_name_and_preserves_template_tokens(
 
 
 @pytest.mark.integration
-def test_setup_project_renders_the_factual_book_for_every_kind(
+@pytest.mark.parametrize("entrypoint", ["repository", "bundled"])
+@pytest.mark.parametrize(("kind", "guidance"), list(KIND_GUIDANCE.items()))
+def test_setup_project_renders_the_factual_book_matrix(
     tagged_template_source: Path,
     tmp_path: Path,
+    entrypoint: str,
+    kind: str,
+    guidance: str,
 ) -> None:
-    for kind, guidance in KIND_GUIDANCE.items():
-        project = tmp_path / kind
-        setup_generated_project(tagged_template_source, project, kind=kind, name=PUNCTUATED_PROJECT_NAME)
+    expected_name = 'A "quoted" &#92; café &#91;project&#93;'
+    expected_purpose = (
+        'Coordinate &#91;reader&#93;(missing.md) devices with a literal &#92; path, café text, and "quotes".'
+    )
+    expected_users = 'Operators who own "reader" fleets &#91;team&#93;.'
+    expected_scope = "Provisioning, health checks, and &#96;status&#96; workflows."
+    expected_boundaries = "Firmware &#35; updates and identity-provider &lt;admin&gt; remain external."
+
+    for include_readme in (False, True):
+        project = tmp_path / f"{entrypoint}-{kind}-{include_readme}"
+        payload = setup_generated_project(
+            tagged_template_source,
+            project,
+            kind=kind,
+            name=PUNCTUATED_PROJECT_NAME,
+            entrypoint=entrypoint,
+            include_readme=include_readme,
+        )
 
         docs = project / "docs/src"
         assert {path.relative_to(docs).as_posix() for path in docs.rglob("*.md")} == INITIAL_READER_MARKDOWN
         assert all(not (project / relative).exists() for relative in REMOVED_CONTENT_FREE_DOCS)
+        assert (project / "README.md").exists() is include_readme
 
         answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
-        assert answers["project_kind"] == kind
+        expected_brief = {**SETUP_BRIEF, "project_kind": kind}
+        assert {field: answers[field] for field in expected_brief} == expected_brief
+        assert {field: payload[field] for field in expected_brief} == expected_brief
         assert answers["project_name"] == PUNCTUATED_PROJECT_NAME
+        assert payload["readme_created"] is include_readme
+        assert payload["template_source_kind"] == ("override" if entrypoint == "repository" else "bundled")
+        assert answers["_src_path"] == (
+            str(tagged_template_source) if entrypoint == "repository" else "gh:RobertDeRose/dstack"
+        )
+
         overview = (docs / "introduction/project-overview.md").read_text(encoding="utf-8")
-        assert all(SETUP_BRIEF[field] in overview for field in ("project_users", "project_scope", "project_boundaries"))
-        assert "&#91;reader&#93;(missing.md)" in overview
-        assert f"`{kind}`" in overview
+        assert overview == (
+            f"\n# {expected_name} overview\n\n"
+            f"- Project kind: `{kind}`\n\n"
+            "## Purpose\n\n"
+            f"{expected_purpose}\n\n"
+            "## Intended users\n\n"
+            f"{expected_users}\n\n"
+            "## Current scope\n\n"
+            f"{expected_scope}\n\n"
+            "Future behavior belongs in [Planned features](../planned-features.md) until delivered.\n\n"
+            "## Boundaries\n\n"
+            f"{expected_boundaries}\n"
+        )
+        roadmap = (docs / "planned-features.md").read_text(encoding="utf-8")
+        assert all(
+            line in roadmap
+            for line in (
+                f"- Purpose: {expected_purpose}",
+                f"- Current scope: {expected_scope}",
+                f"- Boundaries: {expected_boundaries}",
+            )
+        )
         assert guidance in (docs / "introduction/documentation-conventions.md").read_text(encoding="utf-8")
-        assert "&#91;reader&#93;(missing.md)" in (project / "README.md").read_text(encoding="utf-8")
+        if include_readme:
+            readme = (project / "README.md").read_text(encoding="utf-8")
+            assert f"# {expected_name}" in readme
+            assert expected_purpose in readme
+
         book = tomllib.loads((project / "docs/book.toml").read_text(encoding="utf-8"))["book"]
         assert book["title"] == PUNCTUATED_PROJECT_NAME
         assert book["description"] == SETUP_BRIEF["project_purpose"]
 
         summary = (docs / "SUMMARY.md").read_text(encoding="utf-8")
-        assert set(re.findall(r"\]\(([^)]+)\)", summary)) == {
-            "development/feature-lifecycle.md",
-            "features/index.md",
-            "introduction/documentation-conventions.md",
+        assert re.findall(r"\]\(([^)]+)\)", summary) == [
             "introduction/project-overview.md",
+            "introduction/documentation-conventions.md",
+            "development/feature-lifecycle.md",
             "planned-features.md",
-        }
+            "features/index.md",
+        ]
 
         reader_text = "\n".join(
             path.read_text(encoding="utf-8") for path in docs.rglob("*.md") if "_template" not in path.parts
@@ -987,25 +1042,6 @@ def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -
     assert 'parser.add_argument("--json"' in script
     assert '["bd", "show", issue_id, "--json"]' in script
     assert "if note in str(notes)" in script
-
-
-def test_copier_template_has_no_duplicate_possible_destinations(repository_root: Path) -> None:
-    template = repository_root / "skills/setup-project/template"
-    for include_readme in (False, True):
-        rendered: dict[str, str] = {}
-        for path in template.rglob("*"):
-            if not path.is_file():
-                continue
-            relative = path.relative_to(template).as_posix()
-            output = re.sub(
-                r"\[% if include_readme %\](.*?)\[% endif %\]",
-                lambda match, include=include_readme: match.group(1) if include else "",
-                relative,
-            ).replace(".jinja", "")
-            if not output or output.endswith("/"):
-                continue
-            previous = rendered.setdefault(output, relative)
-            assert previous == relative, (include_readme, output, previous, relative)
 
 
 @pytest.mark.external

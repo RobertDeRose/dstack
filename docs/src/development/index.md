@@ -35,6 +35,14 @@ content for them. Existing links must resolve, internal feature designs and task
 navigation, and delivered feature records must retain valid directories, sections, markers, and registrations in both
 implemented-feature indexes. The repository and generated-project checker copies must remain identical.
 
+## Scaffold matrix validation
+
+The integration matrix renders every project kind through both the repository and bundled Copier entry points. It checks
+raw structured-brief forwarding, punctuation-safe Markdown and TOML, the exact initial documentation destinations and
+navigation, kind-specific guidance, source recording, generated checker success, and mdBook builds. Separate safety
+regressions cover `unsafe=False`, no-overwrite and existing-project routing, Copier update preservation, and conditional
+destination uniqueness.
+
 ## Change discipline
 
 Keep both Copier entry points aligned. Template changes require generated-project tests and must preserve Copier update
