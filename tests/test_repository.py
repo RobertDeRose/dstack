@@ -985,7 +985,14 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
             assert ("No recognized language profile is active" in reference) == (profiles == ["other"])
             summary = (project / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
             assert "development/tooling.md" in summary
+            assert "operations/github-pages.md" in summary
             assert "reference/tooling.md" in summary
+            assert (project / "scripts/enable-docs-deployment.py").is_file()
+            validate = yaml.safe_load((project / ".github/workflows/validate.yml").read_text(encoding="utf-8"))
+            deployment = yaml.safe_load((project / ".github/workflows/docs.yml").read_text(encoding="utf-8"))
+            assert set(validate[True]) == {"push", "pull_request"}
+            assert deployment[True] == {"push": {"branches": ["main"]}, "workflow_dispatch": None}
+            assert all(job["if"] == "vars.DOCS_DEPLOYMENT_ENABLED == 'true'" for job in deployment["jobs"].values())
             run_command(["pkl", "eval", "hk.pkl"], cwd=project)
             run_command(["python3", "scripts/check-docs.py"], cwd=project)
             for forbidden in ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "mix.exs", "flake.nix"):
@@ -2270,6 +2277,23 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
     assert (project / "mise.lock").read_text(encoding="utf-8") != "stale\n"
     assert (project / ".dstack-release").read_text(encoding="utf-8") == "v0.0.2\n"
     assert "Project-owned update." in project_overview.read_text(encoding="utf-8")
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert "DOCS_DEPLOYMENT_ENABLED" not in answers
+    assert set(tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))["tasks"]) == {
+        "check",
+        "fix",
+        "docs:check",
+        "docs:build",
+        "docs:deployment:enable",
+        "docs:serve",
+    }
+    assert (project / "scripts/enable-docs-deployment.py").is_file()
+    assert (project / "docs/src/operations/github-pages.md").is_file()
+    for workflow in (project / ".github/workflows/validate.yml", project / ".github/workflows/docs.yml"):
+        run_command(["actionlint", str(workflow)], cwd=project)
+        run_command(["zizmor", "--no-progress", str(workflow)], cwd=project)
+    run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
+    run_command(["mdbook", "build", "docs"], cwd=project)
 
 
 @pytest.mark.integration
