@@ -59,6 +59,12 @@ nixfmt checks and fixes Nix files on Linux and macOS ARM64. Matching Nix inputs 
 Root `flake.nix` enables check-only `nix flake check` and requires system Nix; setup provisions no Nix executable.[%
 endif %]
 
+## GitHub validation
+
+`.github/workflows/validate.yml` runs on every push and pull request. It isolates user-global mise configuration,
+installs only the committed lock with `mise install --locked`, and runs `mise run check`. CI does not regenerate the
+lock or maintain a separate validation policy.
+
 ## Hooks and recovery
 
 Setup installs repository-local hk hooks when the destination is a Git repository. To restore tooling after an offline

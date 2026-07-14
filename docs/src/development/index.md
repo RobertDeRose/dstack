@@ -58,6 +58,13 @@ whitespace hygiene, case conflicts, and executable/shebang consistency. Selected
 Source steps are file-gated; project checks are root-manifest-gated and check-only except Go's explicit tidy fix.
 Profiles add no tasks, manifests, dependencies, or source. The scaffold intentionally omits dstack's `release` task.
 
+## Generated GitHub validation
+
+Generated `.github/workflows/validate.yml` runs on every push and pull request with `contents: read`. It disables
+automatic mise installation, isolates user-global mise configuration, installs the committed lock, and invokes only
+`mise run check`. The workflow therefore reuses hk and the generated documentation contract instead of defining a second
+CI policy or regenerating `mise.lock`.
+
 ## Documentation checker contract
 
 The documentation checker validates the pages a project actually publishes rather than requiring a fixed taxonomy. A
