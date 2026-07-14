@@ -258,7 +258,10 @@ def write_logging_shims(bin_dir: Path, *names: str) -> Path:
         "fail_check = os.environ.get('DSTACK_FAIL_CHECK') == '1'\n"
         "check_only = name == 'ruff' and '--fix' not in args and ('format' not in args or '--diff' in args)\n"
         "check_only = check_only or (name == 'biome' and '--write' not in args)\n"
-        "raise SystemExit(name == os.environ.get('DSTACK_FAIL_COMMAND') or (fail_check and check_only))\n",
+        "check_only = check_only or (name == 'rustfmt' and '--check' in args)\n"
+        "if fail_check and name in {'goimports', 'gofumpt'} and '-l' in args: print('needs-format')\n"
+        "fail_tidy = os.environ.get('DSTACK_FAIL_GO_TIDY') == '1' and name == 'go' and '-diff' in args\n"
+        "raise SystemExit(name == os.environ.get('DSTACK_FAIL_COMMAND') or fail_tidy or (fail_check and check_only))\n",
         encoding="utf-8",
     )
     script.chmod(0o755)
@@ -1072,6 +1075,168 @@ def test_typescript_profile_renders_exact_contract(tagged_template_source: Path,
     assert "aube exec vitest run" in vitest_log
     assert "vitest" not in run_command(["hk", "run", "pre-commit", "-a", "-P"], cwd=project).stdout
     assert "vitest" not in run_command(["hk", "fix", "-a", "-P"], cwd=project).stdout
+
+
+@pytest.mark.integration
+def test_rust_profile_renders_exact_contract(tagged_template_source: Path, tmp_path: Path) -> None:
+    project = tmp_path / "rust-profile"
+    payload = setup_generated_project(tagged_template_source, project, language_profiles=("rust",))
+    mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+    hk = (project / "hk.pkl").read_text(encoding="utf-8")
+    development = (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+    reference = (project / "docs/src/reference/tooling.md").read_text(encoding="utf-8")
+
+    assert payload["language_profiles"] == ["rust"]
+    assert mise["tools"]["rust"] == "latest"
+    assert "go" not in mise["tools"]
+    for command in (
+        "rustfmt --check --edition 2024 {{ files }}",
+        "rustfmt --edition 2024 {{ files }}",
+        "cargo clippy --all-targets --all-features -- -D warnings",
+        "cargo test --all-targets --all-features",
+    ):
+        assert command in hk
+    assert "Root `Cargo.toml` enables" in development
+    assert "Recorded language profiles: `rust`" in reference
+    assert "target/" in (project / ".gitignore").read_text(encoding="utf-8")
+    assert not (project / "Cargo.toml").exists()
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+    run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
+
+    bin_dir = tmp_path / "rust-bin"
+    log = tmp_path / "rust.log"
+    write_logging_shims(bin_dir, "rustfmt", "cargo")
+    environment = merged_environment(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", DSTACK_SHIM_LOG=str(log))
+    run_command(["hk", "check", "-a", "-S", "rustfmt"], cwd=project, env=environment)
+    assert not log.exists()
+
+    source = project / "main.rs"
+    source.write_text("fn main() {}\n", encoding="utf-8")
+    original = source.read_bytes()
+    run_command(["hk", "check", "-a", "-S", "rustfmt"], cwd=project, env=environment)
+    assert "rustfmt --check --edition 2024" in log.read_text(encoding="utf-8")
+    assert source.read_bytes() == original
+    log.write_text("", encoding="utf-8")
+    run_command(
+        ["hk", "fix", "-a", "-f", "-S", "rustfmt"],
+        cwd=project,
+        env=environment | {"DSTACK_FAIL_CHECK": "1"},
+    )
+    assert "rustfmt --edition 2024" in log.read_text(encoding="utf-8")
+
+    log.write_text("", encoding="utf-8")
+    run_command(["hk", "check", "-a", "-S", "cargo-clippy", "-S", "cargo-test"], cwd=project, env=environment)
+    assert log.read_text(encoding="utf-8") == ""
+    (project / "Cargo.toml").write_text('[package]\nname="example"\nversion="0.1.0"\n', encoding="utf-8")
+    run_command(["hk", "check", "-a", "-S", "cargo-clippy", "-S", "cargo-test"], cwd=project, env=environment)
+    cargo_log = log.read_text(encoding="utf-8")
+    assert "cargo clippy --all-targets --all-features -- -D warnings" in cargo_log
+    assert "cargo test --all-targets --all-features" in cargo_log
+    assert "cargo-" not in run_command(["hk", "run", "pre-commit", "-a", "-P"], cwd=project).stdout
+    assert "cargo-" not in run_command(["hk", "fix", "-a", "-P"], cwd=project).stdout
+
+
+@pytest.mark.integration
+def test_go_profile_renders_exact_contract(tagged_template_source: Path, tmp_path: Path) -> None:
+    project = tmp_path / "go-profile"
+    payload = setup_generated_project(tagged_template_source, project, language_profiles=("go",))
+    mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+    hk = (project / "hk.pkl").read_text(encoding="utf-8")
+    development = (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+    reference = (project / "docs/src/reference/tooling.md").read_text(encoding="utf-8")
+
+    assert payload["language_profiles"] == ["go"]
+    assert {
+        name: mise["tools"][name] for name in ("go", "gofumpt", "go:golang.org/x/tools/cmd/goimports", "golangci-lint")
+    } == {
+        "go": "latest",
+        "gofumpt": "latest",
+        "go:golang.org/x/tools/cmd/goimports": "latest",
+        "golangci-lint": "latest",
+    }
+    assert "rust" not in mise["tools"]
+    for command in (
+        r"test -z \"$(goimports -l {{ files }})\"",
+        "goimports -w {{ files }}",
+        r"test -z \"$(gofumpt -l {{ files }})\"",
+        "gofumpt -w {{ files }}",
+        "go mod tidy -diff && go mod verify",
+        "golangci-lint run",
+        "go test ./...",
+    ):
+        assert command in hk
+    assert hk.index('["goimports"]') < hk.index('["gofumpt"]')
+    assert "Root `go.mod` enables" in development
+    assert "Recorded language profiles: `go`" in reference
+    assert "coverage.out" in (project / ".gitignore").read_text(encoding="utf-8")
+    assert not (project / "go.mod").exists()
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+    run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
+
+    bin_dir = tmp_path / "go-bin"
+    log = tmp_path / "go.log"
+    write_logging_shims(bin_dir, "goimports", "gofumpt", "go", "golangci-lint")
+    environment = merged_environment(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", DSTACK_SHIM_LOG=str(log))
+    run_command(
+        [
+            "hk",
+            "check",
+            "-a",
+            "-S",
+            "goimports",
+            "-S",
+            "gofumpt",
+            "-S",
+            "go-mod",
+            "-S",
+            "golangci-lint",
+            "-S",
+            "go-test",
+        ],
+        cwd=project,
+        env=environment,
+    )
+    assert not log.exists()
+
+    source = project / "main.go"
+    source.write_text("package main\n", encoding="utf-8")
+    original = source.read_bytes()
+    run_command(["hk", "check", "-a", "-S", "goimports", "-S", "gofumpt"], cwd=project, env=environment)
+    source_log = log.read_text(encoding="utf-8")
+    assert "goimports -l" in source_log
+    assert "gofumpt -l" in source_log
+    assert source.read_bytes() == original
+    log.write_text("", encoding="utf-8")
+    run_command(
+        ["hk", "fix", "-a", "-f", "-S", "goimports", "-S", "gofumpt"],
+        cwd=project,
+        env=environment | {"DSTACK_FAIL_CHECK": "1"},
+    )
+    fix_log = log.read_text(encoding="utf-8")
+    assert "goimports -w" in fix_log
+    assert "gofumpt -w" in fix_log
+
+    log.write_text("", encoding="utf-8")
+    (project / "go.mod").write_text("module example.test/project\n\ngo 1.24\n", encoding="utf-8")
+    original_module = (project / "go.mod").read_bytes()
+    run_command(
+        ["hk", "check", "-a", "-S", "go-mod", "-S", "golangci-lint", "-S", "go-test"], cwd=project, env=environment
+    )
+    module_log = log.read_text(encoding="utf-8")
+    assert "go mod tidy -diff" in module_log
+    assert "go mod verify" in module_log
+    assert "golangci-lint run" in module_log
+    assert "go test ./..." in module_log
+    assert (project / "go.mod").read_bytes() == original_module
+    log.write_text("", encoding="utf-8")
+    run_command(
+        ["hk", "fix", "-a", "-f", "-S", "go-mod"],
+        cwd=project,
+        env=environment | {"DSTACK_FAIL_GO_TIDY": "1"},
+    )
+    assert "go mod tidy\n" in log.read_text(encoding="utf-8")
+    assert "go-mod" not in run_command(["hk", "run", "pre-commit", "-a", "-P"], cwd=project).stdout
+    assert "go-mod" in run_command(["hk", "fix", "-a", "-P"], cwd=project).stdout
 
 
 def test_setup_project_rejects_unknown_project_kind(repository_root: Path, capsys: pytest.CaptureFixture[str]) -> None:

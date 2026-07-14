@@ -63,8 +63,30 @@ local linters = new Mapping<String, Step> {
     fix = "biome check --write --no-errors-on-unmatched {{ files }}"
   }
 [% endif %]
-  ["typos"] = (Builtins.typos) {
+[% if 'rust' in language_profiles %]
+  ["rustfmt"] = new Step {
     depends = "[% if 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
+    glob = List("**/*.rs")
+    check = "rustfmt --check --edition 2024 {{ files }}"
+    fix = "rustfmt --edition 2024 {{ files }}"
+  }
+[% endif %]
+[% if 'go' in language_profiles %]
+  ["goimports"] = new Step {
+    depends = "[% if 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
+    glob = List("**/*.go")
+    check = "test -z \"$(goimports -l {{ files }})\""
+    fix = "goimports -w {{ files }}"
+  }
+  ["gofumpt"] = new Step {
+    depends = "goimports"
+    glob = List("**/*.go")
+    check = "test -z \"$(gofumpt -l {{ files }})\""
+    fix = "gofumpt -w {{ files }}"
+  }
+[% endif %]
+  ["typos"] = (Builtins.typos) {
+    depends = "[% if 'go' in language_profiles %]gofumpt[% elif 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
   }
 }
 
@@ -88,10 +110,40 @@ hooks {
         check = "[ ! -f package.json ] || { aube exec vitest --version >/dev/null || { printf '%s\\n' 'TypeScript profile requires project-owned Vitest' >&2; exit 1; }; aube exec vitest run; }"
       }
 [% endif %]
+[% if 'rust' in language_profiles %]
+      ["cargo-clippy"] = new Step {
+        check = "[ ! -f Cargo.toml ] || cargo clippy --all-targets --all-features -- -D warnings"
+      }
+      ["cargo-test"] = new Step {
+        check = "[ ! -f Cargo.toml ] || cargo test --all-targets --all-features"
+      }
+[% endif %]
+[% if 'go' in language_profiles %]
+      ["go-mod"] = new Step {
+        depends = "gofumpt"
+        check = "[ ! -f go.mod ] || { go mod tidy -diff && go mod verify; }"
+      }
+      ["golangci-lint"] = new Step {
+        depends = "go-mod"
+        check = "[ ! -f go.mod ] || golangci-lint run"
+      }
+      ["go-test"] = new Step {
+        depends = "go-mod"
+        check = "[ ! -f go.mod ] || go test ./..."
+      }
+[% endif %]
     }
   }
   ["fix"] {
     fix = true
-    steps = linters
+    steps = (linters) {
+[% if 'go' in language_profiles %]
+      ["go-mod"] = new Step {
+        depends = "gofumpt"
+        check = "[ ! -f go.mod ] || go mod tidy -diff"
+        fix = "[ ! -f go.mod ] || go mod tidy"
+      }
+[% endif %]
+    }
   }
 }

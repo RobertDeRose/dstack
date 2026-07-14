@@ -29,7 +29,20 @@ the project; setup does not add or download it.[% endif %][% if 'typescript' in 
 
 Biome check/write runs on TypeScript files in check, fix, and pre-commit. The profile reuses the universal Node runtime
 and installs Aube. When root `package.json` and TypeScript test/spec files both exist, `mise run check` runs
-`aube exec vitest run`. Vitest must be declared by the project; setup does not add or download it.[% endif %]
+`aube exec vitest run`. Vitest must be declared by the project; setup does not add or download
+it.[% endif %][% if 'rust' in language_profiles %]
+
+## Rust
+
+rustfmt checks and fixes Rust files with edition 2024 in check, fix, and pre-commit. Root `Cargo.toml` enables
+check-only Clippy with warnings denied and Cargo tests; setup does not create a manifest or
+source.[% endif %][% if 'go' in language_profiles %]
+
+## Go
+
+goimports runs before gofumpt on Go files in check, fix, and pre-commit. Root `go.mod` enables check-only module tidy
+diff and verification, golangci-lint, and Go tests. `mise run fix` may apply `go mod tidy`; pre-commit never does. Setup
+does not create a module or source.[% endif %]
 
 ## Hooks and recovery
 
