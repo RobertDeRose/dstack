@@ -44,8 +44,19 @@ mise run docs:serve [port]
 read-only checks. `HK_MISE=1` makes installed hooks run tools through mise.
 
 The generated baseline covers documentation, Markdown, typos, mise formatting, conflicts, private keys, BOM/newline and
-whitespace hygiene, case conflicts, and executable/shebang consistency. It intentionally omits dstack's `release` task
-and all language-profile automation.
+whitespace hygiene, case conflicts, and executable/shebang consistency. Selected profiles extend the same hooks:
+
+| Profile    | Source check/fix          | Root-manifest checks                                 |
+|------------|---------------------------|------------------------------------------------------|
+| Python     | Ruff lint/format and ty   | pytest through uv                                    |
+| TypeScript | Biome check/write         | Vitest through Aube                                  |
+| Rust       | rustfmt edition 2024      | Clippy and Cargo tests                               |
+| Go         | goimports, then gofumpt   | tidy diff/verify, golangci-lint, tests; fix may tidy |
+| Elixir     | Mix format                | warnings-as-errors compile, strict Credo, tests      |
+| Nix        | nixfmt on supported hosts | system-Nix flake check                               |
+
+Source steps are file-gated; project checks are root-manifest-gated and check-only except Go's explicit tidy fix.
+Profiles add no tasks, manifests, dependencies, or source. The scaffold intentionally omits dstack's `release` task.
 
 ## Documentation checker contract
 
@@ -57,10 +68,11 @@ implemented-feature indexes. The repository and generated-project checker copies
 
 ## Scaffold matrix validation
 
-The integration matrix renders every project kind through both the repository and bundled Copier entry points. It checks
-raw structured-brief forwarding, punctuation-safe Markdown and TOML, the exact initial documentation destinations and
-navigation, kind-specific guidance, source recording, generated checker success, and mdBook builds. Separate safety
-regressions cover `unsafe=False`, no-overwrite and existing-project routing, Copier update preservation, and conditional
+The integration matrix renders every project kind and all 64 valid language-profile selections through both Copier entry
+points. It checks structured answers, conditional tools/hooks/ignores/docs, Pkl and TOML parsing, stable tasks and
+navigation, generated checker success, and mdBook builds. Profile fixtures execute source and manifest gates with shims;
+bounded external checks resolve the combined four-platform lock. Separate regressions cover invalid selections,
+no-overwrite routing, update preservation, explicit add/remove transitions, conflicts, relocking, and conditional
 destination uniqueness.
 
 ## Change discipline

@@ -887,6 +887,27 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
         "elixir": "_build/",
         "nix": ".direnv/",
     }
+    profile_tools = {
+        "python": {"ruff": "latest", "ty": "latest"},
+        "typescript": {"aube": "latest", "biome": "latest"},
+        "rust": {"rust": "latest"},
+        "go": {
+            "go": "latest",
+            "gofumpt": "latest",
+            "go:golang.org/x/tools/cmd/goimports": "latest",
+            "golangci-lint": "latest",
+        },
+        "elixir": {"erlang": "latest", "elixir": "latest"},
+        "nix": {"github:Mic92/nixfmt-rs": {"version": "latest", "os": ["linux", "macos/arm64"]}},
+    }
+    step_markers = {
+        "python": '["ruff"]',
+        "typescript": '["biome"]',
+        "rust": '["rustfmt"]',
+        "go": '["goimports"]',
+        "elixir": '["mix-format"]',
+        "nix": '["nixfmt"]',
+    }
     data = {
         "project_name": "Profile Matrix",
         "project_slug": "profile-matrix",
@@ -918,17 +939,39 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
             )
             answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
             assert answers["language_profiles"] == profiles
-            assert set(tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))["tasks"]) == {
-                "check",
-                "fix",
-                "docs:check",
-                "docs:build",
-                "docs:serve",
+            mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+            assert set(mise["tasks"]) == {"check", "fix", "docs:check", "docs:build", "docs:serve"}
+            expected_tools = {
+                "hk": "1.49.0",
+                "node": "lts",
+                "mdbook": "latest",
+                "uv": "latest",
+                "rumdl": "latest",
+                "typos": "latest",
+                "npm:markdown-table-formatter": "latest",
             }
-            assert (project / "hk.pkl").is_file()
+            for profile in profiles:
+                expected_tools.update(profile_tools.get(profile, {}))
+            assert mise["tools"] == expected_tools
+
+            hk = (project / "hk.pkl").read_text(encoding="utf-8")
+            development = (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+            reference = (project / "docs/src/reference/tooling.md").read_text(encoding="utf-8")
             rendered_ignores = (project / ".gitignore").read_text(encoding="utf-8")
-            for profile, marker in ignores.items():
-                assert (marker in rendered_ignores) == (profile in profiles)
+            for profile in recognized:
+                selected = profile in profiles
+                assert (ignores[profile] in rendered_ignores) == selected
+                assert (step_markers[profile] in hk) == selected
+                heading = "TypeScript" if profile == "typescript" else profile.title()
+                assert (f"## {heading}" in development) == selected
+                assert (f"### {heading} profile" in reference) == selected
+            assert ("No recognized language profile is active" in development) == (profiles == ["other"])
+            assert ("No recognized language profile is active" in reference) == (profiles == ["other"])
+            summary = (project / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
+            assert "development/tooling.md" in summary
+            assert "reference/tooling.md" in summary
+            run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+            run_command(["python3", "scripts/check-docs.py"], cwd=project)
             for forbidden in ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "mix.exs", "flake.nix"):
                 assert not (project / forbidden).exists()
             shutil.rmtree(project)
@@ -1458,6 +1501,68 @@ def test_nix_profile_four_platform_lock_omits_only_macos_x64(
     }
     assert nixfmt_headers == {f"platforms.{platform}" for platform in module.NIXFMT_SUPPORTED_PLATFORMS}
     assert all(f'"platforms.{platform}"' in content for platform in module.PLATFORMS)
+
+
+@pytest.mark.external
+def test_generated_language_profiles_end_to_end(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    if shutil.which("mise") is None:
+        pytest.skip("Combined language-profile validation requires mise")
+    profiles = ("python", "typescript", "rust", "go", "elixir", "nix")
+    project = tmp_path / "all-profiles"
+    setup_generated_project(tagged_template_source, project, language_profiles=profiles)
+    environment = merged_environment(MISE_GLOBAL_CONFIG_FILE=os.devnull)
+    run_command(["mise", "trust", "-y"], cwd=project, env=environment)
+    run_command(
+        ["mise", "lock", "--yes", "--platform", "linux-x64,linux-arm64,macos-x64,macos-arm64"],
+        cwd=project,
+        env=environment,
+    )
+    module = load_tooling_module(repository_root)
+    assert module.normalize_nixfmt_lock(project, project / "mise.lock") is None
+    run_command(["mise", "install", "--locked"], cwd=project, env=environment)
+    lock = (project / "mise.lock").read_text(encoding="utf-8")
+    assert all(f'"platforms.{platform}"' in lock for platform in module.PLATFORMS)
+    assert f'[tools."{module.NIXFMT_TOOL}"."platforms.macos-x64"]' not in lock
+    tasks = json.loads(run_command(["mise", "tasks", "--json"], cwd=project, env=environment).stdout)
+    assert {task["name"] for task in tasks} == {"check", "fix", "docs:check", "docs:build", "docs:serve"}
+
+    for relative, content in (
+        ("example.py", "value = 1\n"),
+        ("example.ts", "const value = 1\n"),
+        ("main.rs", "fn main() {}\n"),
+        ("main.go", "package main\n"),
+        ("lib/example.ex", "defmodule Example do\nend\n"),
+        ("default.nix", "{}\n"),
+    ):
+        path = project / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    source_steps = [
+        "ruff",
+        "ruff-format",
+        "ty",
+        "biome",
+        "rustfmt",
+        "goimports",
+        "gofumpt",
+        "mix-format",
+        "nixfmt",
+    ]
+    step_args = [value for step in source_steps for value in ("-S", step)]
+    run_command(["mise", "x", "--", "hk", "fix", "-a", "-f", *step_args], cwd=project, env=environment)
+    formatted = {
+        path.relative_to(project): path.read_bytes()
+        for path in project.rglob("*")
+        if path.is_file() and path.suffix in {".py", ".ts", ".rs", ".go", ".ex", ".nix"}
+    }
+    run_command(["mise", "x", "--", "hk", "check", "-a", *step_args], cwd=project, env=environment)
+    assert formatted == {project_path: (project / project_path).read_bytes() for project_path in formatted}
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+    run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
 
 
 def test_setup_project_rejects_unknown_project_kind(repository_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -2123,6 +2228,55 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
     assert (project / "mise.lock").read_text(encoding="utf-8") != "stale\n"
     assert (project / ".dstack-release").read_text(encoding="utf-8") == "v0.0.2\n"
     assert "Project-owned update." in project_overview.read_text(encoding="utf-8")
+
+
+@pytest.mark.integration
+def test_update_project_applies_explicit_profile_add_remove(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "profile-update"
+    setup_generated_project(tagged_template_source, project, language_profiles=("python",))
+    configure_project_git(project)
+    commit_repository(project, "Initial Python profile")
+    (tagged_template_source / "skills/setup-project/template/.dstack-release.jinja").write_text(
+        "v0.0.2\n", encoding="utf-8"
+    )
+    commit_repository(tagged_template_source, "dstack v0.0.2", "v0.0.2")
+    fake_bin = tmp_path / "profile-update-bin"
+    write_fake_mise(fake_bin)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(project),
+            "--vcs-ref",
+            "v0.0.2",
+            "--skip-beads-check",
+            "--add-profile",
+            "typescript",
+            "--remove-profile",
+            "python",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        env=merged_environment(PATH=f"{fake_bin}{os.pathsep}{os.environ['PATH']}"),
+    )
+    payload = json.loads(result.stdout)
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert payload["language_profiles"] == ["typescript"]
+    assert answers["language_profiles"] == ["typescript"]
+    mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+    assert "biome" in mise["tools"]
+    assert "ruff" not in mise["tools"]
+    ignore = (project / ".gitignore").read_text(encoding="utf-8")
+    assert "node_modules/" in ignore
+    assert ".venv/" not in ignore
+    assert "## TypeScript" in (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+    assert payload["conflicts"] == []
+    assert payload["tooling"]["status"] == "succeeded"
 
 
 @pytest.mark.integration

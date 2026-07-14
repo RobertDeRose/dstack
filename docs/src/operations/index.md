@@ -9,8 +9,10 @@ npx skills@latest add RobertDeRose/dstack --all
 ## Create a project
 
 Run `/setup-project` in a new project directory. The skill asks one question at a time for the project's purpose,
-intended users, current scope, key boundaries, and kind. Supported kinds are library, CLI, service, application,
-infrastructure, documentation, and other. It does not infer or fabricate missing project facts.
+intended users, current scope, key boundaries, kind, and language profiles. Supported kinds are library, CLI, service,
+application, infrastructure, documentation, and other. Select one or more recognized language profiles for a polyglot
+root policy, or select exclusive `other` for only the universal baseline. Setup does not infer or fabricate missing
+facts.
 
 The skill renders its bundled Copier template, initializes Git and Beads when available, and validates the generated
 documentation. Existing repositories are routed to `/migrate-workflow`; already managed repositories are routed to
@@ -32,8 +34,13 @@ human roadmap.
 ## Update
 
 - `npx skills update` refreshes installed skills and bundled assets.
-- `/update-project` applies a newer published Copier template to a managed repository.
+- `/update-project` applies a newer published Copier template to a managed repository. Repeat `--add-profile` and
+  `--remove-profile` for explicit idempotent profile changes; their sets must be disjoint and the result nonempty.
 - `/migrate-workflow` adopts an existing legacy Markdown workflow before normal updates.
+
+Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
+`pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents
+recognized profile suggestions for confirmation. It never applies suggestions automatically.
 
 ## Failure boundaries
 
@@ -55,9 +62,15 @@ mise install --locked
 mise x -- hk install --mise
 ```
 
-The lock/install commands ignore user-global mise tools. Hook installation runs only when Git exists and is reported
-separately. Setup with `--no-git-init` can therefore finish lock/install work while reporting hooks as `skipped-no-git`;
-`--skip-post-setup` performs no generated code and reports all tooling stages as skipped.
+The lock/install commands ignore user-global mise tools. For the Nix profile, the provisioner validates the three
+supported nixfmt-rs lock entries and removes only its macOS x64 entry before locked installation; all other tools retain
+the four-platform lock. Hook installation runs only when Git exists and is reported separately. Setup with
+`--no-git-init` can therefore finish lock/install work while reporting hooks as `skipped-no-git`; `--skip-post-setup`
+performs no generated code and reports all tooling stages as skipped.
+
+Profile source checks skip when no matching files exist. Package checks skip without their root manifest. A selected
+manifest with missing project-owned pytest, Vitest, or Credo fails with the named prerequisite; flake checks similarly
+require system Nix. Matching Nix inputs fail clearly on unsupported macOS x64.
 
 A missing mise executable, failed lock resolution/download, failed locked install, or failed hook does not roll back the
 scaffold. Inspect the returned `tooling` stages and run each listed recovery command. The general rerun command is:

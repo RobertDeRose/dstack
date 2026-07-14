@@ -15,7 +15,10 @@
 The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` mdBook, uv, rumdl, typos, and
 `npm:markdown-table-formatter` releases. Both hk Pkl imports use `1.49.0`.
 
-Recorded language profiles: `[[ language_profiles | join(', ') ]]`.[% if 'python' in language_profiles %]
+Recorded language profiles: `[[ language_profiles | join(', ') ]]`.[% if language_profiles == ['other'] %]
+
+No recognized language profile is active; only the universal tooling baseline is
+configured.[% endif %][% if 'python' in language_profiles %]
 
 ### Python profile
 

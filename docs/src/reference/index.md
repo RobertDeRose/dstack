@@ -35,6 +35,32 @@ New-project setup accepts repeatable `--language-profile`. Copier updates preser
 and their canonical result must remain valid. Legacy preflight reports root-manifest suggestions for confirmation but
 never applies them automatically.
 
+### Profile tooling
+
+| Profile    | Added mise tools                      | Manifest-gated checks                          |
+|------------|---------------------------------------|------------------------------------------------|
+| Python     | Ruff, ty                              | project-owned pytest via uv                    |
+| TypeScript | Aube, Biome; reuse Node               | project-owned Vitest via Aube                  |
+| Rust       | Rust                                  | Clippy and Cargo tests                         |
+| Go         | Go, gofumpt, goimports, golangci-lint | module hygiene, lint, and tests                |
+| Elixir     | Erlang, Elixir                        | compile, project-owned strict Credo, and tests |
+| Nix        | nixfmt-rs except macOS x64            | system-Nix flake check                         |
+
+All added mise versions are `latest`. Source formatters and linters are matching-file-gated and run without manifests;
+project checks require the root ecosystem manifest. The five task names never change.
+
+| Profile    | Exact source checks                                                                                                        | Exact source fixes                                                                                | Profile ignores                                                         |
+|------------|----------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| Python     | `ruff check --force-exclude {{ files }}`; `ruff format --quiet --force-exclude --diff {{ files }}`; `ty check {{ files }}` | `ruff check --force-exclude --fix {{ files }}`; `ruff format --quiet --force-exclude {{ files }}` | `.venv/`, `__pycache__/`, `*.py[cod]`, `.pytest_cache/`, `.ruff_cache/` |
+| TypeScript | `biome check --no-errors-on-unmatched {{ files }}`                                                                         | `biome check --write --no-errors-on-unmatched {{ files }}`                                        | `node_modules/`, `coverage/`                                            |
+| Rust       | `rustfmt --check --edition 2024 {{ files }}`                                                                               | `rustfmt --edition 2024 {{ files }}`                                                              | `target/`                                                               |
+| Go         | `test -z "$(goimports -l {{ files }})"`; `test -z "$(gofumpt -l {{ files }})"`                                             | `goimports -w {{ files }}`; `gofumpt -w {{ files }}`                                              | `coverage.out`                                                          |
+| Elixir     | `mix format --check-formatted {{ files }}`                                                                                 | `mix format {{ files }}`                                                                          | `_build/`, `deps/`, `cover/`                                            |
+| Nix        | `nixfmt --check {{ files }}`                                                                                               | `nixfmt {{ files }}`                                                                              | `.direnv/`, `result`, `result-*`                                        |
+
+Exact globs, manifest commands, hook placement, and prerequisite messages are published in each generated project's
+`docs/src/reference/tooling.md`.
+
 ## Workflow paths
 
 | Path                                             | Contract                                               |
@@ -79,7 +105,8 @@ release task.
 | `npm:markdown-table-formatter` | `latest`         |
 
 Both hk Pkl imports use `1.49.0`. Supported lock targets are `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`;
-Windows is outside the POSIX task contract.
+Windows is outside the POSIX task contract. With the Nix profile, nixfmt-rs is retained only for Linux x64/ARM64 and
+macOS ARM64 while every other tool keeps the four-platform lock.
 
 ## Tooling result schema
 

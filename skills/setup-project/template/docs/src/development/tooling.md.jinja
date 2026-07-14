@@ -17,7 +17,10 @@ mise run docs:serve
 ```
 
 `check` is read-only. `fix` changes the working tree. The pre-commit hook may fix files while safely stashing unrelated
-unstaged work.[% if 'python' in language_profiles %]
+unstaged work.[% if language_profiles == ['other'] %]
+
+No recognized language profile is active; only the universal tooling baseline
+runs.[% endif %][% if 'python' in language_profiles %]
 
 ## Python
 

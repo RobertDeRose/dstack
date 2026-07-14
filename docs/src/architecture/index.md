@@ -55,7 +55,10 @@ F030 extends these same generated files from one canonical `language_profiles` a
 direct membership-gated template sections; `other` is exclusive and preserves only the universal baseline. Multiple
 profiles apply one root policy to a polyglot repository, not package-local or monorepo configuration. Setup collects an
 explicit selection, while updates preserve it unless the user explicitly adds or removes profiles. The existing
-provisioner and conflict gate remain the only network-backed tooling path.
+provisioner and conflict gate remain the only network-backed tooling path. Source steps are file-gated; project checks
+are root-manifest-gated. Profiles never create manifests, dependencies, source, package roots, or package-local policy.
+The Nix exception keeps the universal four-platform lock while atomically removing only nixfmt-rs's unsupported macOS
+x64 table before locked installation.
 
 F040 consumes the stable named tasks. Generated projects do not receive dstack's release task, package manifests,
 application source, CI, shell, YAML, or security checks from the universal baseline.
