@@ -40,4 +40,57 @@ The result JSON and `.copier-answers.yml` record all five values.
 
 Releases use `vX.Y.Z` tags. Python Semantic Release synchronizes the project version, lockfile, and skill metadata
 versions. Git configuration injected by the mise task requires both the release commit and annotated tag to be signed.
-The task does not create a remote VCS release and does not push unless requested.
+The task does not create a remote VCS release and does not push unless requested. Generated projects do not receive this
+release task.
+
+## Generated tooling files
+
+| Path                              | Contract                                                                       |
+|-----------------------------------|--------------------------------------------------------------------------------|
+| `mise.toml`                       | Declares exactly seven universal tools, five tasks, and `HK_MISE=1`.           |
+| `mise.lock`                       | Project-owned, nonempty resolved lock for four supported platforms; commit it. |
+| `hk.pkl`                          | One shared step map for `check`, `fix`, and `pre-commit`.                      |
+| `.config/rumdl.toml`              | Markdown policy compatible with the generated scaffold.                        |
+| `scripts/setup-tooling.py`        | Stdlib provisioner used by setup, update, and manual recovery.                 |
+| `docs/src/development/tooling.md` | Generated contributor commands and recovery.                                   |
+| `docs/src/reference/tooling.md`   | Generated exact tooling contract.                                              |
+
+### Universal tools
+
+| Tool                           | Template version |
+|--------------------------------|------------------|
+| `hk`                           | `1.49.0`         |
+| `node`                         | `lts`            |
+| `mdbook`                       | `latest`         |
+| `uv`                           | `latest`         |
+| `rumdl`                        | `latest`         |
+| `typos`                        | `latest`         |
+| `npm:markdown-table-formatter` | `latest`         |
+
+Both hk Pkl imports use `1.49.0`. Supported lock targets are `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`;
+Windows is outside the POSIX task contract.
+
+## Tooling result schema
+
+Setup and update return a `tooling` object:
+
+```json
+{
+  "status": "succeeded | degraded | skipped",
+  "mise": "available | unavailable | skipped",
+  "lock": {"status": "succeeded | failed | skipped", "path": "mise.lock", "error": null},
+  "install": {"status": "succeeded | failed | skipped", "error": null},
+  "hooks": {"status": "succeeded | failed | skipped | skipped-no-git", "error": null},
+  "platforms": ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"],
+  "recovery": []
+}
+```
+
+Every stage includes `error`, which is `null` unless that stage failed. Failed stages contain bounded error text.
+`recovery` contains exact nonempty commands and is mirrored into the workflow's `outstanding` list. Overall `succeeded`
+requires mise availability, all three stages succeeded, an empty recovery list, and an independently verified nonempty
+`mise.lock`. No-Git setup is `degraded` with hooks `skipped-no-git`. Explicit post-setup skipping is `skipped` without
+executing generated code.
+
+`/update-project` adds `ready_to_resume_feature_work`. The helper remains false while the update has Git-visible changes
+that still require the path-accounting ledger; conflicts, degraded tooling, or a stale/missing lock also force false.

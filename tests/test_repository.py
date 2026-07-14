@@ -546,6 +546,63 @@ def test_hk_rumdl_avoids_nonstandard_diff_headers(repository_root: Path) -> None
     assert 'check_diff = "rumdl check --config .config/rumdl.toml --diff {{ files }}"' not in config
 
 
+def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Path) -> None:
+    docs = repository_root / "docs/src"
+    architecture = (docs / "architecture/index.md").read_text(encoding="utf-8")
+    operations = (docs / "operations/index.md").read_text(encoding="utf-8")
+    development = (docs / "development/index.md").read_text(encoding="utf-8")
+    reference = (docs / "reference/index.md").read_text(encoding="utf-8")
+    mise = tomllib.loads(
+        (repository_root / "skills/setup-project/template/mise.toml.jinja").read_text(encoding="utf-8")
+    )
+    tooling_module = load_tooling_module(repository_root)
+
+    assert "ignores user-global mise configuration" in architecture
+    assert "An update with conflicts never executes newly rendered project code" in architecture
+    assert "mise lock --yes --platform linux-x64,linux-arm64,macos-x64,macos-arm64" in operations
+    assert "python3 scripts/setup-tooling.py --json" in operations
+    assert 'stash = "git"' in development
+    assert "intentionally omits dstack's `release` task" in development
+
+    generated_commands = development.split("## Generated project command contract", 1)[1]
+    assert set(re.findall(r"^mise run ([\w:]+)", generated_commands, flags=re.MULTILINE)) == set(mise["tasks"])
+
+    tooling_reference = reference.split("## Generated tooling files", 1)[1].split("## Tooling result schema", 1)[0]
+    files_table, tools_table = tooling_reference.split("### Universal tools", 1)
+    assert set(re.findall(r"^\| `([^`]+)`", files_table, flags=re.MULTILINE)) == {
+        "mise.toml",
+        "mise.lock",
+        "hk.pkl",
+        ".config/rumdl.toml",
+        "scripts/setup-tooling.py",
+        "docs/src/development/tooling.md",
+        "docs/src/reference/tooling.md",
+    }
+    assert dict(re.findall(r"^\| `([^`]+)`\s+\| `([^`]+)`", tools_table, flags=re.MULTILINE)) == mise["tools"]
+
+    schema_match = re.search(r"## Tooling result schema.*?```json\n(.*?)\n```", reference, flags=re.DOTALL)
+    assert schema_match is not None
+    schema = json.loads(schema_match.group(1))
+    assert set(schema) == {"status", "mise", "lock", "install", "hooks", "platforms", "recovery"}
+    assert set(schema["lock"]) == {"status", "path", "error"}
+    assert set(schema["install"]) == {"status", "error"}
+    assert set(schema["hooks"]) == {"status", "error"}
+    assert schema["platforms"] == list(tooling_module.PLATFORMS)
+    assert set(schema["status"].split(" | ")) == {"succeeded", "degraded", "skipped"}
+    assert set(schema["mise"].split(" | ")) == {"available", "unavailable", "skipped"}
+    for stage in ("lock", "install"):
+        assert set(schema[stage]["status"].split(" | ")) == {"succeeded", "failed", "skipped"}
+    assert set(schema["hooks"]["status"].split(" | ")) == {
+        "succeeded",
+        "failed",
+        "skipped",
+        "skipped-no-git",
+    }
+    normalized_reference = " ".join(reference.split())
+    assert "ready_to_resume_feature_work" in normalized_reference
+    assert "independently verified nonempty `mise.lock`" in normalized_reference
+
+
 def test_copier_entry_points_are_consistent(repository_root: Path) -> None:
     root_config = yaml.safe_load((repository_root / "copier.yml").read_text(encoding="utf-8"))
     bundled_config = yaml.safe_load((repository_root / "skills/setup-project/copier.yml").read_text(encoding="utf-8"))

@@ -27,6 +27,26 @@ uv run --frozen --group test pytest -m external
 Use `mise run fix` for deterministic formatting fixes. The full serial test suite is
 `uv run --frozen --group test pytest`.
 
+## Generated project command contract
+
+Generated projects expose the same five task names to contributors and future CI:
+
+```bash
+mise run check
+mise run fix
+mise run docs:check
+mise run docs:build
+mise run docs:serve [port]
+```
+
+`check` is read-only. `fix` applies deterministic changes. Pre-commit uses the same hk step map with fixes enabled and
+`stash = "git"`, so unrelated unstaged work is restored after the hook. Overlapping fixers are serialized before final
+read-only checks. `HK_MISE=1` makes installed hooks run tools through mise.
+
+The generated baseline covers documentation, Markdown, typos, mise formatting, conflicts, private keys, BOM/newline and
+whitespace hygiene, case conflicts, and executable/shebang consistency. It intentionally omits dstack's `release` task
+and all language-profile automation.
+
 ## Documentation checker contract
 
 The documentation checker validates the pages a project actually publishes rather than requiring a fixed taxonomy. A
