@@ -308,6 +308,10 @@ def validate_docs(destination: Path, *, quiet: bool) -> None:
     run_checked(command, cwd=destination, quiet=quiet)
 
 
+TOOLING_RERUN = "python3 scripts/setup-tooling.py --json"
+TOOLING_PLATFORMS = ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"]
+
+
 def skipped_tooling() -> dict[str, Any]:
     return {
         "status": "skipped",
@@ -315,9 +319,51 @@ def skipped_tooling() -> dict[str, Any]:
         "lock": {"status": "skipped", "path": "mise.lock", "error": None},
         "install": {"status": "skipped", "error": None},
         "hooks": {"status": "skipped", "error": None},
-        "platforms": ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"],
-        "recovery": ["python3 scripts/setup-tooling.py --json"],
+        "platforms": TOOLING_PLATFORMS,
+        "recovery": [TOOLING_RERUN],
     }
+
+
+def tooling_result_error(result: dict[str, Any], destination: Path) -> str | None:
+    if result.get("status") not in {"succeeded", "degraded", "skipped"}:
+        return "tooling result has an invalid overall status"
+    if result.get("mise") not in {"available", "unavailable", "skipped"}:
+        return "tooling result has an invalid mise status"
+    if result.get("platforms") != TOOLING_PLATFORMS:
+        return "tooling result has an invalid platform contract"
+    recovery = result.get("recovery")
+    if not isinstance(recovery, list) or not all(isinstance(command, str) and command for command in recovery):
+        return "tooling result has invalid recovery commands"
+
+    allowed = {
+        "lock": {"succeeded", "failed", "skipped"},
+        "install": {"succeeded", "failed", "skipped"},
+        "hooks": {"succeeded", "failed", "skipped", "skipped-no-git"},
+    }
+    for name, statuses in allowed.items():
+        stage = result.get(name)
+        if not isinstance(stage, dict) or stage.get("status") not in statuses:
+            return f"tooling result has an invalid {name} stage"
+        if "error" not in stage:
+            return f"tooling result is missing the {name} error field"
+        error = stage["error"]
+        if error is not None and not isinstance(error, str):
+            return f"tooling result has an invalid {name} error"
+        if stage["status"] == "failed" and not error:
+            return f"tooling result is missing the {name} failure error"
+        if stage["status"] != "failed" and error is not None:
+            return f"tooling result has an unexpected {name} error"
+    if result["lock"].get("path") != "mise.lock":
+        return "tooling result has an invalid lock path"
+    lock = destination / "mise.lock"
+    if result["lock"]["status"] == "succeeded" and (not lock.is_file() or lock.stat().st_size == 0):
+        return "tooling reported a successful lock without a nonempty mise.lock"
+    if result["status"] == "succeeded":
+        if result["mise"] != "available" or any(result[name]["status"] != "succeeded" for name in allowed):
+            return "tooling result has inconsistent successful stages"
+        if recovery:
+            return "successful tooling result unexpectedly contains recovery commands"
+    return None
 
 
 def provision_tooling(destination: Path) -> dict[str, Any]:
@@ -327,18 +373,22 @@ def provision_tooling(destination: Path) -> dict[str, Any]:
         result = json.loads(completed.stdout)
     except json.JSONDecodeError:
         result = None
-    if completed.returncode == 0 and isinstance(result, dict):
+    error = tooling_result_error(result, destination) if isinstance(result, dict) else None
+    if completed.returncode == 0 and isinstance(result, dict) and error is None:
         return result
 
-    error = (completed.stderr or completed.stdout or "tooling provisioner returned invalid output").strip()[-2_000:]
+    error = (
+        error
+        or (completed.stderr or completed.stdout or "tooling provisioner returned invalid output").strip()[-2_000:]
+    )
     return {
         "status": "degraded",
         "mise": "skipped",
         "lock": {"status": "failed", "path": "mise.lock", "error": error},
         "install": {"status": "skipped", "error": None},
         "hooks": {"status": "skipped", "error": None},
-        "platforms": ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"],
-        "recovery": ["python3 scripts/setup-tooling.py --json"],
+        "platforms": TOOLING_PLATFORMS,
+        "recovery": [TOOLING_RERUN],
     }
 
 

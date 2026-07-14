@@ -19,6 +19,7 @@ LOCK_COMMAND = ["mise", "lock", "--yes", "--platform", ",".join(PLATFORMS)]
 INSTALL_COMMAND = ["mise", "install", "--locked"]
 HOOK_COMMAND = ["mise", "x", "--", "hk", "install", "--mise"]
 RERUN_COMMAND = "python3 scripts/setup-tooling.py --json"
+ISOLATED_MISE = "MISE_GLOBAL_CONFIG_FILE=/dev/null "
 MAX_ERROR_CHARS = 2_000
 
 
@@ -74,26 +75,26 @@ def provision(project_root: Path) -> dict[str, Any]:
     if lock.returncode or not lock_path.is_file() or lock_path.stat().st_size == 0:
         error = command_error(lock) if lock.returncode else "mise lock did not create a nonempty mise.lock"
         result["lock"] = stage("failed", path="mise.lock", error=error)
-        result["recovery"] = [" ".join(LOCK_COMMAND), RERUN_COMMAND]
+        result["recovery"] = [ISOLATED_MISE + " ".join(LOCK_COMMAND), RERUN_COMMAND]
         return result
     result["lock"] = stage("succeeded", path="mise.lock")
 
     install = run(INSTALL_COMMAND, project_root)
     if install.returncode:
         result["install"] = stage("failed", error=command_error(install))
-        result["recovery"] = [" ".join(INSTALL_COMMAND), RERUN_COMMAND]
+        result["recovery"] = [ISOLATED_MISE + " ".join(INSTALL_COMMAND), RERUN_COMMAND]
         return result
     result["install"] = stage("succeeded")
 
     if not (project_root / ".git").exists():
         result["hooks"] = stage("skipped-no-git")
-        result["recovery"] = [" ".join(HOOK_COMMAND)]
+        result["recovery"] = [ISOLATED_MISE + " ".join(HOOK_COMMAND)]
         return result
 
     hooks = run(HOOK_COMMAND, project_root)
     if hooks.returncode:
         result["hooks"] = stage("failed", error=command_error(hooks))
-        result["recovery"] = [" ".join(HOOK_COMMAND)]
+        result["recovery"] = [ISOLATED_MISE + " ".join(HOOK_COMMAND)]
         return result
 
     result["hooks"] = stage("succeeded")

@@ -566,6 +566,10 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
 
     generated_commands = development.split("## Generated project command contract", 1)[1]
     assert set(re.findall(r"^mise run ([\w:]+)", generated_commands, flags=re.MULTILINE)) == set(mise["tasks"])
+    contributor_guide = (
+        repository_root / "skills/setup-project/template/docs/src/development/tooling.md.jinja"
+    ).read_text(encoding="utf-8")
+    assert set(re.findall(r"^mise run ([\w:]+)", contributor_guide, flags=re.MULTILINE)) == set(mise["tasks"])
 
     tooling_reference = reference.split("## Generated tooling files", 1)[1].split("## Tooling result schema", 1)[0]
     files_table, tools_table = tooling_reference.split("### Universal tools", 1)
@@ -764,6 +768,31 @@ def test_tooling_provisioner_converts_launch_errors_to_structured_failure(
     assert result["recovery"][-1] == "python3 scripts/setup-tooling.py --json"
 
 
+def test_setup_project_rejects_invalid_tooling_success(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_setup_module(repository_root)
+    valid_shape = {
+        "status": "succeeded",
+        "mise": "available",
+        "lock": {"status": "succeeded", "path": "mise.lock", "error": None},
+        "install": {"status": "succeeded", "error": None},
+        "hooks": {"status": "succeeded", "error": None},
+        "platforms": module.TOOLING_PLATFORMS,
+        "recovery": [],
+    }
+
+    for payload in ({"status": "succeeded"}, valid_shape):
+        completed = subprocess.CompletedProcess([], 0, json.dumps(payload), "")
+        monkeypatch.setattr(module.subprocess, "run", lambda *_args, _completed=completed, **_kwargs: _completed)
+        result = module.provision_tooling(tmp_path)
+        assert result["status"] == "degraded"
+        assert result["lock"]["status"] == "failed"
+        assert result["recovery"] == [module.TOOLING_RERUN]
+
+
 def test_setup_project_rejects_unknown_project_kind(repository_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     module = load_setup_module(repository_root)
     args = ["unknown" if value == SETUP_BRIEF["project_kind"] else value for value in SETUP_BRIEF_ARGS]
@@ -923,9 +952,9 @@ def test_setup_project_provisions_tooling_and_reports_no_git_separately(
         "macos-x64",
         "macos-arm64",
     ]
-    assert payload["outstanding"] == (["Tooling recovery: mise x -- hk install --mise"] if no_git else []) + [
-        "Beads initialization and verification"
-    ]
+    assert payload["outstanding"] == (
+        ["Tooling recovery: MISE_GLOBAL_CONFIG_FILE=/dev/null mise x -- hk install --mise"] if no_git else []
+    ) + ["Beads initialization and verification"]
 
 
 @pytest.mark.integration
@@ -937,19 +966,20 @@ def test_setup_project_provisions_tooling_and_reports_no_git_separately(
             "lock",
             ("available", "failed", "skipped", "skipped"),
             [
-                "mise lock --yes --platform linux-x64,linux-arm64,macos-x64,macos-arm64",
+                "MISE_GLOBAL_CONFIG_FILE=/dev/null mise lock --yes --platform "
+                "linux-x64,linux-arm64,macos-x64,macos-arm64",
                 "python3 scripts/setup-tooling.py --json",
             ],
         ),
         (
             "install",
             ("available", "succeeded", "failed", "skipped"),
-            ["mise install --locked", "python3 scripts/setup-tooling.py --json"],
+            ["MISE_GLOBAL_CONFIG_FILE=/dev/null mise install --locked", "python3 scripts/setup-tooling.py --json"],
         ),
         (
             "hooks",
             ("available", "succeeded", "succeeded", "failed"),
-            ["mise x -- hk install --mise"],
+            ["MISE_GLOBAL_CONFIG_FILE=/dev/null mise x -- hk install --mise"],
         ),
     ],
 )
@@ -1874,7 +1904,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     assert payload["docs_validated"] is True
     assert payload["beads_initialized"] is True
     assert payload["tooling"]["hooks"]["status"] == "skipped-no-git"
-    assert payload["outstanding"] == ["Tooling recovery: mise x -- hk install --mise"]
+    assert payload["outstanding"] == ["Tooling recovery: MISE_GLOBAL_CONFIG_FILE=/dev/null mise x -- hk install --mise"]
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "--version" in commands
     assert "init --skip-agents --stealth --quiet" in commands

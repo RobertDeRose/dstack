@@ -12,6 +12,7 @@ Use the same commands locally and in automation:
 mise run check
 mise run fix
 mise run docs:check
+mise run docs:build
 mise run docs:serve
 ```
 
@@ -31,5 +32,5 @@ The command preserves the scaffold when resolution, installation, or hook setup 
 recovery commands. A repository created without Git can install hooks after Git initialization with:
 
 ```bash
-mise x -- hk install --mise
+python3 scripts/setup-tooling.py --json
 ```
