@@ -3,9 +3,9 @@
 ## Delivery Summary
 
 - Beads feature root: `dstack-mol-lg3`
-- Status: ready for delivery
+- Status: delivered
 - Pull request: not created
-- Merge commit: not merged
+- Merge commit: `3c0ea216e6218527aac122d31d5cd7dab70890ba` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
