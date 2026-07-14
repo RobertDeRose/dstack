@@ -126,8 +126,9 @@ Create the feature directory and draft `design.md` from:
 docs/src/features/_template/design.md
 ```
 
-Preserve concrete user wording, examples, constraints, rejected directions, and planning decisions. In
-**Documentation Impact**, name exact files and assign each planned change to an implementation bead.
+Preserve concrete user wording, examples, constraints, rejected directions, and planning decisions. Register each
+created design between the feature-design markers in `docs/src/SUMMARY.md` so roadmap and audit links resolve in the
+rendered book. In **Documentation Impact**, name exact files and assign each planned change to an implementation bead.
 
 ## 7. Create the Beads Lifecycle
 

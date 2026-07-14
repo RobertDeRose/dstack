@@ -59,6 +59,10 @@ IMPLEMENTED_HEADINGS = (
 FEATURE_DIR_RE = re.compile(r"^(?P<number>[0-9]{3,})-(?P<slug>[a-z0-9]+(?:-[a-z0-9]+)*)$")
 LEGACY_FEATURE_DIR_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+LINK_DEFINITION_RE = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(.+?)\s*$", re.MULTILINE)
+REFERENCE_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\[([^\]]*)\]")
+IMAGE_REFERENCE_RE = re.compile(r"!\[[^\]]+\]\[[^\]]*\]")
+SHORTCUT_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\](?![\[(])")
 HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
 SUMMARY_START = "<!-- BEGIN IMPLEMENTED FEATURES -->"
 SUMMARY_END = "<!-- END IMPLEMENTED FEATURES -->"
@@ -98,13 +102,26 @@ def link_target(raw: str) -> str:
 
 
 def local_links(markdown: str) -> list[str]:
-    links: list[str] = []
-    for raw in LINK_RE.findall(markdown):
-        target = link_target(raw)
-        if not target or target.startswith(("http://", "https://", "mailto:", "tel:")):
-            continue
-        links.append(target)
-    return links
+    definitions: dict[str, str] = {}
+    for label, raw in LINK_DEFINITION_RE.findall(markdown):
+        definitions.setdefault(re.sub(r"\s+", " ", label.strip()).casefold(), link_target(raw))
+    body = LINK_DEFINITION_RE.sub("", markdown)
+    raw_targets = list(LINK_RE.findall(body))
+    raw_targets.extend(
+        definitions.get(re.sub(r"\s+", " ", (label or text).strip()).casefold(), "")
+        for text, label in REFERENCE_LINK_RE.findall(body)
+    )
+    shortcut_body = REFERENCE_LINK_RE.sub("", IMAGE_REFERENCE_RE.sub("", body))
+    raw_targets.extend(
+        definitions.get(re.sub(r"\s+", " ", label.strip()).casefold(), "")
+        for label in SHORTCUT_LINK_RE.findall(shortcut_body)
+    )
+    targets = (
+        target
+        for raw in raw_targets
+        if raw and (target := link_target(raw)) and not target.startswith(("http://", "https://", "mailto:", "tel:"))
+    )
+    return list(dict.fromkeys(targets))
 
 
 def normalize_heading(value: str) -> str:
@@ -178,13 +195,13 @@ def validate_links(root: Path, markdown_files: Iterable[Path], published_files: 
                     message=f"Link target does not exist: {target}",
                     root=root,
                 )
-            elif source.resolve() in published_files and resolved.name == "design.md":
+            elif source.resolve() in published_files and resolved.suffix == ".md" and resolved not in published_files:
                 add(
                     findings,
                     severity="error",
-                    code="internal-design-link",
+                    code="unpublished-page-link",
                     path=source,
-                    message=f"Published reader page links to an unpublished internal design: {target}",
+                    message=f"Published reader page links to an unpublished Markdown page: {target}",
                     root=root,
                 )
     return findings
@@ -208,15 +225,6 @@ def validate_summary(root: Path, *, migration_mode: bool) -> tuple[list[Finding]
     target_paths: set[Path] = set()
     for target in local_links(summary):
         target_paths.add((summary_path.parent / target).resolve())
-        if target.endswith(("/design.md", "design.md")):
-            add(
-                findings,
-                severity="warning" if migration_mode else "error",
-                code="internal-design-in-summary",
-                path=summary_path,
-                message=f"Internal feature design must not be a reader-facing chapter: {target}",
-                root=root,
-            )
         if target.endswith("tasks.md"):
             add(
                 findings,

@@ -66,8 +66,8 @@ repository patterns. Keep code, tests, configuration, migrations, observability,
 the task boundary.
 
 Update the exact reader-facing pages assigned to the task. Add other pages only when delivered behavior creates a
-durable reader need. Register each new page in `docs/src/SUMMARY.md` in the same work unit. Keep internal `design.md`
-out of the reader-facing book.
+durable reader need. Register each new page in `docs/src/SUMMARY.md` in the same work unit. Feature designs remain
+published audit records, but product documentation must stand alone without requiring them.
 
 ## 3. Validate and Review
 

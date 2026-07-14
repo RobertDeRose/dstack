@@ -79,8 +79,8 @@ docs/src/features/<num>-<slug>/index.md
 ```
 
 Use `docs/src/features/_template/index.md`. The record must stand alone; it may link to `design.md` but must not embed
-`design.md` or a legacy `tasks.md`. Add it between the implemented-feature markers in both `SUMMARY.md` and
-`features/index.md`.
+`design.md` or a legacy `tasks.md`. Ensure the design is registered between the feature-design markers in `SUMMARY.md`,
+then add the implemented record between the implemented-feature markers in both `SUMMARY.md` and `features/index.md`.
 
 Record delivered behavior, intentional changes, corrected drift, deferred work, documentation paths, commits, and
 evidence in the reconciliation bead.

@@ -6,6 +6,7 @@
 - Status: delivered
 - Pull request: not created
 - Merge commit: `05ed02ea12a8b05f6267a316f4afb18445f4dfd0` (fast-forward)
+- Design record: [design.md](design.md)
 
 ## Delivered Capability
 

@@ -62,9 +62,10 @@ Profiles add no tasks, manifests, dependencies, or source. The scaffold intentio
 
 The documentation checker validates the pages a project actually publishes rather than requiring a fixed taxonomy. A
 project may omit architecture, operations, development overview, or reference overview pages until it has concrete
-content for them. Existing links must resolve, internal feature designs and task files must stay out of reader
-navigation, and delivered feature records must retain valid directories, sections, markers, and registrations in both
-implemented-feature indexes. The repository and generated-project checker copies must remain identical.
+content for them. Existing links must resolve, feature designs remain published audit records, legacy task files stay
+out of reader navigation, and delivered feature records must retain valid directories, sections, markers, and
+registrations in both implemented-feature indexes. The repository and generated-project checker copies must remain
+identical.
 
 ## Scaffold matrix validation
 

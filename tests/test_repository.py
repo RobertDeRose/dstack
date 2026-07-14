@@ -2897,6 +2897,8 @@ def write_valid_documentation_tree(repository_root: Path, root: Path) -> None:
     (docs / "SUMMARY.md").write_text(
         "# Summary\n\n"
         "- [Overview](overview.md)\n"
+        "- Feature design records\n"
+        "  - [Alpha design](features/010-alpha/design.md)\n"
         "- [Implemented features](features/index.md)\n"
         "  <!-- BEGIN IMPLEMENTED FEATURES -->\n"
         "  - [Alpha](features/010-alpha/index.md)\n"
@@ -2933,12 +2935,24 @@ def test_documentation_checker_copies_are_identical(repository_root: Path) -> No
     ).read_bytes()
 
 
+def test_documentation_checker_ignores_unused_reference_definitions(repository_root: Path, tmp_path: Path) -> None:
+    root = tmp_path / "unused-reference"
+    write_valid_documentation_tree(repository_root, root)
+    docs = root / "docs/src"
+    (docs / "private.md").write_text("# Private\n", encoding="utf-8")
+    overview = docs / "overview.md"
+    overview.write_text("# Overview\n\n[private]: private.md\n", encoding="utf-8")
+    checker = repository_root / "skills/setup-project/template/scripts/check-docs.py"
+    run_command(["python3", str(checker), "--root", str(root)], cwd=root)
+
+
 @pytest.mark.parametrize(
     ("case", "code"),
     [
         ("broken-link", "broken-link"),
-        ("internal-design", "internal-design-in-summary"),
-        ("internal-design-link", "internal-design-link"),
+        ("unpublished-page-link", "unpublished-page-link"),
+        ("unpublished-reference-link", "unpublished-page-link"),
+        ("duplicate-reference-definition", "unpublished-page-link"),
         ("task-navigation", "task-file-in-summary"),
         ("invalid-markers", "invalid-implemented-feature-markers"),
         ("reversed-markers", "reversed-implemented-feature-markers"),
@@ -2964,14 +2978,22 @@ def test_documentation_checker_preserves_existing_safety_contracts(
 
     if case == "broken-link":
         summary.write_text(summary.read_text(encoding="utf-8") + "- [Missing](missing.md)\n", encoding="utf-8")
-    elif case == "internal-design":
+    elif case == "unpublished-page-link":
         summary.write_text(
-            summary.read_text(encoding="utf-8") + "- [Design](features/010-alpha/design.md)\n",
+            summary.read_text(encoding="utf-8").replace("  - [Alpha design](features/010-alpha/design.md)\n", ""),
             encoding="utf-8",
         )
-    elif case == "internal-design-link":
+    elif case == "unpublished-reference-link":
+        (docs / "private.md").write_text("# Private\n", encoding="utf-8")
         overview = docs / "overview.md"
-        overview.write_text("# Overview\n\n[Internal design](features/010-alpha/design.md)\n", encoding="utf-8")
+        overview.write_text("# Overview\n\n[Private][private]\n\n[private]: private.md\n", encoding="utf-8")
+    elif case == "duplicate-reference-definition":
+        (docs / "private.md").write_text("# Private\n", encoding="utf-8")
+        overview = docs / "overview.md"
+        overview.write_text(
+            "# Overview\n\n[Private][private]\n\n[private]: private.md\n[private]: overview.md\n",
+            encoding="utf-8",
+        )
     elif case == "task-navigation":
         (feature / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
         summary.write_text(
@@ -3011,6 +3033,8 @@ def test_documentation_checker_preserves_existing_safety_contracts(
     checker = repository_root / "skills/setup-project/template/scripts/check-docs.py"
     result = run_command(["python3", str(checker), "--root", str(root)], cwd=root, expected=1)
     assert f"ERROR [{code}]" in result.stdout
+    if case in {"unpublished-reference-link", "duplicate-reference-definition"}:
+        assert result.stdout.count(f"ERROR [{code}]") == 1
 
 
 def test_template_workflow_scripts_are_host_lint_compatible(repository_root: Path) -> None:
