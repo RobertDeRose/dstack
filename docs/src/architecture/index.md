@@ -60,5 +60,17 @@ are root-manifest-gated. Profiles never create manifests, dependencies, source, 
 The Nix exception keeps the universal four-platform lock while atomically removing only nixfmt-rs's unsupported macOS
 x64 table before locked installation.
 
-F040 consumes the stable named tasks. Generated projects do not receive dstack's release task, package manifests,
-application source, CI, shell, YAML, or security checks from the universal baseline.
+F040 consumes the stable named tasks without adding package manifests, application source, or duplicate CI policy.
+Generated projects include a documentation deployment workflow, but repository creation and Copier updates never enable
+it. The workflow accepts only pushes to the configured default branch and explicit manual dispatches; both build and
+deploy jobs require `DOCS_DEPLOYMENT_ENABLED` to equal `true`, so pull requests and forks cannot deploy.
+
+The build job receives only `contents: read`, installs the committed mise lock in isolation, runs the existing
+`docs:build` task, and uploads `docs/book`. The deploy job alone receives `pages: write` and `id-token: write`, targets
+the `github-pages` environment, and publishes the reviewed artifact. This separates untrusted change validation from the
+credentialed deployment boundary.
+
+Enablement is a separate administrative boundary: an operator supplies an external, authenticated GitHub CLI with
+repository administration access. The helper configures Pages with `build_type=workflow` before setting the repository
+variable. Deployment therefore requires both repository-side Pages configuration and an exact true variable; rendering
+or updating the workflow alone grants nothing.

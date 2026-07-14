@@ -95,6 +95,7 @@ REQUIRED_TEMPLATE_FILES = (
     "[% if include_readme %]README.md[% endif %].jinja",
     "AGENTS.md.jinja",
     ".config/rumdl.toml",
+    ".github/workflows/docs.yml.jinja",
     ".github/workflows/validate.yml",
     "hk.pkl.jinja",
     "mise.toml.jinja",
