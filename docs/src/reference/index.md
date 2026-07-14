@@ -2,14 +2,15 @@
 
 ## Primary commands
 
-| Command               | Purpose                                                               |
-|-----------------------|-----------------------------------------------------------------------|
-| `mise run check`      | Run the shared read-only hk validation policy.                        |
-| `mise run fix`        | Apply deterministic fixes from the shared hk policy.                  |
-| `mise run docs:check` | Validate documentation structure and build the mdBook.                |
-| `mise run docs:serve` | Serve the documentation locally.                                      |
-| `mise run release`    | Run semantic-release with signed commits and tags; pushing is opt-in. |
-| `uv run pytest`       | Run all repository tests.                                             |
+| Command                           | Purpose                                                               |
+|-----------------------------------|-----------------------------------------------------------------------|
+| `mise run check`                  | Run the shared read-only hk validation policy.                        |
+| `mise run fix`                    | Apply deterministic fixes from the shared hk policy.                  |
+| `mise run docs:check`             | Validate documentation structure and build the mdBook.                |
+| `mise run docs:serve`             | Serve the documentation locally.                                      |
+| `mise run docs:deployment:enable` | Configure and enable generated GitHub Pages through external `gh`.    |
+| `mise run release`                | Run semantic-release with signed commits and tags; pushing is opt-in. |
+| `uv run pytest`                   | Run all repository tests.                                             |
 
 ## Setup project brief
 
@@ -47,7 +48,7 @@ never applies them automatically.
 | Nix        | nixfmt-rs except macOS x64            | system-Nix flake check                         |
 
 All added mise versions are `latest`. Source formatters and linters are matching-file-gated and run without manifests;
-project checks require the root ecosystem manifest. The five task names never change.
+project checks require the root ecosystem manifest. Language profiles do not change the six universal task names.
 
 | Profile    | Exact source checks                                                                                                        | Exact source fixes                                                                                | Profile ignores                                                         |
 |------------|----------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
@@ -82,15 +83,26 @@ release task.
 
 ## Generated tooling files
 
-| Path                              | Contract                                                                       |
-|-----------------------------------|--------------------------------------------------------------------------------|
-| `mise.toml`                       | Declares exactly seven universal tools, five tasks, and `HK_MISE=1`.           |
-| `mise.lock`                       | Project-owned, nonempty resolved lock for four supported platforms; commit it. |
-| `hk.pkl`                          | One shared step map for `check`, `fix`, and `pre-commit`.                      |
-| `.config/rumdl.toml`              | Markdown policy compatible with the generated scaffold.                        |
-| `scripts/setup-tooling.py`        | Stdlib provisioner used by setup, update, and manual recovery.                 |
-| `docs/src/development/tooling.md` | Generated contributor commands and recovery.                                   |
-| `docs/src/reference/tooling.md`   | Generated exact tooling contract.                                              |
+| Path                                  | Contract                                                                       |
+|---------------------------------------|--------------------------------------------------------------------------------|
+| `mise.toml`                           | Declares exactly seven universal tools, six tasks, and `HK_MISE=1`.            |
+| `mise.lock`                           | Project-owned, nonempty resolved lock for four supported platforms; commit it. |
+| `hk.pkl`                              | One shared step map for `check`, `fix`, and `pre-commit`.                      |
+| `.config/rumdl.toml`                  | Markdown policy compatible with the generated scaffold.                        |
+| `scripts/setup-tooling.py`            | Stdlib provisioner used by setup, update, and manual recovery.                 |
+| `scripts/enable-docs-deployment.py`   | External-`gh` Pages configuration and enablement helper.                       |
+| `.github/workflows/validate.yml`      | Locked push and pull-request validation with `contents: read`.                 |
+| `.github/workflows/docs.yml`          | Default-branch/manual gated Pages build and deployment.                        |
+| `docs/src/development/tooling.md`     | Generated contributor commands and recovery.                                   |
+| `docs/src/reference/tooling.md`       | Generated exact tooling contract.                                              |
+| `docs/src/operations/github-pages.md` | Generated enablement, recovery, and URL instructions.                          |
+
+### GitHub workflow contract
+
+Validation grants only `contents: read`. Documentation build grants only `contents: read`; deployment alone grants
+`pages: write` and `id-token: write` and targets `github-pages`. Both documentation jobs require
+`DOCS_DEPLOYMENT_ENABLED == 'true'`. The enable helper configures Pages with `build_type=workflow`, sets that variable
+as its last mutation, and returns the Pages `html_url`; external `gh` is not a universal mise tool.
 
 ### Universal tools
 

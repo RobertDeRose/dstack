@@ -2,13 +2,16 @@
 
 ## Files
 
-| File                       | Contract                                                                    |
-|----------------------------|-----------------------------------------------------------------------------|
-| `mise.toml`                | Declares project tools, environment, and named tasks.                       |
-| `mise.lock`                | Project-owned resolved downloads; commit it.                                |
-| `hk.pkl`                   | Defines the shared check/fix/pre-commit step map.                           |
-| `.config/rumdl.toml`       | Configures Markdown linting and deterministic fixes.                        |
-| `scripts/setup-tooling.py` | Resolves the lock, installs tools, installs hooks, and returns JSON status. |
+| File                                | Contract                                                                    |
+|-------------------------------------|-----------------------------------------------------------------------------|
+| `mise.toml`                         | Declares project tools, environment, and named tasks.                       |
+| `mise.lock`                         | Project-owned resolved downloads; commit it.                                |
+| `hk.pkl`                            | Defines the shared check/fix/pre-commit step map.                           |
+| `.config/rumdl.toml`                | Configures Markdown linting and deterministic fixes.                        |
+| `scripts/setup-tooling.py`          | Resolves the lock, installs tools, installs hooks, and returns JSON status. |
+| `scripts/enable-docs-deployment.py` | Configures workflow-built Pages through external `gh`.                      |
+| `.github/workflows/validate.yml`    | Runs locked `mise run check` on pushes and pull requests.                   |
+| `.github/workflows/docs.yml`        | Builds and deploys gated documentation from the default branch.             |
 
 ## Tools
 
@@ -22,12 +25,12 @@ configured.[% endif %][% if 'python' in language_profiles %]
 
 ### Python profile
 
-| Step | Check | Fix | Files |
-|------|-------|-----|-------|
-| Ruff lint | `ruff check --force-exclude` | add `--fix` | `**/*.py`, `**/*.pyi` |
-| Ruff format | `ruff format --quiet --force-exclude --diff` | omit `--diff` | `**/*.py`, `**/*.pyi` |
-| ty | `ty check` | none | `**/*.py`, `**/*.pyi` |
-| pytest | `uv run pytest` | none | root `pyproject.toml` plus `tests/**/*.py`; check only |
+| Step        | Check                                        | Fix           | Files                                                  |
+|-------------|----------------------------------------------|---------------|--------------------------------------------------------|
+| Ruff lint   | `ruff check --force-exclude`                 | add `--fix`   | `**/*.py`, `**/*.pyi`                                  |
+| Ruff format | `ruff format --quiet --force-exclude --diff` | omit `--diff` | `**/*.py`, `**/*.pyi`                                  |
+| ty          | `ty check`                                   | none          | `**/*.py`, `**/*.pyi`                                  |
+| pytest      | `uv run pytest`                              | none          | root `pyproject.toml` plus `tests/**/*.py`; check only |
 
 Ruff and ty are mise-managed at `latest`; pytest is project-owned. The profile ignores `.venv/`, `__pycache__/`,
 `*.py[cod]`, `.pytest_cache/`, and `.ruff_cache/`.
@@ -36,10 +39,10 @@ Ruff and ty are mise-managed at `latest`; pytest is project-owned. The profile i
 
 ### TypeScript profile
 
-| Step | Check | Fix | Files |
-|------|-------|-----|-------|
-| Biome | `biome check --no-errors-on-unmatched` | add `--write` | `**/*.{ts,tsx,mts,cts}` |
-| Vitest | `aube exec vitest run` | none | root `package.json` plus `**/*.{test,spec}.{ts,tsx,mts,cts}`; check only |
+| Step   | Check                                  | Fix           | Files                                                                    |
+|--------|----------------------------------------|---------------|--------------------------------------------------------------------------|
+| Biome  | `biome check --no-errors-on-unmatched` | add `--write` | `**/*.{ts,tsx,mts,cts}`                                                  |
+| Vitest | `aube exec vitest run`                 | none          | root `package.json` plus `**/*.{test,spec}.{ts,tsx,mts,cts}`; check only |
 
 Biome and Aube are mise-managed at `latest`; Vitest is project-owned. Universal Node `lts` is reused and never
 duplicated. The profile ignores `node_modules/` and `coverage/`.
@@ -48,11 +51,11 @@ duplicated. The profile ignores `node_modules/` and `coverage/`.
 
 ### Rust profile
 
-| Step | Check | Fix | Gate |
-|------|-------|-----|------|
-| rustfmt | `rustfmt --check --edition 2024` | `rustfmt --edition 2024` | `**/*.rs`; all hooks |
-| Clippy | `cargo clippy --all-targets --all-features -- -D warnings` | none | root `Cargo.toml`; check only |
-| tests | `cargo test --all-targets --all-features` | none | root `Cargo.toml`; check only |
+| Step    | Check                                                      | Fix                      | Gate                          |
+|---------|------------------------------------------------------------|--------------------------|-------------------------------|
+| rustfmt | `rustfmt --check --edition 2024`                           | `rustfmt --edition 2024` | `**/*.rs`; all hooks          |
+| Clippy  | `cargo clippy --all-targets --all-features -- -D warnings` | none                     | root `Cargo.toml`; check only |
+| tests   | `cargo test --all-targets --all-features`                  | none                     | root `Cargo.toml`; check only |
 
 The mise-managed tool is `rust = "latest"`. The profile ignores `target/`.
 
@@ -60,13 +63,13 @@ The mise-managed tool is `rust = "latest"`. The profile ignores `target/`.
 
 ### Go profile
 
-| Step | Check | Fix | Gate |
-|------|-------|-----|------|
-| goimports | `output=$(goimports -l {{ files }}) && test -z "$output"` | `goimports -w {{ files }}` | `**/*.go`; all hooks |
-| gofumpt | `output=$(gofumpt -l {{ files }}) && test -z "$output"` | `gofumpt -w {{ files }}` | `**/*.go`; after goimports; all hooks |
-| modules | `go mod tidy -diff && go mod verify` | `go mod tidy` | root `go.mod`; check/fix; never pre-commit |
-| lint | `golangci-lint run` | none | root `go.mod`; check only |
-| tests | `go test ./...` | none | root `go.mod`; check only |
+| Step      | Check                                                     | Fix                        | Gate                                       |
+|-----------|-----------------------------------------------------------|----------------------------|--------------------------------------------|
+| goimports | `output=$(goimports -l {{ files }}) && test -z "$output"` | `goimports -w {{ files }}` | `**/*.go`; all hooks                       |
+| gofumpt   | `output=$(gofumpt -l {{ files }}) && test -z "$output"`   | `gofumpt -w {{ files }}`   | `**/*.go`; after goimports; all hooks      |
+| modules   | `go mod tidy -diff && go mod verify`                      | `go mod tidy`              | root `go.mod`; check/fix; never pre-commit |
+| lint      | `golangci-lint run`                                       | none                       | root `go.mod`; check only                  |
+| tests     | `go test ./...`                                           | none                       | root `go.mod`; check only                  |
 
 The mise-managed tools are `go`, `gofumpt`, `go:golang.org/x/tools/cmd/goimports`, and `golangci-lint`, all at `latest`.
 The profile ignores `coverage.out`.
@@ -75,12 +78,12 @@ The profile ignores `coverage.out`.
 
 ### Elixir profile
 
-| Step | Check | Fix | Gate |
-|------|-------|-----|------|
-| format | `mix format --check-formatted {{ files }}` | `mix format {{ files }}` | `**/*.{ex,exs}`; all hooks |
-| compile | `mix compile --warnings-as-errors` | none | root `mix.exs`; check only |
-| Credo | `mix help credo`, then `mix credo --strict` | none | root `mix.exs`; check only; project-owned |
-| tests | `mix test --warnings-as-errors` | none | root `mix.exs` plus `test/**/*.exs`; check only |
+| Step    | Check                                       | Fix                      | Gate                                            |
+|---------|---------------------------------------------|--------------------------|-------------------------------------------------|
+| format  | `mix format --check-formatted {{ files }}`  | `mix format {{ files }}` | `**/*.{ex,exs}`; all hooks                      |
+| compile | `mix compile --warnings-as-errors`          | none                     | root `mix.exs`; check only                      |
+| Credo   | `mix help credo`, then `mix credo --strict` | none                     | root `mix.exs`; check only; project-owned       |
+| tests   | `mix test --warnings-as-errors`             | none                     | root `mix.exs` plus `test/**/*.exs`; check only |
 
 The mise-managed tools are `erlang` and `elixir` at `latest`. The profile ignores `_build/`, `deps/`, and `cover/`.
 
@@ -88,10 +91,10 @@ The mise-managed tools are `erlang` and `elixir` at `latest`. The profile ignore
 
 ### Nix profile
 
-| Step | Check | Fix | Gate |
-|------|-------|-----|------|
-| nixfmt | `nixfmt --check {{ files }}` | `nixfmt {{ files }}` | `**/*.nix`; all hooks; Linux/macOS ARM64 |
-| flake | `nix flake check` | none | root `flake.nix`; check only; system Nix required |
+| Step   | Check                        | Fix                  | Gate                                              |
+|--------|------------------------------|----------------------|---------------------------------------------------|
+| nixfmt | `nixfmt --check {{ files }}` | `nixfmt {{ files }}` | `**/*.nix`; all hooks; Linux/macOS ARM64          |
+| flake  | `nix flake check`            | none                 | root `flake.nix`; check only; system Nix required |
 
 `github:Mic92/nixfmt-rs` is mise-managed at `latest` with `os = ["linux", "macos/arm64"]`. Matching Nix inputs on macOS
 x64 fail with `Nix profile does not support macOS x64`. A missing system Nix executable for a flake fails with
@@ -101,16 +104,21 @@ x64 fail with `Nix profile does not support macOS x64`. A missing system Nix exe
 
 ## Tasks
 
-| Task         | Behavior                                                             |
-|--------------|----------------------------------------------------------------------|
-| `check`      | Run all hk checks without requesting fixes.                          |
-| `fix`        | Apply deterministic hk fixes to the working tree.                    |
-| `docs:check` | Build the book, then validate documentation metadata and navigation. |
-| `docs:build` | Build the mdBook site.                                               |
-| `docs:serve` | Serve mdBook on port 3000 by default or a supplied port.             |
+| Task                     | Behavior                                                              |
+|--------------------------|-----------------------------------------------------------------------|
+| `check`                  | Run all hk checks without requesting fixes.                           |
+| `fix`                    | Apply deterministic hk fixes to the working tree.                     |
+| `docs:check`             | Build the book, then validate documentation metadata and navigation.  |
+| `docs:build`             | Build the mdBook site.                                                |
+| `docs:deployment:enable` | Configure Pages and enable its repository gate through external `gh`. |
+| `docs:serve`             | Serve mdBook on port 3000 by default or a supplied port.              |
 
 The committed lock targets `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`. Windows is not part of this
 POSIX-shell task contract.
+
+The universal tool count remains seven; `gh` is an external administrative prerequisite, not a mise tool. Pages requires
+`build_type=workflow` plus `DOCS_DEPLOYMENT_ENABLED=true`. The build job has `contents: read`; only the deploy job has
+`pages: write` and `id-token: write`.
 
 Provisioning reports separate mise availability, lock, install, and hook states. Overall status is `succeeded`,
 `degraded`, or `skipped`; failed or skipped stages include exact recovery commands.

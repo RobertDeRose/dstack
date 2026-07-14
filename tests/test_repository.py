@@ -102,10 +102,12 @@ REQUIRED_TEMPLATE_FILES = (
     "docs/book.toml.jinja",
     "docs/src/SUMMARY.md.jinja",
     "docs/src/development/tooling.md.jinja",
+    "docs/src/operations/github-pages.md.jinja",
     "docs/src/reference/tooling.md.jinja",
     "docs/src/features/_template/design.md",
     "docs/src/features/_template/index.md",
     "scripts/check-docs.py",
+    "scripts/enable-docs-deployment.py",
     "scripts/setup-tooling.py",
 )
 
@@ -132,6 +134,7 @@ INITIAL_READER_MARKDOWN = {
     "features/index.md",
     "introduction/documentation-conventions.md",
     "introduction/project-overview.md",
+    "operations/github-pages.md",
     "planned-features.md",
     "reference/tooling.md",
 }
@@ -618,8 +621,12 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
         "hk.pkl",
         ".config/rumdl.toml",
         "scripts/setup-tooling.py",
+        "scripts/enable-docs-deployment.py",
+        ".github/workflows/validate.yml",
+        ".github/workflows/docs.yml",
         "docs/src/development/tooling.md",
         "docs/src/reference/tooling.md",
+        "docs/src/operations/github-pages.md",
     }
     assert dict(re.findall(r"^\| `([^`]+)`\s+\| `([^`]+)`", tools_table, flags=re.MULTILINE)) == mise["tools"]
 
@@ -942,7 +949,14 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
             answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
             assert answers["language_profiles"] == profiles
             mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
-            assert set(mise["tasks"]) == {"check", "fix", "docs:check", "docs:build", "docs:serve"}
+            assert set(mise["tasks"]) == {
+                "check",
+                "fix",
+                "docs:check",
+                "docs:build",
+                "docs:deployment:enable",
+                "docs:serve",
+            }
             expected_tools = {
                 "hk": "1.49.0",
                 "node": "lts",
@@ -1038,6 +1052,7 @@ def test_python_profile_renders_exact_contract(tagged_template_source: Path, tmp
     write_logging_shims(bin_dir, "ruff", "ty", "uv")
     environment = merged_environment(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", DSTACK_SHIM_LOG=str(log))
     (project / "scripts/check-docs.py").unlink()
+    (project / "scripts/enable-docs-deployment.py").unlink()
     (project / "scripts/setup-tooling.py").unlink()
     run_command(["hk", "check", "-a", "-S", "ruff", "-S", "ruff-format", "-S", "ty"], cwd=project, env=environment)
     assert not log.exists()
@@ -1536,7 +1551,14 @@ def test_generated_language_profiles_end_to_end(
     assert all(f'"platforms.{platform}"' in lock for platform in module.PLATFORMS)
     assert f'[tools."{module.NIXFMT_TOOL}"."platforms.macos-x64"]' not in lock
     tasks = json.loads(run_command(["mise", "tasks", "--json"], cwd=project, env=environment).stdout)
-    assert {task["name"] for task in tasks} == {"check", "fix", "docs:check", "docs:build", "docs:serve"}
+    assert {task["name"] for task in tasks} == {
+        "check",
+        "fix",
+        "docs:check",
+        "docs:build",
+        "docs:deployment:enable",
+        "docs:serve",
+    }
 
     for relative, content in (
         ("example.py", "value = 1\n"),
@@ -1992,6 +2014,10 @@ def test_setup_project_renders_the_factual_book_matrix(
                 "run": "uv run scripts/check-docs.py",
             },
             "docs:build": {"description": "Build the documentation site", "run": "mdbook build docs"},
+            "docs:deployment:enable": {
+                "description": "Enable GitHub Pages deployment",
+                "run": "python3 scripts/enable-docs-deployment.py",
+            },
             "docs:serve": {
                 "description": "Serve the documentation site locally",
                 "usage": 'arg "[port]" help="Port to serve on" default="3000"',
@@ -2093,6 +2119,7 @@ def test_setup_project_renders_the_factual_book_matrix(
             "introduction/documentation-conventions.md",
             "development/tooling.md",
             "development/feature-lifecycle.md",
+            "operations/github-pages.md",
             "reference/tooling.md",
             "planned-features.md",
             "features/index.md",
@@ -2132,7 +2159,14 @@ def test_generated_tooling_contract_end_to_end(
     run_command(["git", "commit", "--no-verify", "-m", "Commit resolved tooling"], cwd=project)
 
     tasks = json.loads(run_command(["mise", "tasks", "--json"], cwd=project).stdout)
-    assert {task["name"] for task in tasks} == {"check", "fix", "docs:check", "docs:build", "docs:serve"}
+    assert {task["name"] for task in tasks} == {
+        "check",
+        "fix",
+        "docs:check",
+        "docs:build",
+        "docs:deployment:enable",
+        "docs:serve",
+    }
     run_command(["mise", "x", "--", "hk", "config", "dump"], cwd=project)
     legacy_hook = project / ".git/hooks/pre-commit"
     if not legacy_hook.is_file():

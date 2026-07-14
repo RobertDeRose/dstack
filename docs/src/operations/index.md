@@ -42,6 +42,30 @@ Legacy managed projects keep their recorded profiles. When none are recorded, up
 `pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents
 recognized profile suggestions for confirmation. It never applies suggestions automatically.
 
+## Enable generated GitHub Pages
+
+Generated projects include a default-disabled Documentation workflow. From the generated project, install and
+authenticate external GitHub CLI with repository administration access, then run:
+
+```bash
+mise run docs:deployment:enable
+```
+
+The helper resolves the current GitHub repository, creates or updates Pages with `build_type=workflow`, sets
+`DOCS_DEPLOYMENT_ENABLED=true` only after Pages configuration succeeds, and prints the Pages URL. Repeating the command
+updates the existing configuration. A failure names the operation and never reports success.
+
+For manual recovery, install `gh` from <https://cli.github.com/> if needed, then run:
+
+```bash
+gh api --method PUT repos/OWNER/REPO/pages -f build_type=workflow
+gh variable set DOCS_DEPLOYMENT_ENABLED --body true --repo OWNER/REPO
+gh api repos/OWNER/REPO/pages --jq .html_url
+```
+
+Use POST instead of PUT when Pages does not exist. If the final URL query failed, verify state before retrying because
+the variable may already be set.
+
 ## Failure boundaries
 
 Setup refuses non-empty unmanaged destinations. For a new destination, direct helper invocation also rejects missing,

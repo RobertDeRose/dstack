@@ -29,13 +29,14 @@ Use `mise run fix` for deterministic formatting fixes. The full serial test suit
 
 ## Generated project command contract
 
-Generated projects expose the same five task names to contributors and future CI:
+Generated projects expose six stable task names to contributors, operators, and future CI:
 
 ```bash
 mise run check
 mise run fix
 mise run docs:check
 mise run docs:build
+mise run docs:deployment:enable
 mise run docs:serve [port]
 ```
 
