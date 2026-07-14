@@ -1224,9 +1224,9 @@ def test_go_profile_renders_exact_contract(tagged_template_source: Path, tmp_pat
     }
     assert "rust" not in mise["tools"]
     for command in (
-        r"test -z \"$(goimports -l {{ files }})\"",
+        r"output=$(goimports -l {{ files }}) && test -z \"$output\"",
         "goimports -w {{ files }}",
-        r"test -z \"$(gofumpt -l {{ files }})\"",
+        r"output=$(gofumpt -l {{ files }}) && test -z \"$output\"",
         "gofumpt -w {{ files }}",
         "go mod tidy -diff && go mod verify",
         "golangci-lint run",
@@ -1274,6 +1274,12 @@ def test_go_profile_renders_exact_contract(tagged_template_source: Path, tmp_pat
     assert "goimports -l" in source_log
     assert "gofumpt -l" in source_log
     assert source.read_bytes() == original
+    run_command(
+        ["hk", "check", "-a", "-S", "goimports"],
+        cwd=project,
+        env=environment | {"DSTACK_FAIL_COMMAND": "goimports"},
+        expected=1,
+    )
     log.write_text("", encoding="utf-8")
     run_command(
         ["hk", "fix", "-a", "-f", "-S", "goimports", "-S", "gofumpt"],

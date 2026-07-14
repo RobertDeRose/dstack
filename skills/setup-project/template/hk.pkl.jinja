@@ -75,13 +75,13 @@ local linters = new Mapping<String, Step> {
   ["goimports"] = new Step {
     depends = "[% if 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
     glob = List("**/*.go")
-    check = "test -z \"$(goimports -l {{ files }})\""
+    check = "output=$(goimports -l {{ files }}) && test -z \"$output\""
     fix = "goimports -w {{ files }}"
   }
   ["gofumpt"] = new Step {
     depends = "goimports"
     glob = List("**/*.go")
-    check = "test -z \"$(gofumpt -l {{ files }})\""
+    check = "output=$(gofumpt -l {{ files }}) && test -z \"$output\""
     fix = "gofumpt -w {{ files }}"
   }
 [% endif %]

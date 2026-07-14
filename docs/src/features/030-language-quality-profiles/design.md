@@ -154,8 +154,8 @@ steps never run in fix/pre-commit. Go module tidy is the sole fix-only manifest 
 | `ty`              | `ty check {{ files }}`                                     | none                                                       | Python files; after `ruff-format`; all three hooks      |
 | `biome`           | `biome check --no-errors-on-unmatched {{ files }}`         | `biome check --write --no-errors-on-unmatched {{ files }}` | TypeScript files; all three hooks                       |
 | `rustfmt`         | `rustfmt --check --edition 2024 {{ files }}`               | `rustfmt --edition 2024 {{ files }}`                       | Rust files; all three hooks                             |
-| `goimports`       | `test -z "$(goimports -l {{ files }})"`                    | `goimports -w {{ files }}`                                 | Go files; all three hooks                               |
-| `gofumpt`         | `test -z "$(gofumpt -l {{ files }})"`                      | `gofumpt -w {{ files }}`                                   | Go files; after `goimports`; all three hooks            |
+| `goimports`       | `output=$(goimports -l {{ files }}) && test -z "$output"`  | `goimports -w {{ files }}`                                 | Go files; all three hooks                               |
+| `gofumpt`         | `output=$(gofumpt -l {{ files }}) && test -z "$output"`    | `gofumpt -w {{ files }}`                                   | Go files; after `goimports`; all three hooks            |
 | `mix-format`      | `mix format --check-formatted {{ files }}`                 | `mix format {{ files }}`                                   | Elixir files; all three hooks                           |
 | `nixfmt`          | `nixfmt --check {{ files }}`                               | `nixfmt {{ files }}`                                       | Nix files; supported platforms; all three hooks         |
 | `pytest`          | prerequisite guard, then `uv run pytest`                   | none                                                       | root `pyproject.toml` plus `tests/**/*.py`; check only  |

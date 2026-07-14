@@ -20,4 +20,5 @@ here only during close-out.
 <!-- BEGIN IMPLEMENTED FEATURES -->
 - [F010 — Purposeful project scaffold](010-purposeful-project-scaffold/index.md)
 - [F020 — Universal project tooling](020-universal-project-tooling/index.md)
+- [F030 — Language quality profiles](030-language-quality-profiles/index.md)
 <!-- END IMPLEMENTED FEATURES -->

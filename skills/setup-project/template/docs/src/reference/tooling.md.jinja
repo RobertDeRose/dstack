@@ -62,8 +62,8 @@ The mise-managed tool is `rust = "latest"`. The profile ignores `target/`.
 
 | Step | Check | Fix | Gate |
 |------|-------|-----|------|
-| goimports | `test -z "$(goimports -l {{ files }})"` | `goimports -w {{ files }}` | `**/*.go`; all hooks |
-| gofumpt | `test -z "$(gofumpt -l {{ files }})"` | `gofumpt -w {{ files }}` | `**/*.go`; after goimports; all hooks |
+| goimports | `output=$(goimports -l {{ files }}) && test -z "$output"` | `goimports -w {{ files }}` | `**/*.go`; all hooks |
+| gofumpt | `output=$(gofumpt -l {{ files }}) && test -z "$output"` | `gofumpt -w {{ files }}` | `**/*.go`; after goimports; all hooks |
 | modules | `go mod tidy -diff && go mod verify` | `go mod tidy` | root `go.mod`; check/fix; never pre-commit |
 | lint | `golangci-lint run` | none | root `go.mod`; check only |
 | tests | `go test ./...` | none | root `go.mod`; check only |

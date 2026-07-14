@@ -28,4 +28,5 @@
   <!-- BEGIN IMPLEMENTED FEATURES -->
   - [F010 — Purposeful project scaffold](features/010-purposeful-project-scaffold/index.md)
   - [F020 — Universal project tooling](features/020-universal-project-tooling/index.md)
+  - [F030 — Language quality profiles](features/030-language-quality-profiles/index.md)
   <!-- END IMPLEMENTED FEATURES -->
