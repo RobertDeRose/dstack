@@ -57,6 +57,12 @@ Beads state, then ask exactly one question with `AskUserQuestion`: `Run /migrate
 This routing applies whether Copier state is already present or absent. A repository with legacy `tasks.md` files and no
 Beads state must migrate before template update.
 
+For Copier-managed projects whose answers do not yet contain `language_profiles`, use the preflight's root-only
+`suggested_language_profiles`. It maps `pyproject.toml` to Python, `tsconfig.json` or `package.json` to TypeScript,
+`Cargo.toml` to Rust, `go.mod` to Go, `mix.exs` to Elixir, and `flake.nix` to Nix. Ask the user to confirm the
+suggestions; never apply them automatically. If none are found or accepted, offer the exclusive `other` profile.
+Recursive package discovery is outside this workflow.
+
 ## 2. Update preconditions
 
 Continue only when preflight recommends `update-project` and:
@@ -81,7 +87,13 @@ uv run <skill-dir>/scripts/update-project.py --pretend
 uv run <skill-dir>/scripts/update-project.py --prereleases --pretend
 uv run <skill-dir>/scripts/update-project.py --vcs-ref <release-tag>
 uv run <skill-dir>/scripts/update-project.py --vcs-ref HEAD
+uv run <skill-dir>/scripts/update-project.py --add-profile typescript
+uv run <skill-dir>/scripts/update-project.py --remove-profile python --add-profile other
 ```
+
+Omitting profile flags preserves the recorded selection. Add/remove flags are repeatable, idempotent set operations; the
+same profile cannot appear in both sets. `other` is exclusive, and removing the final recognized profile requires adding
+`other` in the same invocation.
 
 An explicit branch, commit, or `HEAD` is allowed for development, but the default command requires a published release
 tag and refuses to fall back silently.
@@ -107,7 +119,9 @@ The helper:
 12. runs `scripts/check-docs.py` when present;
 13. runs storage-mode-neutral Beads smoke checks with `bd info --json` and `bd ready --json --limit 1`;
 14. validates the project feature formula when present;
-15. reports the selected release, resolved Copier commit, changed files, tooling stages, validation, warnings,
+15. preserves or explicitly adds/removes canonical language profiles, with legacy root-manifest suggestions reported by
+    preflight but never silently applied;
+16. reports the selected release, resolved Copier commit, changed files, tooling stages, validation, warnings,
     conflicts, and readiness.
 
 `bd doctor` is not used because it is not supported by every Beads storage mode.
@@ -143,10 +157,11 @@ Report:
 2. destination and Copier source;
 3. previous Copier revision;
 4. discovered or explicitly requested release tag and resolved revision;
-5. changed files and the complete path-accounting ledger;
-6. real update conflicts and resolutions;
-7. separate tooling availability, lock, install, and hook states plus exact recovery commands;
-8. documentation and Beads validation;
-9. warnings and any unclassified path;
-10. readiness to resume feature work, which must be false while migration is required, conflicts or degraded tooling
+5. previous, suggested, and resulting language profiles;
+6. changed files and the complete path-accounting ledger;
+7. real update conflicts and resolutions;
+8. separate tooling availability, lock, install, and hook states plus exact recovery commands;
+9. documentation and Beads validation;
+10. warnings and any unclassified path;
+11. readiness to resume feature work, which must be false while migration is required, conflicts or degraded tooling
     remain, the lock is stale or missing, or a changed path is unclassified.

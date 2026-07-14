@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import os
 import re
@@ -14,6 +15,7 @@ from typing import Any
 
 import pytest
 import yaml
+from copier import run_copy
 
 from tests.support import (
     commit_repository,
@@ -57,6 +59,7 @@ REQUIRED_COPIER_QUESTIONS = (
     "project_scope",
     "project_boundaries",
     "project_kind",
+    "language_profiles",
     "repository_default_branch",
     "include_readme",
 )
@@ -81,6 +84,8 @@ SETUP_BRIEF_ARGS = [
     SETUP_BRIEF["project_boundaries"],
     "--project-kind",
     SETUP_BRIEF["project_kind"],
+    "--language-profile",
+    "other",
 ]
 
 REQUIRED_TEMPLATE_FILES = (
@@ -90,7 +95,7 @@ REQUIRED_TEMPLATE_FILES = (
     "[% if include_readme %]README.md[% endif %].jinja",
     "AGENTS.md.jinja",
     ".config/rumdl.toml",
-    "hk.pkl",
+    "hk.pkl.jinja",
     "mise.toml.jinja",
     "docs/book.toml.jinja",
     "docs/src/SUMMARY.md.jinja",
@@ -188,6 +193,7 @@ def setup_generated_project(
     entrypoint: str = "repository",
     include_readme: bool = True,
     brief: dict[str, str] | None = None,
+    language_profiles: tuple[str, ...] = ("other",),
 ) -> dict[str, Any]:
     """Render a project while simulating an existing Skills CLI installation."""
     installed_skill = project / ".agents/skills/setup-project"
@@ -210,6 +216,7 @@ def setup_generated_project(
         selected_brief["project_boundaries"],
         "--project-kind",
         selected_brief["project_kind"],
+        *(value for profile in language_profiles for value in ("--language-profile", profile)),
     ]
     result = run_command(
         [
@@ -791,6 +798,113 @@ def test_setup_project_rejects_invalid_tooling_success(
         assert result["status"] == "degraded"
         assert result["lock"]["status"] == "failed"
         assert result["recovery"] == [module.TOOLING_RERUN]
+
+
+def test_language_profile_selection_is_canonical_and_strict(repository_root: Path, tmp_path: Path) -> None:
+    setup = load_setup_module(repository_root)
+    update = load_update_module(repository_root)
+
+    assert setup.canonical_language_profiles(["go", "python"]) == ["python", "go"]
+    for invalid in ([], ["python", "python"], ["python", "other"], ["unknown"]):
+        with pytest.raises(SystemExit):
+            setup.canonical_language_profiles(invalid)
+
+    for manifest in update.PROFILE_MANIFESTS:
+        (tmp_path / manifest).touch()
+    assert update.detected_language_profiles(tmp_path) == list(update.LANGUAGE_PROFILES[:-1])
+    assert update.updated_language_profiles(["other"], ["other"], []) == ["other"]
+    assert update.updated_language_profiles(["other"], ["typescript", "python"], []) == ["python", "typescript"]
+    assert update.updated_language_profiles(["python", "go"], ["python"], ["rust"]) == ["python", "go"]
+    assert update.updated_language_profiles(["python"], ["other"], ["python"]) == ["other"]
+    with pytest.raises(SystemExit, match="added and removed"):
+        update.updated_language_profiles(["python"], ["python"], ["python"])
+    with pytest.raises(SystemExit, match="must not be empty"):
+        update.updated_language_profiles(["python"], [], ["python"])
+
+
+def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path, tmp_path: Path) -> None:
+    recognized = ("python", "typescript", "rust", "go", "elixir", "nix")
+    selections = [
+        list(selection)
+        for size in range(1, len(recognized) + 1)
+        for selection in itertools.combinations(recognized, size)
+    ] + [["other"]]
+    ignores = {
+        "python": ".venv/",
+        "typescript": "node_modules/",
+        "rust": "target/",
+        "go": "coverage.out",
+        "elixir": "_build/",
+        "nix": ".direnv/",
+    }
+    data = {
+        "project_name": "Profile Matrix",
+        "project_slug": "profile-matrix",
+        **SETUP_BRIEF,
+        "repository_default_branch": "main",
+        "include_readme": True,
+    }
+
+    root_source = tmp_path / "root-source"
+    (root_source / "skills/setup-project").mkdir(parents=True)
+    shutil.copy2(repository_root / "copier.yml", root_source / "copier.yml")
+    shutil.copytree(
+        repository_root / "skills/setup-project/template",
+        root_source / "skills/setup-project/template",
+    )
+    bundled_source = tmp_path / "bundled-source"
+    shutil.copytree(repository_root / "skills/setup-project", bundled_source)
+
+    for entrypoint, source in (("repository", root_source), ("bundled", bundled_source)):
+        for index, profiles in enumerate(selections):
+            project = tmp_path / f"{entrypoint}-{index}"
+            run_copy(
+                str(source),
+                project,
+                data=data | {"language_profiles": profiles},
+                defaults=True,
+                quiet=True,
+                unsafe=False,
+            )
+            answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+            assert answers["language_profiles"] == profiles
+            assert set(tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))["tasks"]) == {
+                "check",
+                "fix",
+                "docs:check",
+                "docs:build",
+                "docs:serve",
+            }
+            assert (project / "hk.pkl").is_file()
+            rendered_ignores = (project / ".gitignore").read_text(encoding="utf-8")
+            for profile, marker in ignores.items():
+                assert (marker in rendered_ignores) == (profile in profiles)
+            for forbidden in ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "mix.exs", "flake.nix"):
+                assert not (project / forbidden).exists()
+            shutil.rmtree(project)
+
+    for source_index, source in enumerate((root_source, bundled_source)):
+        invalid_values = (
+            [],
+            ["python", "python"],
+            ["unknown"],
+            ["python", "other"],
+            {"python": True},
+            ["go", "python"],
+        )
+        for invalid_index, invalid in enumerate(invalid_values):
+            with pytest.raises((ValueError, ZeroDivisionError)):
+                run_copy(
+                    str(source),
+                    tmp_path / f"invalid-{source_index}-{invalid_index}",
+                    data=data | {"language_profiles": invalid},
+                    defaults=True,
+                    quiet=True,
+                    unsafe=False,
+                )
+
+    with pytest.raises(SystemExit):
+        load_setup_module(repository_root).canonical_language_profiles([])
 
 
 def test_setup_project_rejects_unknown_project_kind(repository_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1464,7 +1578,7 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "example-project"
-    setup_generated_project(tagged_template_source, project)
+    setup_generated_project(tagged_template_source, project, language_profiles=("python",))
     configure_project_git(project)
     commit_repository(project, "Initial generated project")
 

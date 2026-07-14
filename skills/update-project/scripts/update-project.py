@@ -47,6 +47,16 @@ IGNORED_SCAN_DIRS = {
     "node_modules",
     "target",
 }
+LANGUAGE_PROFILES = ("python", "typescript", "rust", "go", "elixir", "nix", "other")
+PROFILE_MANIFESTS = {
+    "pyproject.toml": "python",
+    "tsconfig.json": "typescript",
+    "package.json": "typescript",
+    "Cargo.toml": "rust",
+    "go.mod": "go",
+    "mix.exs": "elixir",
+    "flake.nix": "nix",
+}
 LEGACY_TASK_IGNORED_DIRS = IGNORED_SCAN_DIRS | {
     ".agents",
     ".beads",
@@ -169,6 +179,53 @@ def beads_state_present(root: Path) -> bool:
     return any(path.exists() for path in markers)
 
 
+def detected_language_profiles(root: Path) -> list[str]:
+    found = {profile for path, profile in PROFILE_MANIFESTS.items() if (root / path).is_file()}
+    return [profile for profile in LANGUAGE_PROFILES if profile in found]
+
+
+def canonical_language_profiles(values: Any) -> list[str]:
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        message = "language_profiles must be a list of supported profile names"
+        raise SystemExit(message)
+    unknown = sorted(set(values) - set(LANGUAGE_PROFILES))
+    if unknown:
+        raise SystemExit("Unknown language profile: " + ", ".join(unknown))
+    if len(values) != len(set(values)):
+        message = "language_profiles must not contain duplicates"
+        raise SystemExit(message)
+    if not values:
+        message = "language_profiles must not be empty; use other for the universal baseline"
+        raise SystemExit(message)
+    if "other" in values and len(values) > 1:
+        message = "The other language profile cannot be combined with recognized profiles"
+        raise SystemExit(message)
+    return [profile for profile in LANGUAGE_PROFILES if profile in values]
+
+
+def updated_language_profiles(current: Any, additions: Sequence[str], removals: Sequence[str]) -> list[str]:
+    existing = canonical_language_profiles(current)
+    add = set(additions)
+    remove = set(removals)
+    overlap = sorted(add & remove)
+    if overlap:
+        raise SystemExit("Profiles cannot be added and removed together: " + ", ".join(overlap))
+
+    result = set(existing) - remove
+    recognized_additions = add - {"other"}
+    if recognized_additions:
+        result.discard("other")
+        result.update(recognized_additions)
+    if "other" in add:
+        if result == {"other"}:
+            return ["other"]
+        if result:
+            message = "The other profile can be added only when all recognized profiles are removed"
+            raise SystemExit(message)
+        result.add("other")
+    return canonical_language_profiles(list(result))
+
+
 def project_preflight(root: Path, answers_file: str) -> dict[str, Any]:
     tasks = legacy_task_files(root)
     beads_present = beads_state_present(root)
@@ -190,6 +247,7 @@ def project_preflight(root: Path, answers_file: str) -> dict[str, Any]:
         "beads_state_present": beads_present,
         "recommended_workflow": route,
         "reason": reason,
+        "suggested_language_profiles": detected_language_profiles(root),
     }
 
 
@@ -551,6 +609,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--prereleases", action="store_true")
     parser.add_argument("--conflict", choices=("inline", "rej"), default="inline")
+    parser.add_argument("--add-profile", action="append", default=[], choices=LANGUAGE_PROFILES)
+    parser.add_argument("--remove-profile", action="append", default=[], choices=LANGUAGE_PROFILES)
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--pretend", action="store_true")
     parser.add_argument("--allow-dirty", action="store_true")
@@ -595,6 +655,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     validate_template_source(source)
 
+    previous_profiles = canonical_language_profiles(answer_data.get("language_profiles", ["other"]))
+    requested_profiles = updated_language_profiles(previous_profiles, args.add_profile, args.remove_profile)
+
     requested_vcs_ref = args.vcs_ref
     effective_vcs_ref = requested_vcs_ref or default_vcs_ref(source, include_prereleases=args.prereleases)
     verified_source_commit = require_release_tag(source, effective_vcs_ref)
@@ -612,6 +675,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         run_update(
             destination,
+            data={"language_profiles": requested_profiles},
             answers_file=args.answers_file,
             vcs_ref=effective_vcs_ref,
             use_prereleases=args.prereleases,
@@ -680,6 +744,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "vcs_ref": effective_vcs_ref,
         "resolved_commit": updated_answers.get("_commit"),
         "verified_source_commit": verified_source_commit,
+        "previous_language_profiles": previous_profiles,
+        "language_profiles": requested_profiles,
+        "suggested_language_profiles": preflight["suggested_language_profiles"],
         "pretend": args.pretend,
         "conflicts": conflicts,
         "changed_files": changed,

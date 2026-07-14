@@ -34,6 +34,7 @@ FRONTMATTER_PATTERN = re.compile(r"\A---\n(?P<frontmatter>.*?)\n---(?:\n|\Z)", r
 VERSION_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 RELEASE_TAG_PATTERN = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
 PROJECT_KINDS = ("library", "cli", "service", "application", "infrastructure", "documentation", "other")
+LANGUAGE_PROFILES = ("python", "typescript", "rust", "go", "elixir", "nix", "other")
 BRIEF_FLAGS = {
     "project_purpose": "--purpose",
     "project_users": "--users",
@@ -223,6 +224,22 @@ def project_brief(args: argparse.Namespace) -> dict[str, str]:
         brief[field] = value
     brief["project_kind"] = args.project_kind
     return brief
+
+
+def canonical_language_profiles(values: Sequence[str]) -> list[str]:
+    if not values:
+        message = "New-project setup requires --language-profile"
+        raise SystemExit(message)
+    unknown = sorted(set(values) - set(LANGUAGE_PROFILES))
+    if unknown:
+        raise SystemExit("Unknown language profile: " + ", ".join(unknown))
+    if len(values) != len(set(values)):
+        message = "Language profiles must not contain duplicates"
+        raise SystemExit(message)
+    if "other" in values and len(values) > 1:
+        message = "The other language profile cannot be combined with recognized profiles"
+        raise SystemExit(message)
+    return [profile for profile in LANGUAGE_PROFILES if profile in values]
 
 
 def run_checked(command: Sequence[str], *, cwd: Path, quiet: bool) -> subprocess.CompletedProcess[str]:
@@ -456,6 +473,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--scope", help="One-sentence description of current supported scope.")
     parser.add_argument("--boundaries", help="One-sentence description of key exclusions and ownership boundaries.")
     parser.add_argument("--project-kind", choices=PROJECT_KINDS)
+    parser.add_argument(
+        "--language-profile",
+        action="append",
+        default=[],
+        choices=LANGUAGE_PROFILES,
+        help="Implementation language profile; repeat for polyglot repositories.",
+    )
     parser.add_argument("--default-branch", default="main")
     parser.add_argument(
         "--template-source",
@@ -533,6 +557,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     brief = project_brief(args)
+    language_profiles = canonical_language_profiles(args.language_profile)
     destination.mkdir(parents=True, exist_ok=True)
     run_copy(
         template_source,
@@ -541,6 +566,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "project_name": project_name,
             "project_slug": project_slug,
             **brief,
+            "language_profiles": language_profiles,
             "repository_default_branch": args.default_branch,
             "include_readme": not args.delete_readme,
         },
@@ -596,6 +622,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "project_name": project_name,
         "project_slug": project_slug,
         **brief,
+        "language_profiles": language_profiles,
         "destination": str(destination),
         "template_source": template_source,
         "template_source_kind": "bundled" if using_bundled_template else "override",

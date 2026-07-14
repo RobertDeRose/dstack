@@ -54,6 +54,35 @@ project_kind:
     - infrastructure
     - documentation
     - other
+language_profiles:
+  type: yaml
+  help: Ordered implementation-language list, such as [python, typescript].
+  default:
+    - other
+  validator: |
+    [% set supported = ['python', 'typescript', 'rust', 'go', 'elixir', 'nix', 'other'] %]
+    [% set validation = namespace(unknown=[], canonical=[]) %]
+    [% set invalid_type = language_profiles is mapping or language_profiles is string %]
+    [% set invalid_type = invalid_type or language_profiles is not sequence or not language_profiles %]
+    [% if invalid_type %]
+    Select at least one language profile as a YAML list.
+    [% else %]
+    [% for profile in language_profiles %]
+    [% if profile not in supported %][% set validation.unknown = validation.unknown + [profile] %][% endif %]
+    [% endfor %]
+    [% for profile in supported %]
+    [% if profile in language_profiles %][% set validation.canonical = validation.canonical + [profile] %][% endif %]
+    [% endfor %]
+    [% if validation.unknown %]
+    Unknown language profile: [[ validation.unknown | join(', ') ]].
+    [% elif language_profiles | unique | list | length != language_profiles | length %]
+    Language profiles must not contain duplicates.
+    [% elif 'other' in language_profiles and language_profiles | length > 1 %]
+    The other profile cannot be combined with recognized profiles.
+    [% elif language_profiles != validation.canonical %]
+    Language profiles must use canonical order: [[ validation.canonical | join(', ') ]].
+    [% endif %]
+    [% endif %]
 repository_default_branch:
   type: str
   help: Default Git branch used by feature worktrees.

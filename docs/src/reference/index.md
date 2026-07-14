@@ -24,6 +24,17 @@
 The helper rejects NUL, CR, and LF in brief values. It preserves Unicode, quotes, backslashes, and Markdown punctuation.
 The result JSON and `.copier-answers.yml` record all five values.
 
+## Language profile selection
+
+`language_profiles` is a canonical list ordered as `python`, `typescript`, `rust`, `go`, `elixir`, `nix`, then `other`.
+The six recognized values may be combined. `other` is exclusive and represents the universal baseline without recognized
+language tooling. Empty, duplicate, unknown, and mixed-`other` selections are invalid.
+
+New-project setup accepts repeatable `--language-profile`. Copier updates preserve the recorded list unless repeatable
+`--add-profile` or `--remove-profile` operations are supplied. Operations are idempotent, their sets must be disjoint,
+and their canonical result must remain valid. Legacy preflight reports root-manifest suggestions for confirmation but
+never applies them automatically.
+
 ## Workflow paths
 
 | Path                                             | Contract                                               |

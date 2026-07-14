@@ -8,15 +8,40 @@ mise.local.toml
 .env
 .env.local
 .env.*.local
-
+.rumdl_cache/
+[% if 'python' in language_profiles %]
 # Python environments and cache files
 .venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
-.rumdl_cache/
-.mypy_cache/
+[% endif %]
+[% if 'typescript' in language_profiles %]
+# TypeScript dependencies and coverage
+node_modules/
+coverage/
+[% endif %]
+[% if 'rust' in language_profiles %]
+# Rust build output
+target/
+[% endif %]
+[% if 'go' in language_profiles %]
+# Go coverage output
+coverage.out
+[% endif %]
+[% if 'elixir' in language_profiles %]
+# Elixir build output and dependencies
+_build/
+deps/
+cover/
+[% endif %]
+[% if 'nix' in language_profiles %]
+# Nix development and build links
+.direnv/
+result
+result-*
+[% endif %]
 
 # Local editor and OS files
 .DS_Store

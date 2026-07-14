@@ -51,6 +51,11 @@ reconciliation. An update with conflicts never executes newly rendered project c
 installs with `--locked`, then installs hk hooks as a separate stage so hook failure cannot erase successful
 lock/install state.
 
-F030 may extend the shared mise/hk files with language profiles. F040 consumes the named tasks for GitHub validation.
-Generated projects do not receive dstack's release task or repository-specific language, CI, shell, YAML, or security
-checks from this baseline.
+F030 extends these same generated files from one canonical `language_profiles` answer. Recognized profiles compose by
+direct membership-gated template sections; `other` is exclusive and preserves only the universal baseline. Multiple
+profiles apply one root policy to a polyglot repository, not package-local or monorepo configuration. Setup collects an
+explicit selection, while updates preserve it unless the user explicitly adds or removes profiles. The existing
+provisioner and conflict gate remain the only network-backed tooling path.
+
+F040 consumes the stable named tasks. Generated projects do not receive dstack's release task, package manifests,
+application source, CI, shell, YAML, or security checks from the universal baseline.

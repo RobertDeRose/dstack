@@ -55,10 +55,12 @@ Before invoking the helper, collect missing facts with `AskUserQuestion`, one qu
 2. `--users`: one sentence describing intended users;
 3. `--scope`: one sentence describing current supported scope;
 4. `--boundaries`: one sentence describing key exclusions and ownership boundaries;
-5. `--project-kind`: select `library`, `cli`, `service`, `application`, `infrastructure`, `documentation`, or `other`.
+5. `--project-kind`: select `library`, `cli`, `service`, `application`, `infrastructure`, `documentation`, or `other`;
+6. `--language-profile`: select one or more of `python`, `typescript`, `rust`, `go`, `elixir`, `nix`, or `other`.
 
-Selecting the kind is confirmation; do not ask a second confirmation question. Values must be non-empty single lines. Do
-not infer missing facts from the project name or fabricate defaults.
+Selecting the kind and profiles is confirmation; do not ask a second confirmation question. `other` is exclusive and
+means no recognized language tooling. Values must be non-empty single lines. Do not infer missing facts from the project
+name or fabricate defaults.
 
 ## Defaults
 
@@ -82,7 +84,8 @@ uv run <skill-dir>/scripts/setup-project.py [project-name] \
   --users "<intended users>" \
   --scope "<current supported scope>" \
   --boundaries "<key exclusions and ownership boundaries>" \
-  --project-kind <kind>
+  --project-kind <kind> \
+  --language-profile <profile> [...]
 ```
 
 The project name remains optional and defaults to `basename "$PWD"`. Add `--destination <path>` to target another new
@@ -97,6 +100,8 @@ uv run <skill-dir>/scripts/setup-project.py "Reader Control Plane" \
   --scope "Provisioning and health workflows for supported readers." \
   --boundaries "Reader firmware and identity-provider administration remain external." \
   --project-kind service \
+  --language-profile python \
+  --language-profile typescript \
   --template-source gh:example/dstack-fork \
   --vcs-ref <reviewed-tag-or-commit>
 ```
@@ -170,7 +175,7 @@ initialization and verification as outstanding.
 
 ## Return
 
-Report project name, slug, purpose, users, scope, boundaries, kind, destination, bundled render source, skill version,
-recorded update source/revision, Git result, Beads result, documentation validation, the complete `tooling` status,
-outstanding recovery commands, and the next `/plan-features` action. If setup was routed to `/update-project`, report
-the user's consent decision and do not claim setup ran.
+Report project name, slug, purpose, users, scope, boundaries, kind, language profiles, destination, bundled render
+source, skill version, recorded update source/revision, Git result, Beads result, documentation validation, the complete
+`tooling` status, outstanding recovery commands, and the next `/plan-features` action. If setup was routed to
+`/update-project`, report the user's consent decision and do not claim setup ran.
