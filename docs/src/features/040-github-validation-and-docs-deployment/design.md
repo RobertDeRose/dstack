@@ -226,21 +226,23 @@ Repository-wide validation remains `uv run --frozen --group test pytest`, `mise 
 ## Implementation Decomposition
 
 1. **Validation workflow (`dstack-mol-41q.1`)**: generate `.github/workflows/validate.yml`; own root/generated
-   development docs and focused tests in `tests/test_f040_validation.py`.
-2. **Deployment workflow (`dstack-mol-41q.2`)**: generate `.github/workflows/docs.yml`; own root architecture docs and
-   focused tests in `tests/test_f040_deployment.py`.
-3. **Enablement (`dstack-mol-41q.3`)**: add helper and sixth task; own root operations/reference plus generated
-   operations/reference/navigation and focused tests in `tests/test_f040_enablement.py`.
-4. **Integration (`dstack-mol-41q.4`)**: after the other three, own combined/update coverage in
-   `tests/test_repository.py`, cover both entry points, Copier update, workflows/tasks/docs, and roadmap reconciliation.
+   development docs, focused tests in `tests/test_f040_validation.py`, and shared exact-scaffold assertions caused by
+   this file.
+2. **Deployment workflow (`dstack-mol-41q.2`)**: after task 1, generate `.github/workflows/docs.yml`; own root
+   architecture docs, focused tests in `tests/test_f040_deployment.py`, and its shared exact-scaffold assertion delta.
+3. **Enablement (`dstack-mol-41q.3`)**: after task 2, add helper and sixth task; own root operations/reference,
+   generated operations/reference/navigation, focused tests in `tests/test_f040_enablement.py`, and shared task/file
+   assertions.
+4. **Integration (`dstack-mol-41q.4`)**: after the other three, own remaining combined/update coverage in
+   `tests/test_repository.py`, both-entrypoint integration, workflows/tasks/docs, and roadmap reconciliation.
 
-Each task directly depends on specification reconciliation. Tasks 1–3 are parallel-safe because product, documentation,
-and test paths are disjoint; task 4 depends on all three.
+Each task directly depends on specification reconciliation. Tasks 1–3 are serialized because every generated file/task
+changes shared exact-scaffold assertions that must pass at each task commit; task 4 is the final integration gate.
 
 ## Dependencies and Parallelism
 
-F010 and F020 are delivered prerequisites. F030 is delivered context. After specification reconciliation, validation,
-deployment, and enablement can proceed in parallel; integration waits for all three.
+F010 and F020 are delivered prerequisites. F030 is delivered context. After specification reconciliation, implementation
+proceeds validation → deployment → enablement → integration.
 
 ## Rollout and Migration
 
@@ -291,7 +293,8 @@ automatic deployment branch. Explicit manual dispatch is useful for recovery but
 - Deployment trigger, permissions, environment, and artifact path became explicit.
 - `gh` changed from proposed universal mise tooling to an external administrative prerequisite.
 - Generated operations/development/reference documentation received exact ownership.
-- Implementation tasks 1–3 became parallel-safe; task 4 became the integration gate.
+- Tasks 1–3 were initially separated, then serialized when implementation preflight confirmed each changes shared
+  exact-scaffold assertions; task 4 remains the integration gate.
 
 ### Source Material
 
