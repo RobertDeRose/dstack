@@ -21,4 +21,5 @@ here only during close-out.
 - [F010 — Purposeful project scaffold](010-purposeful-project-scaffold/index.md)
 - [F020 — Universal project tooling](020-universal-project-tooling/index.md)
 - [F030 — Language quality profiles](030-language-quality-profiles/index.md)
+- [F040 — GitHub validation and docs deployment](040-github-validation-and-docs-deployment/index.md)
 <!-- END IMPLEMENTED FEATURES -->
