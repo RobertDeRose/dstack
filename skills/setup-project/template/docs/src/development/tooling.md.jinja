@@ -42,7 +42,19 @@ source.[% endif %][% if 'go' in language_profiles %]
 
 goimports runs before gofumpt on Go files in check, fix, and pre-commit. Root `go.mod` enables check-only module tidy
 diff and verification, golangci-lint, and Go tests. `mise run fix` may apply `go mod tidy`; pre-commit never does. Setup
-does not create a module or source.[% endif %]
+does not create a module or source.[% endif %][% if 'elixir' in language_profiles %]
+
+## Elixir
+
+Mix formatting runs on Elixir files in check, fix, and pre-commit. Root `mix.exs` enables check-only warnings-as-errors
+compilation and strict Credo; matching `test/**/*.exs` also enables tests. Credo must be
+project-owned.[% endif %][% if 'nix' in language_profiles %]
+
+## Nix
+
+nixfmt checks and fixes Nix files on Linux and macOS ARM64. Matching Nix inputs fail clearly on unsupported macOS x64.
+Root `flake.nix` enables check-only `nix flake check` and requires system Nix; setup provisions no Nix executable.[%
+endif %]
 
 ## Hooks and recovery
 

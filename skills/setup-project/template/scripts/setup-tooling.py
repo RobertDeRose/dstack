@@ -21,6 +21,9 @@ HOOK_COMMAND = ["mise", "x", "--", "hk", "install", "--mise"]
 RERUN_COMMAND = "python3 scripts/setup-tooling.py --json"
 ISOLATED_MISE = "MISE_GLOBAL_CONFIG_FILE=/dev/null "
 MAX_ERROR_CHARS = 2_000
+NIXFMT_TOOL = "github:Mic92/nixfmt-rs"
+NIXFMT_UNSUPPORTED_PLATFORM = "macos-x64"
+NIXFMT_SUPPORTED_PLATFORMS = ("linux-x64", "linux-arm64", "macos-arm64")
 
 
 def stage(status: str, *, error: str | None = None, path: str | None = None) -> dict[str, Any]:
@@ -62,6 +65,36 @@ def run(command: Sequence[str], project_root: Path) -> subprocess.CompletedProce
         return subprocess.CompletedProcess(list(command), 127, "", str(exc))
 
 
+def normalize_nixfmt_lock(project_root: Path, lock_path: Path) -> str | None:
+    config_path = project_root / "mise.toml"
+    if not config_path.is_file():
+        return None
+    config = config_path.read_text(encoding="utf-8")
+    if NIXFMT_TOOL not in config:
+        return None
+
+    lines = lock_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    headers = {
+        platform: f'[tools."{NIXFMT_TOOL}"."platforms.{platform}"]'
+        for platform in (*NIXFMT_SUPPORTED_PLATFORMS, NIXFMT_UNSUPPORTED_PLATFORM)
+    }
+    present = {line.strip() for line in lines}
+    missing = [platform for platform in NIXFMT_SUPPORTED_PLATFORMS if headers[platform] not in present]
+    if missing:
+        return f"mise lock omitted nixfmt-rs for supported platforms: {', '.join(missing)}"
+
+    unsupported = headers[NIXFMT_UNSUPPORTED_PLATFORM]
+    try:
+        start = next(index for index, line in enumerate(lines) if line.strip() == unsupported)
+    except StopIteration:
+        return None
+    end = next((index for index in range(start + 1, len(lines)) if lines[index].startswith("[")), len(lines))
+    temporary = lock_path.with_suffix(".lock.tmp")
+    temporary.write_text("".join(lines[:start] + lines[end:]), encoding="utf-8")
+    temporary.replace(lock_path)
+    return None
+
+
 def provision(project_root: Path) -> dict[str, Any]:
     result = skipped_result()
     result["status"] = "degraded"
@@ -75,6 +108,11 @@ def provision(project_root: Path) -> dict[str, Any]:
     if lock.returncode or not lock_path.is_file() or lock_path.stat().st_size == 0:
         error = command_error(lock) if lock.returncode else "mise lock did not create a nonempty mise.lock"
         result["lock"] = stage("failed", path="mise.lock", error=error)
+        result["recovery"] = [ISOLATED_MISE + " ".join(LOCK_COMMAND), RERUN_COMMAND]
+        return result
+    normalization_error = normalize_nixfmt_lock(project_root, lock_path)
+    if normalization_error:
+        result["lock"] = stage("failed", path="mise.lock", error=normalization_error)
         result["recovery"] = [ISOLATED_MISE + " ".join(LOCK_COMMAND), RERUN_COMMAND]
         return result
     result["lock"] = stage("succeeded", path="mise.lock")

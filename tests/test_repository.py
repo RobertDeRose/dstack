@@ -253,12 +253,17 @@ def write_logging_shims(bin_dir: Path, *names: str) -> Path:
         "from pathlib import Path\n"
         "name = Path(sys.argv[0]).name\n"
         "args = sys.argv[1:]\n"
+        "if name == 'uname' and os.environ.get('DSTACK_UNAME'):\n"
+        "    print(os.environ['DSTACK_UNAME'].split('/')[0 if '-s' in args else 1])\n"
+        "    raise SystemExit(0)\n"
         "with Path(os.environ['DSTACK_SHIM_LOG']).open('a') as stream:\n"
         "    stream.write(name + ' ' + ' '.join(args) + '\\n')\n"
         "fail_check = os.environ.get('DSTACK_FAIL_CHECK') == '1'\n"
         "check_only = name == 'ruff' and '--fix' not in args and ('format' not in args or '--diff' in args)\n"
         "check_only = check_only or (name == 'biome' and '--write' not in args)\n"
         "check_only = check_only or (name == 'rustfmt' and '--check' in args)\n"
+        "check_only = check_only or (name == 'mix' and '--check-formatted' in args)\n"
+        "check_only = check_only or (name == 'nixfmt' and '--check' in args)\n"
         "if fail_check and name in {'goimports', 'gofumpt'} and '-l' in args: print('needs-format')\n"
         "fail_tidy = os.environ.get('DSTACK_FAIL_GO_TIDY') == '1' and name == 'go' and '-diff' in args\n"
         "raise SystemExit(name == os.environ.get('DSTACK_FAIL_COMMAND') or fail_tidy or (fail_check and check_only))\n",
@@ -784,6 +789,26 @@ def test_tooling_provisioner_isolates_project_lock_from_global_mise_tools(
     assert captured["env"]["MISE_GLOBAL_CONFIG_FILE"] == os.devnull
 
 
+def test_tooling_provisioner_omits_only_nixfmt_macos_x64_lock_entry(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    module = load_tooling_module(repository_root)
+    (tmp_path / "mise.toml").write_text(f'[tools]\n"{module.NIXFMT_TOOL}" = "latest"\n', encoding="utf-8")
+    lock = tmp_path / "mise.lock"
+    headers = [
+        f'[tools."{module.NIXFMT_TOOL}"."platforms.{platform}"]\nurl = "{platform}"\n'
+        for platform in (*module.NIXFMT_SUPPORTED_PLATFORMS, module.NIXFMT_UNSUPPORTED_PLATFORM)
+    ]
+    lock.write_text("\n".join(headers) + '\n[tools.node."platforms.macos-x64"]\nurl = "node"\n', encoding="utf-8")
+
+    assert module.normalize_nixfmt_lock(tmp_path, lock) is None
+    normalized = lock.read_text(encoding="utf-8")
+    assert all(f'platforms.{platform}"]' in normalized for platform in module.NIXFMT_SUPPORTED_PLATFORMS)
+    assert f'platforms.{module.NIXFMT_UNSUPPORTED_PLATFORM}"]' not in normalized.split("[tools.node", 1)[0]
+    assert '[tools.node."platforms.macos-x64"]' in normalized
+
+
 def test_tooling_provisioner_converts_launch_errors_to_structured_failure(
     repository_root: Path,
     tmp_path: Path,
@@ -1237,6 +1262,202 @@ def test_go_profile_renders_exact_contract(tagged_template_source: Path, tmp_pat
     assert "go mod tidy\n" in log.read_text(encoding="utf-8")
     assert "go-mod" not in run_command(["hk", "run", "pre-commit", "-a", "-P"], cwd=project).stdout
     assert "go-mod" in run_command(["hk", "fix", "-a", "-P"], cwd=project).stdout
+
+
+@pytest.mark.integration
+def test_elixir_profile_renders_exact_contract(tagged_template_source: Path, tmp_path: Path) -> None:
+    project = tmp_path / "elixir-profile"
+    payload = setup_generated_project(tagged_template_source, project, language_profiles=("elixir",))
+    mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+    hk = (project / "hk.pkl").read_text(encoding="utf-8")
+    development = (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+    reference = (project / "docs/src/reference/tooling.md").read_text(encoding="utf-8")
+
+    assert payload["language_profiles"] == ["elixir"]
+    assert mise["tools"]["erlang"] == mise["tools"]["elixir"] == "latest"
+    for command in (
+        "mix format --check-formatted {{ files }}",
+        "mix format {{ files }}",
+        "mix compile --warnings-as-errors",
+        "mix help credo",
+        "mix credo --strict",
+        "mix test --warnings-as-errors",
+    ):
+        assert command in hk
+    assert "Credo must be project-owned" in " ".join(development.split())
+    assert "Recorded language profiles: `elixir`" in reference
+    assert all(
+        entry in (project / ".gitignore").read_text(encoding="utf-8") for entry in ("_build/", "deps/", "cover/")
+    )
+    assert not (project / "mix.exs").exists()
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+    run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
+
+    bin_dir = tmp_path / "elixir-bin"
+    log = tmp_path / "elixir.log"
+    write_logging_shims(bin_dir, "mix")
+    environment = merged_environment(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", DSTACK_SHIM_LOG=str(log))
+    run_command(["hk", "check", "-a", "-S", "mix-format"], cwd=project, env=environment)
+    assert not log.exists()
+
+    source = project / "lib/example.ex"
+    source.parent.mkdir()
+    source.write_text("defmodule Example do\nend\n", encoding="utf-8")
+    original = source.read_bytes()
+    run_command(["hk", "check", "-a", "-S", "mix-format"], cwd=project, env=environment)
+    assert "mix format --check-formatted" in log.read_text(encoding="utf-8")
+    assert source.read_bytes() == original
+    log.write_text("", encoding="utf-8")
+    run_command(
+        ["hk", "fix", "-a", "-f", "-S", "mix-format"],
+        cwd=project,
+        env=environment | {"DSTACK_FAIL_CHECK": "1"},
+    )
+    assert "mix format lib/example.ex" in log.read_text(encoding="utf-8")
+
+    log.write_text("", encoding="utf-8")
+    run_command(
+        ["hk", "check", "-a", "-S", "mix-compile", "-S", "credo", "-S", "mix-test"], cwd=project, env=environment
+    )
+    assert log.read_text(encoding="utf-8") == ""
+    (project / "mix.exs").write_text("defmodule Example.MixProject do\nend\n", encoding="utf-8")
+    test_dir = project / "test"
+    test_dir.mkdir()
+    (test_dir / "example_test.exs").write_text("ExUnit.start()\n", encoding="utf-8")
+    failure = run_command(
+        ["hk", "check", "-a", "-S", "credo"],
+        cwd=project,
+        env=environment | {"DSTACK_FAIL_COMMAND": "mix"},
+        expected=1,
+    )
+    assert "requires project-owned Credo" in failure.stderr
+    log.write_text("", encoding="utf-8")
+    run_command(
+        ["hk", "check", "-a", "-S", "mix-compile", "-S", "credo", "-S", "mix-test"], cwd=project, env=environment
+    )
+    manifest_log = log.read_text(encoding="utf-8")
+    assert "mix compile --warnings-as-errors" in manifest_log
+    assert "mix help credo" in manifest_log
+    assert "mix credo --strict" in manifest_log
+    assert "mix test --warnings-as-errors" in manifest_log
+    assert "mix-compile" not in run_command(["hk", "run", "pre-commit", "-a", "-P"], cwd=project).stdout
+    assert "mix-compile" not in run_command(["hk", "fix", "-a", "-P"], cwd=project).stdout
+
+
+@pytest.mark.integration
+def test_nix_profile_renders_exact_contract(tagged_template_source: Path, tmp_path: Path) -> None:
+    project = tmp_path / "nix-profile"
+    payload = setup_generated_project(tagged_template_source, project, language_profiles=("nix",))
+    mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+    hk = (project / "hk.pkl").read_text(encoding="utf-8")
+    development = (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+    reference = (project / "docs/src/reference/tooling.md").read_text(encoding="utf-8")
+
+    assert payload["language_profiles"] == ["nix"]
+    assert mise["tools"]["github:Mic92/nixfmt-rs"] == {
+        "version": "latest",
+        "os": ["linux", "macos/arm64"],
+    }
+    for command in ("nixfmt --check {{ files }}", "nixfmt {{ files }}", "nix flake check"):
+        assert command in hk
+    assert "Nix profile does not support macOS x64" in hk
+    assert "Nix profile requires system nix for flake checks" in hk
+    assert "Matching Nix inputs fail clearly" in development
+    assert "Recorded language profiles: `nix`" in reference
+    ignore = (project / ".gitignore").read_text(encoding="utf-8")
+    assert all(entry in ignore for entry in (".direnv/", "result", "result-*"))
+    assert not (project / "flake.nix").exists()
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+    run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
+
+    bin_dir = tmp_path / "nix-bin"
+    log = tmp_path / "nix.log"
+    write_logging_shims(bin_dir, "nixfmt", "nix", "uname")
+    environment = merged_environment(
+        PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        DSTACK_SHIM_LOG=str(log),
+        DSTACK_UNAME="Linux/x86_64",
+    )
+    run_command(["hk", "check", "-a", "-S", "nixfmt", "-S", "nix-flake-check"], cwd=project, env=environment)
+    assert not log.exists()
+
+    source = project / "default.nix"
+    source.write_text("{}\n", encoding="utf-8")
+    original = source.read_bytes()
+    run_command(["hk", "check", "-a", "-S", "nixfmt"], cwd=project, env=environment)
+    assert "nixfmt --check default.nix" in log.read_text(encoding="utf-8")
+    assert source.read_bytes() == original
+    log.write_text("", encoding="utf-8")
+    run_command(
+        ["hk", "fix", "-a", "-f", "-S", "nixfmt"],
+        cwd=project,
+        env=environment | {"DSTACK_FAIL_CHECK": "1"},
+    )
+    assert "nixfmt default.nix" in log.read_text(encoding="utf-8")
+    intel = run_command(
+        ["hk", "check", "-a", "-S", "nixfmt"],
+        cwd=project,
+        env=environment | {"DSTACK_UNAME": "Darwin/x86_64"},
+        expected=1,
+    )
+    assert "does not support macOS x64" in intel.stderr
+
+    source.unlink()
+    (project / "flake.nix").write_text("{}\n", encoding="utf-8")
+    hk_executable = shutil.which("hk")
+    assert hk_executable is not None
+    missing_nix = run_command(
+        [hk_executable, "check", "-a", "-S", "nix-flake-check"],
+        cwd=project,
+        env=merged_environment(PATH="/usr/bin:/bin"),
+        expected=1,
+    )
+    assert "requires system nix for flake checks" in missing_nix.stderr
+    log.write_text("", encoding="utf-8")
+    run_command(["hk", "check", "-a", "-S", "nix-flake-check"], cwd=project, env=environment)
+    assert "nix flake check" in log.read_text(encoding="utf-8")
+    log.write_text("", encoding="utf-8")
+    intel_flake = run_command(
+        ["hk", "check", "-a", "-S", "nix-flake-check"],
+        cwd=project,
+        env=environment | {"DSTACK_UNAME": "Darwin/x86_64"},
+        expected=1,
+    )
+    assert "does not support macOS x64" in intel_flake.stderr
+    assert "nix flake check" not in log.read_text(encoding="utf-8")
+    assert "nix-flake-check" not in run_command(["hk", "run", "pre-commit", "-a", "-P"], cwd=project).stdout
+    assert "nix-flake-check" not in run_command(["hk", "fix", "-a", "-P"], cwd=project).stdout
+
+
+@pytest.mark.external
+def test_nix_profile_four_platform_lock_omits_only_macos_x64(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    if shutil.which("mise") is None:
+        pytest.skip("Live Nix-profile lock validation requires mise")
+    project = tmp_path / "nix-lock"
+    setup_generated_project(tagged_template_source, project, language_profiles=("nix",))
+    environment = merged_environment(MISE_GLOBAL_CONFIG_FILE=os.devnull)
+    run_command(["mise", "trust", "-y"], cwd=project, env=environment)
+    run_command(
+        ["mise", "lock", "--yes", "--platform", "linux-x64,linux-arm64,macos-x64,macos-arm64"],
+        cwd=project,
+        env=environment,
+    )
+    module = load_tooling_module(repository_root)
+    lock = project / "mise.lock"
+    assert module.normalize_nixfmt_lock(project, lock) is None
+    content = lock.read_text(encoding="utf-8")
+    prefix = f'[tools."{module.NIXFMT_TOOL}".'
+    nixfmt_headers = {
+        line.removeprefix(prefix).removesuffix("]").strip('"')
+        for line in content.splitlines()
+        if line.startswith(prefix)
+    }
+    assert nixfmt_headers == {f"platforms.{platform}" for platform in module.NIXFMT_SUPPORTED_PLATFORMS}
+    assert all(f'"platforms.{platform}"' in content for platform in module.PLATFORMS)
 
 
 def test_setup_project_rejects_unknown_project_kind(repository_root: Path, capsys: pytest.CaptureFixture[str]) -> None:

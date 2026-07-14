@@ -68,6 +68,32 @@ The mise-managed tool is `rust = "latest"`. The profile ignores `target/`.
 The mise-managed tools are `go`, `gofumpt`, `go:golang.org/x/tools/cmd/goimports`, and `golangci-lint`, all at `latest`.
 The profile ignores `coverage.out`.
 
+[% endif %][% if 'elixir' in language_profiles %]
+
+### Elixir profile
+
+| Step | Check | Fix | Gate |
+|------|-------|-----|------|
+| format | `mix format --check-formatted {{ files }}` | `mix format {{ files }}` | `**/*.{ex,exs}`; all hooks |
+| compile | `mix compile --warnings-as-errors` | none | root `mix.exs`; check only |
+| Credo | `mix help credo`, then `mix credo --strict` | none | root `mix.exs`; check only; project-owned |
+| tests | `mix test --warnings-as-errors` | none | root `mix.exs` plus `test/**/*.exs`; check only |
+
+The mise-managed tools are `erlang` and `elixir` at `latest`. The profile ignores `_build/`, `deps/`, and `cover/`.
+
+[% endif %][% if 'nix' in language_profiles %]
+
+### Nix profile
+
+| Step | Check | Fix | Gate |
+|------|-------|-----|------|
+| nixfmt | `nixfmt --check {{ files }}` | `nixfmt {{ files }}` | `**/*.nix`; all hooks; Linux/macOS ARM64 |
+| flake | `nix flake check` | none | root `flake.nix`; check only; system Nix required |
+
+`github:Mic92/nixfmt-rs` is mise-managed at `latest` with `os = ["linux", "macos/arm64"]`. Matching Nix inputs on macOS
+x64 fail with `Nix profile does not support macOS x64`. A missing system Nix executable for a flake fails with
+`Nix profile requires system nix for flake checks`. The profile ignores `.direnv/`, `result`, and `result-*`.
+
 [% endif %]
 
 ## Tasks

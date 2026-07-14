@@ -85,8 +85,24 @@ local linters = new Mapping<String, Step> {
     fix = "gofumpt -w {{ files }}"
   }
 [% endif %]
-  ["typos"] = (Builtins.typos) {
+[% if 'elixir' in language_profiles %]
+  ["mix-format"] = new Step {
     depends = "[% if 'go' in language_profiles %]gofumpt[% elif 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
+    glob = List("**/*.ex", "**/*.exs")
+    check = "mix format --check-formatted {{ files }}"
+    fix = "mix format {{ files }}"
+  }
+[% endif %]
+[% if 'nix' in language_profiles %]
+  ["nixfmt"] = new Step {
+    depends = "[% if 'elixir' in language_profiles %]mix-format[% elif 'go' in language_profiles %]gofumpt[% elif 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
+    glob = List("**/*.nix")
+    check = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt --check {{ files }}"
+    fix = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt {{ files }}"
+  }
+[% endif %]
+  ["typos"] = (Builtins.typos) {
+    depends = "[% if 'nix' in language_profiles %]nixfmt[% elif 'elixir' in language_profiles %]mix-format[% elif 'go' in language_profiles %]gofumpt[% elif 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
   }
 }
 
@@ -130,6 +146,23 @@ hooks {
       ["go-test"] = new Step {
         depends = "go-mod"
         check = "[ ! -f go.mod ] || go test ./..."
+      }
+[% endif %]
+[% if 'elixir' in language_profiles %]
+      ["mix-compile"] = new Step {
+        check = "[ ! -f mix.exs ] || mix compile --warnings-as-errors"
+      }
+      ["credo"] = new Step {
+        check = "[ ! -f mix.exs ] || { mix help credo >/dev/null || { printf '%s\\n' 'Elixir profile requires project-owned Credo' >&2; exit 1; }; mix credo --strict; }"
+      }
+      ["mix-test"] = new Step {
+        glob = List("test/**/*.exs")
+        check = "[ ! -f mix.exs ] || mix test --warnings-as-errors"
+      }
+[% endif %]
+[% if 'nix' in language_profiles %]
+      ["nix-flake-check"] = new Step {
+        check = "[ ! -f flake.nix ] || { [ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; command -v nix >/dev/null || { printf '%s\\n' 'Nix profile requires system nix for flake checks' >&2; exit 1; }; nix flake check; }"
       }
 [% endif %]
     }

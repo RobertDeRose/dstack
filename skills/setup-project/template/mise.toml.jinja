@@ -16,7 +16,10 @@ rust = "latest"[% endif %][% if 'go' in language_profiles %]
 go = "latest"
 gofumpt = "latest"
 "go:golang.org/x/tools/cmd/goimports" = "latest"
-golangci-lint = "latest"[% endif %]
+golangci-lint = "latest"[% endif %][% if 'elixir' in language_profiles %]
+erlang = "latest"
+elixir = "latest"[% endif %][% if 'nix' in language_profiles %]
+"github:Mic92/nixfmt-rs" = { version = "latest", os = ["linux", "macos/arm64"] }[% endif %]
 
 [env]
 HK_MISE = 1
