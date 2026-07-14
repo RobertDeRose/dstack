@@ -7,7 +7,11 @@ mdbook = "latest"
 uv = "latest"
 rumdl = "latest"
 typos = "latest"
-"npm:markdown-table-formatter" = "latest"
+"npm:markdown-table-formatter" = "latest"[% if 'python' in language_profiles %]
+ruff = "latest"
+ty = "latest"[% endif %][% if 'typescript' in language_profiles %]
+aube = "latest"
+biome = "latest"[% endif %]
 
 [env]
 HK_MISE = 1

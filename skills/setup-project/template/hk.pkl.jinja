@@ -36,8 +36,35 @@ local linters = new Mapping<String, Step> {
   ["trailing_whitespace"] = (Builtins.trailing_whitespace) {
     depends = "rumdl"
   }
-  ["typos"] = (Builtins.typos) {
+[% if 'python' in language_profiles %]
+  ["ruff"] = new Step {
     depends = "mise"
+    glob = List("**/*.py", "**/*.pyi")
+    check = "ruff check --force-exclude {{ files }}"
+    fix = "ruff check --force-exclude --fix {{ files }}"
+  }
+  ["ruff-format"] = new Step {
+    depends = "ruff"
+    glob = List("**/*.py", "**/*.pyi")
+    check_diff = "ruff format --quiet --force-exclude --diff {{ files }}"
+    fix = "ruff format --quiet --force-exclude {{ files }}"
+  }
+  ["ty"] = new Step {
+    depends = "ruff-format"
+    glob = List("**/*.py", "**/*.pyi")
+    check = "ty check {{ files }}"
+  }
+[% endif %]
+[% if 'typescript' in language_profiles %]
+  ["biome"] = new Step {
+    depends = "[% if 'python' in language_profiles %]ty[% else %]mise[% endif %]"
+    glob = List("**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts")
+    check = "biome check --no-errors-on-unmatched {{ files }}"
+    fix = "biome check --write --no-errors-on-unmatched {{ files }}"
+  }
+[% endif %]
+  ["typos"] = (Builtins.typos) {
+    depends = "[% if 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
   }
 }
 
@@ -48,7 +75,20 @@ hooks {
     steps = linters
   }
   ["check"] {
-    steps = linters
+    steps = (linters) {
+[% if 'python' in language_profiles %]
+      ["pytest"] = new Step {
+        glob = List("tests/**/*.py")
+        check = "[ ! -f pyproject.toml ] || { uv run python -c 'import pytest' || { printf '%s\\n' 'Python profile requires project-owned pytest' >&2; exit 1; }; uv run pytest; }"
+      }
+[% endif %]
+[% if 'typescript' in language_profiles %]
+      ["vitest"] = new Step {
+        glob = List("**/*.test.ts", "**/*.test.tsx", "**/*.test.mts", "**/*.test.cts", "**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.mts", "**/*.spec.cts")
+        check = "[ ! -f package.json ] || { aube exec vitest --version >/dev/null || { printf '%s\\n' 'TypeScript profile requires project-owned Vitest' >&2; exit 1; }; aube exec vitest run; }"
+      }
+[% endif %]
+    }
   }
   ["fix"] {
     fix = true

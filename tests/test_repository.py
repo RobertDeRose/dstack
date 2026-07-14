@@ -244,6 +244,29 @@ def configure_project_git(project: Path) -> None:
     run_command(["git", "config", "tag.gpgSign", "false"], cwd=project)
 
 
+def write_logging_shims(bin_dir: Path, *names: str) -> Path:
+    script = bin_dir / "profile-shim"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, sys\n"
+        "from pathlib import Path\n"
+        "name = Path(sys.argv[0]).name\n"
+        "args = sys.argv[1:]\n"
+        "with Path(os.environ['DSTACK_SHIM_LOG']).open('a') as stream:\n"
+        "    stream.write(name + ' ' + ' '.join(args) + '\\n')\n"
+        "fail_check = os.environ.get('DSTACK_FAIL_CHECK') == '1'\n"
+        "check_only = name == 'ruff' and '--fix' not in args and ('format' not in args or '--diff' in args)\n"
+        "check_only = check_only or (name == 'biome' and '--write' not in args)\n"
+        "raise SystemExit(name == os.environ.get('DSTACK_FAIL_COMMAND') or (fail_check and check_only))\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    for name in names:
+        (bin_dir / name).symlink_to(script)
+    return script
+
+
 def write_fake_mise(bin_dir: Path) -> Path:
     mise = bin_dir / "mise"
     mise.parent.mkdir(parents=True, exist_ok=True)
@@ -559,9 +582,8 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
     operations = (docs / "operations/index.md").read_text(encoding="utf-8")
     development = (docs / "development/index.md").read_text(encoding="utf-8")
     reference = (docs / "reference/index.md").read_text(encoding="utf-8")
-    mise = tomllib.loads(
-        (repository_root / "skills/setup-project/template/mise.toml.jinja").read_text(encoding="utf-8")
-    )
+    mise_template = (repository_root / "skills/setup-project/template/mise.toml.jinja").read_text(encoding="utf-8")
+    mise = tomllib.loads(re.sub(r"\[% if .*?%\].*?\[% endif %\]\n?", "", mise_template, flags=re.DOTALL))
     tooling_module = load_tooling_module(repository_root)
 
     assert "ignores user-global mise configuration" in architecture
@@ -905,6 +927,151 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
 
     with pytest.raises(SystemExit):
         load_setup_module(repository_root).canonical_language_profiles([])
+
+
+@pytest.mark.integration
+def test_python_profile_renders_exact_contract(tagged_template_source: Path, tmp_path: Path) -> None:
+    project = tmp_path / "python-profile"
+    payload = setup_generated_project(tagged_template_source, project, language_profiles=("python",))
+    mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+    hk = (project / "hk.pkl").read_text(encoding="utf-8")
+    development = (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+    reference = (project / "docs/src/reference/tooling.md").read_text(encoding="utf-8")
+
+    assert payload["language_profiles"] == ["python"]
+    assert mise["tools"]["ruff"] == "latest"
+    assert mise["tools"]["ty"] == "latest"
+    assert "aube" not in mise["tools"]
+    assert "biome" not in mise["tools"]
+    for command in (
+        "ruff check --force-exclude {{ files }}",
+        "ruff check --force-exclude --fix {{ files }}",
+        "ruff format --quiet --force-exclude --diff {{ files }}",
+        "ruff format --quiet --force-exclude {{ files }}",
+        "ty check {{ files }}",
+        "uv run pytest",
+    ):
+        assert command in hk
+    assert hk.index('["ruff"]') < hk.index('["ruff-format"]') < hk.index('["ty"]')
+    assert hk.index('["pytest"]') > hk.index('["check"]')
+    assert "Pytest must be declared by the project" in " ".join(development.split())
+    assert "Recorded language profiles: `python`" in reference
+    assert not (project / "pyproject.toml").exists()
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+    run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
+
+    bin_dir = tmp_path / "python-bin"
+    log = tmp_path / "python.log"
+    write_logging_shims(bin_dir, "ruff", "ty", "uv")
+    environment = merged_environment(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", DSTACK_SHIM_LOG=str(log))
+    (project / "scripts/check-docs.py").unlink()
+    (project / "scripts/setup-tooling.py").unlink()
+    run_command(["hk", "check", "-a", "-S", "ruff", "-S", "ruff-format", "-S", "ty"], cwd=project, env=environment)
+    assert not log.exists()
+
+    source = project / "example.py"
+    source.write_text("value=1\n", encoding="utf-8")
+    tests = project / "tests"
+    tests.mkdir()
+    (tests / "test_example.py").write_text("def test_example(): assert True\n", encoding="utf-8")
+    original = source.read_bytes()
+
+    run_command(["hk", "check", "-a", "-S", "ruff", "-S", "ruff-format", "-S", "ty"], cwd=project, env=environment)
+    check_log = log.read_text(encoding="utf-8")
+    assert "ruff check --force-exclude" in check_log
+    assert "ruff format --quiet --force-exclude --diff" in check_log
+    assert "ty check" in check_log
+    assert source.read_bytes() == original
+
+    log.write_text("", encoding="utf-8")
+    fix_environment = environment | {"DSTACK_FAIL_CHECK": "1"}
+    run_command(
+        ["hk", "fix", "-a", "-f", "-S", "ruff", "-S", "ruff-format", "-S", "ty"],
+        cwd=project,
+        env=fix_environment,
+    )
+    fix_log = log.read_text(encoding="utf-8")
+    assert "ruff check --force-exclude --fix" in fix_log
+    assert "ruff format --quiet --force-exclude" in fix_log
+
+    log.write_text("", encoding="utf-8")
+    run_command(["hk", "check", "-a", "-S", "pytest"], cwd=project, env=environment)
+    assert log.read_text(encoding="utf-8") == ""
+    (project / "pyproject.toml").write_text("[project]\nname='example'\nversion='0.1.0'\n", encoding="utf-8")
+    failed_environment = environment | {"DSTACK_FAIL_COMMAND": "uv"}
+    failure = run_command(["hk", "check", "-a", "-S", "pytest"], cwd=project, env=failed_environment, expected=1)
+    assert "requires project-owned pytest" in failure.stderr
+    log.write_text("", encoding="utf-8")
+    run_command(["hk", "check", "-a", "-S", "pytest"], cwd=project, env=environment)
+    assert "uv run python -c import pytest" in log.read_text(encoding="utf-8")
+    assert "pytest" not in run_command(["hk", "run", "pre-commit", "-a", "-P"], cwd=project).stdout
+    assert "pytest" not in run_command(["hk", "fix", "-a", "-P"], cwd=project).stdout
+
+
+@pytest.mark.integration
+def test_typescript_profile_renders_exact_contract(tagged_template_source: Path, tmp_path: Path) -> None:
+    project = tmp_path / "typescript-profile"
+    payload = setup_generated_project(tagged_template_source, project, language_profiles=("typescript",))
+    mise = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+    hk = (project / "hk.pkl").read_text(encoding="utf-8")
+    development = (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+    reference = (project / "docs/src/reference/tooling.md").read_text(encoding="utf-8")
+
+    assert payload["language_profiles"] == ["typescript"]
+    assert mise["tools"]["node"] == "lts"
+    assert mise["tools"]["aube"] == "latest"
+    assert mise["tools"]["biome"] == "latest"
+    assert list(mise["tools"]).count("node") == 1
+    assert "ruff" not in mise["tools"]
+    for command in (
+        "biome check --no-errors-on-unmatched {{ files }}",
+        "biome check --write --no-errors-on-unmatched {{ files }}",
+        "aube exec vitest --version",
+        "aube exec vitest run",
+    ):
+        assert command in hk
+    assert hk.index('["vitest"]') > hk.index('["check"]')
+    assert "Vitest must be declared by the project" in " ".join(development.split())
+    assert "Recorded language profiles: `typescript`" in reference
+    assert not (project / "package.json").exists()
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+    run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
+
+    bin_dir = tmp_path / "typescript-bin"
+    log = tmp_path / "typescript.log"
+    write_logging_shims(bin_dir, "biome", "aube")
+    environment = merged_environment(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", DSTACK_SHIM_LOG=str(log))
+    run_command(["hk", "check", "-a", "-S", "biome"], cwd=project, env=environment)
+    assert not log.exists()
+
+    source = project / "example.ts"
+    source.write_text("const value=1\n", encoding="utf-8")
+    test_file = project / "example.test.ts"
+    test_file.write_text("test('example', () => {})\n", encoding="utf-8")
+    original = source.read_bytes()
+
+    run_command(["hk", "check", "-a", "-S", "biome"], cwd=project, env=environment)
+    assert "biome check --no-errors-on-unmatched" in log.read_text(encoding="utf-8")
+    assert source.read_bytes() == original
+    log.write_text("", encoding="utf-8")
+    fix_environment = environment | {"DSTACK_FAIL_CHECK": "1"}
+    run_command(["hk", "fix", "-a", "-f", "-S", "biome"], cwd=project, env=fix_environment)
+    assert "biome check --write --no-errors-on-unmatched" in log.read_text(encoding="utf-8")
+
+    log.write_text("", encoding="utf-8")
+    run_command(["hk", "check", "-a", "-S", "vitest"], cwd=project, env=environment)
+    assert log.read_text(encoding="utf-8") == ""
+    (project / "package.json").write_text('{"name":"example","devDependencies":{"vitest":"1"}}\n', encoding="utf-8")
+    failed_environment = environment | {"DSTACK_FAIL_COMMAND": "aube"}
+    failure = run_command(["hk", "check", "-a", "-S", "vitest"], cwd=project, env=failed_environment, expected=1)
+    assert "requires project-owned Vitest" in failure.stderr
+    log.write_text("", encoding="utf-8")
+    run_command(["hk", "check", "-a", "-S", "vitest"], cwd=project, env=environment)
+    vitest_log = log.read_text(encoding="utf-8")
+    assert "aube exec vitest --version" in vitest_log
+    assert "aube exec vitest run" in vitest_log
+    assert "vitest" not in run_command(["hk", "run", "pre-commit", "-a", "-P"], cwd=project).stdout
+    assert "vitest" not in run_command(["hk", "fix", "-a", "-P"], cwd=project).stdout
 
 
 def test_setup_project_rejects_unknown_project_kind(repository_root: Path, capsys: pytest.CaptureFixture[str]) -> None:

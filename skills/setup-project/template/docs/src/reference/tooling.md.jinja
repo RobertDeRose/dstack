@@ -15,6 +15,34 @@
 The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` mdBook, uv, rumdl, typos, and
 `npm:markdown-table-formatter` releases. Both hk Pkl imports use `1.49.0`.
 
+Recorded language profiles: `[[ language_profiles | join(', ') ]]`.[% if 'python' in language_profiles %]
+
+### Python profile
+
+| Step | Check | Fix | Files |
+|------|-------|-----|-------|
+| Ruff lint | `ruff check --force-exclude` | add `--fix` | `**/*.py`, `**/*.pyi` |
+| Ruff format | `ruff format --quiet --force-exclude --diff` | omit `--diff` | `**/*.py`, `**/*.pyi` |
+| ty | `ty check` | none | `**/*.py`, `**/*.pyi` |
+| pytest | `uv run pytest` | none | root `pyproject.toml` plus `tests/**/*.py`; check only |
+
+Ruff and ty are mise-managed at `latest`; pytest is project-owned. The profile ignores `.venv/`, `__pycache__/`,
+`*.py[cod]`, `.pytest_cache/`, and `.ruff_cache/`.
+
+[% endif %][% if 'typescript' in language_profiles %]
+
+### TypeScript profile
+
+| Step | Check | Fix | Files |
+|------|-------|-----|-------|
+| Biome | `biome check --no-errors-on-unmatched` | add `--write` | `**/*.{ts,tsx,mts,cts}` |
+| Vitest | `aube exec vitest run` | none | root `package.json` plus `**/*.{test,spec}.{ts,tsx,mts,cts}`; check only |
+
+Biome and Aube are mise-managed at `latest`; Vitest is project-owned. Universal Node `lts` is reused and never
+duplicated. The profile ignores `node_modules/` and `coverage/`.
+
+[% endif %]
+
 ## Tasks
 
 | Task         | Behavior                                                             |

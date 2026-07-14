@@ -17,7 +17,19 @@ mise run docs:serve
 ```
 
 `check` is read-only. `fix` changes the working tree. The pre-commit hook may fix files while safely stashing unrelated
-unstaged work.
+unstaged work.[% if 'python' in language_profiles %]
+
+## Python
+
+Ruff lint and formatting plus ty type checking run on Python files in check, fix, and pre-commit. When root
+`pyproject.toml` and `tests/**/*.py` both exist, `mise run check` also runs `uv run pytest`. Pytest must be declared by
+the project; setup does not add or download it.[% endif %][% if 'typescript' in language_profiles %]
+
+## TypeScript
+
+Biome check/write runs on TypeScript files in check, fix, and pre-commit. The profile reuses the universal Node runtime
+and installs Aube. When root `package.json` and TypeScript test/spec files both exist, `mise run check` runs
+`aube exec vitest run`. Vitest must be declared by the project; setup does not add or download it.[% endif %]
 
 ## Hooks and recovery
 
