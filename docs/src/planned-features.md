@@ -27,13 +27,13 @@ names. Monorepo support follows only after single-package profile composition is
 
 ## Feature map
 
-| Feature                                                                             | Beads root       | Roadmap state | Dependencies | Design                                                                 |
-|-------------------------------------------------------------------------------------|------------------|---------------|--------------|------------------------------------------------------------------------|
-| `010-purposeful-project-scaffold` — Purposeful project scaffold                     | `dstack-mol-ln9` | delivered     | —            | [Design](features/010-purposeful-project-scaffold/design.md)           |
-| `020-universal-project-tooling` — Universal project tooling                         | `dstack-mol-lg3` | delivered     | —            | [Design](features/020-universal-project-tooling/design.md)             |
-| `030-language-quality-profiles` — Language quality profiles                         | `dstack-mol-ni2` | design        | F020         | [Design](features/030-language-quality-profiles/design.md)             |
-| `040-github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | design        | F010, F020   | [Design](features/040-github-validation-and-docs-deployment/design.md) |
-| `050-monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | blocked       | F030         | [Design](features/050-monorepo-tooling-layout/design.md)               |
+| Feature                                                                             | Beads root       | Roadmap state  | Dependencies | Design                                                                 |
+|-------------------------------------------------------------------------------------|------------------|----------------|--------------|------------------------------------------------------------------------|
+| `010-purposeful-project-scaffold` — Purposeful project scaffold                     | `dstack-mol-ln9` | delivered      | —            | [Design](features/010-purposeful-project-scaffold/design.md)           |
+| `020-universal-project-tooling` — Universal project tooling                         | `dstack-mol-lg3` | delivered      | —            | [Design](features/020-universal-project-tooling/design.md)             |
+| `030-language-quality-profiles` — Language quality profiles                         | `dstack-mol-ni2` | implementation | F020         | [Design](features/030-language-quality-profiles/design.md)             |
+| `040-github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | design         | F010, F020   | [Design](features/040-github-validation-and-docs-deployment/design.md) |
+| `050-monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | blocked        | F030         | [Design](features/050-monorepo-tooling-layout/design.md)               |
 
 ## Cross-cutting decisions
 
@@ -42,8 +42,8 @@ names. Monorepo support follows only after single-package profile composition is
   `mise.lock` for determinism.
 - Project kinds are library, CLI, service, application, infrastructure, documentation, and other.
 - Setup requires purpose, intended users, current scope, and boundaries; pages without concrete content are omitted.
-- Initial language profiles are Python, TypeScript, Rust, Go, Elixir, Nix, and none/other. TypeScript uses Aube.
-  Profiles do not generate application manifests or source.
+- Initial language profiles are Python, TypeScript, Rust, Go, Elixir, Nix, and other. TypeScript uses Aube. Profiles do
+  not generate application manifests or source; the Nix profile intentionally excludes macOS x64.
 - GitHub validation is generated universally. Pages deployment is committed but gated by `DOCS_DEPLOYMENT_ENABLED`; an
   explicit gh-backed mise task enables it.
 - Monorepo support is later work and must not complicate the first single-package delivery.
@@ -55,5 +55,5 @@ about current stable mise support for package-local configuration.
 
 ## Recommended next work
 
-Continue with `/start-feature 030-language-quality-profiles`. F020 provides the reviewed universal tooling baseline that
-F030 extends.
+Continue with `/implement-feature 030-language-quality-profiles`. Its first task adds the reviewed profile selection,
+setup/update, composition, and structural matrix contract.
