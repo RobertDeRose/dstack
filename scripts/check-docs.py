@@ -163,7 +163,7 @@ def marked_region(
     return markdown[start:end]
 
 
-def validate_links(root: Path, markdown_files: Iterable[Path]) -> list[Finding]:
+def validate_links(root: Path, markdown_files: Iterable[Path], published_files: set[Path]) -> list[Finding]:
     findings: list[Finding] = []
     for source in markdown_files:
         text = read_text(source)
@@ -176,6 +176,15 @@ def validate_links(root: Path, markdown_files: Iterable[Path]) -> list[Finding]:
                     code="broken-link",
                     path=source,
                     message=f"Link target does not exist: {target}",
+                    root=root,
+                )
+            elif source.resolve() in published_files and resolved.name == "design.md":
+                add(
+                    findings,
+                    severity="error",
+                    code="internal-design-link",
+                    path=source,
+                    message=f"Published reader page links to an unpublished internal design: {target}",
                     root=root,
                 )
     return findings
@@ -396,11 +405,11 @@ def validate_feature_files(root: Path, *, migration_mode: bool) -> list[Finding]
 
 
 def validate(root: Path, *, migration_mode: bool) -> list[Finding]:
-    findings, _ = validate_summary(root, migration_mode=migration_mode)
+    findings, published_files = validate_summary(root, migration_mode=migration_mode)
     findings.extend(validate_feature_files(root, migration_mode=migration_mode))
     docs_src = root / "docs/src"
     markdown_files = sorted(docs_src.rglob("*.md")) if docs_src.exists() else []
-    findings.extend(validate_links(root, markdown_files))
+    findings.extend(validate_links(root, markdown_files, published_files))
     return findings
 
 

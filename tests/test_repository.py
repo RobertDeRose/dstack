@@ -2938,6 +2938,7 @@ def test_documentation_checker_copies_are_identical(repository_root: Path) -> No
     [
         ("broken-link", "broken-link"),
         ("internal-design", "internal-design-in-summary"),
+        ("internal-design-link", "internal-design-link"),
         ("task-navigation", "task-file-in-summary"),
         ("invalid-markers", "invalid-implemented-feature-markers"),
         ("reversed-markers", "reversed-implemented-feature-markers"),
@@ -2968,6 +2969,9 @@ def test_documentation_checker_preserves_existing_safety_contracts(
             summary.read_text(encoding="utf-8") + "- [Design](features/010-alpha/design.md)\n",
             encoding="utf-8",
         )
+    elif case == "internal-design-link":
+        overview = docs / "overview.md"
+        overview.write_text("# Overview\n\n[Internal design](features/010-alpha/design.md)\n", encoding="utf-8")
     elif case == "task-navigation":
         (feature / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
         summary.write_text(

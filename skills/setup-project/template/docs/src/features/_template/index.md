@@ -6,7 +6,6 @@
 - Status: delivered
 - Pull request: `{{ pull_request }}`
 - Merge commit: `{{ merge_commit }}`
-- Design record: [design.md](design.md)
 
 ## Delivered Capability
 
