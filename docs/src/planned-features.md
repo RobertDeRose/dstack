@@ -27,13 +27,13 @@ names. Monorepo support follows only after single-package profile composition is
 
 ## Feature map
 
-| Feature                                                                             | Beads root       | Roadmap state | Dependencies | Design                                                                 |
-|-------------------------------------------------------------------------------------|------------------|---------------|--------------|------------------------------------------------------------------------|
-| `010-purposeful-project-scaffold` — Purposeful project scaffold                     | `dstack-mol-ln9` | delivered     | —            | [Design](features/010-purposeful-project-scaffold/design.md)           |
-| `020-universal-project-tooling` — Universal project tooling                         | `dstack-mol-lg3` | delivered     | —            | [Design](features/020-universal-project-tooling/design.md)             |
-| `030-language-quality-profiles` — Language quality profiles                         | `dstack-mol-ni2` | delivered     | F020         | [Design](features/030-language-quality-profiles/design.md)             |
-| `040-github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | design        | F010, F020   | [Design](features/040-github-validation-and-docs-deployment/design.md) |
-| `050-monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | blocked       | F030         | [Design](features/050-monorepo-tooling-layout/design.md)               |
+| Feature                                                                             | Beads root       | Roadmap state  | Dependencies | Design                                                                 |
+|-------------------------------------------------------------------------------------|------------------|----------------|--------------|------------------------------------------------------------------------|
+| `010-purposeful-project-scaffold` — Purposeful project scaffold                     | `dstack-mol-ln9` | delivered      | —            | [Design](features/010-purposeful-project-scaffold/design.md)           |
+| `020-universal-project-tooling` — Universal project tooling                         | `dstack-mol-lg3` | delivered      | —            | [Design](features/020-universal-project-tooling/design.md)             |
+| `030-language-quality-profiles` — Language quality profiles                         | `dstack-mol-ni2` | delivered      | F020         | [Design](features/030-language-quality-profiles/design.md)             |
+| `040-github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | implementation | F010, F020   | [Design](features/040-github-validation-and-docs-deployment/design.md) |
+| `050-monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | blocked        | F030         | [Design](features/050-monorepo-tooling-layout/design.md)               |
 
 ## Cross-cutting decisions
 
@@ -55,5 +55,5 @@ about current stable mise support for package-local configuration.
 
 ## Recommended next work
 
-Continue with `/start-feature 040-github-validation-and-docs-deployment`; it can now consume the stable generated task
-and profile contracts.
+Continue with `/implement-feature 040-github-validation-and-docs-deployment`; its first ready tasks generate validation,
+deployment, and external-gh enablement on disjoint surfaces.
