@@ -151,7 +151,8 @@ useful work or use event-driven waiting.
 
 Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject must use `<type>(<scope>): <summary>` or
 `<type>(<scope>)!: <summary>`, with a scope from `cog.toml`. Omitted internal types may be unscoped; release commits use
-`release: vX.Y.Z`. Choose the owning subsystem, not a feature number or incidental file name.
+`release: vX.Y.Z`. Choose the owning subsystem from the README's Commit scopes table, not a feature number or incidental
+file name. When scopes change, update `cog.toml`, the README table, and this guidance together.
 
 When a body records multiple discrete changes, decisions, or validation results, prefer a Markdown `-` list with one
 idea per item. Use prose when sequence, causality, or rationale cannot be adequately expressed as a list; do not force a

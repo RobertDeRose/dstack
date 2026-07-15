@@ -57,4 +57,18 @@ mise run docs:serve
 
 Run the complete quality contract with `mise run check`; apply deterministic fixes with `mise run fix`.
 
+## Commit scopes
+
+Changelog-visible `feat`, `fix`, `perf`, and `refactor` commits require a semantic subsystem scope. Generated projects
+initially accept any syntactically valid scope because project boundaries are not known to the template.
+
+When the stable subsystems are known:
+
+1. Add a `scopes = ["..."]` allowlist to `cog.toml`.
+2. Replace this guidance with a short table describing when each scope applies.
+3. Update the Commit messages section in `AGENTS.md` so agents use the same taxonomy.
+
+Prefer stable ownership boundaries over feature numbers, ticket identifiers, action names, or incidental files. Run
+`cog check` after changing the allowlist.
+
 The project was generated from `RobertDeRose/dstack` with Copier. Commit the scaffold before applying future template updates with `/update-project` or `copier update --defaults`.

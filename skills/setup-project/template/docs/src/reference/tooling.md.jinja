@@ -27,7 +27,11 @@ Recorded language profiles: `[[ language_profiles | join(', ') ]]`.
 Changelog-visible `feat`, `fix`, `perf`, and `refactor` commits require a semantic scope. The commit hook also checks
 Conventional Commit syntax, grammar, a 72-character subject, 100-character body lines, and canonical optional `Beads:`
 footers. Internal build, chore, CI, documentation, release, style, and test commits are omitted from `cog changelog`.
-Breaking changes render as plain Markdown.[% if language_profiles == ['other'] %]
+Breaking changes render as plain Markdown.
+
+The generated `cog.toml` initially accepts any syntactically valid scope. To constrain scopes, add a `scopes = ["..."]`
+allowlist, document each stable subsystem in README when present or on this page otherwise, and update `AGENTS.md` so
+agents apply the same taxonomy. Run `cog check` after changing the allowlist.[% if language_profiles == ['other'] %]
 
 No recognized language profile is active; only the universal tooling baseline is
 configured.[% endif %][% if 'python' in language_profiles %]

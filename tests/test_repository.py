@@ -463,6 +463,10 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in root_agents
     assert "Omitted internal types may be unscoped" in root_agents
     assert "release: vX.Y.Z" in root_agents
+    assert "README's Commit scopes table" in root_agents
+    root_readme = (repository_root / "README.md").read_text(encoding="utf-8")
+    for scope in ("audit", "docs", "github", "profiles", "repo", "skill", "template", "toolchain", "workflow"):
+        assert f"`{scope}`" in root_readme
     root_hk = (repository_root / "hk.pkl").read_text(encoding="utf-8")
     assert "commit_message_scope" in root_hk
     assert "changelog-visible commit subject must use type(scope): summary" in root_hk
@@ -1996,6 +2000,9 @@ def test_setup_project_uses_directory_name_and_preserves_template_tokens(
     design_template = (project / "docs/src/features/_template/design.md").read_text(encoding="utf-8")
     assert "{{ feature_slug }}" in design_template
     assert "feature_number" not in design_template
+    generated_readme = (project / "README.md").read_text(encoding="utf-8")
+    assert 'Add a `scopes = ["..."]` allowlist to `cog.toml`' in generated_readme
+    assert "Update the Commit messages section in `AGENTS.md`" in generated_readme
     assert (project / ".beads/formulas/dstack-feature.formula.toml").is_file()
 
     run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
@@ -2882,15 +2889,12 @@ def test_release_commits_are_omitted_from_cocogitto_changelogs(repository_root: 
     assert config["scopes"] == [
         "audit",
         "docs",
-        "git",
         "github",
-        "history",
-        "hooks",
         "profiles",
-        "scaffold",
-        "setup",
-        "tooling",
-        "update",
+        "repo",
+        "skill",
+        "template",
+        "toolchain",
         "workflow",
     ]
     assert config["changelog"]["template"] == ".config/cog-changelog.tera"
@@ -2912,7 +2916,7 @@ def test_cocogitto_ignores_release_commits(repository_root: Path, tmp_path: Path
     configure_project_git(tmp_path)
     (tmp_path / "change.txt").write_text("visible\n", encoding="utf-8")
     run_command(["git", "add", "change.txt", "cog.toml"], cwd=tmp_path)
-    run_command(["git", "commit", "-m", "feat(scaffold): add visible change"], cwd=tmp_path)
+    run_command(["git", "commit", "-m", "feat(template): add visible change"], cwd=tmp_path)
     run_command(["git", "commit", "--allow-empty", "-m", "docs(docs): update internal notes"], cwd=tmp_path)
     run_command(["git", "commit", "--allow-empty", "-m", "refactor(workflow)!: change interface"], cwd=tmp_path)
     run_command(["git", "commit", "--allow-empty", "-m", "release: v1.0.0"], cwd=tmp_path)
