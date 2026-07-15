@@ -1035,6 +1035,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit(message)
 
     answers = destination / args.answers_file
+    answer_text = answers.read_text(encoding="utf-8")
     answer_data = load_answers(answers)
     source = str(answer_data.get("_src_path") or "").strip()
     if not source:
@@ -1093,7 +1094,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if not args.pretend:
         current_answers = load_answers(answers)
-        write_copier_state(answers, current_answers, commit=verified_source_commit, channel=channel)
+        normalized_answers = {
+            **current_answers,
+            "_commit": verified_source_commit,
+            "dstack_template_channel": channel,
+        }
+        if normalized_answers == answer_data:
+            answers.write_text(answer_text, encoding="utf-8")
+        else:
+            write_copier_state(answers, current_answers, commit=verified_source_commit, channel=channel)
 
     conflicts: list[str] = []
     docs_validated = False

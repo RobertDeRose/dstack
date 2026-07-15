@@ -2691,6 +2691,13 @@ def test_update_project_persists_unstable_channel_and_exact_commits(
     assert second_answers["_commit"] == second_commit
     assert (project / ".dstack-release").read_text(encoding="utf-8") == "unstable two\n"
 
+    commit_repository(project, "Apply second unstable update")
+    answer_text = (project / ".copier-answers.yml").read_text(encoding="utf-8")
+    third = json.loads(run_command(command, cwd=tagged_template_source, env=environment).stdout)
+    assert third["changed_files"] == []
+    assert (project / ".copier-answers.yml").read_text(encoding="utf-8") == answer_text
+    assert run_command(["git", "status", "--porcelain"], cwd=project).stdout == ""
+
 
 @pytest.mark.integration
 def test_update_project_persists_exact_state_before_later_validation_failure(
