@@ -117,7 +117,7 @@ Manifest-backed tests and expensive project checks run only under `mise run chec
 
 ## Existing Context
 
-Universal project tooling owns the universal seven-tool baseline, stable five tasks, one mise/hk policy, four-platform
+Universal project tooling owns the universal nine-tool baseline, stable five tasks, one mise/hk policy, four-platform
 lock, conflict gate, provisioner, and generated tooling pages. Language quality profiles extends those surfaces and
 preserves their recovery and trust boundaries.
 

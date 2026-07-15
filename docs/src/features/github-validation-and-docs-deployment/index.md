@@ -32,7 +32,7 @@ prints the Pages URL. Failures stop without claiming success and include exact m
 ## Design Integration
 
 GitHub validation and docs deployment reuses Universal project tooling's committed lock, named tasks, hk policy, and
-generated documentation. It adds no second CI quality policy and does not add `gh` to the seven universal mise tools.
+generated documentation. It adds no second CI quality policy and does not add `gh` to the nine universal mise tools.
 Copier renders repository files but never changes GitHub state; only the explicit administrator task crosses that
 boundary. Language quality profiles profiles compose underneath the same workflows without changing their triggers,
 permissions, or commands.
@@ -68,7 +68,7 @@ produces a nonzero result with installation or manual recovery guidance.
 ### Delivered as Designed
 
 Locked local/CI parity, full action pins, least-privilege job permissions, default-branch-only Pages deployment, exact
-repository gating, external-`gh` administration, safe mutation ordering, seven tools, six tasks, standalone generated
+repository gating, external-`gh` administration, safe mutation ordering, nine tools, six tasks, standalone generated
 operations documentation, both Copier entry points, and conflict-free updates match the reviewed design.
 
 ### Intentional Changes

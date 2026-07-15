@@ -456,6 +456,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "Do not rerun a successful check unless relevant inputs changed" in normalized_agents
         assert "timeboxed fact-finding with explicit exit criteria is `spike`" in normalized_agents
         assert "Labels and metadata, not extra issue types" in normalized_agents
+        assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in normalized_agents
+        assert "prefer a Markdown `-` list with one idea per item" in normalized_agents
+        assert "Use prose when sequence, causality, or rationale" in normalized_agents
     root_agents = (repository_root / "AGENTS.md").read_text(encoding="utf-8")
     assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in root_agents
     assert "Omitted internal types may be unscoped" in root_agents
@@ -648,6 +651,8 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
         "mise.lock",
         "hk.pkl",
         ".config/rumdl.toml",
+        "cog.toml",
+        ".config/cog-changelog.tera",
         "scripts/setup-tooling.py",
         "scripts/enable-docs-deployment.py",
         ".github/workflows/validate.yml",
@@ -987,6 +992,8 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
             }
             expected_tools = {
                 "hk": "1.49.0",
+                "cocogitto": "latest",
+                "harper-cli": "latest",
                 "node": "lts",
                 "mdbook": "latest",
                 "uv": "latest",
@@ -1011,6 +1018,11 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
                 assert (f"### {heading} profile" in reference) == selected
             assert ("No recognized language profile is active" in development) == (profiles == ["other"])
             assert ("No recognized language profile is active" in reference) == (profiles == ["other"])
+            assert (project / "cog.toml").is_file()
+            assert (project / ".config/cog-changelog.tera").is_file()
+            assert "commit_message_scope" in hk
+            assert "cocogitto_commit_msg" in hk
+            assert "harper_commit_message" in hk
             summary = (project / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
             assert "development/tooling.md" in summary
             assert "operations/github-pages.md" in summary
@@ -1987,6 +1999,17 @@ def test_setup_project_uses_directory_name_and_preserves_template_tokens(
     assert (project / ".beads/formulas/dstack-feature.formula.toml").is_file()
 
     run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
+    good_message = project / "good-commit.txt"
+    missing_scope = project / "missing-scope.txt"
+    good_message.write_text("fix(workflow): valid scope\n\nBeads: example-abc\n", encoding="utf-8")
+    missing_scope.write_text("fix: missing scope\n\nBeads: example-abc\n", encoding="utf-8")
+    run_command(["hk", "run", "--quiet", "commit-msg", str(good_message)], cwd=project)
+    result = run_command(
+        ["hk", "run", "--quiet", "commit-msg", str(missing_scope)],
+        cwd=project,
+        expected=1,
+    )
+    assert "changelog-visible commit subject must use type(scope): summary" in result.stderr
 
 
 @pytest.mark.integration
@@ -2037,6 +2060,8 @@ def test_setup_project_renders_the_factual_book_matrix(
         mise_config = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
         assert mise_config["tools"] == {
             "hk": "1.49.0",
+            "cocogitto": "latest",
+            "harper-cli": "latest",
             "node": "lts",
             "mdbook": "latest",
             "uv": "latest",
@@ -2072,6 +2097,10 @@ def test_setup_project_renders_the_factual_book_matrix(
         hk_config = (project / "hk.pkl").read_text(encoding="utf-8")
         assert hk_config.count("v1.49.0/hk@1.49.0") == 2
         assert hk_config.count('stash = "git"') == 1
+        assert '"commit-msg"' in hk_config
+        assert "commit_message_scope" in hk_config
+        assert "cocogitto_commit_msg" in hk_config
+        assert "harper_commit_message" in hk_config
         step_config = hk_config.split("\nhooks {", 1)[0]
         assert set(re.findall(r'^  \["([^\"]+)"\] =', step_config, flags=re.MULTILINE)) == {
             "byte_order_marker",
@@ -2228,7 +2257,7 @@ def test_generated_tooling_contract_end_to_end(
     readme = project / "README.md"
     readme.write_text(readme.read_text(encoding="utf-8") + "\nUnstaged project note.\n", encoding="utf-8")
 
-    run_command(["git", "commit", "-m", "Exercise installed hook"], cwd=project)
+    run_command(["git", "commit", "-m", "test(tooling): exercise installed hook"], cwd=project)
     run_command(["mise", "fmt", "--check"], cwd=project)
     assert readme.read_text(encoding="utf-8").endswith("\nUnstaged project note.\n")
     assert markdown.is_file()
@@ -2838,9 +2867,16 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
 def test_release_commits_are_omitted_from_cocogitto_changelogs(repository_root: Path) -> None:
     config_path = repository_root / "cog.toml"
     config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    generated_config = tomllib.loads(
+        (repository_root / "skills/setup-project/template/cog.toml").read_text(encoding="utf-8")
+    )
 
     root_template = repository_root / ".config/cog-changelog.tera"
-    assert root_template.is_file()
+    generated_template = repository_root / "skills/setup-project/template/.config/cog-changelog.tera"
+    assert root_template.read_bytes() == generated_template.read_bytes()
+    assert "scopes" not in generated_config
+    for key in ("from_latest_tag", "tag_prefix", "commit_types", "changelog"):
+        assert generated_config[key] == config[key]
     assert config["from_latest_tag"] is True
     assert config["tag_prefix"] == "v"
     assert config["scopes"] == [

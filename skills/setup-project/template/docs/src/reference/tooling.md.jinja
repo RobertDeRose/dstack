@@ -8,6 +8,8 @@
 | `mise.lock`                         | Project-owned resolved downloads; commit it.                                |
 | `hk.pkl`                            | Defines the shared check/fix/pre-commit step map.                           |
 | `.config/rumdl.toml`                | Configures Markdown linting and deterministic fixes.                        |
+| `cog.toml`                          | Configures Conventional Commits and concise changelogs.                     |
+| `.config/cog-changelog.tera`        | Renders plain Markdown changelogs without author noise.                     |
 | `scripts/setup-tooling.py`          | Resolves the lock, installs tools, installs hooks, and returns JSON status. |
 | `scripts/enable-docs-deployment.py` | Configures workflow-built Pages through external `gh`.                      |
 | `.github/workflows/validate.yml`    | Runs locked `mise run check` on pushes and pull requests.                   |
@@ -15,10 +17,17 @@
 
 ## Tools
 
-The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` mdBook, uv, rumdl, typos, and
-`npm:markdown-table-formatter` releases. Both hk Pkl imports use `1.49.0`.
+The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` Cocogitto, Harper CLI, mdBook, uv, rumdl, typos,
+and `npm:markdown-table-formatter` releases. Both hk Pkl imports use `1.49.0`.
 
-Recorded language profiles: `[[ language_profiles | join(', ') ]]`.[% if language_profiles == ['other'] %]
+Recorded language profiles: `[[ language_profiles | join(', ') ]]`.
+
+## Commit messages and changelogs
+
+Changelog-visible `feat`, `fix`, `perf`, and `refactor` commits require a semantic scope. The commit hook also checks
+Conventional Commit syntax, grammar, a 72-character subject, 100-character body lines, and canonical optional `Beads:`
+footers. Internal build, chore, CI, documentation, release, style, and test commits are omitted from `cog changelog`.
+Breaking changes render as plain Markdown.[% if language_profiles == ['other'] %]
 
 No recognized language profile is active; only the universal tooling baseline is
 configured.[% endif %][% if 'python' in language_profiles %]
@@ -119,7 +128,7 @@ POSIX-shell task contract.
 The mise environment routes hooks through mise with `HK_MISE=1` and sets `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`, so
 Git rejects merges that require a merge commit.
 
-The universal tool count remains seven; `gh` is an external administrative prerequisite, not a mise tool. Pages requires
+The universal tool count remains nine; `gh` is an external administrative prerequisite, not a mise tool. Pages requires
 `build_type=workflow` plus `DOCS_DEPLOYMENT_ENABLED=true`. The build job has `contents: read`; only the deploy job has
 `pages: write` and `id-token: write`.
 

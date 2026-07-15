@@ -1,6 +1,84 @@
 amends "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Config.pkl"
 import "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Builtins.pkl"
 
+local commit_message_beads = new Step {
+  check =
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      /^(Refs?|Tasks?|Issues?):/ {
+        printf "use the canonical Beads: footer instead of: %s\n", $0 > "/dev/stderr"
+        failed = 1
+      }
+      /^Beads:/ {
+        beads += 1
+        if ($0 !~ /^Beads: [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*(, [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*)*$/) {
+          printf "invalid Beads footer: %s\n", $0 > "/dev/stderr"
+          failed = 1
+        }
+      }
+      NF { last = $0 }
+      END {
+        if (beads > 1) {
+          print "commit message must contain at most one Beads: footer" > "/dev/stderr"
+          failed = 1
+        }
+        if (beads == 1 && last !~ /^Beads:/) {
+          print "Beads: must be the final nonblank line" > "/dev/stderr"
+          failed = 1
+        }
+        exit failed
+      }
+    ' {{commit_msg_file}}
+    """#
+}
+
+local commit_message_length = new Step {
+  check =
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      {
+        line += 1
+        limit = line == 1 ? 72 : 100
+        if (length($0) > limit) {
+          printf "commit message line %d is %d characters; maximum is %d\n", line, length($0), limit > "/dev/stderr"
+          failed = 1
+        }
+      }
+      END { exit failed }
+    ' {{commit_msg_file}}
+    """#
+}
+
+local commit_message_scope = new Step {
+  check =
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      NF {
+        if ($0 ~ /^(feat|fix|perf|refactor)!?: /) {
+          print "changelog-visible commit subject must use type(scope): summary" > "/dev/stderr"
+          exit 1
+        }
+        exit 0
+      }
+    ' {{commit_msg_file}}
+    """#
+}
+
+local harper_commit_message = (Builtins.harper_commit_message) {
+  check =
+    "harper-cli lint --quiet --no-color --ignore "
+      + "SentenceCapitalization,SpellCheck,SplitWords,RoadMap,OrthographicConsistency {{commit_msg_file}}"
+}
+
 local linters = new Mapping<String, Step> {
   ["byte_order_marker"] = Builtins.byte_order_marker
   ["check_case_conflict"] = Builtins.check_case_conflict
@@ -107,6 +185,15 @@ local linters = new Mapping<String, Step> {
 }
 
 hooks {
+  ["commit-msg"] {
+    steps {
+      ["cocogitto_commit_msg"] = Builtins.cocogitto_commit_msg
+      ["harper_commit_message"] = harper_commit_message
+      ["commit_message_beads"] = commit_message_beads
+      ["commit_message_length"] = commit_message_length
+      ["commit_message_scope"] = commit_message_scope
+    }
+  }
   ["pre-commit"] {
     fix = true
     stash = "git"

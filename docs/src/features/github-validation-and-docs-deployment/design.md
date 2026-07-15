@@ -147,7 +147,7 @@ workflows remain separately specified product behavior.
 Add two unconditional workflow templates, one generated stdlib enable helper, one mise operator task, one generated
 operations page, and updates to existing generated tooling/reference pages. Validation consumes the five stable
 Universal project tooling tasks without adding policy. GitHub validation and docs deployment intentionally extends the
-shared mise interface from five to six tasks while retaining seven universal tools because `gh` is external.
+shared mise interface from five to six tasks while retaining nine universal tools because `gh` is external.
 
 ## Architecture Consistency
 
@@ -169,7 +169,7 @@ shared mise interface from five to six tasks while retaining seven universal too
 
 - GitHub Actions is the generated CI provider.
 - Feature designs and generated operations documentation remain published mdBook chapters.
-- The generated task set becomes six; the universal tool set remains seven.
+- The generated task set becomes six; the universal tool set remains nine.
 - `DOCS_DEPLOYMENT_ENABLED` and Pages `build_type=workflow` jointly gate delivery.
 
 ### Architecture Documentation Changes
@@ -209,7 +209,7 @@ Every page has one implementation commit owner. No new root reader page is neede
 - Parse workflows as YAML; run actionlint and zizmor on rendered workflows.
 - Assert exact pins, events, rendered default branch, job gates, permissions, environment, artifact path, locked
   install, and named tasks.
-- Assert tool count stays seven and task set becomes the existing five plus `docs:deployment:enable`.
+- Assert tool count stays nine and task set becomes the existing five plus `docs:deployment:enable`.
 - Run mocked helper cases without network credentials.
 - Exercise conflict-free Copier update and verify project-owned workflow edits follow normal Copier conflict handling
   while repository variables remain out of template state.

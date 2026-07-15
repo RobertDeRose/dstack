@@ -26,7 +26,7 @@ code until the user resolves and accounts for the update.
 ## Design Integration
 
 Copier remains a local renderer; the generated stdlib provisioner owns network-backed tooling state. Provisioning
-ignores user-global mise tools so the committed lock represents only the seven project tools. One serialized hk step map
+ignores user-global mise tools so the committed lock represents only the nine project tools. One serialized hk step map
 powers read-only checks, explicit fixes, and pre-commit fixes with Git stashing. Language quality profiles can extend
 this baseline with language profiles, and GitHub validation and docs deployment can consume its stable task names.
 
@@ -60,7 +60,7 @@ Manual recovery uses `python3 scripts/setup-tooling.py --json` and the additiona
 
 ### Delivered as Designed
 
-The exact seven-tool baseline, synchronized hk/Pkl pin, five stable tasks, four-platform lock, separate provisioning
+The exact nine-tool baseline, synchronized hk/Pkl pin, five stable tasks, four-platform lock, separate provisioning
 stages, generated tooling pages, setup/update ownership, failure recovery, and root reader documentation match the
 reviewed design.
 

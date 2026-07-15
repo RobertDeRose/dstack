@@ -94,10 +94,12 @@ and release commits may be unscoped.
 
 | Path                                  | Contract                                                                       |
 |---------------------------------------|--------------------------------------------------------------------------------|
-| `mise.toml`                           | Declares seven tools, six tasks, hk routing, and fast-forward-only merges.     |
+| `mise.toml`                           | Declares nine tools, six tasks, hk routing, and fast-forward-only merges.      |
 | `mise.lock`                           | Project-owned, nonempty resolved lock for four supported platforms; commit it. |
 | `hk.pkl`                              | One shared step map for `check`, `fix`, and `pre-commit`.                      |
 | `.config/rumdl.toml`                  | Markdown policy compatible with the generated scaffold.                        |
+| `cog.toml`                            | Conventional Commit and changelog policy.                                      |
+| `.config/cog-changelog.tera`          | Concise plain-Markdown changelog template.                                     |
 | `scripts/setup-tooling.py`            | Stdlib provisioner used by setup, update, and manual recovery.                 |
 | `scripts/enable-docs-deployment.py`   | External-`gh` Pages configuration and enablement helper.                       |
 | `.github/workflows/validate.yml`      | Locked push and pull-request validation with `contents: read`.                 |
@@ -118,6 +120,8 @@ as its last mutation, and returns the Pages `html_url`; external `gh` is not a u
 | Tool                           | Template version |
 |--------------------------------|------------------|
 | `hk`                           | `1.49.0`         |
+| `cocogitto`                    | `latest`         |
+| `harper-cli`                   | `latest`         |
 | `node`                         | `lts`            |
 | `mdbook`                       | `latest`         |
 | `uv`                           | `latest`         |

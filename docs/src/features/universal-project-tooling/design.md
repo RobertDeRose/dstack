@@ -145,7 +145,7 @@ application.
 
 ## Proposed Design
 
-Render the literal seven-tool baseline, one hk mapping, a project-local provisioner, and two concrete tooling pages.
+Render the literal nine-tool baseline, one hk mapping, a project-local provisioner, and two concrete tooling pages.
 Setup and update call the same provisioner while retaining their existing orchestration and reporting ownership.
 
 ## Architecture Consistency
@@ -176,7 +176,7 @@ Local customizations remain subject to Copier conflict handling.
 ## Validation Strategy
 
 - Structural matrix: every project kind, both Copier entrypoints, README kept/deleted.
-- Config assertions: exact seven tools, synchronized hk versions, exact tasks/checks/hooks/ignores, loadable mise/hk
+- Config assertions: exact nine tools, synchronized hk versions, exact tasks/checks/hooks/ignores, loadable mise/hk
   config.
 - Setup/update simulations: success, missing mise, skip, lock/install/hook failure, no Git, Copier conflict, stale lock.
 - One representative marked live project: create lock, install locked tools, list tasks, build/check docs, run
@@ -208,7 +208,7 @@ Each task is one reviewed commit and owns only the documentation named in its Be
 
 ## Resolved Decisions
 
-- Universal baseline is one seven-tool mise/hk policy, not a copy of dstack's root config.
+- Universal baseline is one nine-tool mise/hk policy, not a copy of dstack's root config.
 - Aliases are resolved per project; hk stays pinned to synchronize its versioned Pkl interface.
 - Lock resolution is explicit before locked installation and owned by both setup and update paths.
 - Hook installation is separate from tool installation; no implicit mise post-install hook.
