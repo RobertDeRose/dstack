@@ -1,6 +1,40 @@
 amends "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Config.pkl"
 import "package://github.com/jdx/hk/releases/download/v1.49.0/hk@1.49.0#/Builtins.pkl"
 
+local commit_message_beads = new Step {
+  check =
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      /^(Refs?|Tasks?|Issues?):/ {
+        printf "use the canonical Beads: footer instead of: %s\n", $0 > "/dev/stderr"
+        failed = 1
+      }
+      /^Beads:/ {
+        beads += 1
+        if ($0 !~ /^Beads: [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*(, [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*)*$/) {
+          printf "invalid Beads footer: %s\n", $0 > "/dev/stderr"
+          failed = 1
+        }
+      }
+      NF { last = $0 }
+      END {
+        if (beads > 1) {
+          print "commit message must contain at most one Beads: footer" > "/dev/stderr"
+          failed = 1
+        }
+        if (beads == 1 && last !~ /^Beads:/) {
+          print "Beads: must be the final nonblank line" > "/dev/stderr"
+          failed = 1
+        }
+        exit failed
+      }
+    ' {{commit_msg_file}}
+    """#
+}
+
 local commit_message_length = new Step {
   check =
     #"""
@@ -77,6 +111,7 @@ hooks {
     steps {
       ["cocogitto_commit_msg"] = Builtins.cocogitto_commit_msg
       ["harper_commit_message"] = harper_commit_message
+      ["commit_message_beads"] = commit_message_beads
       ["commit_message_length"] = commit_message_length
     }
   }
