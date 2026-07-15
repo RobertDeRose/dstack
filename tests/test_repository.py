@@ -2815,6 +2815,37 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
         assert not (project / relative).exists(), relative
 
 
+def test_release_commits_are_omitted_from_cocogitto_changelogs(repository_root: Path) -> None:
+    config_path = repository_root / "cog.toml"
+    template_path = repository_root / "skills/setup-project/template/cog.toml"
+    config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+
+    assert config_path.read_bytes() == template_path.read_bytes()
+    assert config["from_latest_tag"] is True
+    assert config["tag_prefix"] == "v"
+    assert config["commit_types"]["release"] == {
+        "changelog_title": "",
+        "omit_from_changelog": True,
+    }
+
+
+@pytest.mark.external
+def test_cocogitto_ignores_release_commits(repository_root: Path, tmp_path: Path) -> None:
+    shutil.copyfile(repository_root / "cog.toml", tmp_path / "cog.toml")
+    run_command(["git", "init", "--initial-branch=main"], cwd=tmp_path)
+    configure_project_git(tmp_path)
+    (tmp_path / "change.txt").write_text("visible\n", encoding="utf-8")
+    run_command(["git", "add", "change.txt", "cog.toml"], cwd=tmp_path)
+    run_command(["git", "commit", "-m", "feat: add visible change"], cwd=tmp_path)
+    run_command(["git", "commit", "--allow-empty", "-m", "release: v1.0.0"], cwd=tmp_path)
+
+    result = run_command(["cog", "changelog"], cwd=tmp_path)
+
+    assert result.stderr == ""
+    assert "add visible change" in result.stdout
+    assert "release: v1.0.0" not in result.stdout
+
+
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
     script = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
         encoding="utf-8"

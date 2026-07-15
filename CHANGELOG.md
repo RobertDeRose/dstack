@@ -7,14 +7,14 @@
 ### Bug Fixes
 
 - Reject recursive Beads relationships
-  ([`06ada6e`](https://github.com/RobertDeRose/dstack/commit/06ada6eb683ea72f12e8c733ec568d7c4f695130))
+  ([`4c33557`](https://github.com/RobertDeRose/dstack/commit/4c3355776f572e8747f77e9ee82d3d0f0af05a79))
 
 ## v0.2.0 (2026-07-12)
 
 ### Features
 
 - Make feature selection and migration explicit
-  ([`6048e87`](https://github.com/RobertDeRose/dstack/commit/6048e87804be0cb86573e23e53ece7fe942ef507))
+  ([`8a59362`](https://github.com/RobertDeRose/dstack/commit/8a59362142cbc7df381d0e251e5224fc5258fdba))
 
 ## v0.1.0 (2026-07-12)
 
