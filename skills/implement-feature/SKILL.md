@@ -120,12 +120,15 @@ Record out-of-scope discoveries with provenance:
 
 ```bash
 bd create "<discovered work>" \
-  --type task \
+  --type <bug|spike|chore|task> \
   --deps discovered-from:<task-id> \
   --json
 ```
 
-Add a blocking edge only when the discovered issue is a true prerequisite for safe completion.
+Use `bug` for a defect, `spike` for bounded fact-finding with exit criteria, `chore` for maintenance, and `task`
+otherwise. Do not create an implementation `decision` to defer unresolved product policy; return that gap to
+specification reconciliation. Add a blocking edge only when the discovered issue is a true prerequisite for safe
+completion.
 
 ## 5. Continue Until the Feature Is Exhausted
 

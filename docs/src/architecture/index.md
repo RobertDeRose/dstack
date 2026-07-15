@@ -5,8 +5,8 @@
 - `skills/` contains the installable workflows. Each skill owns its scripts and references.
 - `skills/setup-project/template/` is the self-contained Copier scaffold installed with `/setup-project`.
 - Root `copier.yml` exposes the same scaffold for repository development and integration tests.
-- Beads stores live feature state and dependencies; `.beads/formulas/feature-lifecycle.formula.toml` defines the
-  lifecycle graph.
+- Beads stores live feature state and dependencies; `.beads/formulas/dstack-feature.formula.toml` defines the lifecycle
+  graph.
 - `docs/src/features/<slug>/design.md` owns intended feature behavior.
 - Reader pages under `docs/src/` own supported current behavior.
 - Implemented-feature `index.md` pages preserve delivery reconciliation and audit evidence.

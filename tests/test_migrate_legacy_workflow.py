@@ -18,7 +18,7 @@ from tests.support import merged_environment, run_command
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MIGRATOR = REPOSITORY_ROOT / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
-FORMULA = REPOSITORY_ROOT / "skills/setup-project/template/.beads/formulas/feature-lifecycle.formula.toml"
+FORMULA = REPOSITORY_ROOT / "skills/setup-project/template/.beads/formulas/dstack-feature.formula.toml"
 
 
 def create_legacy_project(root: Path) -> None:
@@ -26,7 +26,7 @@ def create_legacy_project(root: Path) -> None:
     (features / "alpha").mkdir(parents=True)
     (features / "beta").mkdir(parents=True)
     (root / ".beads/formulas").mkdir(parents=True)
-    shutil.copyfile(FORMULA, root / ".beads/formulas/feature-lifecycle.formula.toml")
+    shutil.copyfile(FORMULA, root / ".beads/formulas/dstack-feature.formula.toml")
 
     (root / "docs/src/planned-features.md").write_text(
         textwrap.dedent(
@@ -393,7 +393,7 @@ def create_heading_status_project(root: Path) -> None:
     feature = root / "docs/src/features/alpha"
     feature.mkdir(parents=True)
     (root / ".beads/formulas").mkdir(parents=True)
-    shutil.copyfile(FORMULA, root / ".beads/formulas/feature-lifecycle.formula.toml")
+    shutil.copyfile(FORMULA, root / ".beads/formulas/dstack-feature.formula.toml")
     (root / "docs/src/planned-features.md").write_text(
         "# Planned Features\n\n## Feature Map\n\n### `alpha`\n\n- Status: Implemented\n- Dependencies: None\n",
         encoding="utf-8",
@@ -440,7 +440,7 @@ def create_heading_status_project(root: Path) -> None:
 def create_cyclic_project(root: Path) -> None:
     features = root / "docs/src/features"
     (root / ".beads/formulas").mkdir(parents=True)
-    shutil.copyfile(FORMULA, root / ".beads/formulas/feature-lifecycle.formula.toml")
+    shutil.copyfile(FORMULA, root / ".beads/formulas/dstack-feature.formula.toml")
     for slug in ("alpha", "beta"):
         directory = features / slug
         directory.mkdir(parents=True)
@@ -690,7 +690,7 @@ def test_unparsed_task_file_blocks_import_before_beads_mutation(tmp_path: Path) 
     feature = tmp_path / "docs/src/features/alpha"
     feature.mkdir(parents=True)
     (tmp_path / ".beads/formulas").mkdir(parents=True)
-    shutil.copyfile(FORMULA, tmp_path / ".beads/formulas/feature-lifecycle.formula.toml")
+    shutil.copyfile(FORMULA, tmp_path / ".beads/formulas/dstack-feature.formula.toml")
     (tmp_path / "docs/src/planned-features.md").write_text(
         "# Planned Features\n\n## Feature Map\n\n### `alpha`\n\n"
         "- Status: Partially implemented\n- Dependencies: None\n",

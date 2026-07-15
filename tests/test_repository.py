@@ -89,7 +89,7 @@ SETUP_BRIEF_ARGS = [
 ]
 
 REQUIRED_TEMPLATE_FILES = (
-    ".beads/formulas/feature-lifecycle.formula.toml",
+    ".beads/formulas/dstack-feature.formula.toml",
     ".gitignore.jinja",
     "[[ _copier_conf.answers_file ]].jinja",
     "[% if include_readme %]README.md[% endif %].jinja",
@@ -333,8 +333,8 @@ def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
         "        print(json.dumps([item for item in features if item.get('ready', True)]))\n"
         "    else:\n"
         "        print('[]')\n"
-        "elif args[:3] == ['formula', 'show', 'feature-lifecycle']:\n"
-        "    print(json.dumps({'formula': 'feature-lifecycle'}))\n"
+        "elif args[:3] == ['formula', 'show', 'dstack-feature']:\n"
+        "    print(json.dumps({'formula': 'dstack-feature'}))\n"
         "else:\n"
         "    print('unsupported fake bd command: ' + ' '.join(args), file=sys.stderr)\n"
         "    raise SystemExit(64)\n",
@@ -450,6 +450,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "one context builder plus two reviewers" in normalized_agents
         assert "resume only the original reviewers whose domains changed" in normalized_agents
         assert "original packet when one exists" in normalized_agents
+        assert "Do bounded work directly in the controlling session" in normalized_agents
+        assert "Do not launch a scout, planner, or reviewer merely to save parent context" in normalized_agents
+        assert "Redirect long command output to an ephemeral file" in normalized_agents
+        assert "Do not rerun a successful check unless relevant inputs changed" in normalized_agents
+        assert "timeboxed fact-finding with explicit exit criteria is `spike`" in normalized_agents
+        assert "Labels and metadata, not extra issue types" in normalized_agents
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (repository_root / "skills/setup-project/template" / relative).exists()
 
@@ -463,9 +469,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "F<number>" not in readme
 
     planning = skill("plan-features")
+    normalized_planning = " ".join(planning.split())
     assert "every native implementation task is executable without another" in planning
     assert "create no implementation tasks" in planning
     assert "only imported migration work" in planning
+    assert "Choose the narrowest useful Beads type" in planning
+    assert "never defer that choice into an implementation-ready child" in normalized_planning
 
     implementation = skill("implement-feature")
     normalized_implementation = " ".join(implementation.split())
@@ -483,6 +492,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "distinct uncovered risk or an explicit user request" in normalized_implementation
     assert "specific no-commit justification" in implementation
     assert "<implementation-epic-id>" not in implementation
+    assert "--type <bug|spike|chore|task>" in implementation
+    assert "Do not create an implementation `decision`" in implementation
 
     closeout = skill("close-feature")
     normalized_closeout = " ".join(closeout.split())
@@ -1965,6 +1976,7 @@ def test_setup_project_uses_directory_name_and_preserves_template_tokens(
     design_template = (project / "docs/src/features/_template/design.md").read_text(encoding="utf-8")
     assert "{{ feature_slug }}" in design_template
     assert "feature_number" not in design_template
+    assert (project / ".beads/formulas/dstack-feature.formula.toml").is_file()
 
     run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
 
@@ -2414,7 +2426,7 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "info --json" in commands
     assert "ready --json --limit 1" in commands
-    assert "formula show feature-lifecycle --json" in commands
+    assert "formula show dstack-feature --json" in commands
     assert all(not command.startswith("doctor") for command in commands)
 
 
@@ -2652,9 +2664,9 @@ def test_update_preflight_routes_legacy_tasks_without_beads_to_migration(
         "_src_path: gh:RobertDeRose/dstack\n_commit: v0.0.1\n",
         encoding="utf-8",
     )
-    formula = project / ".beads/formulas/feature-lifecycle.formula.toml"
+    formula = project / ".beads/formulas/dstack-feature.formula.toml"
     formula.parent.mkdir(parents=True)
-    formula.write_text('formula = "feature-lifecycle"\n', encoding="utf-8")
+    formula.write_text('formula = "dstack-feature"\n', encoding="utf-8")
     initialize_git(project, "legacy managed project")
     update = repository_root / "skills/update-project/scripts/update-project.py"
 
@@ -2810,40 +2822,54 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "--version" in commands
     assert "init --skip-agents --stealth --quiet" in commands
-    assert "formula show feature-lifecycle --json" in commands
+    assert "formula show dstack-feature --json" in commands
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (project / relative).exists(), relative
 
 
 def test_release_commits_are_omitted_from_cocogitto_changelogs(repository_root: Path) -> None:
     config_path = repository_root / "cog.toml"
-    template_path = repository_root / "skills/setup-project/template/cog.toml"
     config = tomllib.loads(config_path.read_text(encoding="utf-8"))
 
-    assert config_path.read_bytes() == template_path.read_bytes()
+    root_template = repository_root / ".config/cog-changelog.tera"
+    assert root_template.is_file()
     assert config["from_latest_tag"] is True
     assert config["tag_prefix"] == "v"
-    assert config["commit_types"]["release"] == {
-        "changelog_title": "",
-        "omit_from_changelog": True,
-    }
+    assert config["changelog"]["template"] == ".config/cog-changelog.tera"
+    assert config["commit_types"]["feat"]["changelog_title"] == "Added"
+    assert config["commit_types"]["fix"]["changelog_title"] == "Fixed"
+    assert config["commit_types"]["refactor"]["changelog_title"] == "Changed"
+    assert all(
+        config["commit_types"][name]["omit_from_changelog"]
+        for name in ("build", "chore", "ci", "docs", "release", "style", "test")
+    )
 
 
 @pytest.mark.external
 def test_cocogitto_ignores_release_commits(repository_root: Path, tmp_path: Path) -> None:
     shutil.copyfile(repository_root / "cog.toml", tmp_path / "cog.toml")
+    (tmp_path / ".config").mkdir()
+    shutil.copyfile(repository_root / ".config/cog-changelog.tera", tmp_path / ".config/cog-changelog.tera")
     run_command(["git", "init", "--initial-branch=main"], cwd=tmp_path)
     configure_project_git(tmp_path)
     (tmp_path / "change.txt").write_text("visible\n", encoding="utf-8")
     run_command(["git", "add", "change.txt", "cog.toml"], cwd=tmp_path)
     run_command(["git", "commit", "-m", "feat: add visible change"], cwd=tmp_path)
+    run_command(["git", "commit", "--allow-empty", "-m", "docs: update internal notes"], cwd=tmp_path)
+    run_command(["git", "commit", "--allow-empty", "-m", "refactor(api)!: change interface"], cwd=tmp_path)
     run_command(["git", "commit", "--allow-empty", "-m", "release: v1.0.0"], cwd=tmp_path)
 
     result = run_command(["cog", "changelog"], cwd=tmp_path)
 
     assert result.stderr == ""
-    assert "add visible change" in result.stdout
+    assert "### Added" in result.stdout
+    assert "### Breaking changes" in result.stdout
+    assert "**BREAKING** **api:** Change interface" in result.stdout
+    assert "add visible change" in result.stdout.casefold()
+    assert "update internal notes" not in result.stdout
     assert "release: v1.0.0" not in result.stdout
+    assert "<span" not in result.stdout
+    assert "Robert DeRose" not in result.stdout
 
 
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
@@ -2869,11 +2895,12 @@ def test_skills_cli_discovers_all_skills(repository_root: Path) -> None:
 
 
 def test_template_formula_names_feature_tasks_and_uses_one_epic_container(repository_root: Path) -> None:
-    formula_path = repository_root / "skills/setup-project/template/.beads/formulas/feature-lifecycle.formula.toml"
+    formula_path = repository_root / "skills/setup-project/template/.beads/formulas/dstack-feature.formula.toml"
     formula = tomllib.loads(formula_path.read_text(encoding="utf-8"))
     steps = formula["steps"]
     implementation = next(step for step in steps if step["id"] == "implementation")
 
+    assert formula["formula"] == "dstack-feature"
     assert implementation["type"] == "task"
     assert all("feature_number" not in step["title"] for step in steps)
     assert all("workflow:feature" not in step["labels"] for step in steps)

@@ -98,7 +98,7 @@ Initialize Beads only after adoption is committed:
 
 ```bash
 bd init --stealth --skip-agents
-bd formula show feature-lifecycle --json
+bd formula show dstack-feature --json
 ```
 
 ## Task parser coverage

@@ -1,5 +1,0 @@
-from_latest_tag = true
-tag_prefix = "v"
-
-[commit_types]
-release = { changelog_title = "", omit_from_changelog = true }

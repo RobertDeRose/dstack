@@ -118,7 +118,7 @@ Confirm at least:
 ```text
 .copier-answers.yml
 AGENTS.md
-.beads/formulas/feature-lifecycle.formula.toml
+.beads/formulas/dstack-feature.formula.toml
 docs/book.toml
 docs/src/SUMMARY.md
 docs/src/planned-features.md

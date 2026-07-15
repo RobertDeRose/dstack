@@ -30,7 +30,7 @@ The migration is intentionally staged:
 
 ``import-beads``
     Create Beads feature roots, lifecycle steps derived from the repository's
-    feature-lifecycle formula, imported implementation tasks, dependencies, and
+    dstack-feature formula, imported implementation tasks, dependencies, and
     conservative workflow state. Dry-run by default; pass ``--apply``.
 
 ``finalize``
@@ -74,7 +74,7 @@ DEFAULT_REPORT = Path("migration/workflow-migration.md")
 DEFAULT_TASK_ARCHIVE = Path("migration/legacy-tasks")
 DEFAULT_BASELINE_JSON = Path("migration/baseline.json")
 DEFAULT_BASELINE_REPORT = Path("migration/baseline.md")
-FORMULA_PATH = Path(".beads/formulas/feature-lifecycle.formula.toml")
+FORMULA_PATH = Path(".beads/formulas/dstack-feature.formula.toml")
 FEATURES_PATH = Path("docs/src/features")
 ROADMAP_PATH = Path("docs/src/planned-features.md")
 SUMMARY_PATH = Path("docs/src/SUMMARY.md")

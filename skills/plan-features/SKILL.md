@@ -128,7 +128,7 @@ rendered book. In **Documentation Impact**, name exact files and assign each pla
 For each feature ready for durable design, pour the repository formula:
 
 ```bash
-bd mol pour feature-lifecycle \
+bd mol pour dstack-feature \
   --var feature_name="<title>" \
   --var feature_slug=<slug> \
   --var design_path=docs/src/features/<slug>/design.md \
@@ -202,6 +202,12 @@ Create bounded tasks beneath the lifecycle implementation coordinator. Each task
 - true prerequisites;
 - parallelism metadata where useful;
 - a practical commit boundary.
+
+Choose the narrowest useful Beads type: `task` for ordinary bounded work, `bug` for a known defect, `spike` for
+timeboxed implementation fact-finding with explicit exit criteria, and `chore` for maintenance. Record a `decision`
+during planning when an explicit architecture or product choice must be resolved before `spec-reconcile`; never defer
+that choice into an implementation-ready child. Use `story` only for an explicitly managed user-story backlog and do not
+use `milestone` as executable work.
 
 Use `parent-child` for hierarchy and `blocks` for actual prerequisites. Independent siblings remain parallel. Every
 implementation child must depend on the lifecycle `spec-reconcile` step so implementation cannot become ready before

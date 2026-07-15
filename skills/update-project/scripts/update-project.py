@@ -469,10 +469,10 @@ def check_beads(root: Path) -> dict[str, Any]:
     ready = parse_json_output(["bd", "ready", "--json", "--limit", "1"], cwd=root)
 
     formula_checked = False
-    formula = root / ".beads/formulas/feature-lifecycle.formula.toml"
+    formula = root / ".beads/formulas/dstack-feature.formula.toml"
     if formula.is_file():
         parse_json_output(
-            ["bd", "formula", "show", "feature-lifecycle", "--json"],
+            ["bd", "formula", "show", "dstack-feature", "--json"],
             cwd=root,
         )
         formula_checked = True
@@ -483,7 +483,7 @@ def check_beads(root: Path) -> dict[str, Any]:
         "commands": [
             "bd info --json",
             "bd ready --json --limit 1",
-            *(["bd formula show feature-lifecycle --json"] if formula_checked else []),
+            *(["bd formula show dstack-feature --json"] if formula_checked else []),
         ],
         "database_path": database_path,
         "issue_count": issue_count,

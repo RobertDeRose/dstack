@@ -92,7 +92,7 @@ record and update their scaffold through `.copier-answers.yml`.
 
 ### Beads lifecycle
 
-The project-local formula is `.beads/formulas/feature-lifecycle.formula.toml`. It defines interactive design, isolated
+The project-local formula is `.beads/formulas/dstack-feature.formula.toml`. It defines interactive design, isolated
 specification reviews, specification reconciliation, implementation, documentation reconciliation, validation, holistic
 close-out reviews, and explicit delivery.
 
@@ -102,6 +102,12 @@ Use dependency types intentionally:
 - `parent-child`: hierarchy only;
 - `related`: contextual association;
 - `discovered-from`: provenance for work found during execution.
+
+Use issue types intentionally. Feature roots are `epic`; lifecycle gates and ordinary bounded work are `task`; known
+defects are `bug`; timeboxed fact-finding with explicit exit criteria is `spike`; durable architecture or product
+choices are `decision`; and maintenance is `chore`. Use `feature` for standalone enhancements outside a feature epic.
+Introduce `story` only when the repository actually manages a user-story backlog, and `milestone` only as a work-free
+aggregate. Labels and metadata, not extra issue types, own workflow phase and review role.
 
 For each implementation task: claim it atomically, load only relevant design and documentation context, implement the
 smallest complete scope, update documentation in the same work unit, validate, run an isolated
@@ -126,6 +132,20 @@ After a fix, resume only the original reviewers whose domains changed. Do not la
 the original cannot be resumed or the fix materially changes the review scope. Give a replacement the original packet
 when one exists, plus findings, resolutions, and the post-review diff. Refresh the shared packet only after broad
 design, architecture, task-graph, or documentation-structure changes.
+
+### Execution efficiency
+
+Do bounded work directly in the controlling session. Launch subagents only when a lifecycle explicitly requires them,
+the user asks for delegation, or a distinct independent risk materially benefits from parallel read-only work. Do not
+launch a scout, planner, or reviewer merely to save parent context, and never add unrequired confidence reviews.
+
+Reuse existing context packets, review results, and validation evidence while their inputs remain unchanged. After a
+fix, resume the affected reviewer instead of starting a replacement. Do not rerun a successful check unless relevant
+inputs changed; use one focused check while iterating and one full suite after review fixes stabilize.
+
+Keep verbose output out of the conversation context. Redirect long command output to an ephemeral file, inspect only the
+relevant failure excerpt, and report the command, result, and artifact path. Do not poll background work; continue
+useful work or use event-driven waiting.
 
 ### Commit messages
 

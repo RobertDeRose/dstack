@@ -1,4 +1,4 @@
-formula = "feature-lifecycle"
+formula = "dstack-feature"
 description = "Documentation-first feature workflow with interactive design, isolated specification reviews, bounded implementation, documentation reconciliation, validation, holistic close-out reviews, and explicit delivery."
 version = 1
 type = "workflow"

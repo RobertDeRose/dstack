@@ -44,7 +44,7 @@ BRIEF_FLAGS = {
 REQUIRED_GENERATED_PATHS = (
     Path(".copier-answers.yml"),
     Path("AGENTS.md"),
-    Path(".beads/formulas/feature-lifecycle.formula.toml"),
+    Path(".beads/formulas/dstack-feature.formula.toml"),
     Path("docs/book.toml"),
     Path("docs/src/SUMMARY.md"),
     Path("docs/src/planned-features.md"),
@@ -296,7 +296,7 @@ def initialize_beads(destination: Path, args: argparse.Namespace, *, quiet: bool
     for integration in args.setup:
         run_checked(["bd", "setup", integration], cwd=destination, quiet=quiet)
     run_checked(
-        ["bd", "formula", "show", "feature-lifecycle", "--json"],
+        ["bd", "formula", "show", "dstack-feature", "--json"],
         cwd=destination,
         quiet=True,
     )
@@ -656,7 +656,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Beads initialization and verification remain outstanding because --skip-beads was supplied.")
         elif not beads_is_available:
             print("warning: bd is unavailable; Beads initialization and verification remain outstanding")
-            print("Install Beads, run 'bd init --stealth --skip-agents', then verify the feature-lifecycle formula.")
+            print("Install Beads, run 'bd init --stealth --skip-agents', then verify the dstack-feature formula.")
         if docs_validated:
             print("Documentation scaffold validation passed.")
         print(f"Tooling provisioning: {tooling['status']}")
