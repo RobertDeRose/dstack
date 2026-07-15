@@ -20,9 +20,9 @@ jobs:
           install: false
       - name: Install locked tools
         env:
-          MISE_GLOBAL_CONFIG_FILE: /dev/null
+          MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml
         run: mise install --locked
       - name: Run repository checks
         env:
-          MISE_GLOBAL_CONFIG_FILE: /dev/null
+          MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml
         run: mise run check

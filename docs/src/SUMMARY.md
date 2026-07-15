@@ -14,15 +14,18 @@
 ## Usage Guide
 
 - [Install and use dstack](operations/index.md)
+- [Generated-project GitHub Pages](operations/github-pages.md)
 
 ## Development guide
 
 - [Developing dstack](development/index.md)
 - [Feature lifecycle](development/feature-lifecycle.md)
+- [Generated-project tooling](development/tooling.md)
 
 ## Reference
 
 - [Repository and command reference](reference/index.md)
+- [Generated tooling contract](reference/tooling.md)
 - [Planned features](planned-features.md)
   <!-- BEGIN FEATURE DESIGNS -->
   - [Purposeful project scaffold](features/purposeful-project-scaffold/design.md)

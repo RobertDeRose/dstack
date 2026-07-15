@@ -27,13 +27,13 @@ jobs:
           cache: false
       - name: Install locked tools
         env:
-          MISE_GLOBAL_CONFIG_FILE: /dev/null
+          MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml
         run: mise install --locked
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - name: Build documentation
         env:
-          MISE_GLOBAL_CONFIG_FILE: /dev/null
+          MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml
         run: mise run docs:build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4

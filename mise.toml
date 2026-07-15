@@ -50,6 +50,10 @@ run = "uv run scripts/check-docs.py"
 description = "Build the documentation site"
 run = "mdbook build docs"
 
+[tasks."docs:deployment:enable"]
+description = "Enable GitHub Pages deployment"
+run = "python3 scripts/enable-docs-deployment.py"
+
 [tasks."docs:serve"]
 description = "Serve the documentation site locally"
 usage = 'arg "[port]" help="Port to serve on" default="3000"'

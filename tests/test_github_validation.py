@@ -53,7 +53,11 @@ def test_generated_validation_reuses_locked_local_check(
     assert steps[1]["uses"] == "jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db"
     assert steps[1]["with"]["install"] is False
     assert [step.get("run") for step in steps if "run" in step] == ["mise install --locked", "mise run check"]
-    assert all(step.get("env") == {"MISE_GLOBAL_CONFIG_FILE": "/dev/null"} for step in steps if "run" in step)
+    assert all(
+        step.get("env") == {"MISE_IGNORED_CONFIG_PATHS": "/home/runner/.config/mise/config.toml"}
+        for step in steps
+        if "run" in step
+    )
     assert "mise lock" not in text
     assert len(re.findall(r"uses: [^@]+@[0-9a-f]{40}", text)) == 2
     assert "GitHub validation" in (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")

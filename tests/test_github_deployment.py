@@ -70,7 +70,11 @@ def test_generated_pages_deployment_is_branch_restricted_and_gated(
     assert steps[0]["with"]["persist-credentials"] is False
     assert steps[1]["with"] == {"install": False, "cache": False}
     assert [step.get("run") for step in steps if "run" in step] == ["mise install --locked", "mise run docs:build"]
-    assert all(step.get("env") == {"MISE_GLOBAL_CONFIG_FILE": "/dev/null"} for step in steps if "run" in step)
+    assert all(
+        step.get("env") == {"MISE_IGNORED_CONFIG_PATHS": "/home/runner/.config/mise/config.toml"}
+        for step in steps
+        if "run" in step
+    )
     assert steps[-1]["with"]["path"] == "docs/book"
     assert deploy["steps"] == [
         {

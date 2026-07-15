@@ -62,7 +62,7 @@ Generate `.github/workflows/validate.yml` with:
 - job-level `contents: read`;
 - checkout with persisted credentials disabled;
 - `jdx/mise-action` setup with automatic installation disabled;
-- `MISE_GLOBAL_CONFIG_FILE=/dev/null mise install --locked`;
+- ignore the runner's user-global mise config with `MISE_IGNORED_CONFIG_PATHS`, then run `mise install --locked`;
 - `mise run check` as the sole validation command.
 
 CI never runs `mise lock`, duplicates hk policy, or separately invokes mdBook.

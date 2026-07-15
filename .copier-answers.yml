@@ -1,0 +1,14 @@
+# This file is managed by Copier. Do not edit it manually.
+_commit: a46fd7c7de9b1e912e5db4f08397e0cef630ab9a
+_src_path: gh:RobertDeRose/dstack
+language_profiles:
+  - python
+project_boundaries: Workflow and documentation contracts; no application framework or universal build system.
+project_kind: other
+project_name: dstack
+project_purpose: Keep product intent, work, documentation, evidence, and delivery aligned.
+project_scope: Skills, Copier templates, Beads lifecycles, workflow helpers, validation, and delivery docs.
+project_slug: dstack
+project_users: Maintainers, coding agents, and teams delivering software through the dstack workflow.
+repository_default_branch: main
+dstack_template_channel: unstable

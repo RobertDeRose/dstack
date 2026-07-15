@@ -75,6 +75,13 @@ SETUP_BRIEF = {
 }
 PUNCTUATED_PROJECT_NAME = 'A "quoted" \\ café 😀 [project]'
 
+ISOLATED_MISE_RECOVERY = (
+    'env -u MISE_GLOBAL_CONFIG_FILE MISE_IGNORED_CONFIG_PATHS="'
+    "${MISE_IGNORED_CONFIG_PATHS:+$MISE_IGNORED_CONFIG_PATHS:}"
+    "${XDG_CONFIG_HOME:-$HOME/.config}/mise/config.toml"
+    '${MISE_GLOBAL_CONFIG_FILE:+:$MISE_GLOBAL_CONFIG_FILE}" '
+)
+
 SETUP_BRIEF_ARGS = [
     "--purpose",
     SETUP_BRIEF["project_purpose"],
@@ -243,6 +250,24 @@ def setup_generated_project(
         cwd=project,
     )
     return json.loads(result.stdout)
+
+
+SELF_ADOPTION_OUTPUTS = (
+    ".copier-answers.yml",
+    ".github/workflows/docs.yml",
+    "docs/src/development/tooling.md",
+    "docs/src/operations/github-pages.md",
+    "docs/src/reference/tooling.md",
+    "mise.lock",
+    "scripts/enable-docs-deployment.py",
+    "scripts/setup-tooling.py",
+)
+
+
+def copy_unadopted_template_source(source: Path, project: Path) -> None:
+    copy_repository_fixture(source, project)
+    for relative in SELF_ADOPTION_OUTPUTS:
+        (project / relative).unlink(missing_ok=True)
 
 
 def configure_project_git(project: Path) -> None:
@@ -832,10 +857,22 @@ def test_tooling_provisioner_isolates_project_lock_from_global_mise_tools(
         captured.update(kwargs)
         return subprocess.CompletedProcess([], 0, "", "")
 
+    config_home = tmp_path / "config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    existing_ignored = str(tmp_path / "already-ignored.toml")
+    monkeypatch.setenv("MISE_GLOBAL_CONFIG_FILE", os.devnull)
+    monkeypatch.setenv("MISE_IGNORED_CONFIG_PATHS", existing_ignored)
     monkeypatch.setattr(module.subprocess, "run", fake_run)
     module.run(["mise", "install"], tmp_path)
 
-    assert captured["env"]["MISE_GLOBAL_CONFIG_FILE"] == os.devnull
+    assert "MISE_GLOBAL_CONFIG_FILE" not in captured["env"]
+    assert captured["env"]["MISE_IGNORED_CONFIG_PATHS"].split(os.pathsep) == [
+        existing_ignored,
+        str(config_home / "mise/config.toml"),
+        os.devnull,
+    ]
+    assert module.ISOLATED_MISE.startswith("env -u MISE_GLOBAL_CONFIG_FILE ")
+    assert "${MISE_IGNORED_CONFIG_PATHS:+$MISE_IGNORED_CONFIG_PATHS:}" in module.ISOLATED_MISE
 
 
 def test_tooling_provisioner_omits_only_nixfmt_macos_x64_lock_entry(
@@ -1902,7 +1939,7 @@ def test_setup_project_provisions_tooling_and_reports_no_git_separately(
         "macos-arm64",
     ]
     assert payload["outstanding"] == (
-        ["Tooling recovery: MISE_GLOBAL_CONFIG_FILE=/dev/null mise x -- hk install --mise"] if no_git else []
+        [f"Tooling recovery: {ISOLATED_MISE_RECOVERY}mise x -- hk install --mise"] if no_git else []
     ) + ["Beads initialization and verification"]
 
 
@@ -1915,20 +1952,19 @@ def test_setup_project_provisions_tooling_and_reports_no_git_separately(
             "lock",
             ("available", "failed", "skipped", "skipped"),
             [
-                "MISE_GLOBAL_CONFIG_FILE=/dev/null mise lock --yes --platform "
-                "linux-x64,linux-arm64,macos-x64,macos-arm64",
+                ISOLATED_MISE_RECOVERY + "mise lock --yes --platform linux-x64,linux-arm64,macos-x64,macos-arm64",
                 "python3 scripts/setup-tooling.py --json",
             ],
         ),
         (
             "install",
             ("available", "succeeded", "failed", "skipped"),
-            ["MISE_GLOBAL_CONFIG_FILE=/dev/null mise install --locked", "python3 scripts/setup-tooling.py --json"],
+            [ISOLATED_MISE_RECOVERY + "mise install --locked", "python3 scripts/setup-tooling.py --json"],
         ),
         (
             "hooks",
             ("available", "succeeded", "succeeded", "failed"),
-            ["MISE_GLOBAL_CONFIG_FILE=/dev/null mise x -- hk install --mise"],
+            [ISOLATED_MISE_RECOVERY + "mise x -- hk install --mise"],
         ),
     ],
 )
@@ -2875,7 +2911,7 @@ def test_update_project_self_adoption_establishes_a_working_three_way_base(
     remote = tmp_path / "dstack.git"
     run_command(["git", "clone", "--bare", tagged_template_source.as_uri(), str(remote)], cwd=tmp_path)
     project = tmp_path / "dstack"
-    copy_repository_fixture(tagged_template_source, project)
+    copy_unadopted_template_source(tagged_template_source, project)
     initialize_git(project, "dstack template source")
     update = tmp_path / "update-project.py"
     update.write_text(
@@ -2987,7 +3023,7 @@ def test_update_project_self_adoption_preflights_paths_before_copier_state(
     remote = tmp_path / "dstack.git"
     run_command(["git", "clone", "--bare", tagged_template_source.as_uri(), str(remote)], cwd=tmp_path)
     project = tmp_path / "dstack"
-    copy_repository_fixture(tagged_template_source, project)
+    copy_unadopted_template_source(tagged_template_source, project)
     outside = tmp_path / "outside"
     if collision in {"file", "symlink"}:
         shutil.rmtree(project / "scripts")
@@ -3051,7 +3087,7 @@ def test_update_project_self_adoption_rolls_back_a_partial_final_copy(
     remote = tmp_path / "dstack.git"
     run_command(["git", "clone", "--bare", tagged_template_source.as_uri(), str(remote)], cwd=tmp_path)
     project = tmp_path / "dstack"
-    copy_repository_fixture(tagged_template_source, project)
+    copy_unadopted_template_source(tagged_template_source, project)
     initialize_git(project, "dstack template source")
     module = load_update_module(repository_root)
     args = module.parse_args(
@@ -3266,7 +3302,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     assert payload["docs_validated"] is True
     assert payload["beads_initialized"] is True
     assert payload["tooling"]["hooks"]["status"] == "skipped-no-git"
-    assert payload["outstanding"] == ["Tooling recovery: MISE_GLOBAL_CONFIG_FILE=/dev/null mise x -- hk install --mise"]
+    assert payload["outstanding"] == [f"Tooling recovery: {ISOLATED_MISE_RECOVERY}mise x -- hk install --mise"]
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "--version" in commands
     assert "init --skip-agents --stealth --quiet" in commands
