@@ -5,7 +5,7 @@
 - Beads feature root: `dstack-mol-ln9`
 - Status: delivered
 - Pull request: not created
-- Merge commit: `546aa80c4e9ac14b305d31c3d9c077a21f28285f` (fast-forward)
+- Merge commit: `16ce8770365867b0e30462aa090fbc7eb0402671` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -54,7 +54,7 @@ remains unchanged.
 - `mise run check`: passed, including mdBook build and repository quality checks.
 - Generated documentation checker and mdBook build passed for every matrix render.
 - Final holistic delivery and documentation-drift reviews passed with no unresolved blocker after fixes.
-- `main` fast-forwarded to `546aa80c4e9ac14b305d31c3d9c077a21f28285f`.
+- `main` fast-forwarded to `16ce8770365867b0e30462aa090fbc7eb0402671`.
 
 ## Design Reconciliation
 
