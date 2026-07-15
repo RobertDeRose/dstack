@@ -1,4 +1,4 @@
-# F040 — GitHub validation and docs deployment
+# GitHub validation and docs deployment
 
 ## Delivery Summary
 
@@ -31,10 +31,11 @@ prints the Pages URL. Failures stop without claiming success and include exact m
 
 ## Design Integration
 
-F040 reuses F020's committed lock, named tasks, hk policy, and generated documentation. It adds no second CI quality
-policy and does not add `gh` to the seven universal mise tools. Copier renders repository files but never changes GitHub
-state; only the explicit administrator task crosses that boundary. F030 profiles compose underneath the same workflows
-without changing their triggers, permissions, or commands.
+GitHub validation and docs deployment reuses Universal project tooling's committed lock, named tasks, hk policy, and
+generated documentation. It adds no second CI quality policy and does not add `gh` to the seven universal mise tools.
+Copier renders repository files but never changes GitHub state; only the explicit administrator task crosses that
+boundary. Language quality profiles profiles compose underneath the same workflows without changing their triggers,
+permissions, or commands.
 
 ## Operational Impact
 
@@ -79,13 +80,14 @@ exact fallback commands on every failure.
 
 ### Deferred Work
 
-Package-local tooling and monorepo layout remain F050. No F040 product scope is deferred.
+Package-local tooling and monorepo layout remain Monorepo tooling layout. No GitHub validation and docs deployment
+product scope is deferred.
 
 ### Rejected or Removed Scope
 
-F040 does not add raw duplicate linter commands, lock regeneration, pull-request deployment, path-filtered deployment,
-universal `gh` installation, automatic GitHub mutation during setup/update, application deployment, release automation,
-or package manifests.
+GitHub validation and docs deployment does not add raw duplicate linter commands, lock regeneration, pull-request
+deployment, path-filtered deployment, universal `gh` installation, automatic GitHub mutation during setup/update,
+application deployment, release automation, or package manifests.
 
 ## Documentation Updated
 
@@ -96,7 +98,7 @@ or package manifests.
 - `docs/src/planned-features.md`
 - `docs/src/features/index.md`
 - `docs/src/SUMMARY.md`
-- `docs/src/features/040-github-validation-and-docs-deployment/index.md`
+- `docs/src/features/github-validation-and-docs-deployment/index.md`
 - Generated `docs/src/development/tooling.md`
 - Generated `docs/src/operations/github-pages.md`
 - Generated `docs/src/reference/tooling.md`

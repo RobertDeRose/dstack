@@ -1,12 +1,11 @@
-# Design — F050 Monorepo tooling layout
+# Design — Monorepo tooling layout
 
 ## Metadata
 
 - Beads feature root: `dstack-mol-7s4`
-- Feature number: `050`
 - Feature slug: `monorepo-tooling-layout`
-- Design path: `docs/src/features/050-monorepo-tooling-layout/design.md`
-- Implemented record: `docs/src/features/050-monorepo-tooling-layout/index.md`
+- Design path: `docs/src/features/monorepo-tooling-layout/design.md`
+- Implemented record: `docs/src/features/monorepo-tooling-layout/index.md`
 - Base branch: `main`
 - Status: draft
 
@@ -58,7 +57,8 @@ renders shared root tooling plus package-local task ownership.
 
 ### Compatibility and Migration Requirements
 
-This depends on stable profile composition from F030. It may ship later without blocking single-package adoption.
+This depends on stable profile composition from Language quality profiles. It may ship later without blocking
+single-package adoption.
 
 ## Existing Context
 
@@ -96,14 +96,14 @@ or project-owned extension.
 
 ## Documentation Impact
 
-| Documentation concern      | Exact page                                               | Create or update                       | Planned change                      | Owning Beads task   |
-|----------------------------|----------------------------------------------------------|----------------------------------------|-------------------------------------|---------------------|
-| Architecture               | `docs/src/architecture/index.md`                         | Update                                 | Root/package ownership              | F050 docs           |
-| Usage                      | `docs/src/operations/index.md`                           | Update                                 | Monorepo setup input                | F050 docs           |
-| Development                | `docs/src/development/index.md`                          | Update                                 | Package tasks and validation        | F050 docs           |
-| Reference                  | `docs/src/reference/index.md`                            | Update                                 | Layout answers and path constraints | F050 docs           |
-| Navigation                 | `docs/src/SUMMARY.md`                                    | Update if repository-layout page added | Register page                       | F050 docs           |
-| Implemented Feature Record | `docs/src/features/050-monorepo-tooling-layout/index.md` | Create during close-out                | Delivery evidence                   | lifecycle close-out |
+| Documentation concern      | Exact page                                           | Create or update                       | Planned change                      | Owning Beads task            |
+|----------------------------|------------------------------------------------------|----------------------------------------|-------------------------------------|------------------------------|
+| Architecture               | `docs/src/architecture/index.md`                     | Update                                 | Root/package ownership              | Monorepo tooling layout docs |
+| Usage                      | `docs/src/operations/index.md`                       | Update                                 | Monorepo setup input                | Monorepo tooling layout docs |
+| Development                | `docs/src/development/index.md`                      | Update                                 | Package tasks and validation        | Monorepo tooling layout docs |
+| Reference                  | `docs/src/reference/index.md`                        | Update                                 | Layout answers and path constraints | Monorepo tooling layout docs |
+| Navigation                 | `docs/src/SUMMARY.md`                                | Update if repository-layout page added | Register page                       | Monorepo tooling layout docs |
+| Implemented Feature Record | `docs/src/features/monorepo-tooling-layout/index.md` | Create during close-out                | Delivery evidence                   | lifecycle close-out          |
 
 ## Validation Strategy
 
@@ -120,7 +120,8 @@ current official behavior.
 
 ## Dependencies and Parallelism
 
-Depends on F030. Research can begin earlier; implementation waits for profile answer and composition stability.
+Depends on Language quality profiles. Research can begin earlier; implementation waits for profile answer and
+composition stability.
 
 ## Rollout and Migration
 

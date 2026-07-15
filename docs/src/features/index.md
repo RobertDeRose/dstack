@@ -18,8 +18,8 @@ here only during close-out.
 ## Feature index
 
 <!-- BEGIN IMPLEMENTED FEATURES -->
-- [F010 — Purposeful project scaffold](010-purposeful-project-scaffold/index.md)
-- [F020 — Universal project tooling](020-universal-project-tooling/index.md)
-- [F030 — Language quality profiles](030-language-quality-profiles/index.md)
-- [F040 — GitHub validation and docs deployment](040-github-validation-and-docs-deployment/index.md)
+- [Purposeful project scaffold](purposeful-project-scaffold/index.md)
+- [Universal project tooling](universal-project-tooling/index.md)
+- [Language quality profiles](language-quality-profiles/index.md)
+- [GitHub validation and docs deployment](github-validation-and-docs-deployment/index.md)
 <!-- END IMPLEMENTED FEATURES -->

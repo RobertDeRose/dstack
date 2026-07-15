@@ -19,7 +19,7 @@ Use this skill after `/start-feature` closes `spec-reconcile`. Accept the same h
 Run `bd prime`, then resolve the supplied feature selector. When the selector is omitted, use this deterministic
 precedence:
 
-1. the current branch when it matches `feat/<num>-<slug>`;
+1. the current branch when it matches `feat/<slug>`;
 2. the repository-local feature recorded by the last successful `/start-feature`;
 3. otherwise stop and require a selector rather than choosing unrelated ready work.
 
@@ -38,10 +38,10 @@ bd show <resolved-root-id> --json
 Never use automatic next-feature selection here. Validate the stored value through the resolver exactly like a
 user-supplied selector; stale or ambiguous state must stop rather than select a different feature.
 
-Use the returned root ID only for Beads operations and the returned `<num>-<slug>` reference for worktree, reporting,
-and continuation commands. Resolve the implementation coordinator from root metadata `implementation_id`. Query the
-feature children only as a one-time metadata repair path. This keeps the normal context load independent of total
-feature size and works for both molecules and migrated parent-child lifecycles. Activate and verify `feat/<num>-<slug>`.
+Use the returned root ID only for Beads operations and the returned `<slug>` reference for worktree, reporting, and
+continuation commands. Resolve the implementation coordinator from root metadata `implementation_id`. Query the feature
+children only as a one-time metadata repair path. This keeps the normal context load independent of total feature size
+and works for both molecules and migrated parent-child lifecycles. Activate and verify `feat/<slug>`.
 
 Select a user-specified task first when provided; otherwise atomically claim the next ready child:
 
@@ -161,7 +161,7 @@ bd close <implementation-id> --reason "Required implementation work complete; ac
 Clear stale default selection after the coordinator closes, but only when it still names this feature:
 
 ```bash
-test "$(git config --get dstack.activeFeature || true)" != "<num>-<slug>" || \
+test "$(git config --get dstack.activeFeature || true)" != "<slug>" || \
   git config --unset-all dstack.activeFeature
 ```
 

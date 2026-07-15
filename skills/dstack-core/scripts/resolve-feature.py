@@ -5,7 +5,7 @@
 # dependencies = []
 # ///
 # ruff: noqa: S603
-"""Resolve a dstack feature epic by number, slug, name, or Beads ID."""
+"""Resolve a dstack feature epic by slug, name, or Beads ID."""
 
 from __future__ import annotations
 
@@ -18,8 +18,6 @@ from pathlib import Path
 from typing import Any
 
 
-FEATURE_TITLE = re.compile(r"^F(?P<number>[0-9]+)\s*[\u2014\u2013-]\s*(?P<name>.+)$", re.IGNORECASE)
-FEATURE_REFERENCE = re.compile(r"^F?(?P<number>[0-9]+)(?:[-:/_\s]+(?P<name>.+))?$", re.IGNORECASE)
 OPEN_STATUSES = {"open", "ready"}
 
 
@@ -75,21 +73,8 @@ def issue_list(payload: Any) -> list[dict[str, Any]]:
 def feature_identity(issue: Mapping[str, Any]) -> dict[str, Any]:
     metadata = as_mapping(issue.get("metadata"))
     title = str(issue.get("title") or "").strip()
-    title_match = FEATURE_TITLE.match(title)
-
-    number_value = metadata.get("feature_number")
-    number = str(number_value).strip() if number_value is not None else ""
-    if number.casefold().startswith("f"):
-        number = number[1:]
-    if not number and title_match is not None:
-        number = title_match.group("number")
-    if number.isdigit():
-        number = number.zfill(max(3, len(number)))
-
     name_value = metadata.get("feature_name")
     name = str(name_value).strip() if name_value is not None else ""
-    if not name and title_match is not None:
-        name = title_match.group("name").strip()
     if not name:
         name = title
 
@@ -98,7 +83,7 @@ def feature_identity(issue: Mapping[str, Any]) -> dict[str, Any]:
     if not slug:
         slug = slugify(name)
 
-    reference = f"{number}-{slug}" if number and slug else slug or number or title
+    reference = slug or title
     status = str(issue.get("status") or "").strip()
     issue_type = str(issue.get("issue_type") or issue.get("type") or "").strip()
     return {
@@ -107,7 +92,6 @@ def feature_identity(issue: Mapping[str, Any]) -> dict[str, Any]:
         "issue_type": issue_type,
         "status": status,
         "priority": issue.get("priority"),
-        "feature_number": number,
         "feature_slug": slug,
         "feature_name": name,
         "feature_reference": reference,
@@ -158,12 +142,9 @@ def priority_value(value: Any) -> int:
     return int(text) if text.isdigit() else 99
 
 
-def feature_sort_key(feature: Mapping[str, Any]) -> tuple[int, int, str, str]:
-    number = str(feature.get("feature_number") or "")
-    numeric_number = int(number) if number.isdigit() else 10**12
+def feature_sort_key(feature: Mapping[str, Any]) -> tuple[int, str, str]:
     return (
         priority_value(feature.get("priority")),
-        numeric_number,
         str(feature.get("feature_name") or "").casefold(),
         str(feature.get("id") or ""),
     )
@@ -176,23 +157,14 @@ def selector_matches(feature: Mapping[str, Any], selector: str) -> tuple[bool, b
         return False, False
 
     issue_id = str(feature.get("id") or "").casefold()
-    number = str(feature.get("feature_number") or "").casefold()
     slug = str(feature.get("feature_slug") or "").casefold()
     name = str(feature.get("feature_name") or "").casefold()
     title = str(feature.get("title") or "").casefold()
     reference = str(feature.get("feature_reference") or "").casefold()
 
-    exact_values = {issue_id, number, f"f{number}" if number else "", slug, name, title, reference}
+    exact_values = {issue_id, slug, name, title, reference}
     if query in exact_values:
         return True, True
-
-    reference_match = FEATURE_REFERENCE.match(selector.strip())
-    if reference_match is not None:
-        query_number = reference_match.group("number").lstrip("0") or "0"
-        feature_number = number.lstrip("0") or "0"
-        query_name = reference_match.group("name")
-        if query_number == feature_number and (not query_name or slugify(query_name) in {slug, slugify(name)}):
-            return True, True
 
     partial_values = (name, title, slug, reference)
     partial = any(query in value for value in partial_values if value)
@@ -250,7 +222,7 @@ def next_feature(root: Path) -> dict[str, Any]:
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("selector", nargs="?", help="Feature ID, F-number, <number>-<slug>, slug, or name.")
+    group.add_argument("selector", nargs="?", help="Feature ID, slug, or name.")
     group.add_argument("--next", action="store_true", help="Select the next ready open feature epic.")
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="Repository containing Beads state.")
     parser.add_argument("--json", action="store_true", help="Print the complete resolved feature as JSON.")

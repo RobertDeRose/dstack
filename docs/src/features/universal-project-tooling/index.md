@@ -1,4 +1,4 @@
-# F020 — Universal project tooling
+# Universal project tooling
 
 ## Delivery Summary
 
@@ -27,8 +27,8 @@ code until the user resolves and accounts for the update.
 
 Copier remains a local renderer; the generated stdlib provisioner owns network-backed tooling state. Provisioning
 ignores user-global mise tools so the committed lock represents only the seven project tools. One serialized hk step map
-powers read-only checks, explicit fixes, and pre-commit fixes with Git stashing. F030 can extend this baseline with
-language profiles, and F040 can consume its stable task names.
+powers read-only checks, explicit fixes, and pre-commit fixes with Git stashing. Language quality profiles can extend
+this baseline with language profiles, and GitHub validation and docs deployment can consume its stable task names.
 
 ## Operational Impact
 
@@ -73,8 +73,8 @@ proves the generated contract.
 
 ### Deferred Work
 
-Language-specific profiles remain F030. Generated GitHub validation and documentation deployment remain F040. Monorepo
-layout remains F050.
+Language-specific profiles remain Language quality profiles. Generated GitHub validation and documentation deployment
+remain GitHub validation and docs deployment. Monorepo layout remains Monorepo tooling layout.
 
 ### Rejected or Removed Scope
 
@@ -84,9 +84,10 @@ checks, generated CI workflows, or Windows support from this feature.
 ### Adjacent Tracked Improvement
 
 Implementation exposed an opportunity to reduce redundant full-suite runs. Separate task `dstack-pyn`, discovered from
-F020 update task `dstack-mol-b69.5`, owns the resulting repository, canonical skill, and generated-agent guidance. It
-was validated and closed in `c6d6a32b13626cc9a21e8f0ccb8cfe4e42109e86`; it is recorded here because that independently
-tracked commit is delivered on the same branch, not because it expands F020's product scope.
+Universal project tooling update task `dstack-mol-b69.5`, owns the resulting repository, canonical skill, and
+generated-agent guidance. It was validated and closed in `c6d6a32b13626cc9a21e8f0ccb8cfe4e42109e86`; it is recorded here
+because that independently tracked commit is delivered on the same branch, not because it expands Universal project
+tooling's product scope.
 
 ## Documentation Updated
 
@@ -97,7 +98,7 @@ tracked commit is delivered on the same branch, not because it expands F020's pr
 - `docs/src/planned-features.md`
 - `docs/src/features/index.md`
 - `docs/src/SUMMARY.md`
-- `docs/src/features/020-universal-project-tooling/index.md`
+- `docs/src/features/universal-project-tooling/index.md`
 - Generated `docs/src/development/tooling.md`
 - Generated `docs/src/reference/tooling.md`
 - Generated `README.md`

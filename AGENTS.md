@@ -13,17 +13,17 @@ bd ready --type epic --label workflow:feature --json --limit 0
 bd ready --json
 ```
 
-Select features by canonical `<num>-<slug>`, `F<num>`, or human name through the dstack lifecycle skills. Use the Beads
-ID returned by the skill for mutations, but do not expose an opaque hash as the primary workflow command. Inspect
-selected work with `bd show <id> --json` and read structured metadata before prose.
+Select features by canonical `<slug>` or human name through the dstack lifecycle skills. Use the Beads ID returned by
+the skill for mutations, but do not expose an opaque hash as the primary workflow command. Inspect selected work with
+`bd show <id> --json` and read structured metadata before prose.
 
 ### Sources of truth
 
 - **Beads** owns executable work state, dependencies, priorities, claims, findings, and evidence.
-- **`docs/src/features/<num>-<slug>/design.md`** owns intended feature behavior, boundaries, decisions, validation, and
+- **`docs/src/features/<slug>/design.md`** owns intended feature behavior, boundaries, decisions, validation, and
   documentation impact.
 - **Reader-facing pages under `docs/src/`** own current supported behavior.
-- **`docs/src/features/<num>-<slug>/index.md`** owns delivered-feature reconciliation and audit history.
+- **`docs/src/features/<slug>/index.md`** owns delivered-feature reconciliation and audit history.
 - **`docs/src/planned-features.md`** is the human roadmap; Beads remains authoritative for live state.
 - **Code and tests** provide implementation evidence.
 
@@ -31,22 +31,22 @@ Use Beads instead of Markdown TODO lists for executable work. Use `bd remember` 
 
 ### Feature identity
 
-Allocate immutable, zero-padded feature numbers in increments of ten:
+Use an immutable lowercase filesystem-safe slug as each feature identity:
 
 ```text
-docs/src/features/010-first-capability/
-feat/010-first-capability
+docs/src/features/first-capability/
+feat/first-capability
 ```
 
-Each feature is one Beads epic (a poured molecule uses epic hierarchy with workflow semantics). Store `feature_number`,
-`feature_slug`, `feature_name`, `design_path`, `implemented_path`, and `base_branch` on that root. Put lifecycle tasks
-and bounded implementation tasks beneath the epic. The implementation coordinator remains a task gate, not a second
-feature or milestone. Never renumber a feature because priority or dependency order changes.
+Each feature is one Beads epic (a poured molecule uses epic hierarchy with workflow semantics). Store `feature_slug`,
+`feature_name`, `design_path`, `implemented_path`, and `base_branch` on that root. Put lifecycle tasks and bounded
+implementation tasks beneath the epic. The implementation coordinator remains a task gate, not a second feature or
+milestone. Roadmap order and dependencies remain explicit rather than encoded in feature identity.
 
 Start features with a human reference, for example:
 
 ```text
-/start-feature 010-first-capability
+/start-feature first-capability
 /start-feature "First capability"
 ```
 
@@ -135,7 +135,7 @@ multiple `-m` flags or escaped `\n` text. Verify the resulting message before re
 
 ### Worktrees and delivery
 
-Feature branches use `feat/<num>-<slug>`. When `wt` is available, treat JSON output from `wt switch --format json` as
+Feature branches use `feat/<slug>`. When `wt` is available, treat JSON output from `wt switch --format json` as
 authoritative for branch and path.
 
 Only fast-forward merges into `main` are accepted. Use `git merge --ff-only`; never create a merge commit and never fall

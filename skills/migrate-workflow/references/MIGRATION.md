@@ -9,17 +9,18 @@ Resolve `<skill-dir>` as the installed `migrate-workflow` skill directory.
 
 ```text
 Beads                                            live feature/task state and dependencies
-docs/src/features/<num>-<slug>/design.md         intended behavior and design
-docs/src/features/<num>-<slug>/index.md          standalone delivery/audit record
+docs/src/features/<slug>/design.md         intended behavior and design
+docs/src/features/<slug>/index.md          standalone delivery/audit record
 docs/src/planned-features.md                     human roadmap narrative
 docs/src/**/*.md                                 current reader-facing behavior
 migration/workflow-migration.json                resumable migration state and decisions
 migration/workflow-migration.md                  human migration report
-migration/legacy-tasks/<num>-<slug>.md           archived legacy task evidence
+migration/legacy-tasks/<slug>.md           archived legacy task evidence
 ```
 
-Mechanical conversion includes numbering, path rewriting, task parsing, and graph creation. Semantic reconciliation
-determines what was actually delivered and must use code, tests, current docs, commits, or operational evidence.
+Mechanical conversion includes legacy-number removal, path rewriting, task parsing, and graph creation. Semantic
+reconciliation determines what was actually delivered and must use code, tests, current docs, commits, or operational
+evidence.
 
 ## Baseline interpretation
 
@@ -91,7 +92,7 @@ test ! -e migration/template-adoption-candidates
 ```
 
 Migration mode keeps broken links and unsafe paths as errors while reporting legacy headings, missing taxonomy concerns,
-unnumbered feature paths, task files, and missing implemented-feature markers as warnings.
+numbered feature paths, task files, and missing implemented-feature markers as warnings.
 
 Initialize Beads only after adoption is committed:
 
@@ -143,11 +144,11 @@ validation commands and `Depends on:` relationships are retained when parseable.
 The canonical heading is:
 
 ```md
-### F010 — Human title (`stable-slug`)
+### Human title (`stable-slug`)
 ```
 
-The number is immutable identity, the human title is reader-facing, and the backticked slug is the parser identity. The
-scanner also accepts legacy slug-only headings and numbered headings without a title.
+The slug is immutable identity and the human title is reader-facing. The scanner accepts numbered legacy headings only
+as migration input and normalizes them to the canonical slug-only form.
 
 Roadmap-only `planned` or `deferred` entries legitimately may have no feature directory. Missing `design.md` or
 `tasks.md` evidence for those untouched features is not a migration conflict.
@@ -157,20 +158,20 @@ Roadmap-only `planned` or `deferred` entries legitimately may have no feature di
 Override inferred classification:
 
 ```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py classify F010 completed \
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py classify stable-slug completed \
   --reason "Code, tests, docs, and delivery history confirm completion."
 ```
 
 Return to scanner-derived classification:
 
 ```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py classify F010 auto
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py classify stable-slug auto
 ```
 
 Resolve one finding using its stable ID:
 
 ```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py resolve-findings F010 \
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py resolve-findings stable-slug \
   --finding <finding-id> \
   --reason "Repository evidence resolves this historical contradiction."
 ```
@@ -178,7 +179,7 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py resolve-findings F010 \
 Resolve all currently open findings only after reviewing each one:
 
 ```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py resolve-findings F010 \
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py resolve-findings stable-slug \
   --all \
   --reason "All findings were reconciled against code, docs, tests, and Git history."
 ```
@@ -200,19 +201,20 @@ related  contextual relationship; does not block, but is still traversed by bd l
 remove   remove a false, redundant, or directionally duplicated inferred relationship
 ```
 
-Use `related` only when the complete graph remains acyclic. It is not a way to break a reciprocal dependency. When F030
-already blocks on F050, a reverse F050-to-F030 relationship normally adds no information and should be removed instead:
+Use `related` only when the complete graph remains acyclic. It is not a way to break a reciprocal dependency. When
+`api-validation` already blocks on `storage-migration`, a reverse relationship normally adds no information and should
+be removed instead:
 
 ```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py dependency F050 F030 remove \
-  --reason "F030 already blocks on F050; the reverse inferred edge is redundant and would create recursive traversal."
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py dependency storage-migration api-validation remove \
+  --reason "api-validation already blocks on storage-migration; the reverse edge would create recursive traversal."
 ```
 
 Preserve useful context in the reason, roadmap prose, design, or Beads notes rather than adding a redundant reverse
 edge. The migration command validates the blocking DAG and the complete `blocks`/`related`/parent traversal graph before
 Beads mutation. Update roadmap prose whenever the semantic relationship changes.
 
-## Preparing numbered paths
+## Preparing slug-only paths
 
 Preview and apply:
 
@@ -223,7 +225,6 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py prepare --apply
 
 Preparation:
 
-- assigns immutable zero-padded numbers;
 - renames feature directories;
 - rewrites structural links without rewriting unrelated URL/path text;
 - creates `docs/src/features/index.md` when needed;
@@ -318,7 +319,7 @@ The script refuses archival while a reader-facing Markdown page includes or link
 Default archive location:
 
 ```text
-migration/legacy-tasks/<num>-<slug>.md
+migration/legacy-tasks/<slug>.md
 ```
 
 Use `--delete-tasks` only when deletion is deliberate and Git history is sufficient.

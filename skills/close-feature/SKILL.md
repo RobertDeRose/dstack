@@ -41,8 +41,8 @@ Delivery authority:
 ## 1. Activate and Inspect
 
 Run `bd prime`, then resolve the supplied feature selector. When the selector is omitted, infer it only from an active
-`feat/<num>-<slug>` branch. If the current branch is not a feature branch, stop and require a selector rather than
-closing unrelated ready work:
+`feat/<slug>` branch. If the current branch is not a feature branch, stop and require a selector rather than closing
+unrelated ready work:
 
 ```bash
 branch=$(git branch --show-current)
@@ -51,14 +51,13 @@ uv run <core-dir>/scripts/resolve-feature.py "<feature-selector>" --json
 bd show <resolved-root-id> --json
 ```
 
-Use the returned root ID for Beads operations and its canonical `<num>-<slug>` reference for worktrees, reports, and
-delivery commands. Resolve `docs_reconcile_id`, `validation_id`, `review_delivery_id`, `review_drift_id`, and
-`delivery_id` from root metadata. Query the full molecule or child list only to repair missing metadata. Activate and
-verify `feat/<num>-<slug>`. Inspect commits, implementation, tests, and changed files before deciding whether
-documentation is accurate.
+Use the returned root ID for Beads operations and its canonical `<slug>` reference for worktrees, reports, and delivery
+commands. Resolve `docs_reconcile_id`, `validation_id`, `review_delivery_id`, `review_drift_id`, and `delivery_id` from
+root metadata. Query the full molecule or child list only to repair missing metadata. Activate and verify `feat/<slug>`.
+Inspect commits, implementation, tests, and changed files before deciding whether documentation is accurate.
 
-Continue only after all lifecycle IDs resolve, the active worktree is `feat/<num>-<slug>`, the implementation
-coordinator is closed, and no open `migration:reconciliation` task blocks close-out.
+Continue only after all lifecycle IDs resolve, the active worktree is `feat/<slug>`, the implementation coordinator is
+closed, and no open `migration:reconciliation` task blocks close-out.
 
 ## 2. Reconcile Documentation
 
@@ -75,7 +74,7 @@ Claim the documentation-reconciliation step. Compare delivered behavior with:
 Create or update:
 
 ```text
-docs/src/features/<num>-<slug>/index.md
+docs/src/features/<slug>/index.md
 ```
 
 Use `docs/src/features/_template/index.md`. The record must stand alone; it may link to `design.md` but must not embed
@@ -161,8 +160,8 @@ a clean worktree without stashing, deleting, or including unrelated changes:
 ```bash
 git -C <base-worktree> branch --show-current  # must equal <base-branch>
 test -z "$(git -C <base-worktree> status --porcelain)"
-git -C <base-worktree> merge --ff-only feat/<num>-<slug>
-git -C <base-worktree> merge-base --is-ancestor feat/<num>-<slug> <base-branch>
+git -C <base-worktree> merge --ff-only feat/<slug>
+git -C <base-worktree> merge-base --is-ancestor feat/<slug> <base-branch>
 ```
 
 If the base worktree is missing, dirty, or on another branch, stop before merging. If `--ff-only` fails, report that the

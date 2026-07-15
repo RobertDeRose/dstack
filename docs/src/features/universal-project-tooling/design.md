@@ -1,12 +1,11 @@
-# Design — F020 Universal project tooling
+# Design — Universal project tooling
 
 ## Metadata
 
 - Beads feature root: `dstack-mol-lg3`
-- Feature number: `020`
 - Feature slug: `universal-project-tooling`
-- Design path: `docs/src/features/020-universal-project-tooling/design.md`
-- Implemented record: `docs/src/features/020-universal-project-tooling/index.md`
+- Design path: `docs/src/features/universal-project-tooling/design.md`
+- Implemented record: `docs/src/features/universal-project-tooling/index.md`
 - Base branch: `main`
 - Status: reviewed
 
@@ -134,14 +133,15 @@ when Copier is conflict-free and tooling succeeds.
 | What are exact files/tasks/status fields?                  | `docs/src/reference/index.md`                               | `dstack-mol-b69.4` |
 
 Generated `README.md` uses named mise tasks, not raw `uv`/`mdbook` commands. Generated navigation links both tooling
-pages. Root pages already exist in `docs/src/SUMMARY.md`; no root navigation change or new root page is needed. F030
-extends these same generated pages rather than inventing profile-specific documentation.
+pages. Root pages already exist in `docs/src/SUMMARY.md`; no root navigation change or new root page is needed. Language
+quality profiles extends these same generated pages rather than inventing profile-specific documentation.
 
 ## Existing Context
 
-F010 now renders factual docs and local metadata scripts, while generated projects still advertise raw global commands.
-dstack's root mise/hk files prove the task shape but include language, CI, and release concerns that are not universal.
-Current setup owns post-render side effects; current update owns conflict-aware Copier application.
+Purposeful project scaffold now renders factual docs and local metadata scripts, while generated projects still
+advertise raw global commands. dstack's root mise/hk files prove the task shape but include language, CI, and release
+concerns that are not universal. Current setup owns post-render side effects; current update owns conflict-aware Copier
+application.
 
 ## Proposed Design
 
@@ -151,13 +151,15 @@ Setup and update call the same provisioner while retaining their existing orches
 ## Architecture Consistency
 
 Copier remains a local renderer. The generated provisioner owns network and repository-local tooling state. Setup/update
-only decide when to invoke it and merge its result. F030 extends the same files/pages; F040 consumes the named tasks.
+only decide when to invoke it and merge its result. Language quality profiles extends the same files/pages; GitHub
+validation and docs deployment consumes the named tasks.
 
 ## Boundaries
 
 Owned artifacts are the universal config/templates, generated provisioner/docs, setup/update integrations and skills,
-focused tests, and the four root reader pages. F030 owns language profiles; F040 owns GitHub workflows; F050 owns
-monorepo layout. Setup/update orchestrate side effects; Copier only renders files.
+focused tests, and the four root reader pages. Language quality profiles owns language profiles; GitHub validation and
+docs deployment owns GitHub workflows; Monorepo tooling layout owns monorepo layout. Setup/update orchestrate side
+effects; Copier only renders files.
 
 ## Operational Considerations
 
@@ -184,8 +186,9 @@ Local customizations remain subject to Copier conflict handling.
 ## Dependencies and Parallelism
 
 Templates precede setup; setup precedes update; all three precede end-to-end validation; final root docs follow every
-behavior task. This serializes shared scripts and gives every documentation path one implementation owner. F030 and F040
-remain blocked on F020 at their feature roots.
+behavior task. This serializes shared scripts and gives every documentation path one implementation owner. Language
+quality profiles and GitHub validation and docs deployment remain blocked on Universal project tooling at their feature
+roots.
 
 ## Risks and Tradeoffs
 
@@ -209,7 +212,7 @@ Each task is one reviewed commit and owns only the documentation named in its Be
 - Aliases are resolved per project; hk stays pinned to synchronize its versioned Pkl interface.
 - Lock resolution is explicit before locked installation and owned by both setup and update paths.
 - Hook installation is separate from tool installation; no implicit mise post-install hook.
-- Generated development/reference pages are the F030 extension point.
+- Generated development/reference pages are the Language quality profiles extension point.
 - Live external proof runs once; matrix/failure coverage stays deterministic.
 
 ## Rejected Alternatives

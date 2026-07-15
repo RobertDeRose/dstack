@@ -334,11 +334,11 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     run_migrator(legacy_project, "scan", "--write")
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
 
-    assert (legacy_project / "docs/src/features/010-alpha/design.md").is_file()
-    assert (legacy_project / "docs/src/features/020-beta/design.md").is_file()
+    assert (legacy_project / "docs/src/features/alpha/design.md").is_file()
+    assert (legacy_project / "docs/src/features/beta/design.md").is_file()
     roadmap = (legacy_project / "docs/src/planned-features.md").read_text(encoding="utf-8")
-    assert "### F010 — Alpha (`alpha`)" in roadmap
-    assert "### F020 — Beta (`beta`)" in roadmap
+    assert "### Alpha (`alpha`)" in roadmap
+    assert "### Beta (`beta`)" in roadmap
     api_doc = (legacy_project / "docs/src/architecture/api.md").read_text(encoding="utf-8")
     assert "/alpha/v1/items" in api_doc
     assert "/010-alpha/v1/items" not in api_doc
@@ -378,14 +378,14 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     result = run_migrator(legacy_project, "finalize", expected=2)
     assert "still referenced" in result.stderr
 
-    (legacy_project / "docs/src/features/010-alpha/index.md").write_text(
-        "# F010 — Alpha\n\n## Delivery Summary\n\nStandalone migrated record.\n",
+    (legacy_project / "docs/src/features/alpha/index.md").write_text(
+        "# Alpha\n\n## Delivery Summary\n\nStandalone migrated record.\n",
         encoding="utf-8",
     )
     run_migrator(legacy_project, "finalize", "--apply")
-    assert not (legacy_project / "docs/src/features/010-alpha/tasks.md").exists()
-    assert (legacy_project / "migration/legacy-tasks/010-alpha.md").is_file()
-    assert (legacy_project / "migration/legacy-tasks/020-beta.md").is_file()
+    assert not (legacy_project / "docs/src/features/alpha/tasks.md").exists()
+    assert (legacy_project / "migration/legacy-tasks/alpha.md").is_file()
+    assert (legacy_project / "migration/legacy-tasks/beta.md").is_file()
     run_migrator(legacy_project, "verify", "--skip-docs-check")
 
 
@@ -770,7 +770,7 @@ def test_finding_resolution_survives_rescan(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-def test_scan_accepts_titled_numbered_roadmap_heading_without_feature_files(tmp_path: Path) -> None:
+def test_scan_accepts_legacy_numbered_roadmap_heading_without_feature_files(tmp_path: Path) -> None:
     docs = tmp_path / "docs/src"
     docs.mkdir(parents=True)
     (docs / "planned-features.md").write_text(
@@ -787,12 +787,50 @@ def test_scan_accepts_titled_numbered_roadmap_heading_without_feature_files(tmp_
     run_migrator(tmp_path, "scan", "--write")
     feature = features_by_slug(tmp_path)["passport-apollo-whitelist-configuration"]
 
-    assert feature["number"] == "010"
     assert feature["title"] == "Passport Apollo whitelist configuration"
     assert feature["classification"] == "planned"
     assert feature["conflicts"] == []
     assert feature["has_design"] is False
     assert feature["has_tasks"] is False
+
+
+@pytest.mark.integration
+def test_prepare_normalizes_numbered_legacy_directories_and_dependencies(tmp_path: Path) -> None:
+    features = tmp_path / "docs/src/features"
+    for slug in ("alpha", "beta"):
+        (features / f"0{'10' if slug == 'alpha' else '20'}-{slug}").mkdir(parents=True)
+    (tmp_path / "docs/src/planned-features.md").write_text(
+        "# Planned Features\n\n## Feature Map\n\n"
+        "### F010 — Alpha (`alpha`)\n\n- Status: Planned\n- Dependencies: None\n\n"
+        "### F020 — Beta (`beta`)\n\n- Status: Planned\n- Dependencies: `F010`\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docs/src/SUMMARY.md").write_text("# Summary\n", encoding="utf-8")
+
+    run_migrator(tmp_path, "scan", "--write")
+    manifest = load_manifest(tmp_path)
+    features_state = cast(list[dict[str, Any]], manifest["features"])
+    assert all("number" not in feature for feature in features_state)
+    assert features_by_slug(tmp_path)["beta"]["dependencies"] == ["alpha"]
+    run_migrator(tmp_path, "prepare", "--apply", "--allow-dirty")
+
+    assert (features / "alpha").is_dir()
+    assert (features / "beta").is_dir()
+    assert not (features / "010-alpha").exists()
+    assert "### Alpha (`alpha`)" in (tmp_path / "docs/src/planned-features.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("names", [("010-alpha", "alpha"), ("010-alpha", "020-alpha")])
+def test_scan_rejects_duplicate_normalized_feature_slugs(tmp_path: Path, names: tuple[str, str]) -> None:
+    features = tmp_path / "docs/src/features"
+    for name in names:
+        (features / name).mkdir(parents=True)
+
+    result = run_migrator(tmp_path, "scan", "--write", expected=2)
+
+    assert "normalize to duplicate slug 'alpha'" in result.stderr
+    assert not (tmp_path / "migration/workflow-migration.json").exists()
 
 
 @pytest.mark.integration
@@ -813,11 +851,10 @@ def test_prepare_uses_sentence_case_human_title_and_rescan_preserves_feature(tmp
     run_migrator(tmp_path, "scan", "--write")
     run_migrator(tmp_path, "prepare", "--apply", "--allow-dirty")
     roadmap = (tmp_path / "docs/src/planned-features.md").read_text(encoding="utf-8")
-    assert "### F010 — Passport mqtt roles (`passport-mqtt-roles`)" in roadmap
+    assert "### Passport mqtt roles (`passport-mqtt-roles`)" in roadmap
 
     run_migrator(tmp_path, "scan", "--write")
     feature_state = features_by_slug(tmp_path)["passport-mqtt-roles"]
-    assert feature_state["number"] == "010"
     assert feature_state["title"] == "Passport mqtt roles"
 
 

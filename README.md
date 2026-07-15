@@ -86,15 +86,15 @@ task files after verification. It does not overwrite project-specific navigation
 
 ```text
 /plan-features
-/start-feature 010-feature-name
-/implement-feature 010-feature-name
-/close-feature 010-feature-name
+/start-feature feature-name
+/implement-feature feature-name
+/close-feature feature-name
 /audit-project
 ```
 
 Each feature is one Beads epic, or a molecule when created from the lifecycle formula. Lifecycle gates and bounded
-implementation tasks live below that epic. Human workflow commands use the stable `<number>-<slug>`, `F<number>`, or
-feature name; opaque Beads IDs remain internal mutation and audit references.
+implementation tasks live below that epic. Human workflow commands use the stable `<slug>` or feature name; opaque Beads
+IDs remain internal mutation and audit references.
 
 ## Repository Layout
 

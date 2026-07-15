@@ -1,4 +1,4 @@
-# F010 — Purposeful project scaffold
+# Purposeful project scaffold
 
 ## Delivery Summary
 
@@ -70,7 +70,8 @@ None from the reviewed implementation-ready design.
 ### Deferred Work
 
 Restoring structured-brief support in managed-project adoption is tracked by `dstack-ub6`. Universal tooling, language
-profiles, GitHub delivery, and monorepo layout remain owned by F020 through F050.
+profiles, GitHub delivery, and monorepo layout remain owned by Universal project tooling through Monorepo tooling
+layout.
 
 ### Rejected or Removed Scope
 
@@ -87,7 +88,7 @@ create speculative architecture, operations, development-overview, or reference-
 - `docs/src/planned-features.md`
 - `docs/src/features/index.md`
 - `docs/src/SUMMARY.md`
-- `docs/src/features/010-purposeful-project-scaffold/index.md`
+- `docs/src/features/purposeful-project-scaffold/index.md`
 
 ## Audit Trail
 

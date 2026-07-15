@@ -98,7 +98,7 @@ missing tags.
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py scan --write
 ```
 
-Review counts, parser coverage, classifications, numbering, renames, dependencies, and findings. Stop on an unparsed
+Review counts, parser coverage, classifications, slug mappings, renames, dependencies, and findings. Stop on an unparsed
 `tasks.md` file or any cycle in the effective Beads feature traversal graph, including `blocks`, `related`, and parent
 relationships. A `related` edge is contextual, but `bd list` still traverses it. Use these reference sections as needed:
 
@@ -126,17 +126,17 @@ test -z "$(git status --porcelain)"
 Do not run `prepare` while scan output or decisions are uncommitted. Use `--allow-dirty` only after explicit user
 acceptance of every dirty path.
 
-## Gate 4: Prepare numbered paths
+## Gate 4: Prepare slug-only paths
 
 ```bash
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py prepare
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py prepare --apply
 git add -A
-git diff --cached --quiet || git commit -m "chore: number legacy feature paths"
+git diff --cached --quiet || git commit -m "chore: normalize legacy feature paths"
 test -z "$(git status --porcelain)"
 ```
 
-See **Preparing numbered paths** for collision and rewrite behavior.
+See **Preparing slug-only paths** for collision and rewrite behavior.
 
 ## Gate 5: Preflight and import Beads
 
@@ -187,8 +187,8 @@ checks; rerun checks affected by fixes. A repository with no tests has an explic
 
 ## Completion criteria
 
-Migration is complete only when every feature has one stable number and Beads root; parser coverage, the blocking DAG,
-and the complete Beads traversal graph are clean; repeated import is idempotent; live work comes from Beads; designs and
+Migration is complete only when every feature has one stable slug and Beads root; parser coverage, the blocking DAG, and
+the complete Beads traversal graph are clean; repeated import is idempotent; live work comes from Beads; designs and
 delivered records preserve intent; roadmap, code, tests, docs, Beads, and delivery history agree; legacy tasks are
 archived or removed; validation passes; each boundary is committed; and the final worktree is clean.
 

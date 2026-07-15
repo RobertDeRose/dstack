@@ -25,16 +25,16 @@
 - [Repository and command reference](reference/index.md)
 - [Planned features](planned-features.md)
   <!-- BEGIN FEATURE DESIGNS -->
-  - [F010 — Purposeful project scaffold](features/010-purposeful-project-scaffold/design.md)
-  - [F020 — Universal project tooling](features/020-universal-project-tooling/design.md)
-  - [F030 — Language quality profiles](features/030-language-quality-profiles/design.md)
-  - [F040 — GitHub validation and docs deployment](features/040-github-validation-and-docs-deployment/design.md)
-  - [F050 — Monorepo tooling layout](features/050-monorepo-tooling-layout/design.md)
+  - [Purposeful project scaffold](features/purposeful-project-scaffold/design.md)
+  - [Universal project tooling](features/universal-project-tooling/design.md)
+  - [Language quality profiles](features/language-quality-profiles/design.md)
+  - [GitHub validation and docs deployment](features/github-validation-and-docs-deployment/design.md)
+  - [Monorepo tooling layout](features/monorepo-tooling-layout/design.md)
   <!-- END FEATURE DESIGNS -->
 - [Implemented features](features/index.md)
   <!-- BEGIN IMPLEMENTED FEATURES -->
-  - [F010 — Purposeful project scaffold](features/010-purposeful-project-scaffold/index.md)
-  - [F020 — Universal project tooling](features/020-universal-project-tooling/index.md)
-  - [F030 — Language quality profiles](features/030-language-quality-profiles/index.md)
-  - [F040 — GitHub validation and docs deployment](features/040-github-validation-and-docs-deployment/index.md)
+  - [Purposeful project scaffold](features/purposeful-project-scaffold/index.md)
+  - [Universal project tooling](features/universal-project-tooling/index.md)
+  - [Language quality profiles](features/language-quality-profiles/index.md)
+  - [GitHub validation and docs deployment](features/github-validation-and-docs-deployment/index.md)
   <!-- END IMPLEMENTED FEATURES -->

@@ -15,11 +15,10 @@ names. Monorepo support follows only after single-package profile composition is
 
 ## Roadmap conventions
 
-- Feature numbers are stable and zero-padded: `010`, `020`, `030`.
-- Directory names use `<num>-<slug>`.
+- Directory names use `<slug>`.
 - Detailed intent belongs in each feature's `design.md`.
 - Each feature is one Beads epic/molecule; lifecycle and implementation work are tasks beneath it.
-- Human workflow references use `<num>-<slug>`, `F<num>`, or the feature name. Root hashes are retained only for audit.
+- Human workflow references use `<slug>` or the feature name. Root hashes are retained only for audit.
 - Live execution state is queried through Beads.
 - Completed features move into [Implemented features](features/index.md).
 - Live lifecycle state is summarized as `design`, `spec-review`, `implementation`, `close-out`, `delivery-ready`,
@@ -27,13 +26,13 @@ names. Monorepo support follows only after single-package profile composition is
 
 ## Feature map
 
-| Feature                                                                             | Beads root       | Roadmap state | Dependencies | Design                                                                 |
-|-------------------------------------------------------------------------------------|------------------|---------------|--------------|------------------------------------------------------------------------|
-| `010-purposeful-project-scaffold` — Purposeful project scaffold                     | `dstack-mol-ln9` | delivered     | —            | [Design](features/010-purposeful-project-scaffold/design.md)           |
-| `020-universal-project-tooling` — Universal project tooling                         | `dstack-mol-lg3` | delivered     | —            | [Design](features/020-universal-project-tooling/design.md)             |
-| `030-language-quality-profiles` — Language quality profiles                         | `dstack-mol-ni2` | delivered     | F020         | [Design](features/030-language-quality-profiles/design.md)             |
-| `040-github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | delivered     | F010, F020   | [Design](features/040-github-validation-and-docs-deployment/design.md) |
-| `050-monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | design        | F030         | [Design](features/050-monorepo-tooling-layout/design.md)               |
+| Feature                                                                         | Beads root       | Roadmap state | Dependencies                                           | Design                                                             |
+|---------------------------------------------------------------------------------|------------------|---------------|--------------------------------------------------------|--------------------------------------------------------------------|
+| `purposeful-project-scaffold` — Purposeful project scaffold                     | `dstack-mol-ln9` | delivered     | —                                                      | [Design](features/purposeful-project-scaffold/design.md)           |
+| `universal-project-tooling` — Universal project tooling                         | `dstack-mol-lg3` | delivered     | —                                                      | [Design](features/universal-project-tooling/design.md)             |
+| `language-quality-profiles` — Language quality profiles                         | `dstack-mol-ni2` | delivered     | Universal project tooling                              | [Design](features/language-quality-profiles/design.md)             |
+| `github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | delivered     | Purposeful project scaffold, Universal project tooling | [Design](features/github-validation-and-docs-deployment/design.md) |
+| `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | design        | Language quality profiles                              | [Design](features/monorepo-tooling-layout/design.md)               |
 
 ## Cross-cutting decisions
 
@@ -50,10 +49,10 @@ names. Monorepo support follows only after single-package profile composition is
 
 ## Open project decisions
 
-No planning-blocking cross-feature decisions remain. F050 intentionally retains an implementation-time research question
-about current stable mise support for package-local configuration.
+No planning-blocking cross-feature decisions remain. Monorepo tooling layout intentionally retains an
+implementation-time research question about current stable mise support for package-local configuration.
 
 ## Recommended next work
 
-Start `050-monorepo-tooling-layout`; its lifecycle includes the planned mise capability research. F040's waived live
-Pages exercise remains recorded with its GitHub API, permission, and provisioning risk.
+Start `monorepo-tooling-layout`; its lifecycle includes the planned mise capability research. GitHub validation and docs
+deployment's waived live Pages exercise remains recorded with its GitHub API, permission, and provisioning risk.

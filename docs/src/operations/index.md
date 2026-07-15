@@ -22,9 +22,9 @@ documentation. Existing repositories are routed to `/migrate-workflow`; already 
 
 ```text
 /plan-features
-/start-feature 010-feature-name
-/implement-feature 010-feature-name
-/close-feature 010-feature-name
+/start-feature feature-name
+/implement-feature feature-name
+/close-feature feature-name
 /audit-project
 ```
 
@@ -70,7 +70,7 @@ the variable may already be set.
 
 Setup refuses non-empty unmanaged destinations. For a new destination, direct helper invocation also rejects missing,
 blank, multiline, or NUL-containing brief values and names the required flags. This is an intentionally breaking pre-v1
-setup contract; F010 does not support updating or adopting older answer sets.
+setup contract; Purposeful project scaffold does not support updating or adopting older answer sets.
 
 Update refuses missing or invalid Copier state and does not silently select untagged template code. If Beads is
 unavailable, setup reports initialization and verification as outstanding rather than claiming a complete workflow

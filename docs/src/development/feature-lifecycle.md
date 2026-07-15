@@ -4,10 +4,10 @@
 
 ```text
 Beads                                            executable state and dependencies
-docs/src/features/<num>-<slug>/design.md         intended feature behavior and design
+docs/src/features/<slug>/design.md         intended feature behavior and design
 reader-facing docs under docs/src/               current supported behavior
 code and tests                                   implementation evidence
-docs/src/features/<num>-<slug>/index.md          delivered reconciliation and audit record
+docs/src/features/<slug>/index.md          delivered reconciliation and audit record
 ```
 
 Workflow commands are installed from `RobertDeRose/dstack` with the `skills` CLI. The CLI manages the agent-specific
@@ -23,24 +23,24 @@ bd ready --json
 
 ## Plan
 
-`/plan-features` asks design-changing questions, defines the documentation architecture, creates numbered feature
+`/plan-features` asks design-changing questions, defines the documentation architecture, creates slug-named feature
 designs, pours one Beads epic/molecule per feature, and decomposes lifecycle and implementation into bounded child
 tasks. Native planning resolves every decision needed by those tasks before implementation; unresolved decision gaps may
 remain only on imported migration work with explicit reconciliation blockers. It recommends the next feature by
-canonical number/slug and human name rather than by an opaque Beads hash.
+canonical slug and human name rather than by an opaque Beads hash.
 
 A new feature uses:
 
 ```text
-docs/src/features/010-feature-slug/design.md
-feat/010-feature-slug
+docs/src/features/feature-slug/design.md
+feat/feature-slug
 ```
 
 ## Review and start
 
-`/start-feature <num>-<slug>` resolves the human feature reference through Beads, activates the worktree, and runs four
-isolated reviews. `F<num>`, an exact feature name, or a unique name fragment also resolves; the Beads ID remains
-internal mutation/audit evidence.
+`/start-feature <slug>` resolves the human feature reference through Beads, activates the worktree, and runs four
+isolated reviews. An exact feature name or a unique name fragment also resolves; the Beads ID remains internal
+mutation/audit evidence.
 
 The feature root is an epic. Lifecycle tasks are direct children, and bounded implementation tasks sit beneath the
 implementation coordinator task. A milestone is not used as the feature container.

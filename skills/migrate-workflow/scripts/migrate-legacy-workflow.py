@@ -20,8 +20,8 @@ The migration is intentionally staged:
     ``--write`` is supplied.
 
 ``prepare``
-    Assign stable feature numbers, rename feature directories, rewrite links,
-    add stable feature IDs to the roadmap, and add implemented-feature markers.
+    Normalize feature directories to slug-only paths, rewrite links,
+    and add stable feature slugs to the roadmap and implemented-feature markers.
     Dry-run by default; pass ``--apply`` to change files.
 
 ``classify``
@@ -164,7 +164,7 @@ class RoadmapEntry:
     slug: str
     title: str
     order: int
-    number: str | None
+    legacy_number: str | None
     status: str
     parent_feature: str | None
     dependency_tokens: list[str]
@@ -271,21 +271,28 @@ def parse_roadmap(path: Path) -> tuple[list[RoadmapEntry], str]:
             re.MULTILINE | re.DOTALL,
         )
         dependency_text = dependencies_match.group(1).strip() if dependencies_match else ""
-        dependency_tokens = sorted(set(re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)*)`", dependency_text)))
+        dependency_tokens = re.findall(r"`((?:F)?[0-9]{3,}|[a-z0-9]+(?:-[a-z0-9]+)*)`", dependency_text)
         parent_raw = parent_match.group(1).strip() if parent_match else ""
-        parent_token = re.search(r"`([a-z0-9]+(?:-[a-z0-9]+)*)`", parent_raw)
+        parent_token = re.search(r"`((?:F)?[0-9]{3,}|[a-z0-9]+(?:-[a-z0-9]+)*)`", parent_raw)
         entries.append(
             RoadmapEntry(
                 slug=match.group("slug"),
                 title=(match.group("title") or "").strip(),
                 order=index,
-                number=match.group("number"),
+                legacy_number=match.group("number"),
                 status=status_match.group(1).strip() if status_match else "",
                 parent_feature=parent_token.group(1) if parent_token else None,
                 dependency_tokens=dependency_tokens,
                 raw_dependencies=dependency_text,
             )
         )
+    legacy_numbers = {entry.legacy_number: entry.slug for entry in entries if entry.legacy_number}
+    for entry in entries:
+        entry.dependency_tokens = sorted(
+            set(legacy_numbers.get(token.removeprefix("F"), token) for token in entry.dependency_tokens)
+        )
+        if entry.parent_feature:
+            entry.parent_feature = legacy_numbers.get(entry.parent_feature.removeprefix("F"), entry.parent_feature)
     return entries, text
 
 
@@ -440,6 +447,10 @@ def existing_feature_dirs(features_dir: Path) -> dict[str, dict[str, Any]]:
         if match is None:
             continue
         slug = match.group("slug")
+        if slug in result:
+            first = result[slug]["path"]
+            message = f"Feature directories {first.name!r} and {path.name!r} normalize to duplicate slug {slug!r}"
+            raise MigrationError(message)
         result[slug] = {
             "number": match.group("number"),
             "path": path,
@@ -523,57 +534,6 @@ def status_conflicts(
         "completed_evidence": completed_evidence,
     }
     return classification, conflicts, evidence
-
-
-def load_existing_numbers(manifest: Mapping[str, Any] | None) -> dict[str, str]:
-    if not manifest:
-        return {}
-    result: dict[str, str] = {}
-    for feature in manifest.get("features", []):
-        if (
-            isinstance(feature, dict)
-            and isinstance(feature.get("slug"), str)
-            and isinstance(feature.get("number"), str)
-        ):
-            result[feature["slug"]] = feature["number"]
-    return result
-
-
-def assign_numbers(
-    ordered_slugs: list[str],
-    *,
-    roadmap: Mapping[str, RoadmapEntry],
-    directories: Mapping[str, Mapping[str, Any]],
-    existing: Mapping[str, str],
-    start: int,
-    step: int,
-) -> dict[str, str]:
-    assigned: dict[str, str] = {}
-    used: set[int] = set()
-    for slug in ordered_slugs:
-        candidate = existing.get(slug)
-        if candidate is None and slug in directories:
-            candidate = directories[slug].get("number")
-        if candidate is None and slug in roadmap:
-            candidate = roadmap[slug].number
-        if candidate is not None:
-            number = int(candidate)
-            if number in used:
-                msg = f"Duplicate feature number {candidate} while assigning {slug}"
-                raise MigrationError(msg)
-            assigned[slug] = f"{number:03d}"
-            used.add(number)
-
-    next_number = start
-    for slug in ordered_slugs:
-        if slug in assigned:
-            continue
-        while next_number in used:
-            next_number += step
-        assigned[slug] = f"{next_number:03d}"
-        used.add(next_number)
-        next_number += step
-    return assigned
 
 
 def canonical_cycle(nodes: Sequence[str]) -> tuple[str, ...]:
@@ -705,8 +665,6 @@ def build_manifest(
     root: Path,
     *,
     manifest_path: Path,
-    start_number: int,
-    step: int,
 ) -> dict[str, Any]:
     root / "docs/src"
     roadmap_entries, _ = parse_roadmap(root / ROADMAP_PATH)
@@ -714,7 +672,6 @@ def build_manifest(
     directories = existing_feature_dirs(root / FEATURES_PATH)
     summary_order = parse_summary_feature_order(root / SUMMARY_PATH)
     existing_manifest = load_json(root / manifest_path)
-    existing_numbers = load_existing_numbers(existing_manifest)
 
     ordered_slugs: list[str] = []
     existing_slugs = [
@@ -725,14 +682,6 @@ def build_manifest(
     for slug in [entry.slug for entry in roadmap_entries] + summary_order + sorted(directories) + existing_slugs:
         if slug not in ordered_slugs:
             ordered_slugs.append(slug)
-    numbers = assign_numbers(
-        ordered_slugs,
-        roadmap=roadmap,
-        directories=directories,
-        existing=existing_numbers,
-        start=start_number,
-        step=step,
-    )
     known_slugs = set(ordered_slugs)
     existing_by_slug: dict[str, dict[str, Any]] = {}
     if existing_manifest:
@@ -744,10 +693,9 @@ def build_manifest(
 
     features: list[dict[str, Any]] = []
     for slug in ordered_slugs:
-        number = numbers[slug]
         directory = directories.get(slug)
         source_dir = directory["path"] if directory else root / FEATURES_PATH / slug
-        target_dir = root / FEATURES_PATH / f"{number}-{slug}"
+        target_dir = root / FEATURES_PATH / slug
         active_dir = source_dir if source_dir.exists() else target_dir
         design_path = active_dir / "design.md"
         tasks_path = active_dir / "tasks.md"
@@ -846,7 +794,6 @@ def build_manifest(
             computed_classification = "needs_review"
         classification = classification_override or computed_classification
         feature = {
-            "number": number,
             "slug": slug,
             "title": (entry.title if entry and entry.title else previous.get("title") or slug_title(slug)),
             "source_dir": str(source_dir.relative_to(root)),
@@ -953,11 +900,8 @@ def render_report(manifest: Mapping[str, Any]) -> str:
         if feature.get("classification_override"):
             classification += " (override)"
         lines.append(
-            (
-                "| `{slug}` | `{number}-{slug}` | `{classification}` | {roadmap} | {design} | {index} | {findings} |"
-            ).format(
+            ("| `{slug}` | `{slug}` | `{classification}` | {roadmap} | {design} | {index} | {findings} |").format(
                 slug=feature["slug"],
-                number=feature["number"],
                 classification=classification,
                 roadmap=roadmap_status or "—",
                 design=design_status or "—",
@@ -971,7 +915,7 @@ def render_report(manifest: Mapping[str, Any]) -> str:
         conflicts = feature.get("conflicts", [])
         if not conflicts and not feature.get("classification_override"):
             continue
-        lines.append(f"### F{feature['number']} — `{feature['slug']}`")
+        lines.append(f"### {feature['title']} (`{feature['slug']}`)")
         lines.append("")
         for conflict in conflicts:
             lines.append(f"- `finding:{finding_id(str(conflict))}` — {conflict}")
@@ -989,7 +933,7 @@ def render_report(manifest: Mapping[str, Any]) -> str:
         lines.extend(["## Resolved Findings", ""])
         for feature, finding in resolved:
             lines.append(
-                f"- F{feature['number']} `{feature['slug']}` "
+                f"- `{feature['slug']}` "
                 f"`finding:{finding['id']}` — {finding['message']} "
                 f"— {finding.get('reason', 'no reason recorded')}"
             )
@@ -999,7 +943,7 @@ def render_report(manifest: Mapping[str, Any]) -> str:
         [
             "## Migration Stages",
             "",
-            "1. Review this report and correct any numbering decisions.",
+            "1. Review this report and confirm the feature slug mapping.",
             "2. Use `classify` and `resolve-findings` to record evidence-backed decisions before import.",
             "3. Run `prepare --apply` to rename feature paths and rewrite links.",
             "4. Run `import-beads --apply` to create Beads state.",
@@ -1031,8 +975,7 @@ def print_scan_summary(manifest: Mapping[str, Any]) -> None:
     for feature in features:
         suffix = " override" if feature.get("classification_override") else ""
         print(
-            f"  F{feature['number']} {feature['slug']}: {feature['classification']}{suffix} "
-            f"({len(feature.get('conflicts', []))} findings)"
+            f"  {feature['slug']}: {feature['classification']}{suffix} ({len(feature.get('conflicts', []))} findings)"
         )
 
 
@@ -1082,11 +1025,10 @@ def rewrite_roadmap_headings(
         if feature is None:
             return match.group(0)
         title = str(feature.get("title") or match.group("title") or slug_title(slug)).strip()
-        number = str(feature["number"])
-        return f"### F{number} — {title} (`{slug}`)"
+        return f"### {title} (`{slug}`)"
 
     updated = ROADMAP_HEADING_RE.sub(replace, text)
-    return re.sub(r"(### F[0-9]{3,} — .+?\(`[^`]+`\))\n(?=-\s)", r"\1\n\n", updated)
+    return re.sub(r"(### .+?\(`[^`]+`\))\n(?=-\s)", r"\1\n\n", updated)
 
 
 SUMMARY_CONCERN_SPECS: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
@@ -1278,7 +1220,7 @@ def prepare_filesystem(
     allow_dirty: bool,
 ) -> None:
     assert_clean_worktree(root, allow_dirty=allow_dirty)
-    mapping = {feature["slug"]: f"{feature['number']}-{feature['slug']}" for feature in manifest["features"]}
+    mapping = {Path(feature["source_dir"]).name: feature["slug"] for feature in manifest["features"]}
     operations: list[str] = []
     for feature in manifest["features"]:
         source = root / feature["source_dir"]
@@ -1316,13 +1258,7 @@ def prepare_filesystem(
             if path == root / ROADMAP_PATH:
                 new = rewrite_roadmap_headings(
                     new,
-                    {
-                        feature["slug"]: {
-                            "number": feature["number"],
-                            "title": feature["title"],
-                        }
-                        for feature in manifest["features"]
-                    },
+                    {feature["slug"]: {"title": feature["title"]} for feature in manifest["features"]},
                 )
             if (
                 path.name in {"design.md", "index.md"}
@@ -1454,17 +1390,14 @@ def discover_migrated_issues(
     ]
 
 
-def metadata_feature_key(metadata: Mapping[str, Any]) -> tuple[str, str] | None:
-    number = str(metadata.get("feature_number", "")).removeprefix("F")
+def metadata_feature_key(metadata: Mapping[str, Any]) -> str | None:
+    """Read slug identity, accepting old metadata only to resume an import."""
     slug = str(metadata.get("feature_slug", ""))
-    if number and slug:
-        return number, slug
-
+    if slug:
+        return slug
     legacy_path = str(metadata.get("legacy_tasks_path", ""))
-    match = re.search(r"docs/src/features/(?P<number>[0-9]{3,})-(?P<slug>[a-z0-9-]+)/tasks\.md$", legacy_path)
-    if match is None:
-        return None
-    return match.group("number"), match.group("slug")
+    match = re.search(r"docs/src/features/(?:[0-9]{3,}-)?(?P<slug>[a-z0-9-]+)/tasks\.md$", legacy_path)
+    return match.group("slug") if match else None
 
 
 def index_discovered_issues(
@@ -1472,8 +1405,8 @@ def index_discovered_issues(
     *,
     discriminator: str | None = None,
     default_discriminator: str = "",
-) -> dict[tuple[str, str, str], list[str]]:
-    discovered: dict[tuple[str, str, str], list[str]] = {}
+) -> dict[tuple[str, str], list[str]]:
+    discovered: dict[tuple[str, str], list[str]] = {}
     for issue in issues:
         metadata = issue_metadata(issue)
         feature_key = metadata_feature_key(metadata)
@@ -1483,7 +1416,7 @@ def index_discovered_issues(
         value = "root" if discriminator is None else str(metadata.get(discriminator, default_discriminator))
         if not value:
             continue
-        discovered.setdefault((*feature_key, value), []).append(issue_id)
+        discovered.setdefault((feature_key, value), []).append(issue_id)
     return discovered
 
 
@@ -1495,7 +1428,7 @@ def reconcile_recorded_issue(
     description: str,
 ) -> tuple[str, bool, str | None]:
     unique = sorted(set(candidates))
-    prefix = f"F{feature['number']} {feature['slug']}"
+    prefix = feature["slug"]
     if len(unique) > 1:
         return recorded, False, f"{prefix} has duplicate {description}: {', '.join(unique)}"
     if recorded and unique and recorded != unique[0]:
@@ -1537,14 +1470,13 @@ def reconcile_existing_beads_state(
     recovered = 0
     problems: list[str] = []
     for feature in features:
-        number = str(feature["number"])
         slug = str(feature["slug"])
         beads = feature.setdefault("beads", {})
 
         root_id, did_recover, problem = reconcile_recorded_issue(
             feature=feature,
             recorded=str(beads.get("root_id") or ""),
-            candidates=roots.get((number, slug, "root"), []),
+            candidates=roots.get((slug, "root"), []),
             description="Beads roots",
         )
         if problem:
@@ -1558,7 +1490,7 @@ def reconcile_existing_beads_state(
             issue_id, did_recover, problem = reconcile_recorded_issue(
                 feature=feature,
                 recorded=str(lifecycle_state.get(step_id) or ""),
-                candidates=lifecycle.get((number, slug, step_id), []),
+                candidates=lifecycle.get((slug, step_id), []),
                 description=f"lifecycle step {step_id!r}",
             )
             if problem:
@@ -1575,7 +1507,7 @@ def reconcile_existing_beads_state(
             issue_id, did_recover, problem = reconcile_recorded_issue(
                 feature=feature,
                 recorded=str(task_state.get(label) or ""),
-                candidates=implementation_tasks.get((number, slug, label), []),
+                candidates=implementation_tasks.get((slug, label), []),
                 description=f"legacy task {label}",
             )
             if problem:
@@ -1587,7 +1519,7 @@ def reconcile_existing_beads_state(
         reconciliation_id, did_recover, problem = reconcile_recorded_issue(
             feature=feature,
             recorded=str(beads.get("migration_reconciliation_id") or ""),
-            candidates=reconciliation.get((number, slug, "status-reconciliation"), []),
+            candidates=reconciliation.get((slug, "status-reconciliation"), []),
             description="migration reconciliation tasks",
         )
         if problem:
@@ -1600,6 +1532,16 @@ def reconcile_existing_beads_state(
         raise MigrationError(
             "Existing migrated Beads state must be reconciled before import:\n  - " + "\n  - ".join(problems)
         )
+    # Old interrupted imports used number-bearing metadata. Recovery is keyed
+    # by the slug fallback above, then immediately canonicalized.
+    for feature in features:
+        beads = feature.get("beads", {})
+        issue_ids = [beads.get("root_id"), beads.get("migration_reconciliation_id")]
+        issue_ids.extend(beads.get("lifecycle", {}).values())
+        issue_ids.extend(beads.get("implementation_tasks", {}).values())
+        for issue_id in {str(value) for value in issue_ids if value}:
+            bd_set_metadata(root, issue_id, {"feature_slug": feature["slug"], "feature_name": feature["title"]})
+            bd_unset_metadata(root, issue_id, "feature_number")
     return recovered
 
 
@@ -1659,6 +1601,11 @@ def bd_set_metadata(root: Path, issue_id: str, values: Mapping[str, Any]) -> Non
         command.extend(("--set-metadata", f"{key}={rendered}"))
     if len(command) > 3:
         run_command(command, cwd=root, allow_existing=True)
+
+
+def bd_unset_metadata(root: Path, issue_id: str, *keys: str) -> None:
+    if keys:
+        run_command(["bd", "update", issue_id, "--unset-metadata", *keys], cwd=root, allow_existing=True)
 
 
 def bd_note(root: Path, issue_id: str, note: str) -> None:
@@ -1806,7 +1753,7 @@ def validate_formula(formula: Mapping[str, Any]) -> None:
 def preflight_import(manifest: Mapping[str, Any], formula: Mapping[str, Any]) -> None:
     validate_formula(formula)
     unparsed = [
-        f"F{feature['number']} {feature['slug']}"
+        feature["slug"]
         for feature in manifest.get("features", [])
         if isinstance(feature, dict)
         and feature.get("has_tasks")
@@ -1842,20 +1789,19 @@ def preflight_import(manifest: Mapping[str, Any], formula: Mapping[str, Any]) ->
 
 def create_feature_root(root: Path, feature: dict[str, Any]) -> str:
     metadata = {
-        "feature_number": feature["number"],
         "feature_slug": feature["slug"],
         "feature_name": feature["title"],
         "design_path": feature["design_path"],
         "implemented_path": feature["implemented_path"],
         "base_branch": "main",
         "migration_source": "legacy-markdown-workflow",
-        "migration_key": f"legacy-feature:{feature['number']}:{feature['slug']}",
+        "migration_key": f"legacy-feature:{feature['slug']}",
         "migration_classification": feature["classification"],
         "legacy_roadmap_status": feature.get("roadmap_status", ""),
     }
     description = textwrap.dedent(
         f"""
-        Migrated feature F{feature["number"]} from the legacy Markdown workflow.
+        Migrated feature from the legacy Markdown workflow.
 
         Legacy roadmap status: {feature.get("roadmap_status") or "not recorded"}
         Legacy design status: {feature.get("design_status") or "not recorded"}
@@ -1871,7 +1817,7 @@ def create_feature_root(root: Path, feature: dict[str, Any]) -> str:
     spec_id = feature["design_path"] if feature.get("has_design") else None
     return bd_create(
         root,
-        title=f"F{feature['number']} — {feature['title']}",
+        title=feature["title"],
         issue_type="epic",
         labels=labels,
         metadata=metadata,
@@ -1893,7 +1839,6 @@ def create_lifecycle_steps(
 ) -> dict[str, str]:
     existing = feature.setdefault("beads", {}).setdefault("lifecycle", {})
     variables = {
-        "feature_number": feature["number"],
         "feature_name": feature["title"],
         "feature_slug": feature["slug"],
         "design_path": feature["design_path"],
@@ -1919,8 +1864,7 @@ def create_lifecycle_steps(
             {
                 "formula_step_id": step_id,
                 "migration_source": "legacy-markdown-workflow",
-                "migration_key": (f"legacy-feature:{feature['number']}:{feature['slug']}:lifecycle:{step_id}"),
-                "feature_number": feature["number"],
+                "migration_key": (f"legacy-feature:{feature['slug']}:lifecycle:{step_id}"),
                 "feature_slug": feature["slug"],
                 "feature_name": feature["title"],
             }
@@ -1984,8 +1928,7 @@ def create_legacy_implementation_tasks(
             "parallel_safe": task.get("parallel"),
             "design_path": feature["design_path"],
             "migration_source": "legacy-markdown-workflow",
-            "migration_key": f"legacy-feature:{feature['number']}:{feature['slug']}:task:{label}",
-            "feature_number": feature["number"],
+            "migration_key": f"legacy-feature:{feature['slug']}:task:{label}",
             "feature_slug": feature["slug"],
             "feature_name": feature["title"],
         }
@@ -2004,7 +1947,7 @@ def create_legacy_implementation_tasks(
             acceptance_parts.append("Completion constraint: " + task["completion_constraint"])
         issue_id = bd_create(
             root,
-            title=f"F{feature['number']} {label} — {task['title']}",
+            title=f"{feature['slug']} {label} — {task['title']}",
             issue_type="task",
             parent=implementation_id,
             labels=("migration:legacy-task", f"legacy-task:{label.casefold()}"),
@@ -2094,15 +2037,14 @@ def apply_imported_states(
             )
             reconciliation_id = bd_create(
                 root,
-                title=f"F{feature['number']} — Reconcile migrated status: {feature['title']}",
+                title=f"Reconcile migrated status: {feature['title']}",
                 issue_type="task",
                 parent=root_id,
                 labels=("migration:reconciliation", "review:drift"),
                 metadata={
                     "migration_source": "legacy-markdown-workflow",
-                    "migration_key": (f"legacy-feature:{feature['number']}:{feature['slug']}:reconciliation"),
+                    "migration_key": (f"legacy-feature:{feature['slug']}:reconciliation"),
                     "migration_role": "status-reconciliation",
-                    "feature_number": feature["number"],
                     "feature_slug": feature["slug"],
                 },
                 description="Resolve contradictory legacy roadmap, design, task, and implemented-record evidence.\n\n"
@@ -2166,22 +2108,8 @@ def selected_features(manifest: Mapping[str, Any], requested: Sequence[str]) -> 
     if not requested:
         return features
     requested_set = set(requested)
-    selected = [
-        feature
-        for feature in features
-        if feature.get("slug") in requested_set
-        or f"F{feature.get('number')}" in requested_set
-        or f"{feature.get('number')}-{feature.get('slug')}" in requested_set
-    ]
-    missing = requested_set - {
-        value
-        for feature in selected
-        for value in (
-            str(feature.get("slug")),
-            f"F{feature.get('number')}",
-            f"{feature.get('number')}-{feature.get('slug')}",
-        )
-    }
+    selected = [feature for feature in features if feature.get("slug") in requested_set]
+    missing = requested_set - {str(feature.get("slug")) for feature in selected}
     if missing:
         raise MigrationError("Unknown requested features: " + ", ".join(sorted(missing)))
     return selected
@@ -2232,7 +2160,7 @@ def set_classification(
         }
     )
     save_manifest_and_report(root, manifest_path, report_path, manifest)
-    print(f"{action} classification override for F{feature['number']} {feature['slug']}.")
+    print(f"{action} classification override for {feature['slug']}.")
 
 
 def set_dependency_relation(
@@ -2331,7 +2259,7 @@ def set_dependency_relation(
     manifest.clear()
     manifest.update(candidate_manifest)
     save_manifest_and_report(root, manifest_path, report_path, manifest)
-    print(f"Set F{feature['number']} {feature['slug']} -> F{dependency['number']} {dependency['slug']} as {relation}.")
+    print(f"Set {feature['slug']} -> {dependency['slug']} as {relation}.")
 
 
 def resolve_findings(
@@ -2375,7 +2303,7 @@ def resolve_findings(
         }
     )
     save_manifest_and_report(root, manifest_path, report_path, manifest)
-    print(f"Resolved {len(selected_ids)} migration finding(s) for F{feature['number']} {feature['slug']}.")
+    print(f"Resolved {len(selected_ids)} migration finding(s) for {feature['slug']}.")
 
 
 def import_beads(
@@ -2522,15 +2450,13 @@ def finalize_migration(
             continue
         beads = feature.get("beads", {})
         if not beads.get("root_id") or not beads.get("state_applied"):
-            missing_imports.append(f"F{feature['number']} {feature['slug']}: feature state has not been fully imported")
+            missing_imports.append(f"{feature['slug']}: feature state has not been fully imported")
             continue
         imported = beads.get("implementation_tasks", {})
         expected = {task["label"] for task in feature.get("tasks", []) if task.get("label") not in {"T000", "T999"}}
         missing = sorted(label for label in expected if not imported.get(label))
         if missing:
-            missing_imports.append(
-                f"F{feature['number']} {feature['slug']}: missing imported tasks {', '.join(missing)}"
-            )
+            missing_imports.append(f"{feature['slug']}: missing imported tasks {', '.join(missing)}")
     if missing_imports:
         details = "\n".join(f"  - {item}" for item in missing_imports)
         raise MigrationError(
@@ -2548,7 +2474,7 @@ def finalize_migration(
                 tasks_path.unlink()
                 feature["legacy_tasks_archive"] = "deleted; retained in Git history"
         else:
-            archive_path = root / archive_dir / f"{feature['number']}-{feature['slug']}.md"
+            archive_path = root / archive_dir / f"{feature['slug']}.md"
             operations.append(f"archive {tasks_path.relative_to(root)} -> {archive_path.relative_to(root)}")
             if apply:
                 archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2578,7 +2504,7 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
     errors: list[str] = []
     warnings: list[str] = []
     features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
-    mapping = {feature["slug"]: f"{feature['number']}-{feature['slug']}" for feature in features}
+    mapping = {Path(feature["source_dir"]).name: feature["slug"] for feature in features}
     for cycle in beads_traversal_cycles(features):
         errors.append(
             "Migration manifest contains a Beads traversal cycle: " + render_relationship_cycle(cycle, features)
@@ -2589,7 +2515,7 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
         if manifest.get("migration_prepared") and not target.exists() and feature.get("has_design"):
             errors.append(f"Missing target feature directory: {target.relative_to(root)}")
         if source != target and source.exists():
-            errors.append(f"Legacy unnumbered directory still exists: {source.relative_to(root)}")
+            errors.append(f"Legacy numbered directory still exists: {source.relative_to(root)}")
         tasks = root / feature["legacy_tasks_path"]
         if manifest.get("migration_finalized") and tasks.exists():
             errors.append(f"Legacy tasks.md remains after finalization: {tasks.relative_to(root)}")
@@ -2601,13 +2527,11 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
                     "Legacy OPEN_QUESTIONS.md remains after finalization: " + str(open_questions.relative_to(root))
                 )
         if feature.get("conflicts"):
-            warnings.append(
-                f"F{feature['number']} {feature['slug']} has {len(feature['conflicts'])} reconciliation findings"
-            )
+            warnings.append(f"{feature['slug']} has {len(feature['conflicts'])} reconciliation findings")
         if verify_beads:
             root_id = feature.get("beads", {}).get("root_id")
             if not root_id:
-                warnings.append(f"F{feature['number']} {feature['slug']} has no Beads root ID")
+                warnings.append(f"{feature['slug']} has no Beads root ID")
             else:
                 result = subprocess.run(
                     ["bd", "show", root_id, "--json"],
@@ -2632,8 +2556,10 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
 
     for path in sorted((root / "docs/src").rglob("*.md")) if (root / "docs/src").exists() else []:
         text = read_text(path)
-        for slug in mapping:
-            stale_patterns = (f"docs/src/features/{slug}/", f"features/{slug}/", f"({slug}/")
+        for source_name, slug in mapping.items():
+            if source_name == slug:
+                continue
+            stale_patterns = (f"docs/src/features/{source_name}/", f"features/{source_name}/", f"({source_name}/")
             if any(pattern in text for pattern in stale_patterns):
                 errors.append(f"Stale feature path for {slug} in {path.relative_to(root)}")
                 break
@@ -2802,8 +2728,6 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root", type=Path, help="Repository root; defaults to git root")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
-    parser.add_argument("--start-number", type=int, default=10)
-    parser.add_argument("--step", type=int, default=10)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -2823,7 +2747,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     add_common_arguments(scan)
     scan.add_argument("--write", action="store_true", help="Write manifest and report")
 
-    prepare = subparsers.add_parser("prepare", help="Number feature paths and rewrite links")
+    prepare = subparsers.add_parser("prepare", help="Normalize feature paths and rewrite links")
     add_common_arguments(prepare)
     prepare.add_argument("--apply", action="store_true")
     prepare.add_argument("--allow-dirty", action="store_true")
@@ -2833,7 +2757,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Set or clear an evidence-backed classification override before Beads import",
     )
     add_common_arguments(classify)
-    classify.add_argument("feature", help="Feature slug, F number, or numbered slug")
+    classify.add_argument("feature", help="Feature slug")
     classify.add_argument(
         "classification",
         choices=("auto", *sorted(VALID_CLASSIFICATIONS)),
@@ -2850,8 +2774,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Record or reconcile a feature dependency relation during migration",
     )
     add_common_arguments(dependency)
-    dependency.add_argument("feature", help="Dependent feature slug, F number, or numbered slug")
-    dependency.add_argument("dependency", help="Prerequisite/related feature slug, F number, or numbered slug")
+    dependency.add_argument("feature", help="Dependent feature slug")
+    dependency.add_argument("dependency", help="Prerequisite/related feature slug")
     dependency.add_argument("relation", choices=("blocks", "related", "remove"))
     dependency.add_argument("--reason", required=True)
 
@@ -2860,7 +2784,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Record evidence-backed resolutions for scanner findings",
     )
     add_common_arguments(resolve)
-    resolve.add_argument("feature", help="Feature slug, F number, or numbered slug")
+    resolve.add_argument("feature", help="Feature slug")
     resolve.add_argument(
         "--finding",
         action="append",
@@ -2874,9 +2798,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     add_common_arguments(import_parser)
     import_parser.add_argument("--apply", action="store_true")
     import_parser.add_argument("--init-beads", action="store_true")
-    import_parser.add_argument(
-        "--feature", action="append", default=[], help="Import only a slug, F number, or numbered slug"
-    )
+    import_parser.add_argument("--feature", action="append", default=[], help="Import only a slug")
 
     finalize = subparsers.add_parser("finalize", help="Archive legacy task files after semantic reconciliation")
     add_common_arguments(finalize)
@@ -2892,16 +2814,36 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def normalize_manifest_identity(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade an interrupted numbered migration in memory before resuming it."""
+    for feature in manifest.get("features", []):
+        if not isinstance(feature, dict) or not isinstance(feature.get("slug"), str):
+            continue
+        slug = feature["slug"]
+        feature.pop("number", None)
+        for key in (
+            "target_dir",
+            "design_path",
+            "implemented_path",
+            "legacy_tasks_path",
+            "legacy_open_questions_path",
+        ):
+            value = feature.get(key)
+            if not isinstance(value, str):
+                continue
+            feature[key] = re.sub(
+                r"docs/src/features/[0-9]{3,}-" + re.escape(slug),
+                f"docs/src/features/{slug}",
+                value,
+            )
+    return manifest
+
+
 def load_or_scan(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_json(root / args.manifest)
     if manifest is not None:
-        return manifest
-    return build_manifest(
-        root,
-        manifest_path=args.manifest,
-        start_number=args.start_number,
-        step=args.step,
-    )
+        return normalize_manifest_identity(manifest)
+    return build_manifest(root, manifest_path=args.manifest)
 
 
 def _main(args: argparse.Namespace) -> int:
@@ -2921,8 +2863,6 @@ def _main(args: argparse.Namespace) -> int:
             manifest = build_manifest(
                 root,
                 manifest_path=args.manifest,
-                start_number=args.start_number,
-                step=args.step,
             )
             if args.write:
                 save_manifest_and_report(root, args.manifest, args.report, manifest)

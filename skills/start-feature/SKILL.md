@@ -8,10 +8,10 @@ allowed-tools: Read Glob Grep Edit Write Bash Task AskUserQuestion
 
 # Purpose
 
-Use this skill for any planned feature epic. The user may identify it by canonical `<num>-<slug>`, `F<num>`, exact
-feature name, unique name fragment, or Beads ID. It owns bounded promotion of roadmap-only migrated roots, specification
-review, worktree activation, and implementation-readiness reconciliation. Resolve `<core-dir>` as the installed
-`../dstack-core` skill directory.
+Use this skill for any planned feature epic. The user may identify it by canonical `<slug>`, exact feature name, unique
+name fragment, or Beads ID. It owns bounded promotion of roadmap-only migrated roots, specification review, worktree
+activation, and implementation-readiness reconciliation. Resolve `<core-dir>` as the installed `../dstack-core` skill
+directory.
 
 ## Execution
 
@@ -38,14 +38,14 @@ bd show <resolved-root-id> --json
 ```
 
 The selected issue must be an epic carrying `workflow:feature`. Read root metadata first. It should provide feature
-number, slug, human name, paths, base branch, implementation repository/path, workflow kind, and lifecycle IDs. Stop on
-an ambiguous selector and show the resolver's human-readable candidates; do not guess or append characters to an ID.
+slug, human name, paths, base branch, implementation repository/path, workflow kind, and lifecycle IDs. Stop on an
+ambiguous selector and show the resolver's human-readable candidates; do not guess or append characters to an ID.
 
 When the selected root is roadmap-only and lacks `design.md` or lifecycle metadata, do not stop or ask the user to
 invoke another skill. Run the bounded single-feature planning phase from `/plan-features`: resolve only the missing
 outcome, boundaries, dependencies, validation, documentation impact, and repository ownership; create the design,
-lifecycle, and bounded implementation children; then continue this workflow. Preserve the existing feature number and
-root ID. Query only the specific review or reconciliation beads needed for this invocation.
+lifecycle, and bounded implementation children; then continue this workflow. Preserve the existing feature slug and root
+ID. Query only the specific review or reconciliation beads needed for this invocation.
 
 When lifecycle IDs are missing, repair metadata once: use `bd mol show <feature-root> --json` for a molecule, or
 `bd list --parent <feature-root> --all --json` for a migrated parent-child lifecycle. Resolve children by structured
@@ -65,17 +65,17 @@ repository ownership is ambiguous, ask one blocking question and persist the ans
 Use:
 
 ```text
-feat/<num>-<slug>
+feat/<slug>
 ```
 
 When `wt` is available, use it and treat JSON stdout as authoritative:
 
 ```bash
 # Create when the feature branch/worktree does not exist.
-wt switch --create --yes --format json feat/<num>-<slug> --base <base-branch>
+wt switch --create --yes --format json feat/<slug> --base <base-branch>
 
 # Switch when the worktree already exists.
-wt switch --format json feat/<num>-<slug>
+wt switch --format json feat/<slug>
 ```
 
 When `wt` is unavailable, use native Git and handle all three states explicitly:
@@ -83,13 +83,13 @@ When `wt` is unavailable, use native Git and handle all three states explicitly:
 ```bash
 # Inspect existing worktrees and branches.
 git worktree list --porcelain
-git show-ref --verify --quiet refs/heads/feat/<num>-<slug>
+git show-ref --verify --quiet refs/heads/feat/<slug>
 
 # Branch and worktree both absent:
-git worktree add -b feat/<num>-<slug> <worktree-path> <base-branch>
+git worktree add -b feat/<slug> <worktree-path> <base-branch>
 
 # Branch exists but has no worktree:
-git worktree add <worktree-path> feat/<num>-<slug>
+git worktree add <worktree-path> feat/<slug>
 
 # Worktree already exists:
 # Use the path reported by `git worktree list --porcelain`; do not add another one.
@@ -102,8 +102,8 @@ git -C <worktree-path> branch --show-current
 git -C <worktree-path> rev-parse --show-toplevel
 ```
 
-The branch must equal `feat/<num>-<slug>` and the root must equal the resolved worktree path before editing. Claim the
-feature root when appropriate:
+The branch must equal `feat/<slug>` and the root must equal the resolved worktree path before editing. Claim the feature
+root when appropriate:
 
 ```bash
 bd update <feature-root> --claim
@@ -187,7 +187,7 @@ At least one implementation child should now be ready unless the design intentio
 work. Persist the successfully prepared feature as this repository's implementation default:
 
 ```bash
-git -C <worktree-path> config dstack.activeFeature <num>-<slug>
+git -C <worktree-path> config dstack.activeFeature <slug>
 ```
 
 Set this only after specification reconciliation and implementation-readiness checks pass. The value is repository-local
@@ -195,4 +195,4 @@ Git state, so a later `/implement-feature` invocation can resume the feature eve
 
 Return the canonical feature reference and human name first, followed by the root ID for auditability, worktree,
 reviewed-design commit, review findings, decisions made, remaining blockers, and next ready implementation task. Any
-recommended continuation must use `/implement-feature <num>-<slug>` rather than only the Beads hash.
+recommended continuation must use `/implement-feature <slug>` rather than only the Beads hash.

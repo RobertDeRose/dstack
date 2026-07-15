@@ -1,4 +1,4 @@
-# F{{ feature_number }} — {{ feature_name }}
+# {{ feature_name }}
 
 ## Delivery Summary
 

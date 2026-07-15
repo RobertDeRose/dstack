@@ -1,12 +1,11 @@
-# Design — F040 GitHub validation and docs deployment
+# Design — GitHub validation and docs deployment
 
 ## Metadata
 
 - Beads feature root: `dstack-mol-8fe`
-- Feature number: `040`
 - Feature slug: `github-validation-and-docs-deployment`
-- Design path: `docs/src/features/040-github-validation-and-docs-deployment/design.md`
-- Implemented record: `docs/src/features/040-github-validation-and-docs-deployment/index.md`
+- Design path: `docs/src/features/github-validation-and-docs-deployment/design.md`
+- Implemented record: `docs/src/features/github-validation-and-docs-deployment/index.md`
 - Base branch: `main`
 - Status: reviewed
 
@@ -138,22 +137,23 @@ execution. Projects without GitHub or `gh` retain the existing local tasks and r
 
 ## Existing Context
 
-F010 provides factual docs to publish. F020 provides one locked mise/hk interface and five stable contributor tasks.
-F030 composes language profiles without adding CI. Root repository workflows demonstrate pinned Actions, read-only
-validation, and `install: false`, but generated workflows remain separately specified product behavior.
+Purposeful project scaffold provides factual docs to publish. Universal project tooling provides one locked mise/hk
+interface and five stable contributor tasks. Language quality profiles composes language profiles without adding CI.
+Root repository workflows demonstrate pinned Actions, read-only validation, and `install: false`, but generated
+workflows remain separately specified product behavior.
 
 ## Proposed Design
 
 Add two unconditional workflow templates, one generated stdlib enable helper, one mise operator task, one generated
-operations page, and updates to existing generated tooling/reference pages. Validation consumes the five stable F020
-tasks without adding policy. F040 intentionally extends the shared mise interface from five to six tasks while retaining
-seven universal tools because `gh` is external.
+operations page, and updates to existing generated tooling/reference pages. Validation consumes the five stable
+Universal project tooling tasks without adding policy. GitHub validation and docs deployment intentionally extends the
+shared mise interface from five to six tasks while retaining seven universal tools because `gh` is external.
 
 ## Architecture Consistency
 
 ### Existing Patterns Reused
 
-- F020 locked installation and named tasks remain the CI authority.
+- Universal project tooling locked installation and named tasks remain the CI authority.
 - Copier only renders files; it does not mutate GitHub repository state.
 - The explicit operator task owns the authenticated GitHub mutation.
 - Validation and deployment remain separate workflows with separate permissions.
@@ -197,7 +197,7 @@ waived.
 | Generated reference   | `skills/setup-project/template/docs/src/reference/tooling.md.jinja`       | enable task         | Sixth task, variable, workflow/permission contract, external gh |
 | Generated navigation  | `skills/setup-project/template/docs/src/SUMMARY.md.jinja`                 | enable task         | Register GitHub Pages operations page                           |
 | Roadmap               | `docs/src/planned-features.md`                                            | integration task    | Mark implementation readiness                                   |
-| Implemented record    | `docs/src/features/040-github-validation-and-docs-deployment/index.md`    | lifecycle close-out | Delivery evidence                                               |
+| Implemented record    | `docs/src/features/github-validation-and-docs-deployment/index.md`        | lifecycle close-out | Delivery evidence                                               |
 
 Every page has one implementation commit owner. No new root reader page is needed.
 
@@ -226,12 +226,12 @@ Repository-wide validation remains `uv run --frozen --group test pytest`, `mise 
 ## Implementation Decomposition
 
 1. **Validation workflow (`dstack-mol-41q.1`)**: generate `.github/workflows/validate.yml`; own root/generated
-   development docs, focused tests in `tests/test_f040_validation.py`, and shared exact-scaffold assertions caused by
+   development docs, focused tests in `tests/test_github_validation.py`, and shared exact-scaffold assertions caused by
    this file.
 2. **Deployment workflow (`dstack-mol-41q.2`)**: after task 1, generate `.github/workflows/docs.yml`; own root
-   architecture docs, focused tests in `tests/test_f040_deployment.py`, and its shared exact-scaffold assertion delta.
+   architecture docs, focused tests in `tests/test_github_deployment.py`, and its shared exact-scaffold assertion delta.
 3. **Enablement (`dstack-mol-41q.3`)**: after task 2, add helper and sixth task; own root operations/reference,
-   generated operations/reference/navigation, focused tests in `tests/test_f040_enablement.py`, and shared task/file
+   generated operations/reference/navigation, focused tests in `tests/test_github_enablement.py`, and shared task/file
    assertions.
 4. **Integration (`dstack-mol-41q.4`)**: after the other three, own remaining combined/update coverage in
    `tests/test_repository.py`, both-entrypoint integration, workflows/tasks/docs, and roadmap reconciliation.
@@ -241,8 +241,9 @@ changes shared exact-scaffold assertions that must pass at each task commit; tas
 
 ## Dependencies and Parallelism
 
-F010 and F020 are delivered prerequisites. F030 is delivered context. After specification reconciliation, implementation
-proceeds validation → deployment → enablement → integration.
+Purposeful project scaffold and Universal project tooling are delivered prerequisites. Language quality profiles is
+delivered context. After specification reconciliation, implementation proceeds validation → deployment → enablement →
+integration.
 
 ## Rollout and Migration
 
@@ -298,7 +299,8 @@ automatic deployment branch. Explicit manual dispatch is useful for recovery but
 
 ### Source Material
 
-- Delivered F010/F020/F030 records and current generated tooling contracts.
+- Delivered Purposeful project scaffold/Universal project tooling/Language quality profiles records and current
+  generated tooling contracts.
 - Existing dstack validation workflows as repository patterns.
 - GitHub Pages REST and custom workflow documentation: <https://docs.github.com/en/rest/pages/pages> and
   <https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages>.

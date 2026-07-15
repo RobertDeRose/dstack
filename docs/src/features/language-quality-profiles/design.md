@@ -1,27 +1,26 @@
-# Design — F030 Language quality profiles
+# Design — Language quality profiles
 
 ## Metadata
 
 - Beads feature root: `dstack-mol-ni2`
-- Feature number: `030`
 - Feature slug: `language-quality-profiles`
-- Design path: `docs/src/features/030-language-quality-profiles/design.md`
-- Implemented record: `docs/src/features/030-language-quality-profiles/index.md`
+- Design path: `docs/src/features/language-quality-profiles/design.md`
+- Implemented record: `docs/src/features/language-quality-profiles/index.md`
 - Base branch: `main`
 - Status: reviewed
 
 ## Feature Summary
 
 Let new projects select Python, TypeScript, Rust, Go, Elixir, Nix, or other implementation languages. Recognized
-profiles extend F020's universal mise/hk/docs baseline without generating application source, manifests, package roots,
-or workspace structure.
+profiles extend Universal project tooling's universal mise/hk/docs baseline without generating application source,
+manifests, package roots, or workspace structure.
 
 ## User Intent
 
 Setup should install an opinionated quality baseline for the implementation languages while remaining a workflow
 scaffold. Multiple profiles support one repository containing several languages, such as Python with a TypeScript
-frontend or a Rust extension. F030 still applies one root policy; package-local configuration and monorepo layout remain
-F050.
+frontend or a Rust extension. Language quality profiles still applies one root policy; package-local configuration and
+monorepo layout remain Monorepo tooling layout.
 
 ## Goals
 
@@ -29,7 +28,7 @@ F050.
 - Add only selected mise tools, hk steps, ignore rules, and factual contributor documentation.
 - Run source-only checks without requiring a manifest and gate package-aware checks on project-owned root manifests.
 - Use project-owned pytest, Vitest, and Credo versions rather than modifying manifests or fetching ephemeral packages.
-- Preserve the five F020 task names and one project-owned four-platform `mise.lock`.
+- Preserve the five Universal project tooling task names and one project-owned four-platform `mise.lock`.
 
 ## Non-Goals
 
@@ -65,7 +64,7 @@ chooses a language.
 are idempotent. The add and remove sets must be disjoint. Adding a recognized profile removes `other`; adding `other` is
 valid only when all recognized profiles are removed in the same operation. The canonicalized result must satisfy the
 selection contract. Copier reconciliation, lock resolution, locked installation, and hook installation then follow
-F020's conflict and recovery contract.
+Universal project tooling's conflict and recovery contract.
 
 For a legacy project without `language_profiles`, the skill checks only these repository-root paths and offers the
 matching suggestions for confirmation:
@@ -81,8 +80,9 @@ matching suggestions for confirmation:
 | `flake.nix`      | Nix               |
 
 Suggestions are never applied automatically. If none are found or the user declines them, the skill offers `other`.
-Detection remains root-only; recursive discovery belongs to F050. A direct noninteractive update of a legacy project
-without explicit profile operations records `other` to preserve the universal F020 baseline.
+Detection remains root-only; recursive discovery belongs to Monorepo tooling layout. A direct noninteractive update of a
+legacy project without explicit profile operations records `other` to preserve the universal Universal project tooling
+baseline.
 
 ## Requirements
 
@@ -117,20 +117,22 @@ Manifest-backed tests and expensive project checks run only under `mise run chec
 
 ## Existing Context
 
-F020 owns the universal seven-tool baseline, stable five tasks, one mise/hk policy, four-platform lock, conflict gate,
-provisioner, and generated tooling pages. F030 extends those surfaces and preserves their recovery and trust boundaries.
+Universal project tooling owns the universal seven-tool baseline, stable five tasks, one mise/hk policy, four-platform
+lock, conflict gate, provisioner, and generated tooling pages. Language quality profiles extends those surfaces and
+preserves their recovery and trust boundaries.
 
 ## Proposed Design
 
 Use direct membership-gated Copier/Jinja/Pkl sections in the existing files. Keep common source checks separate from
-check-only manifest steps, render conditional docs/ignores from the same answer, and reuse the F020 provisioner.
+check-only manifest steps, render conditional docs/ignores from the same answer, and reuse the Universal project tooling
+provisioner.
 
 ### Normative Profile Contract
 
-All new mise entries use `latest`; the committed `mise.lock` still targets F020's four platforms. TypeScript reuses the
-universal `node = "lts"` entry rather than declaring Node again. Exact long identifiers may be used where mise has no
-stable shorthand. The nixfmt-rs release lacks a macOS x64 asset, so its mise entry is explicitly restricted with
-`os = ["linux", "macos/arm64"]`; every other profile tool resolves on all four targets.
+All new mise entries use `latest`; the committed `mise.lock` still targets Universal project tooling's four platforms.
+TypeScript reuses the universal `node = "lts"` entry rather than declaring Node again. Exact long identifiers may be
+used where mise has no stable shorthand. The nixfmt-rs release lacks a macOS x64 asset, so its mise entry is explicitly
+restricted with `os = ["linux", "macos/arm64"]`; every other profile tool resolves on all four targets.
 
 | Profile    | Added mise tools                                                        | Source-scoped check/fix                                          | Root-manifest-gated checks                                                                                                              |
 |------------|-------------------------------------------------------------------------|------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
@@ -176,8 +178,9 @@ before exiting nonzero. Nix source commands first reject `Darwin/x86_64` with th
 message; on other targets `nixfmt` is mise-provisioned. Missing system Nix for `nix-flake-check` produces the documented
 prerequisite message.
 
-The global mutating order extends F020's serialized chain in canonical profile order. Read-only source linters depend on
-the final relevant formatter. Mixed selections must not duplicate keys, tools, task names, or destinations.
+The global mutating order extends Universal project tooling's serialized chain in canonical profile order. Read-only
+source linters depend on the final relevant formatter. Mixed selections must not duplicate keys, tools, task names, or
+destinations.
 
 ## Generated Tasks and Documentation
 
@@ -195,8 +198,8 @@ Conditional sections extend the existing generated pages:
   globs, commands, and ignore rules.
 
 Both pages remain unconditionally linked by the existing generated `docs/src/SUMMARY.md`; no new reader page or
-navigation entry is added. With `other`, they remain the universal F020 pages and state that no recognized language
-profile is active. Mixed selections render additive sections in canonical order.
+navigation entry is added. With `other`, they remain the universal Universal project tooling pages and state that no
+recognized language profile is active. Mixed selections render additive sections in canonical order.
 
 ## Ignore Ownership
 
@@ -220,9 +223,9 @@ Copier conflicts continue to skip provisioning and keep update readiness false.
 
 ### Existing Patterns Reused
 
-F020 remains authoritative for one shared `mise.toml`, `hk.pkl`, provisioner, lock, hook installation, five tasks, and
-generated tooling pages. F030 uses direct membership-gated Jinja/Pkl sections; it adds no profile registry, generator,
-plugin system, or second provisioning path.
+Universal project tooling remains authoritative for one shared `mise.toml`, `hk.pkl`, provisioner, lock, hook
+installation, five tasks, and generated tooling pages. Language quality profiles uses direct membership-gated Jinja/Pkl
+sections; it adds no profile registry, generator, plugin system, or second provisioning path.
 
 ### Invariants Preserved
 
@@ -240,9 +243,9 @@ are unsupported on macOS x64 and fail with an explicit platform message when mat
 ## Operational Considerations
 
 Setup and conflict-free update resolve and install selected tools into the existing four-platform lock; mise omits
-nixfmt-rs only from the macOS x64 target. Tool or lock failure uses F020's structured degraded result and recovery.
-Adding/removing profiles can change `mise.lock`; no project script or manifest-backed check runs during setup/update.
-Aube auto-install behavior occurs only later when contributors run the manifest-gated Vitest check.
+nixfmt-rs only from the macOS x64 target. Tool or lock failure uses Universal project tooling's structured degraded
+result and recovery. Adding/removing profiles can change `mise.lock`; no project script or manifest-backed check runs
+during setup/update. Aube auto-install behavior occurs only later when contributors run the manifest-gated Vitest check.
 
 ## Documentation Impact
 
@@ -255,7 +258,7 @@ Aube auto-install behavior occurs only later when contributors run the manifest-
 | Generated development | `skills/setup-project/template/docs/src/development/tooling.md.jinja`               | Conditional contributor behavior                                            | serialized profile tasks; final reconciliation by matrix/docs |
 | Generated reference   | `skills/setup-project/template/docs/src/reference/tooling.md.jinja`                 | Conditional exact contracts                                                 | serialized profile tasks; final reconciliation by matrix/docs |
 | Navigation            | `docs/src/SUMMARY.md` and `skills/setup-project/template/docs/src/SUMMARY.md.jinja` | No change; existing tooling pages remain linked                             | matrix assertion only                                         |
-| Implemented feature   | `docs/src/features/030-language-quality-profiles/index.md`                          | Create during close-out                                                     | lifecycle close-out                                           |
+| Implemented feature   | `docs/src/features/language-quality-profiles/index.md`                              | Create during close-out                                                     | lifecycle close-out                                           |
 
 ## Validation Strategy
 
@@ -298,9 +301,9 @@ contracts, then the full repository suite and repository/documentation checks af
 
 ## Dependencies and Parallelism
 
-F030 depends on delivered F020. Implementation is intentionally serialized because every profile extends the same
-mise/hk/generated-documentation files. Each child directly depends on specification reconciliation and its predecessor;
-no implementation child can become ready from hierarchy alone.
+Language quality profiles depends on delivered Universal project tooling. Implementation is intentionally serialized
+because every profile extends the same mise/hk/generated-documentation files. Each child directly depends on
+specification reconciliation and its predecessor; no implementation child can become ready from hierarchy alone.
 
 ## Implementation Decomposition
 
@@ -318,7 +321,7 @@ implementation child depends directly on specification reconciliation as well as
 
 New setup always obtains an explicit selection. Legacy update offers root-manifest suggestions and requires
 confirmation. Explicit add/remove operations preserve application-owned files and use Copier's normal three-way
-reconciliation. F030 does not recursively discover packages or initialize language projects.
+reconciliation. Language quality profiles does not recursively discover packages or initialize language projects.
 
 ## Risks and Tradeoffs
 
@@ -334,7 +337,7 @@ prerequisite behavior rather than controlling their versions.
 - Manifest-defined tooling only: too inconsistent for an opinionated generated quality baseline.
 - Ephemeral pytest/Vitest/Credo downloads: bypass project dependency authority.
 - Whole-list update replacement: poor additive-migration UX; explicit add/remove is clearer.
-- Recursive manifest discovery: package-root semantics belong to F050.
+- Recursive manifest discovery: package-root semantics belong to Monorepo tooling layout.
 - `nixfmt-tree`: requires Nix/treefmt integration for source formatting; nixfmt-rs is standalone on its three published
   platform targets. The user explicitly accepted no Nix-profile support on macOS x64 rather than adding Rust solely to
   compile the formatter.
@@ -374,5 +377,5 @@ exact generated documentation destinations, made structural validation exhaustiv
 
 ### Source Material
 
-Aube official documentation; mise registry identifiers; hk 1.49 built-ins; nixfmt-rs official repository; F020's
-delivered generated-tooling contract.
+Aube official documentation; mise registry identifiers; hk 1.49 built-ins; nixfmt-rs official repository; Universal
+project tooling's delivered generated-tooling contract.

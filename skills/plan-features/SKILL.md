@@ -28,7 +28,7 @@ Create or update:
 
 - Beads feature roots, lifecycle steps, implementation children, and dependencies;
 - `docs/src/planned-features.md`;
-- `docs/src/features/<num>-<slug>/design.md` for near-term or sufficiently understood features;
+- `docs/src/features/<slug>/design.md` for near-term or sufficiently understood features;
 - project-specific reader-facing pages needed to establish durable direction;
 - `docs/src/SUMMARY.md` when navigation changes.
 
@@ -88,15 +88,8 @@ Create independently valuable and reviewable features. Split work when one item 
 boundaries, migrations, or operational risks. Prefer early features that retire architectural uncertainty or unblock
 several later features.
 
-Allocate immutable feature numbers in increments of ten:
-
-```text
-010-feature-slug
-020-next-feature
-```
-
-Use the highest assigned number plus ten by default. Use an unused gap only for an intentional insertion. Priority and
-dependency changes never renumber an existing feature.
+Use the lowercase filesystem-safe slug as the stable feature identity. Reject a slug already used by another feature;
+documentation and roadmap order are explicit and never encoded in the identity.
 
 Create a durable design and lifecycle when the outcome, boundaries, dependencies, validation, and documentation impact
 are known. Keep a feature roadmap-only when those elements remain unresolved, but create no implementation tasks for it.
@@ -136,11 +129,10 @@ For each feature ready for durable design, pour the repository formula:
 
 ```bash
 bd mol pour feature-lifecycle \
-  --var feature_number=<num> \
   --var feature_name="<title>" \
   --var feature_slug=<slug> \
-  --var design_path=docs/src/features/<num>-<slug>/design.md \
-  --var implemented_path=docs/src/features/<num>-<slug>/index.md \
+  --var design_path=docs/src/features/<slug>/design.md \
+  --var implemented_path=docs/src/features/<slug>/index.md \
   --var base_branch=<base> \
   --json
 ```
@@ -153,14 +145,13 @@ Normalize and record identity immediately. For work implemented in another repos
 ```bash
 bd update <root-id> \
   --type epic \
-  --title "F<num> — <title>" \
+  --title "<title>" \
   --add-label workflow:feature \
-  --spec-id docs/src/features/<num>-<slug>/design.md \
-  --set-metadata feature_number=<num> \
+  --spec-id docs/src/features/<slug>/design.md \
   --set-metadata feature_slug=<slug> \
   --set-metadata feature_name="<title>" \
-  --set-metadata design_path=docs/src/features/<num>-<slug>/design.md \
-  --set-metadata implemented_path=docs/src/features/<num>-<slug>/index.md \
+  --set-metadata design_path=docs/src/features/<slug>/design.md \
+  --set-metadata implemented_path=docs/src/features/<slug>/index.md \
   --set-metadata base_branch=<base> \
   --set-metadata implementation_repository=<repository> \
   --set-metadata implementation_path=<absolute-or-repo-relative-path>
@@ -190,7 +181,7 @@ Lifecycle creation is complete when `bd show <root-id> --json` reports an epic, 
 and each ID resolves to the intended child. Confirm the human selector resolves back to that root:
 
 ```bash
-uv run <core-dir>/scripts/resolve-feature.py <num>-<slug> --json
+uv run <core-dir>/scripts/resolve-feature.py <slug> --json
 ```
 
 Do not use an opaque Beads hash as the primary feature reference in roadmap recommendations or user-facing workflow
@@ -217,12 +208,12 @@ implementation child must depend on the lifecycle `spec-reconcile` step so imple
 specification review. Name bounded tasks for recognition outside a tree view:
 
 ```text
-F<num> <task-key> — <concrete outcome>
+<feature-slug> <task-key> — <concrete outcome>
 ```
 
-Store `feature_number`, `feature_slug`, and `feature_name` on every lifecycle and implementation task. The feature epic
-remains the single parent/container; the implementation coordinator is a task gate with bounded tasks beneath it, not a
-second feature epic or a milestone.
+Store `feature_slug` and `feature_name` on every lifecycle and implementation task. The feature epic remains the single
+parent/container; the implementation coordinator is a task gate with bounded tasks beneath it, not a second feature epic
+or a milestone.
 
 Before completing the graph, reject or rewrite any native task containing `TBD`, unresolved alternatives, "decide",
 "choose", or research whose result selects required product behavior. Research tasks may gather implementation facts
@@ -238,8 +229,8 @@ bd close <design-step-id> --reason "Planning Q&A complete; draft design and impl
 
 Leave the four isolated review steps ready for `/start-feature`.
 
-Update `docs/src/planned-features.md` with concise roadmap narrative, canonical `<num>-<slug>` feature reference, Beads
-root ID for auditability, dependencies, design link, sequencing rationale, and status snapshot. Keep detailed intent in
+Update `docs/src/planned-features.md` with concise roadmap narrative, canonical `<slug>` feature reference, Beads root
+ID for auditability, dependencies, design link, sequencing rationale, and status snapshot. Keep detailed intent in
 `design.md` and live state in Beads.
 
 Commit planning documentation when downstream worktrees need it. Include the feature root ID in the commit message.
@@ -247,7 +238,7 @@ Commit planning documentation when downstream worktrees need it. Include the fea
 ## Completion Criteria
 
 Planning is complete when the roadmap is coherent, each feature is one human-named Beads epic with lifecycle/tasks
-beneath it, near-term features have stable numbers and designs, implementation is decomposed into bounded work, exact
+beneath it, near-term features have stable slugs and designs, implementation is decomposed into bounded work, exact
 documentation changes and validation are assigned, and every native implementation task is executable without another
 user decision. Unresolved decision blockers are permitted only on work imported by `/migrate-workflow` and must carry
 explicit reconciliation provenance.
@@ -258,6 +249,6 @@ Select the recommended feature from Beads rather than manually copying a hash:
 uv run <core-dir>/scripts/resolve-feature.py --next --json
 ```
 
-Return the helper's `recommended_command`, such as `/start-feature 010-conduit-rest-list-response-validation`, together
-with the human feature name and root ID. Never append characters to a Beads ID or recommend an opaque ID when the
-canonical number/slug or exact feature name is available.
+Return the helper's `recommended_command`, such as `/start-feature conduit-rest-list-response-validation`, together with
+the human feature name and root ID. Never append characters to a Beads ID or recommend an opaque ID when the canonical
+slug or exact feature name is available.

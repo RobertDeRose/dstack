@@ -1,4 +1,4 @@
-# F030 — Language quality profiles
+# Language quality profiles
 
 ## Delivery Summary
 
@@ -26,9 +26,10 @@ flake checks require system Nix. Missing prerequisites fail with profile-specifi
 
 ## Design Integration
 
-F030 composes direct membership-gated sections into F020's `mise.toml`, `hk.pkl`, ignores, provisioner, and generated
-tooling pages. Mutating source steps are serialized in canonical profile order. Check-only project steps stay out of fix
-and pre-commit, except the explicit Go module-tidy fix. Profiles add no task names or second provisioning path.
+Language quality profiles composes direct membership-gated sections into Universal project tooling's `mise.toml`,
+`hk.pkl`, ignores, provisioner, and generated tooling pages. Mutating source steps are serialized in canonical profile
+order. Check-only project steps stay out of fix and pre-commit, except the explicit Go module-tidy fix. Profiles add no
+task names or second provisioning path.
 
 ## Operational Impact
 
@@ -72,8 +73,8 @@ all other tools.
 
 ### Deferred Work
 
-Generated GitHub validation and documentation deployment remain F040. Package-local policy and monorepo layout remain
-F050.
+Generated GitHub validation and documentation deployment remain GitHub validation and docs deployment. Package-local
+policy and monorepo layout remain Monorepo tooling layout.
 
 ### Rejected or Removed Scope
 
@@ -89,7 +90,7 @@ release automation, or monorepo structure. `other` adds no executable language b
 - `docs/src/planned-features.md`
 - `docs/src/features/index.md`
 - `docs/src/SUMMARY.md`
-- `docs/src/features/030-language-quality-profiles/index.md`
+- `docs/src/features/language-quality-profiles/index.md`
 - Generated `docs/src/development/tooling.md`
 - Generated `docs/src/reference/tooling.md`
 

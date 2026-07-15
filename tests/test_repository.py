@@ -453,6 +453,15 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (repository_root / "skills/setup-project/template" / relative).exists()
 
+    for readme_path in (
+        repository_root / "README.md",
+        repository_root / "skills/setup-project/template/[% if include_readme %]README.md[% endif %].jinja",
+    ):
+        readme = readme_path.read_text(encoding="utf-8")
+        assert "/start-feature <slug>" in readme or "/start-feature feature-name" in readme
+        assert "<number>-<slug>" not in readme
+        assert "F<number>" not in readme
+
     planning = skill("plan-features")
     assert "every native implementation task is executable without another" in planning
     assert "create no implementation tasks" in planning
@@ -462,7 +471,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     normalized_implementation = " ".join(implementation.split())
     assert "git rev-parse HEAD" in implementation
     assert "resolve-feature.py --next" not in implementation
-    assert "feat/<num>-<slug>" in implementation
+    assert "feat/<slug>" in implementation
     assert "dstack.activeFeature" in implementation
     assert "git config --unset-all dstack.activeFeature" in implementation
     assert "immediately return to this selection step" in normalized_implementation
@@ -478,7 +487,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     closeout = skill("close-feature")
     normalized_closeout = " ".join(closeout.split())
     assert "resolve-feature.py --next" not in closeout
-    assert "feat/<num>-<slug>" in closeout
+    assert "feat/<slug>" in closeout
     assert "do not reuse pre-fix results" in " ".join(closeout.casefold().split())
     assert "scripts/check-docs.py" in closeout
     assert "git -C <base-worktree> merge --ff-only" in closeout
@@ -497,7 +506,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Do not report a correction as verified from a pre-fix result" in audit
 
     start = skill("start-feature")
-    assert "git show-ref --verify --quiet refs/heads/feat/<num>-<slug>" in start
+    assert "git show-ref --verify --quiet refs/heads/feat/<slug>" in start
     assert "Branch exists but has no worktree" in start
     assert "<implementation-epic-id>" not in start
     assert "resolve-feature.py" in start
@@ -1639,7 +1648,8 @@ def test_feature_design_placeholders_remain_literal(repository_root: Path) -> No
     design = (repository_root / "skills/setup-project/template/docs/src/features/_template/design.md").read_text(
         encoding="utf-8"
     )
-    assert "{{ feature_number }}" in design
+    assert "{{ feature_slug }}" in design
+    assert "feature_number" not in design
 
 
 def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> None:
@@ -1952,7 +1962,9 @@ def test_setup_project_uses_directory_name_and_preserves_template_tokens(
 
     assert (project / ".copier-answers.yml").is_file()
     assert "# example-project" in (project / "README.md").read_text(encoding="utf-8")
-    assert "{{ feature_number }}" in (project / "docs/src/features/_template/design.md").read_text(encoding="utf-8")
+    design_template = (project / "docs/src/features/_template/design.md").read_text(encoding="utf-8")
+    assert "{{ feature_slug }}" in design_template
+    assert "feature_number" not in design_template
 
     run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
 
@@ -2832,11 +2844,12 @@ def test_template_formula_names_feature_tasks_and_uses_one_epic_container(reposi
     implementation = next(step for step in steps if step["id"] == "implementation")
 
     assert implementation["type"] == "task"
-    assert all(step["title"].startswith("F{{feature_number}} — ") for step in steps)
+    assert all("feature_number" not in step["title"] for step in steps)
     assert all("workflow:feature" not in step["labels"] for step in steps)
     assert all("workflow:feature-lifecycle" in step["labels"] for step in steps)
+    assert "feature_number" not in formula["vars"]
     for step in steps:
-        assert step["metadata"]["feature_number"] == "{{feature_number}}"
+        assert "feature_number" not in step["metadata"]
         assert step["metadata"]["feature_slug"] == "{{feature_slug}}"
         assert step["metadata"]["feature_name"] == "{{feature_name}}"
 
@@ -2853,39 +2866,36 @@ def test_feature_resolver_selects_epics_by_human_reference_and_readiness(
     features = [
         {
             "id": "passport-mol-active",
-            "title": "F005 — Already active",
+            "title": "Already active",
             "issue_type": "epic",
             "status": "in_progress",
             "priority": 0,
             "ready": True,
             "metadata": {
-                "feature_number": "005",
                 "feature_slug": "already-active",
                 "feature_name": "Already active",
             },
         },
         {
             "id": "passport-mol-1p9",
-            "title": "F020 — Core payloads and state",
+            "title": "Core payloads and state",
             "issue_type": "epic",
             "status": "open",
             "priority": 2,
             "ready": True,
             "metadata": {
-                "feature_number": "020",
                 "feature_slug": "core-payloads-and-state",
                 "feature_name": "Core payloads and state",
             },
         },
         {
             "id": "passport-mol-tzq",
-            "title": "F010 — Conduit REST list response validation",
+            "title": "Conduit REST list response validation",
             "issue_type": "epic",
             "status": "open",
             "priority": 1,
             "ready": True,
             "metadata": {
-                "feature_number": "010",
                 "feature_slug": "conduit-rest-list-response-validation",
                 "feature_name": "Conduit REST list response validation",
             },
@@ -2908,8 +2918,8 @@ def test_feature_resolver_selects_epics_by_human_reference_and_readiness(
     )
     selected = json.loads(next_result.stdout)
     assert selected["id"] == "passport-mol-tzq"
-    assert selected["feature_reference"] == "010-conduit-rest-list-response-validation"
-    assert selected["recommended_command"] == "/start-feature 010-conduit-rest-list-response-validation"
+    assert selected["feature_reference"] == "conduit-rest-list-response-validation"
+    assert selected["recommended_command"] == "/start-feature conduit-rest-list-response-validation"
 
     named_result = run_command(
         [
@@ -2926,7 +2936,7 @@ def test_feature_resolver_selects_epics_by_human_reference_and_readiness(
     )
     named = json.loads(named_result.stdout)
     assert named["id"] == "passport-mol-1p9"
-    assert named["feature_reference"] == "020-core-payloads-and-state"
+    assert named["feature_reference"] == "core-payloads-and-state"
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert any(command.startswith("ready --type epic --label workflow:feature") for command in commands)
     assert all("list --ready" not in command for command in commands)
@@ -2955,16 +2965,16 @@ def test_setup_is_bundled_while_update_and_adoption_use_release_tags(repository_
 
 def write_valid_documentation_tree(repository_root: Path, root: Path) -> None:
     docs = root / "docs/src"
-    feature = docs / "features/010-alpha"
+    feature = docs / "features/alpha"
     feature.mkdir(parents=True)
     (docs / "SUMMARY.md").write_text(
         "# Summary\n\n"
         "- [Overview](overview.md)\n"
         "- Feature design records\n"
-        "  - [Alpha design](features/010-alpha/design.md)\n"
+        "  - [Alpha design](features/alpha/design.md)\n"
         "- [Implemented features](features/index.md)\n"
         "  <!-- BEGIN IMPLEMENTED FEATURES -->\n"
-        "  - [Alpha](features/010-alpha/index.md)\n"
+        "  - [Alpha](features/alpha/index.md)\n"
         "  <!-- END IMPLEMENTED FEATURES -->\n",
         encoding="utf-8",
     )
@@ -2972,7 +2982,7 @@ def write_valid_documentation_tree(repository_root: Path, root: Path) -> None:
     (docs / "features/index.md").write_text(
         "# Implemented features\n\n"
         "<!-- BEGIN IMPLEMENTED FEATURES -->\n"
-        "- [Alpha](010-alpha/index.md)\n"
+        "- [Alpha](alpha/index.md)\n"
         "<!-- END IMPLEMENTED FEATURES -->\n",
         encoding="utf-8",
     )
@@ -3037,13 +3047,13 @@ def test_documentation_checker_preserves_existing_safety_contracts(
     write_valid_documentation_tree(repository_root, root)
     docs = root / "docs/src"
     summary = docs / "SUMMARY.md"
-    feature = docs / "features/010-alpha"
+    feature = docs / "features/alpha"
 
     if case == "broken-link":
         summary.write_text(summary.read_text(encoding="utf-8") + "- [Missing](missing.md)\n", encoding="utf-8")
     elif case == "unpublished-page-link":
         summary.write_text(
-            summary.read_text(encoding="utf-8").replace("  - [Alpha design](features/010-alpha/design.md)\n", ""),
+            summary.read_text(encoding="utf-8").replace("  - [Alpha design](features/alpha/design.md)\n", ""),
             encoding="utf-8",
         )
     elif case == "unpublished-reference-link":
@@ -3060,7 +3070,7 @@ def test_documentation_checker_preserves_existing_safety_contracts(
     elif case == "task-navigation":
         (feature / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
         summary.write_text(
-            summary.read_text(encoding="utf-8") + "- [Tasks](features/010-alpha/tasks.md)\n",
+            summary.read_text(encoding="utf-8") + "- [Tasks](features/alpha/tasks.md)\n",
             encoding="utf-8",
         )
     elif case == "invalid-markers":
@@ -3074,7 +3084,7 @@ def test_documentation_checker_preserves_existing_safety_contracts(
         value = value.replace("END IMPLEMENTED FEATURES", "BEGIN IMPLEMENTED FEATURES")
         summary.write_text(value.replace("TEMP IMPLEMENTED FEATURES", "END IMPLEMENTED FEATURES"), encoding="utf-8")
     elif case == "invalid-feature-directory":
-        feature.rename(feature.with_name("alpha"))
+        feature.rename(feature.with_name("Invalid_Slug"))
     elif case == "missing-feature-design":
         (feature / "design.md").unlink()
     elif case == "invalid-feature-design":
@@ -3083,13 +3093,13 @@ def test_documentation_checker_preserves_existing_safety_contracts(
         (feature / "index.md").write_text("# Alpha\n", encoding="utf-8")
     elif case == "unregistered-summary-record":
         summary.write_text(
-            summary.read_text(encoding="utf-8").replace("  - [Alpha](features/010-alpha/index.md)\n", ""),
+            summary.read_text(encoding="utf-8").replace("  - [Alpha](features/alpha/index.md)\n", ""),
             encoding="utf-8",
         )
     else:
         index = docs / "features/index.md"
         index.write_text(
-            index.read_text(encoding="utf-8").replace("- [Alpha](010-alpha/index.md)\n", ""),
+            index.read_text(encoding="utf-8").replace("- [Alpha](alpha/index.md)\n", ""),
             encoding="utf-8",
         )
 

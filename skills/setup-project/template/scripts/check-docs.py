@@ -56,8 +56,8 @@ IMPLEMENTED_HEADINGS = (
     "Audit Trail",
 )
 
-FEATURE_DIR_RE = re.compile(r"^(?P<number>[0-9]{3,})-(?P<slug>[a-z0-9]+(?:-[a-z0-9]+)*)$")
-LEGACY_FEATURE_DIR_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+FEATURE_DIR_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+LEGACY_FEATURE_DIR_RE = re.compile(r"^[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 LINK_DEFINITION_RE = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(.+?)\s*$", re.MULTILINE)
 REFERENCE_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\]\[([^\]]*)\]")
@@ -259,7 +259,6 @@ def validate_feature_files(root: Path, *, migration_mode: bool) -> list[Finding]
         )
         return findings
 
-    used_numbers: dict[str, Path] = {}
     summary_path = root / "docs/src/SUMMARY.md"
     feature_index_path = features_dir / "index.md"
     summary = read_text(summary_path) if summary_path.exists() else ""
@@ -291,32 +290,16 @@ def validate_feature_files(root: Path, *, migration_mode: bool) -> list[Finding]
     index_targets = {(feature_index_path.parent / target).resolve() for target in local_links(index_region)}
 
     for directory in sorted(path for path in features_dir.iterdir() if path.is_dir() and not path.name.startswith("_")):
-        match = FEATURE_DIR_RE.fullmatch(directory.name)
-        if match is None:
+        if FEATURE_DIR_RE.fullmatch(directory.name) is None:
             severity = "warning" if migration_mode and LEGACY_FEATURE_DIR_RE.fullmatch(directory.name) else "error"
             add(
                 findings,
                 severity=severity,
                 code="invalid-feature-directory",
                 path=directory,
-                message="Feature directory must use <zero-padded-number>-<slug>",
+                message="Feature directory must use <slug>",
                 root=root,
             )
-            number = None
-        else:
-            number = match.group("number")
-            previous = used_numbers.get(number)
-            if previous is not None:
-                add(
-                    findings,
-                    severity="error",
-                    code="duplicate-feature-number",
-                    path=directory,
-                    message=f"Feature number {number} is already used by {previous.relative_to(root)}",
-                    root=root,
-                )
-            else:
-                used_numbers[number] = directory
 
         design = directory / "design.md"
         tasks = directory / "tasks.md"

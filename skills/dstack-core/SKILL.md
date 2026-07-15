@@ -15,6 +15,6 @@ calling skill remains responsible for its workflow-specific authority and comple
 
 ## Feature resolution
 
-`<core-dir>/scripts/resolve-feature.py` resolves feature epics through Beads by canonical number/slug, number, exact or
-unique human name, or ID. Use `--next` to select the next ready feature epic. Workflow commands should expose the
-canonical `<num>-<slug>` reference and retain the Beads ID only for mutations and audit evidence.
+`<core-dir>/scripts/resolve-feature.py` resolves feature epics through Beads by canonical slug, exact or unique human
+name, or ID. Use `--next` to select the next ready feature epic. Workflow commands should expose the canonical `<slug>`
+reference and retain the Beads ID only for mutations and audit evidence.

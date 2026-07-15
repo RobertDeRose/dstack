@@ -1,4 +1,4 @@
-"""Focused contract tests for F040 generated Pages deployment."""
+"""Focused contract tests for generated Pages deployment."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Focused contract tests for F040 generated GitHub validation."""
+"""Focused contract tests for generated GitHub validation."""
 
 from __future__ import annotations
 

@@ -1,12 +1,11 @@
-# Design — F010 Purposeful project scaffold
+# Design — Purposeful project scaffold
 
 ## Metadata
 
 - Beads feature root: `dstack-mol-ln9`
-- Feature number: `010`
 - Feature slug: `purposeful-project-scaffold`
-- Design path: `docs/src/features/010-purposeful-project-scaffold/design.md`
-- Implemented record: `docs/src/features/010-purposeful-project-scaffold/index.md`
+- Design path: `docs/src/features/purposeful-project-scaffold/design.md`
+- Implemented record: `docs/src/features/purposeful-project-scaffold/index.md`
 - Base branch: `main`
 - Status: reviewed
 
@@ -35,7 +34,7 @@ than prose telling maintainers what to write later.
 - Infer unconfirmed project facts from a name or kind.
 - Preserve pre-1.0 setup, migration, adoption, or Copier update compatibility.
 - Change setup/update/migration authority or overwrite boundaries.
-- Make implementation-language decisions; F030 owns language profiles.
+- Make implementation-language decisions; Language quality profiles owns language profiles.
 
 ## User-Facing Behavior
 
@@ -128,10 +127,10 @@ parse Copier answers or project kind because absent pages are valid for every ki
 
 ### Compatibility and Migration Requirements
 
-This is intentionally breaking pre-1.0 work. F010 guarantees new setup only. Updating or adopting a pre-F010 generated
-project is not supported by this feature and must not fabricate missing brief values. Migration and update workflows
-retain their existing trust and overwrite boundaries but may reject old answer sets. Compatibility policy will be
-established before v1.
+This is intentionally breaking pre-1.0 work. Purposeful project scaffold guarantees new setup only. Updating or adopting
+a pre-Purposeful project scaffold generated project is not supported by this feature and must not fabricate missing
+brief values. Migration and update workflows retain their existing trust and overwrite boundaries but may reject old
+answer sets. Compatibility policy will be established before v1.
 
 ## Existing Context
 
@@ -172,15 +171,15 @@ non-empty destination, managed-project, Git, Beads, and docs-validation behavior
 
 ## Documentation Impact
 
-| Documentation concern      | Exact page                                                   | Create or update                     | Planned change                                                 | Owning Beads task  |
-|----------------------------|--------------------------------------------------------------|--------------------------------------|----------------------------------------------------------------|--------------------|
-| Introduction               | `docs/src/introduction/project-overview.md`                  | Update                               | Document structured brief and minimal output                   | `dstack-mol-a8i.2` |
-| Architecture               | `docs/src/architecture/index.md`                             | Update                               | Document kind-as-context rendering boundary                    | `dstack-mol-a8i.2` |
-| Usage                      | `docs/src/operations/index.md`                               | Update                               | Document required questions, flags, errors, and breaking scope | `dstack-mol-a8i.1` |
-| Development                | `docs/src/development/index.md`                              | Update                               | Document checker contract and matrix validation                | `dstack-mol-a8i.3` |
-| Reference                  | `docs/src/reference/index.md`                                | Update                               | Record answers, flags, kinds, validation, and outputs          | `dstack-mol-a8i.1` |
-| Navigation                 | `docs/src/SUMMARY.md`                                        | Update if new dstack pages are added | Keep dstack book current                                       | `dstack-mol-a8i.2` |
-| Implemented Feature Record | `docs/src/features/010-purposeful-project-scaffold/index.md` | Create during close-out              | Preserve delivery evidence                                     | `dstack-mol-dyl`   |
+| Documentation concern      | Exact page                                               | Create or update                     | Planned change                                                 | Owning Beads task  |
+|----------------------------|----------------------------------------------------------|--------------------------------------|----------------------------------------------------------------|--------------------|
+| Introduction               | `docs/src/introduction/project-overview.md`              | Update                               | Document structured brief and minimal output                   | `dstack-mol-a8i.2` |
+| Architecture               | `docs/src/architecture/index.md`                         | Update                               | Document kind-as-context rendering boundary                    | `dstack-mol-a8i.2` |
+| Usage                      | `docs/src/operations/index.md`                           | Update                               | Document required questions, flags, errors, and breaking scope | `dstack-mol-a8i.1` |
+| Development                | `docs/src/development/index.md`                          | Update                               | Document checker contract and matrix validation                | `dstack-mol-a8i.3` |
+| Reference                  | `docs/src/reference/index.md`                            | Update                               | Record answers, flags, kinds, validation, and outputs          | `dstack-mol-a8i.1` |
+| Navigation                 | `docs/src/SUMMARY.md`                                    | Update if new dstack pages are added | Keep dstack book current                                       | `dstack-mol-a8i.2` |
+| Implemented Feature Record | `docs/src/features/purposeful-project-scaffold/index.md` | Create during close-out              | Preserve delivery evidence                                     | `dstack-mol-dyl`   |
 
 Generated template documentation and tests are owned by the implementation tasks described below, not by the dstack
 reader-page rows alone.
@@ -236,8 +235,8 @@ None.
 
 ## Deferred Decisions
 
-Additional project kinds and pre-v1 compatibility require a concrete consumer need. Language-specific tooling is F030;
-monorepo layout is F050.
+Additional project kinds and pre-v1 compatibility require a concrete consumer need. Language-specific tooling is
+Language quality profiles; monorepo layout is Monorepo tooling layout.
 
 ## Planning Record
 
@@ -259,5 +258,5 @@ rules, clarified checker behavior, made task ownership exact, and serialized che
 
 ### Source Material
 
-Current template and dog-food docs; AtomixOS, Nixstasis, and Conduit layouts; four isolated F010 reviews recorded in
-Beads.
+Current template and dog-food docs; AtomixOS, Nixstasis, and Conduit layouts; four isolated Purposeful project scaffold
+reviews recorded in Beads.

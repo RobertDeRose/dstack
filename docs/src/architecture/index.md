@@ -7,7 +7,7 @@
 - Root `copier.yml` exposes the same scaffold for repository development and integration tests.
 - Beads stores live feature state and dependencies; `.beads/formulas/feature-lifecycle.formula.toml` defines the
   lifecycle graph.
-- `docs/src/features/<num>-<slug>/design.md` owns intended feature behavior.
+- `docs/src/features/<slug>/design.md` owns intended feature behavior.
 - Reader pages under `docs/src/` own supported current behavior.
 - Implemented-feature `index.md` pages preserve delivery reconciliation and audit evidence.
 
@@ -27,7 +27,7 @@ concrete content for them. Copier records the brief so later template renders re
 
 - New-project setup does not overwrite or migrate existing project content.
 - Remote template overrides require an explicit reviewed ref and never fall back silently to `HEAD`.
-- Human feature commands use stable number/slug or names; opaque Beads IDs remain mutation and audit details.
+- Human feature commands use stable slugs or names; opaque Beads IDs remain mutation and audit details.
 - Feature implementation cannot become ready before specification reconciliation.
 - Reader documentation must stand alone rather than embedding internal designs or legacy task files.
 - Delivery follows documentation reconciliation, validation, and independent drift/delivery reviews.
@@ -51,19 +51,20 @@ reconciliation. An update with conflicts never executes newly rendered project c
 installs with `--locked`, then installs hk hooks as a separate stage so hook failure cannot erase successful
 lock/install state.
 
-F030 extends these same generated files from one canonical `language_profiles` answer. Recognized profiles compose by
-direct membership-gated template sections; `other` is exclusive and preserves only the universal baseline. Multiple
-profiles apply one root policy to a polyglot repository, not package-local or monorepo configuration. Setup collects an
-explicit selection, while updates preserve it unless the user explicitly adds or removes profiles. The existing
-provisioner and conflict gate remain the only network-backed tooling path. Source steps are file-gated; project checks
-are root-manifest-gated. Profiles never create manifests, dependencies, source, package roots, or package-local policy.
-The Nix exception keeps the universal four-platform lock while atomically removing only nixfmt-rs's unsupported macOS
-x64 table before locked installation.
+Language quality profiles extends these same generated files from one canonical `language_profiles` answer. Recognized
+profiles compose by direct membership-gated template sections; `other` is exclusive and preserves only the universal
+baseline. Multiple profiles apply one root policy to a polyglot repository, not package-local or monorepo configuration.
+Setup collects an explicit selection, while updates preserve it unless the user explicitly adds or removes profiles. The
+existing provisioner and conflict gate remain the only network-backed tooling path. Source steps are file-gated; project
+checks are root-manifest-gated. Profiles never create manifests, dependencies, source, package roots, or package-local
+policy. The Nix exception keeps the universal four-platform lock while atomically removing only nixfmt-rs's unsupported
+macOS x64 table before locked installation.
 
-F040 consumes the stable named tasks without adding package manifests, application source, or duplicate CI policy.
-Generated projects include a documentation deployment workflow, but repository creation and Copier updates never enable
-it. The workflow accepts only pushes to the configured default branch and explicit manual dispatches; both build and
-deploy jobs require `DOCS_DEPLOYMENT_ENABLED` to equal `true`, so pull requests and forks cannot deploy.
+GitHub validation and docs deployment consumes the stable named tasks without adding package manifests, application
+source, or duplicate CI policy. Generated projects include a documentation deployment workflow, but repository creation
+and Copier updates never enable it. The workflow accepts only pushes to the configured default branch and explicit
+manual dispatches; both build and deploy jobs require `DOCS_DEPLOYMENT_ENABLED` to equal `true`, so pull requests and
+forks cannot deploy.
 
 The build job receives only `contents: read`, installs the committed mise lock in isolation, runs the existing
 `docs:build` task, and uploads `docs/book`. The deploy job alone receives `pages: write` and `id-token: write`, targets
