@@ -12,3 +12,4 @@ create-missing = false
 [output.html]
 git-repository-url = "https://github.com/RobertDeRose/dstack"
 edit-url-template = "https://github.com/RobertDeRose/dstack/edit/main/docs/{path}"
+additional-css = ["src/assets/css/center_images.css"]

@@ -1,6 +1,6 @@
-# dstack documentation
+# ![dstack logo](assets/img/dstack_logo.png#center)
 
-dstack is a documentation-first, Beads-backed workflow for planning, implementing, reconciling, and delivering
+**dstack** is a documentation-first, Beads-backed workflow for planning, implementing, reconciling, and delivering
 agent-assisted software projects.
 
 Use this book to:
