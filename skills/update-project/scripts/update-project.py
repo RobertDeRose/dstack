@@ -794,7 +794,16 @@ def bd_available(root: Path) -> bool:
 
 def check_beads(root: Path) -> dict[str, Any]:
     """Run storage-mode-neutral Beads smoke checks."""
-    info = parse_json_output(["bd", "info", "--json"], cwd=root)
+    info_result = run_capture(["bd", "info", "--json"], cwd=root)
+    try:
+        info = json.loads(info_result.stdout)
+    except json.JSONDecodeError:
+        database = re.search(r"^Database:\s*(.+)$", info_result.stdout, re.MULTILINE)
+        count = re.search(r"^Issue Count:\s*(\d+)$", info_result.stdout, re.MULTILINE)
+        if database is None or count is None:
+            message = "bd info --json returned neither JSON nor recognized text output"
+            raise SystemExit(message) from None
+        info = {"database_path": database.group(1).strip(), "issue_count": int(count.group(1))}
     ready = parse_json_output(["bd", "ready", "--json", "--limit", "1"], cwd=root)
 
     formula_checked = False
@@ -1082,6 +1091,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         msg = f"Copier could not update {destination} to {effective_vcs_ref}: {exc}"
         raise SystemExit(msg) from exc
 
+    if not args.pretend:
+        current_answers = load_answers(answers)
+        write_copier_state(answers, current_answers, commit=verified_source_commit, channel=channel)
+
     conflicts: list[str] = []
     docs_validated = False
     beads_health: dict[str, Any] | None = None
@@ -1116,10 +1129,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 warnings.append("bd is unavailable or its launcher cannot execute; Beads health checks skipped")
             else:
                 beads_health = check_beads(destination)
-
-    if not args.pretend and not conflicts:
-        current_answers = load_answers(answers)
-        write_copier_state(answers, current_answers, commit=verified_source_commit, channel=channel)
 
     changed = git_status(destination) if not args.pretend else []
     changed_paths = {line[3:] for line in changed if len(line) > 3}

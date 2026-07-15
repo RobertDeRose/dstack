@@ -347,7 +347,14 @@ def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
         "if args == ['--version']:\n"
         "    print('bd fake-1.0.0')\n"
         "elif args[:2] == ['info', '--json']:\n"
-        "    print(json.dumps({'database_path': '.beads/embeddeddolt', 'issue_count': 3, 'mode': 'direct'}))\n"
+        "    if os.environ.get('DSTACK_BD_BAD_INFO'):\n"
+        "        print('unexpected info output')\n"
+        "    elif os.environ.get('DSTACK_BD_TEXT_INFO'):\n"
+        "        lines = ['Beads Database Information', '==========================',\n"
+        "                 'Database: .beads/embeddeddolt', 'Mode: direct', '', 'Issue Count: 3']\n"
+        "        print('\\n'.join(lines))\n"
+        "    else:\n"
+        "        print(json.dumps({'database_path': '.beads/embeddeddolt', 'issue_count': 3, 'mode': 'direct'}))\n"
         "elif args and args[0] == 'init':\n"
         "    beads = Path.cwd() / '.beads'\n"
         "    beads.mkdir(exist_ok=True)\n"
@@ -2686,6 +2693,46 @@ def test_update_project_persists_unstable_channel_and_exact_commits(
 
 
 @pytest.mark.integration
+def test_update_project_persists_exact_state_before_later_validation_failure(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "validation-failure"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+    marker = tagged_template_source / "skills/setup-project/template/.validation-failure.jinja"
+    marker.write_text("updated\n", encoding="utf-8")
+    commit_repository(tagged_template_source, "validation failure target", "v0.0.2")
+    expected_commit = run_command(["git", "rev-parse", "v0.0.2^{commit}"], cwd=tagged_template_source).stdout.strip()
+    fake_bin = tmp_path / "validation-failure-bin"
+    log = tmp_path / "bd.log"
+    write_fake_mise(fake_bin)
+    write_fake_bd(fake_bin, log)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(project),
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        env=merged_environment(
+            PATH=f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            DSTACK_BD_LOG=str(log),
+            DSTACK_BD_BAD_INFO="1",
+        ),
+        expected=1,
+    )
+    assert "neither JSON nor recognized text" in result.stderr
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert answers["_commit"] == expected_commit
+    assert answers["dstack_template_channel"] == "stable"
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("failure", "expected"),
     [
@@ -2794,6 +2841,23 @@ def test_update_project_skips_generated_code_when_copier_conflicts(
     assert payload["tooling"]["recovery"] == ["python3 scripts/setup-tooling.py --json"]
     assert payload["ready_to_resume_feature_work"] is False
     assert not log.exists()
+
+
+def test_update_project_accepts_current_beads_text_info(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    log = tmp_path / "bd.log"
+    write_fake_bd(fake_bin, log)
+    monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("DSTACK_BD_LOG", str(log))
+    monkeypatch.setenv("DSTACK_BD_TEXT_INFO", "1")
+    result = load_update_module(repository_root).check_beads(tmp_path)
+    assert result["database_path"] == ".beads/embeddeddolt"
+    assert result["issue_count"] == 3
+    assert result["ready_sample_count"] == 0
 
 
 @pytest.mark.parametrize("malformation", ["missing-error", "successful-error"])
@@ -3035,6 +3099,12 @@ def test_update_project_self_adoption_preflights_paths_before_copier_state(
     else:
         outside.mkdir()
         formula = project / ".beads/formulas/dstack-feature.formula.toml"
+        if not formula.exists():
+            formula.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(
+                project / "skills/setup-project/template/.beads/formulas/dstack-feature.formula.toml",
+                formula,
+            )
         external_formula = outside / "dstack-feature.formula.toml"
         shutil.copy2(formula, external_formula)
         formula.unlink()
