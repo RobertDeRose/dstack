@@ -5,7 +5,7 @@
 - Beads feature root: `dstack-mol-8fe`
 - Status: delivered
 - Pull request: not created
-- Merge commit: `9cef1e50d135df0a5ffc80dda003975178fcbfc0` (fast-forward)
+- Merge commit: `c1eb491c03a6a95778635cb56ee6593d6519935b` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -59,7 +59,7 @@ produces a nonzero result with installation or manual recovery guidance.
 - Every bounded implementation review and targeted follow-up verification passed.
 - Credentialed disposable-repository exercise (`mise run docs:deployment:enable` twice, then verify Pages
   `build_type=workflow`, `DOCS_DEPLOYMENT_ENABLED`, and `html_url`): waived by the user for commit
-  `a09f19c033318ab39b2a63ae44031e0dc4ac6d2c`. Residual risk: mocked coverage cannot prove current GitHub API,
+  `0404e58554e0253897b0b304f98c6e15ce71b0cd`. Residual risk: mocked coverage cannot prove current GitHub API,
   permission, or Pages-provisioning behavior against a live repository.
 
 ## Design Reconciliation
@@ -103,12 +103,12 @@ or package manifests.
 
 ## Audit Trail
 
-- Reviewed design and execution graph: `ccc6207ec0d520a3643533f9cd514ff8ac65595a`; serialized task correction:
-  `f390150ce5f22141421437a1c6b750753ca8508a`.
-- Locked GitHub validation (`dstack-mol-41q.1`): `3c8428ea9afcf30eaaf21de2690b075cb0ec5233`.
-- Gated Pages deployment (`dstack-mol-41q.2`): `d0804b55a93918dfca67f9439fb3785f92d2f905`.
-- Safe external-`gh` enablement (`dstack-mol-41q.3`): `c8ce0240c1fb94ae320ac3ff198abe8d69a03bdc`.
-- Combined profile/update integration (`dstack-mol-41q.4`): `a09f19c033318ab39b2a63ae44031e0dc4ac6d2c`.
+- Reviewed design and execution graph: `4859ad533ae2cb34a602e9baca98e9982a036739`; serialized task correction:
+  `8dae4201ab24e4365881a002cb35c1591a924229`.
+- Locked GitHub validation (`dstack-mol-41q.1`): `947a26014b98899a3eb073bb7d9de292deb4dadf`.
+- Gated Pages deployment (`dstack-mol-41q.2`): `a25b268dcd03d369a628324825306905111eeca4`.
+- Safe external-`gh` enablement (`dstack-mol-41q.3`): `1383c9d88db7f17623ef2ae13dace26447e8c859`.
+- Combined profile/update integration (`dstack-mol-41q.4`): `0404e58554e0253897b0b304f98c6e15ce71b0cd`.
 - Implementation coordinator `dstack-mol-41q` closed after every required child passed acceptance and fresh review.
 - Holistic delivery and drift reviews passed after reconciling the waiver, lifecycle status, and manual-dispatch
   wording.
