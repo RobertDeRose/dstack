@@ -87,6 +87,8 @@ release task.
 `cog.toml` configures `cog changelog` to render `.config/cog-changelog.tera`. It uses plain Markdown for breaking
 changes, concise `Added`, `Fixed`, `Changed`, and `Performance` groups, short commit hashes, and no author suffix.
 Internal build, chore, CI, documentation, release, style, and test commits are omitted. Tags use the `vX.Y.Z` prefix.
+Changelog-visible `feat`, `fix`, `perf`, and `refactor` commits require an allowed `cog.toml` scope; omitted internal
+and release commits may be unscoped.
 
 ## Generated tooling files
 

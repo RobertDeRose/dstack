@@ -456,6 +456,14 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "Do not rerun a successful check unless relevant inputs changed" in normalized_agents
         assert "timeboxed fact-finding with explicit exit criteria is `spike`" in normalized_agents
         assert "Labels and metadata, not extra issue types" in normalized_agents
+    root_agents = (repository_root / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in root_agents
+    assert "Omitted internal types may be unscoped" in root_agents
+    assert "release: vX.Y.Z" in root_agents
+    root_hk = (repository_root / "hk.pkl").read_text(encoding="utf-8")
+    assert "commit_message_scope" in root_hk
+    assert "changelog-visible commit subject must use type(scope): summary" in root_hk
+
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (repository_root / "skills/setup-project/template" / relative).exists()
 
@@ -2835,6 +2843,20 @@ def test_release_commits_are_omitted_from_cocogitto_changelogs(repository_root: 
     assert root_template.is_file()
     assert config["from_latest_tag"] is True
     assert config["tag_prefix"] == "v"
+    assert config["scopes"] == [
+        "audit",
+        "docs",
+        "git",
+        "github",
+        "history",
+        "hooks",
+        "profiles",
+        "scaffold",
+        "setup",
+        "tooling",
+        "update",
+        "workflow",
+    ]
     assert config["changelog"]["template"] == ".config/cog-changelog.tera"
     assert config["commit_types"]["feat"]["changelog_title"] == "Added"
     assert config["commit_types"]["fix"]["changelog_title"] == "Fixed"
@@ -2854,9 +2876,9 @@ def test_cocogitto_ignores_release_commits(repository_root: Path, tmp_path: Path
     configure_project_git(tmp_path)
     (tmp_path / "change.txt").write_text("visible\n", encoding="utf-8")
     run_command(["git", "add", "change.txt", "cog.toml"], cwd=tmp_path)
-    run_command(["git", "commit", "-m", "feat: add visible change"], cwd=tmp_path)
-    run_command(["git", "commit", "--allow-empty", "-m", "docs: update internal notes"], cwd=tmp_path)
-    run_command(["git", "commit", "--allow-empty", "-m", "refactor(api)!: change interface"], cwd=tmp_path)
+    run_command(["git", "commit", "-m", "feat(scaffold): add visible change"], cwd=tmp_path)
+    run_command(["git", "commit", "--allow-empty", "-m", "docs(docs): update internal notes"], cwd=tmp_path)
+    run_command(["git", "commit", "--allow-empty", "-m", "refactor(workflow)!: change interface"], cwd=tmp_path)
     run_command(["git", "commit", "--allow-empty", "-m", "release: v1.0.0"], cwd=tmp_path)
 
     result = run_command(["cog", "changelog"], cwd=tmp_path)
@@ -2864,12 +2886,40 @@ def test_cocogitto_ignores_release_commits(repository_root: Path, tmp_path: Path
     assert result.stderr == ""
     assert "### Added" in result.stdout
     assert "### Breaking changes" in result.stdout
-    assert "**BREAKING** **api:** Change interface" in result.stdout
+    assert "**BREAKING** **workflow:** Change interface" in result.stdout
     assert "add visible change" in result.stdout.casefold()
     assert "update internal notes" not in result.stdout
     assert "release: v1.0.0" not in result.stdout
     assert "<span" not in result.stdout
     assert "Robert DeRose" not in result.stdout
+
+
+@pytest.mark.integration
+def test_commit_hook_requires_an_allowed_scope(repository_root: Path, tmp_path: Path) -> None:
+    good = tmp_path / "good.txt"
+    missing = tmp_path / "missing.txt"
+    unknown = tmp_path / "unknown.txt"
+    release = tmp_path / "release.txt"
+    good.write_text("fix(workflow): valid scope\n\nBeads: dstack-scp\n", encoding="utf-8")
+    missing.write_text("fix: missing scope\n\nBeads: dstack-scp\n", encoding="utf-8")
+    unknown.write_text("fix(unknown): invalid scope\n\nBeads: dstack-scp\n", encoding="utf-8")
+    release.write_text("release: v1.0.0\n", encoding="utf-8")
+
+    run_command(["hk", "run", "--quiet", "commit-msg", str(good)], cwd=repository_root)
+    run_command(["hk", "run", "--quiet", "commit-msg", str(release)], cwd=repository_root)
+    missing_result = run_command(
+        ["hk", "run", "--quiet", "commit-msg", str(missing)],
+        cwd=repository_root,
+        expected=1,
+    )
+    unknown_result = run_command(
+        ["hk", "run", "--quiet", "commit-msg", str(unknown)],
+        cwd=repository_root,
+        expected=1,
+    )
+
+    assert "changelog-visible commit subject must use type(scope): summary" in missing_result.stderr
+    assert "scope `unknown` not allowed" in unknown_result.stderr
 
 
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:

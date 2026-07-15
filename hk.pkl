@@ -55,6 +55,24 @@ local commit_message_length = new Step {
     """#
 }
 
+local commit_message_scope = new Step {
+  check =
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      NF {
+        if ($0 ~ /^(feat|fix|perf|refactor)!?: /) {
+          print "changelog-visible commit subject must use type(scope): summary" > "/dev/stderr"
+          exit 1
+        }
+        exit 0
+      }
+    ' {{commit_msg_file}}
+    """#
+}
+
 local harper_commit_message = (Builtins.harper_commit_message) {
   check =
     "harper-cli lint --quiet --no-color --ignore "
@@ -113,6 +131,7 @@ hooks {
       ["harper_commit_message"] = harper_commit_message
       ["commit_message_beads"] = commit_message_beads
       ["commit_message_length"] = commit_message_length
+      ["commit_message_scope"] = commit_message_scope
     }
   }
   ["pre-commit"] {

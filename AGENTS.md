@@ -149,6 +149,10 @@ useful work or use event-driven waiting.
 
 ### Commit messages
 
+Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject must use `<type>(<scope>): <summary>` or
+`<type>(<scope>)!: <summary>`, with a scope from `cog.toml`. Omitted internal types may be unscoped; release commits use
+`release: vX.Y.Z`. Choose the owning subsystem, not a feature number or incidental file name.
+
 For multiline messages, write the message to a temporary file and use `git commit -F <file>`; one argument containing
 literal newlines is also valid. A single `-m` is acceptable only for a subject-only commit. Never construct bodies with
 multiple `-m` flags or escaped `\n` text. Verify the resulting message before recording its SHA in Beads.

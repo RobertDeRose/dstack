@@ -1,5 +1,19 @@
 from_latest_tag = true
 tag_prefix = "v"
+scopes = [
+  "audit",
+  "docs",
+  "git",
+  "github",
+  "history",
+  "hooks",
+  "profiles",
+  "scaffold",
+  "setup",
+  "tooling",
+  "update",
+  "workflow",
+]
 
 [commit_types]
 build = { omit_from_changelog = true }
