@@ -5,7 +5,7 @@
 - Beads feature root: `dstack-mol-ni2`
 - Status: delivered
 - Pull request: not created
-- Merge commit: `ef091fd8812552c297477f3e3285f5433441fb71` (fast-forward)
+- Merge commit: `0c30513c4321e135a1a81ae6c57e17b68770f59d` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -95,12 +95,12 @@ release automation, or monorepo structure. `other` adds no executable language b
 
 ## Audit Trail
 
-- Reviewed design and execution graph: `603d18bd2426f5a97bcafa6771be0d1192508b11`; implementation readiness:
-  `a6724005e2a42cc8918646c26d5d621a4453f44a`.
-- Profile composition and setup/update selection (`dstack-mol-9as.1`): `1b78b2552cc8dfdb4ed259fe36e247a69e587296`.
-- Python and TypeScript profiles (`dstack-mol-9as.2`): `05c26ff186d59ce6e91be3462429ebd76a86c121`.
-- Rust and Go profiles (`dstack-mol-9as.3`): `5c2bbb104977ade411402742c0767269bf8061cf`.
-- Elixir and Nix profiles (`dstack-mol-9as.5`): `a4ff1ba00f8dcc62c0d453fc0e29937abad3171e`.
+- Reviewed design and execution graph: `7b128d03bbab008986b3d2be09823902a76b0709`; implementation readiness:
+  `d61441de372f81400d79791baf8b8d513ec5ce04`.
+- Profile composition and setup/update selection (`dstack-mol-9as.1`): `40936dccd29e66d73cc94b9ca177493a077fa2fc`.
+- Python and TypeScript profiles (`dstack-mol-9as.2`): `b6e0a8d183b4642cf16bd65df970a54c0b4d3944`.
+- Rust and Go profiles (`dstack-mol-9as.3`): `63aae1c7d93aef5683b76e547a98e2c05099cb38`.
+- Elixir and Nix profiles (`dstack-mol-9as.5`): `2586cc536ce8c95d70a5fd32d68cfe8d86436b37`.
 - Exhaustive matrix, real combined contract, and final documentation (`dstack-mol-9as.4`):
-  `1722dd72cefd91bab25729d5f3e9b46a4e513b65`.
+  `762f8515667b0d198681ad7d698def25f6596001`.
 - Implementation coordinator `dstack-mol-9as` closed after every required child passed acceptance and fresh review.

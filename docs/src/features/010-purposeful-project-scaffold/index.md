@@ -5,7 +5,7 @@
 - Beads feature root: `dstack-mol-ln9`
 - Status: delivered
 - Pull request: not created
-- Merge commit: `05ed02ea12a8b05f6267a316f4afb18445f4dfd0` (fast-forward)
+- Merge commit: `533e881bfd73445847cf2eae7cf0aa2e403a76a5` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -54,7 +54,7 @@ remains unchanged.
 - `mise run check`: passed, including mdBook build and repository quality checks.
 - Generated documentation checker and mdBook build passed for every matrix render.
 - Final holistic delivery and documentation-drift reviews passed with no unresolved blocker after fixes.
-- `main` fast-forwarded to `05ed02ea12a8b05f6267a316f4afb18445f4dfd0`.
+- `main` fast-forwarded to `533e881bfd73445847cf2eae7cf0aa2e403a76a5`.
 
 ## Design Reconciliation
 
@@ -92,8 +92,8 @@ create speculative architecture, operations, development-overview, or reference-
 ## Audit Trail
 
 - Specification reconciliation: `ec4cc05`, with roadmap readiness at `6d9018e`.
-- Structured inputs (`dstack-mol-a8i.1`): `3ce9e434b2c133ff3d2ad629d8c9e2ae49f8301f`.
-- Factual generated documentation (`dstack-mol-a8i.2`): `5ca20d3bd39825ee894eaa284053a4dfe7078a94`.
-- Variable-taxonomy checker (`dstack-mol-a8i.3`): `ea080d65f4373b41faf52a437228930a9d6b9ac2`.
-- Complete scaffold matrix (`dstack-mol-a8i.4`): `8b9a5705ac9f1fc36f31d0ea14c6e16a36567216`.
+- Structured inputs (`dstack-mol-a8i.1`): `c8cf0e5b957239bec4e972323f50b141f7e4b826`.
+- Factual generated documentation (`dstack-mol-a8i.2`): `4d0faf0c3315c8a2e6e28f6b28e7c41e58d4db58`.
+- Variable-taxonomy checker (`dstack-mol-a8i.3`): `0c19436c7612075a5156406a186891b57d0ed95f`.
+- Complete scaffold matrix (`dstack-mol-a8i.4`): `03238f89455c84f7ffcea28ce240b3187389751f`.
 - Implementation coordinator `dstack-mol-a8i` closed after all four children and acceptance checks completed.
