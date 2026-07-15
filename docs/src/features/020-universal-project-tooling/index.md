@@ -5,7 +5,7 @@
 - Beads feature root: `dstack-mol-lg3`
 - Status: delivered
 - Pull request: not created
-- Merge commit: `4b534b40719888cb6dc2f9acfec8a77a172c43bf` (fast-forward)
+- Merge commit: `83c140b5359a1542781227657794b3d74c54f0b0` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -85,7 +85,7 @@ checks, generated CI workflows, or Windows support from this feature.
 
 Implementation exposed an opportunity to reduce redundant full-suite runs. Separate task `dstack-pyn`, discovered from
 F020 update task `dstack-mol-b69.5`, owns the resulting repository, canonical skill, and generated-agent guidance. It
-was validated and closed in `64869b770ea109e5bb8198545322b2fa32887d37`; it is recorded here because that independently
+was validated and closed in `0f53528770de30e871acae03b1399354fc96b844`; it is recorded here because that independently
 tracked commit is delivered on the same branch, not because it expands F020's product scope.
 
 ## Documentation Updated
@@ -104,11 +104,11 @@ tracked commit is delivered on the same branch, not because it expands F020's pr
 
 ## Audit Trail
 
-- Reviewed design and graph: `a4007429d4fc514e66806744f50588161407deb5`; roadmap readiness: `90670b8`.
-- Universal templates (`dstack-mol-b69.1`): `88d032c3c471c73a24256038d67cf7d33583b47a`.
-- Setup provisioning (`dstack-mol-b69.2`): `e64c34fb892e8fb589b6c8fdaba49241753ec5db`.
-- Copier update reconciliation (`dstack-mol-b69.5`): `05dd80b8ef02937fd7d0f0c2974d71e267e756ef`.
-- End-to-end contract (`dstack-mol-b69.3`): `1c1beed2bd6fa7b6a6180ebcb77fa44314d71ce0`.
-- Root reader documentation (`dstack-mol-b69.4`): `3b84ed37163520e0c01d2ca730dc04844c3548aa`.
-- Focused iterative validation guidance (`dstack-pyn`): `64869b770ea109e5bb8198545322b2fa32887d37`.
+- Reviewed design and graph: `11f92393a13485267b59fbe4609165d8695189ba`; roadmap readiness: `90670b8`.
+- Universal templates (`dstack-mol-b69.1`): `aafc464e23599edd6c801e3c53b9feb0a05b7649`.
+- Setup provisioning (`dstack-mol-b69.2`): `ad1c3cdb5be21651d8ef53c3ad76f1bfed6bee28`.
+- Copier update reconciliation (`dstack-mol-b69.5`): `6833a2aba59f5fc32ce5ffd61841724d6d85dfb1`.
+- End-to-end contract (`dstack-mol-b69.3`): `7ad192be8fbc75ed9ac0bd9a1e91469137533cad`.
+- Root reader documentation (`dstack-mol-b69.4`): `3a4e27df731490bca04ab543471380644919f58e`.
+- Focused iterative validation guidance (`dstack-pyn`): `0f53528770de30e871acae03b1399354fc96b844`.
 - Implementation coordinator `dstack-mol-b69` closed after all five required children and acceptance checks completed.
