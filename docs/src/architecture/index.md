@@ -3,7 +3,7 @@
 ## Components
 
 - `skills/` contains the installable workflows. Each skill owns its scripts and references.
-- `skills/setup-project/template/` is the self-contained Copier scaffold installed with `/setup-project`.
+- `skills/setup-project/template/` is the canonical Copier scaffold used by both repository and skill entry points.
 - Root `copier.yml` exposes the same scaffold for repository development and integration tests.
 - Beads stores live feature state and dependencies; `.beads/formulas/dstack-feature.formula.toml` defines the lifecycle
   graph.
@@ -34,9 +34,11 @@ concrete content for them. Copier records the brief so later template renders re
 
 ## Update flow
 
-The installed setup skill renders its bundled template, then records the official repository and matching release tag in
-`.copier-answers.yml`. `/update-project` discovers eligible published tags and lets Copier perform the three-way update.
-`/migrate-workflow` handles repositories that predate the Copier/Beads contract.
+Setup and update resolve either the newest stable tag or the explicitly selected unstable default-branch HEAD and
+persist its SHA plus channel in `.copier-answers.yml`. Setup first verifies its installed bundle matches that exact
+commit; update renders the selected source through Copier. `/update-project` preserves the channel and lets Copier
+perform the three-way update. The dstack template source may explicitly bootstrap itself with `--adopt --unstable`;
+`/migrate-workflow` handles other repositories that predate the Copier/Beads contract.
 
 ## Generated tooling authority
 

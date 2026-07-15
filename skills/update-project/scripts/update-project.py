@@ -14,18 +14,20 @@
 from __future__ import annotations
 
 import argparse
+import filecmp
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import yaml
-from copier import run_update
+from copier import run_copy, run_update
 from packaging.version import InvalidVersion, Version
 
 
@@ -57,6 +59,9 @@ PROFILE_MANIFESTS = {
     "mix.exs": "elixir",
     "flake.nix": "nix",
 }
+ADOPTION_CANDIDATES = Path("migration/copier-adoption-candidates")
+TEMPLATE_CHANNELS = {"stable", "unstable"}
+
 LEGACY_TASK_IGNORED_DIRS = IGNORED_SCAN_DIRS | {
     ".agents",
     ".beads",
@@ -226,6 +231,14 @@ def updated_language_profiles(current: Any, additions: Sequence[str], removals: 
     return canonical_language_profiles(list(result))
 
 
+def is_dstack_template_source(root: Path) -> bool:
+    return (
+        (root / "copier.yml").is_file()
+        and (root / "skills/setup-project/copier.yml").is_file()
+        and (root / "skills/setup-project/template").is_dir()
+    )
+
+
 def project_preflight(root: Path, answers_file: str) -> dict[str, Any]:
     tasks = legacy_task_files(root)
     beads_present = beads_state_present(root)
@@ -236,6 +249,9 @@ def project_preflight(root: Path, answers_file: str) -> dict[str, Any]:
     elif answers.is_file():
         route = "update-project"
         reason = "Copier state exists"
+    elif is_dstack_template_source(root):
+        route = "update-project-adopt"
+        reason = "dstack template source requires explicit self-adoption"
     else:
         route = "migrate-workflow"
         reason = "Copier state is missing from an existing repository"
@@ -245,6 +261,7 @@ def project_preflight(root: Path, answers_file: str) -> dict[str, Any]:
         "answers_exists": answers.is_file(),
         "legacy_task_files": tasks,
         "beads_state_present": beads_present,
+        "template_source_repository": is_dstack_template_source(root),
         "recommended_workflow": route,
         "reason": reason,
         "suggested_language_profiles": detected_language_profiles(root),
@@ -344,21 +361,30 @@ def tagged_version(tag: str) -> Version | None:
 
 def default_vcs_ref(source: str, *, include_prereleases: bool = False) -> str:
     """Resolve the newest published PEP 440 release tag from the recorded Git source."""
-    completed = subprocess.run(
-        ["git", "ls-remote", "--tags", git_source(source), "refs/tags/v*"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        msg = f"Unable to discover dstack release tags from {source!r}; pass --vcs-ref explicitly."
-        raise SystemExit(msg)
-
-    tags = {
-        line.split()[1].removeprefix("refs/tags/").removesuffix("^{}")
-        for line in completed.stdout.splitlines()
-        if len(line.split()) == 2
-    }
+    root = local_git_root(source)
+    if root is not None:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "tag", "--list", "v*"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        tags = set(completed.stdout.splitlines())
+    else:
+        completed = subprocess.run(
+            ["git", "ls-remote", "--tags", git_source(source), "refs/tags/v*"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            msg = f"Unable to discover dstack release tags from {source!r}; pass --vcs-ref explicitly."
+            raise SystemExit(msg)
+        tags = {
+            line.split()[1].removeprefix("refs/tags/").removesuffix("^{}")
+            for line in completed.stdout.splitlines()
+            if len(line.split()) == 2
+        }
     releases: list[tuple[Version, str]] = []
     for tag in tags:
         version = tagged_version(tag)
@@ -415,6 +441,18 @@ def require_release_tag(source: str, vcs_ref: str) -> str | None:
     """Refuse an implicit HEAD fallback and return the resolved tag commit."""
     if tagged_version(vcs_ref) is None:
         return None
+    root = local_git_root(source)
+    if root is not None:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", f"refs/tags/{vcs_ref}^{{commit}}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode == 0:
+            return completed.stdout.strip()
+        message = f"dstack release tag {vcs_ref!r} is not available from {source!r}"
+        raise SystemExit(message)
     completed = subprocess.run(
         [
             "git",
@@ -445,6 +483,297 @@ def require_release_tag(source: str, vcs_ref: str) -> str | None:
         if len(fields) == 2:
             refs[fields[1]] = fields[0]
     return refs.get(f"refs/tags/{vcs_ref}^{{}}") or refs.get(f"refs/tags/{vcs_ref}")
+
+
+def local_git_root(source: str) -> Path | None:
+    path = Path(source).expanduser()
+    if not path.exists():
+        return None
+    completed = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return Path(completed.stdout.strip()) if completed.returncode == 0 else None
+
+
+def source_head(source: str) -> tuple[str, str]:
+    root = local_git_root(source)
+    if root is not None:
+        branch = (
+            subprocess.run(
+                ["git", "-C", str(root), "symbolic-ref", "--short", "HEAD"],
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            or "HEAD"
+        )
+        sha = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD^{commit}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        return branch, sha
+
+    completed = subprocess.run(
+        ["git", "ls-remote", "--symref", git_source(source), "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        message = f"Unable to resolve the default branch HEAD from {source!r}"
+        raise SystemExit(message)
+    branch = "HEAD"
+    sha = ""
+    for line in completed.stdout.splitlines():
+        if line.startswith("ref:") and line.endswith("\tHEAD"):
+            branch = line.split()[1].removeprefix("refs/heads/")
+        elif line.endswith("\tHEAD"):
+            sha = line.split()[0]
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        message = f"The default branch HEAD from {source!r} did not resolve to a commit"
+        raise SystemExit(message)
+    return branch, sha
+
+
+def explicit_ref(source: str, requested: str) -> tuple[str, str]:
+    root = local_git_root(source)
+    if root is not None:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", f"{requested}^{{commit}}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode == 0:
+            return requested, completed.stdout.strip()
+        message = f"Template revision {requested!r} is not available from {source!r}"
+        raise SystemExit(message)
+
+    patterns = [requested, f"refs/heads/{requested}", f"refs/tags/{requested}", f"refs/tags/{requested}^{{}}"]
+    completed = subprocess.run(
+        ["git", "ls-remote", git_source(source), *patterns],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    refs = {ref: sha for sha, ref in (line.split() for line in completed.stdout.splitlines())}
+    sha = refs.get(f"refs/tags/{requested}^{{}}") or refs.get(f"refs/tags/{requested}")
+    sha = sha or refs.get(f"refs/heads/{requested}") or refs.get(requested)
+    if not sha and re.fullmatch(r"[0-9a-f]{40}", requested):
+        with tempfile.TemporaryDirectory(prefix="dstack-revision-") as temporary:
+            subprocess.run(["git", "init", "--bare", temporary], check=True, capture_output=True)
+            fetched = subprocess.run(
+                ["git", "-C", temporary, "fetch", "--depth=1", git_source(source), requested],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if fetched.returncode == 0:
+                sha = requested
+    if completed.returncode != 0 or not sha:
+        message = f"Template revision {requested!r} is not available from {source!r}"
+        raise SystemExit(message)
+    return requested, sha
+
+
+def selected_revision(
+    source: str,
+    channel: str,
+    requested: str | None,
+    *,
+    include_prereleases: bool = False,
+) -> tuple[str, str]:
+    if requested:
+        return explicit_ref(source, requested)
+    if channel == "unstable":
+        return source_head(source)
+    tag = default_vcs_ref(source, include_prereleases=include_prereleases)
+    commit = require_release_tag(source, tag)
+    if commit is None:
+        message = f"Stable release {tag} did not resolve to a commit"
+        raise AssertionError(message)
+    return tag, commit
+
+
+def write_copier_state(path: Path, data: dict[str, Any], *, commit: str, channel: str) -> None:
+    data = {**data, "_commit": commit, "dstack_template_channel": channel}
+    path.write_text(
+        "# This file is managed by Copier. Do not edit it manually.\n"
+        + yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+def adoption_data(args: argparse.Namespace) -> dict[str, Any]:
+    required = {
+        "--project-name": args.project_name,
+        "--project-slug": args.project_slug,
+        "--purpose": args.purpose,
+        "--users": args.users,
+        "--scope": args.scope,
+        "--boundaries": args.boundaries,
+        "--project-kind": args.project_kind,
+    }
+    missing = [flag for flag, value in required.items() if not value]
+    if missing:
+        message = "Template self-adoption requires " + ", ".join(missing)
+        raise SystemExit(message)
+    values = {flag: value.strip() for flag, value in required.items()}
+    empty = [flag for flag, value in values.items() if not value]
+    if empty:
+        message = "Template self-adoption values must not be blank: " + ", ".join(empty)
+        raise SystemExit(message)
+    invalid = [
+        flag for flag, value in required.items() if any(character in value for character in ("\x00", "\r", "\n"))
+    ]
+    if invalid:
+        message = "Template self-adoption values must be nonempty single lines: " + ", ".join(invalid)
+        raise SystemExit(message)
+    profiles = canonical_language_profiles(args.language_profile)
+    return {
+        "project_name": values["--project-name"],
+        "project_slug": values["--project-slug"],
+        "project_purpose": values["--purpose"],
+        "project_users": values["--users"],
+        "project_scope": values["--scope"],
+        "project_boundaries": values["--boundaries"],
+        "project_kind": args.project_kind,
+        "language_profiles": profiles,
+        "repository_default_branch": args.default_branch,
+        "include_readme": True,
+        "dstack_template_channel": "unstable",
+    }
+
+
+def reject_adoption_symlinks(root: Path, target: Path) -> None:
+    if target.is_symlink():
+        message = f"Template adoption destination must not be a symlink: {target}"
+        raise SystemExit(message)
+    for parent in target.parents:
+        if parent.is_symlink():
+            message = f"Template adoption parent must not be a symlink: {parent}"
+            raise SystemExit(message)
+        if parent == root:
+            break
+
+
+def adopt_template_source(
+    root: Path,
+    args: argparse.Namespace,
+    *,
+    source: str,
+    selected_ref: str,
+    commit: str,
+) -> dict[str, Any]:
+    if not args.unstable or args.stable:
+        message = "Template self-adoption requires explicit --unstable"
+        raise SystemExit(message)
+    if args.vcs_ref is not None:
+        message = "Template self-adoption uses the reachable unstable default-branch HEAD; omit --vcs-ref"
+        raise SystemExit(message)
+    before = git_status(root)
+    if before:
+        preview = "\n".join(f"  {line}" for line in before[:25])
+        message = "Commit or stash changes before adopting the template:\n" + preview
+        raise SystemExit(message)
+
+    data = adoption_data(args)
+    candidates_root = root / ADOPTION_CANDIDATES
+    if candidates_root.exists():
+        message = f"Remove or reconcile the existing adoption candidates first: {candidates_root}"
+        raise SystemExit(message)
+
+    with tempfile.TemporaryDirectory(prefix="dstack-self-adopt-") as temporary:
+        rendered = Path(temporary) / "rendered"
+        run_copy(
+            source,
+            rendered,
+            data=data,
+            vcs_ref=commit,
+            defaults=True,
+            overwrite=False,
+            quiet=args.quiet or args.json,
+            unsafe=False,
+        )
+        rendered_answers = rendered / args.answers_file
+        state = load_answers(rendered_answers)
+        write_copier_state(rendered_answers, state, commit=commit, channel="unstable")
+
+        created: list[str] = []
+        preserved: list[str] = []
+        customized: list[str] = []
+        copies: list[tuple[Path, Path]] = []
+        candidates: list[tuple[Path, Path]] = []
+        answer_copy: tuple[Path, Path] | None = None
+        for generated in sorted(path for path in rendered.rglob("*") if path.is_file()):
+            relative = generated.relative_to(rendered)
+            target = root / relative
+            reject_adoption_symlinks(root, target)
+            key = relative.as_posix()
+            if key == args.answers_file:
+                answer_copy = (generated, target)
+                created.append(key)
+            elif not target.exists():
+                copies.append((generated, target))
+                created.append(key)
+            elif target.is_file() and filecmp.cmp(generated, target, shallow=False):
+                preserved.append(key)
+            else:
+                candidates.append((generated, candidates_root / relative))
+                customized.append(key)
+
+        if answer_copy is None:
+            message = "Rendered self-adoption template did not produce Copier answers"
+            raise SystemExit(message)
+        for _, target in [*copies, *candidates, answer_copy]:
+            reject_adoption_symlinks(root, target)
+            if target.exists() and not target.is_file():
+                message = f"Template adoption file destination is not a file: {target}"
+                raise SystemExit(message)
+            for parent in target.parents:
+                if parent.exists() and not parent.is_dir():
+                    message = f"Template adoption parent is not a directory: {parent}"
+                    raise SystemExit(message)
+                if parent == root:
+                    break
+
+        written: list[Path] = []
+        try:
+            for generated, target in [*copies, *candidates]:
+                written.append(target)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(generated, target)
+            generated, target = answer_copy
+            written.append(target)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(generated, target)
+        except OSError:
+            for path in reversed(written):
+                path.unlink(missing_ok=True)
+            if candidates_root.exists():
+                shutil.rmtree(candidates_root)
+            raise
+
+    return {
+        "destination": str(root),
+        "answers_file": str(root / args.answers_file),
+        "template_source": source,
+        "template_channel": "unstable",
+        "selected_ref": selected_ref,
+        "resolved_commit": commit,
+        "created": created,
+        "project_customized": customized,
+        "preserved": preserved,
+        "candidate_root": str(candidates_root),
+        "changed_files": git_status(root),
+        "ready_to_resume_feature_work": False,
+        "next_step": "Reconcile every adoption candidate, remove the candidate directory, validate, and commit.",
+    }
 
 
 def parse_json_output(command: Sequence[str], *, cwd: Path) -> Any:
@@ -595,6 +924,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--destination", "-d", type=Path, default=Path.cwd())
     parser.add_argument("--answers-file", default=".copier-answers.yml")
+    parser.add_argument("--template-source", help="Development source override for --adopt.")
+    parser.add_argument("--adopt", action="store_true", help="Explicitly bootstrap the dstack template source.")
+    parser.add_argument("--project-name")
+    parser.add_argument("--project-slug")
+    parser.add_argument("--purpose")
+    parser.add_argument("--users")
+    parser.add_argument("--scope")
+    parser.add_argument("--boundaries")
+    parser.add_argument(
+        "--project-kind",
+        choices=("library", "cli", "service", "application", "infrastructure", "documentation", "other"),
+    )
+    parser.add_argument("--language-profile", action="append", default=[], choices=LANGUAGE_PROFILES)
+    parser.add_argument("--default-branch", default="main")
     parser.add_argument(
         "--preflight",
         action="store_true",
@@ -608,6 +951,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--prereleases", action="store_true")
+    channel = parser.add_mutually_exclusive_group()
+    channel.add_argument("--stable", action="store_true", help="Use the newest stable release tag.")
+    channel.add_argument("--unstable", action="store_true", help="Use the source default branch HEAD.")
     parser.add_argument("--conflict", choices=("inline", "rej"), default="inline")
     parser.add_argument("--add-profile", action="append", default=[], choices=LANGUAGE_PROFILES)
     parser.add_argument("--remove-profile", action="append", default=[], choices=LANGUAGE_PROFILES)
@@ -635,7 +981,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  - {path}")
         return 0
 
-    if preflight["recommended_workflow"] == "migrate-workflow":
+    route = preflight["recommended_workflow"]
+    if route == "update-project-adopt":
+        if not args.adopt:
+            message = (
+                "The dstack template source is not Copier-managed. Run /update-project with explicit "
+                "--adopt --unstable after reviewing the self-adoption contract."
+            )
+            raise SystemExit(message)
+        if args.template_source is not None:
+            message = "Template self-adoption does not accept --template-source; the official remote is authoritative"
+            raise SystemExit(message)
+        source = DEFAULT_TEMPLATE_SOURCE
+        validate_template_source(source)
+        selected_ref, commit = selected_revision(source, "unstable", None)
+        result = adopt_template_source(
+            destination,
+            args,
+            source=source,
+            selected_ref=selected_ref,
+            commit=commit,
+        )
+        result["preflight"] = preflight
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(f"Adopted {source} {selected_ref} ({commit}) into {destination}")
+            print(f"Reconcile candidates under {result['candidate_root']}")
+        return 2 if result["project_customized"] else 0
+
+    if args.adopt:
+        message = "--adopt is valid only for the uninitialized dstack template source"
+        raise SystemExit(message)
+
+    if route == "migrate-workflow":
         tasks = preflight["legacy_task_files"]
         details = "\n".join(f"  - {path}" for path in tasks)
         message = (
@@ -658,9 +1037,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     previous_profiles = canonical_language_profiles(answer_data.get("language_profiles", ["other"]))
     requested_profiles = updated_language_profiles(previous_profiles, args.add_profile, args.remove_profile)
 
+    recorded_channel = answer_data.get("dstack_template_channel", "stable")
+    if recorded_channel not in TEMPLATE_CHANNELS:
+        message = "dstack_template_channel must be stable or unstable"
+        raise SystemExit(message)
+    channel = "unstable" if args.unstable else "stable" if args.stable else recorded_channel
     requested_vcs_ref = args.vcs_ref
-    effective_vcs_ref = requested_vcs_ref or default_vcs_ref(source, include_prereleases=args.prereleases)
-    verified_source_commit = require_release_tag(source, effective_vcs_ref)
+    selected_ref, verified_source_commit = selected_revision(
+        source,
+        channel,
+        requested_vcs_ref,
+        include_prereleases=args.prereleases,
+    )
+    effective_vcs_ref = verified_source_commit
 
     before = git_status(destination)
     if before and not args.allow_dirty:
@@ -675,7 +1064,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         run_update(
             destination,
-            data={"language_profiles": requested_profiles},
+            data={
+                "language_profiles": requested_profiles,
+                "dstack_template_channel": channel,
+            },
             answers_file=args.answers_file,
             vcs_ref=effective_vcs_ref,
             use_prereleases=args.prereleases,
@@ -725,6 +1117,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 beads_health = check_beads(destination)
 
+    if not args.pretend and not conflicts:
+        current_answers = load_answers(answers)
+        write_copier_state(answers, current_answers, commit=verified_source_commit, channel=channel)
+
     changed = git_status(destination) if not args.pretend else []
     changed_paths = {line[3:] for line in changed if len(line) > 3}
     revision_changed = answer_data.get("_commit") != load_answers(answers).get("_commit")
@@ -741,7 +1137,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "template_source": source,
         "previous_commit": answer_data.get("_commit"),
         "requested_vcs_ref": requested_vcs_ref,
-        "vcs_ref": effective_vcs_ref,
+        "template_channel": channel,
+        "selected_ref": selected_ref,
+        "vcs_ref": selected_ref,
         "resolved_commit": updated_answers.get("_commit"),
         "verified_source_commit": verified_source_commit,
         "previous_language_profiles": previous_profiles,
@@ -766,7 +1164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
         action = "Previewed" if args.pretend else "Applied"
-        print(f"{action} dstack template update {effective_vcs_ref} in {destination}")
+        print(f"{action} dstack template update {selected_ref} ({effective_vcs_ref}) in {destination}")
         if changed:
             print("Changed files:")
             for line in changed:

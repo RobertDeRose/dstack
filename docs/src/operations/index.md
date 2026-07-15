@@ -14,9 +14,10 @@ application, infrastructure, documentation, and other. Select one or more recogn
 root policy, or select exclusive `other` for only the universal baseline. Setup does not infer or fabricate missing
 facts.
 
-The skill renders its bundled Copier template, initializes Git and Beads when available, and validates the generated
-documentation. Existing repositories are routed to `/migrate-workflow`; already managed repositories are routed to
-`/update-project` with explicit consent.
+The skill resolves the stable channel by default or `--unstable` explicitly, verifies its installed template matches the
+exact selected commit, renders the bundle, initializes Git and Beads when available, and validates the documentation.
+Existing repositories are routed to `/migrate-workflow`; already managed repositories are routed to `/update-project`
+with explicit consent.
 
 ## Deliver features
 
@@ -33,9 +34,12 @@ human roadmap.
 
 ## Update
 
-- `npx skills update` refreshes installed skills and bundled assets.
-- `/update-project` applies a newer published Copier template to a managed repository. Repeat `--add-profile` and
-  `--remove-profile` for explicit idempotent profile changes; their sets must be disjoint and the result nonempty.
+- `npx skills update` refreshes installed skill definitions and scripts.
+- `/update-project` applies the newest revision from the recorded stable or unstable channel to a managed repository.
+  Pass `--stable` or `--unstable` to change the preserved channel. Repeat `--add-profile` and `--remove-profile` for
+  explicit idempotent profile changes; their sets must be disjoint and the result nonempty.
+- `/update-project --adopt --unstable` explicitly bootstraps dstack itself as an unstable template consumer; reconcile
+  every generated candidate before validation or commit.
 - `/migrate-workflow` adopts an existing legacy Markdown workflow before normal updates.
 
 Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
@@ -72,9 +76,9 @@ Setup refuses non-empty unmanaged destinations. For a new destination, direct he
 blank, multiline, or NUL-containing brief values and names the required flags. This is an intentionally breaking pre-v1
 setup contract; Purposeful project scaffold does not support updating or adopting older answer sets.
 
-Update refuses missing or invalid Copier state and does not silently select untagged template code. If Beads is
-unavailable, setup reports initialization and verification as outstanding rather than claiming a complete workflow
-installation.
+Update refuses missing or invalid Copier state and unreachable revisions. Stable never falls back to untagged code;
+unstable explicitly resolves the source default-branch HEAD. If Beads is unavailable, setup reports initialization and
+verification as outstanding rather than claiming a complete workflow installation.
 
 ## Tool provisioning and recovery
 

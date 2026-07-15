@@ -4,6 +4,7 @@
 # requires-python = ">=3.13"
 # dependencies = [
 #     "copier>=9.16,<10",
+#     "packaging>=24,<27",
 #     "PyYAML>=6.0,<7",
 # ]
 # ///
@@ -18,12 +19,14 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import yaml
 from copier import run_copy
+from packaging.version import InvalidVersion, Version
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -32,7 +35,6 @@ BUNDLED_TEMPLATE_SOURCE = SKILL_DIR
 DEFAULT_UPDATE_SOURCE = "gh:RobertDeRose/dstack"
 FRONTMATTER_PATTERN = re.compile(r"\A---\n(?P<frontmatter>.*?)\n---(?:\n|\Z)", re.DOTALL)
 VERSION_PATTERN = re.compile(r"\d+\.\d+\.\d+")
-RELEASE_TAG_PATTERN = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
 PROJECT_KINDS = ("library", "cli", "service", "application", "infrastructure", "documentation", "other")
 LANGUAGE_PROFILES = ("python", "typescript", "rust", "go", "elixir", "nix", "other")
 BRIEF_FLAGS = {
@@ -101,10 +103,14 @@ def load_skill_version(path: Path = SKILL_MANIFEST) -> str:
     return version
 
 
-def record_update_state(path: Path, *, source: str, commit: str) -> None:
-    """Replace local-render state with the published source used for future updates."""
+def record_update_state(path: Path, *, source: str, commit: str, channel: str) -> None:
+    """Record the exact reachable template revision used for rendering."""
     data = load_yaml_mapping(path, label="Copier answers")
-    recorded: dict[str, Any] = {"_commit": commit, "_src_path": source}
+    recorded: dict[str, Any] = {
+        "_commit": commit,
+        "_src_path": source,
+        "dstack_template_channel": channel,
+    }
     recorded.update({key: value for key, value in data.items() if key not in recorded})
     rendered = yaml.safe_dump(recorded, allow_unicode=True, sort_keys=False)
     path.write_text(
@@ -113,13 +119,55 @@ def record_update_state(path: Path, *, source: str, commit: str) -> None:
     )
 
 
-def validate_bundled_template() -> None:
-    required = (BUNDLED_TEMPLATE_SOURCE / "copier.yml", BUNDLED_TEMPLATE_SOURCE / "template")
-    missing = [path for path in required if not path.exists()]
-    if missing:
-        shown = ", ".join(str(path) for path in missing)
-        message = f"The installed setup-project skill is incomplete; missing: {shown}"
-        raise SystemExit(message)
+def bundled_files(root: Path) -> dict[str, bytes]:
+    paths = [root / "copier.yml", *(root / "template").rglob("*")]
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in paths
+        if path.is_file() and not any(part in {"__pycache__", ".DS_Store"} for part in path.relative_to(root).parts)
+    }
+
+
+def verify_bundled_revision(source: str, commit: str) -> None:
+    with tempfile.TemporaryDirectory(prefix="dstack-bundled-template-") as temporary:
+        checkout = Path(temporary) / "source"
+        local_source = Path(source).expanduser()
+        clone_source = local_source.resolve().as_uri() if local_source.exists() else git_source(source)
+        cloned = subprocess.run(
+            ["git", "clone", "--quiet", "--no-checkout", clone_source, str(checkout)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if cloned.returncode != 0:
+            message = f"Unable to verify the bundled template against {source!r}: {cloned.stderr.strip()}"
+            raise SystemExit(message)
+        selected = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(checkout),
+                "checkout",
+                "--quiet",
+                commit,
+                "--",
+                "skills/setup-project/copier.yml",
+                "skills/setup-project/template",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if selected.returncode != 0:
+            message = f"Selected template commit {commit} does not contain the setup-project template"
+            raise SystemExit(message)
+        expected = checkout / "skills/setup-project"
+        if bundled_files(BUNDLED_TEMPLATE_SOURCE) != bundled_files(expected):
+            message = (
+                "The installed setup-project template does not match the selected template commit. "
+                "Update the installed dstack skills or choose an explicit --template-source."
+            )
+            raise SystemExit(message)
 
 
 def validate_template_source(source: str) -> None:
@@ -137,19 +185,6 @@ def validate_template_source(source: str) -> None:
     raise SystemExit(message)
 
 
-def is_remote_template_source(source: str) -> bool:
-    return source.startswith(("gh:", "gl:", "https://", "ssh://", "git@"))
-
-
-def selected_vcs_ref(template_source: str, requested: str | None) -> str | None:
-    if requested:
-        return requested
-    if is_remote_template_source(template_source):
-        message = "A remote template override requires an explicit --vcs-ref."
-        raise SystemExit(message)
-    return None
-
-
 def git_source(source: str) -> str:
     if source.startswith("gh:"):
         return f"https://github.com/{source.removeprefix('gh:')}.git"
@@ -158,39 +193,172 @@ def git_source(source: str) -> str:
     return source
 
 
-def require_release_tag(source: str, vcs_ref: str | None) -> str | None:
-    if vcs_ref is None or RELEASE_TAG_PATTERN.fullmatch(vcs_ref) is None:
+def tagged_version(tag: str) -> Version | None:
+    if not tag.startswith("v"):
+        return None
+    try:
+        version = Version(tag.removeprefix("v"))
+    except InvalidVersion:
+        return None
+    return version if len(version.release) == 3 else None
+
+
+def local_git_root(source: str) -> Path | None:
+    path = Path(source).expanduser()
+    if not path.exists():
         return None
     completed = subprocess.run(
-        [
-            "git",
-            "ls-remote",
-            "--exit-code",
-            "--tags",
-            git_source(source),
-            f"refs/tags/{vcs_ref}",
-            f"refs/tags/{vcs_ref}^{{}}",
-        ],
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return Path(completed.stdout.strip()) if completed.returncode == 0 else None
+
+
+def release_refs(source: str) -> dict[str, str]:
+    root = local_git_root(source)
+    if root is not None:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "for-each-ref",
+                "--format=%(refname:short) %(objectname) %(*objectname)",
+                "refs/tags/v*",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        refs: dict[str, str] = {}
+        for line in completed.stdout.splitlines():
+            tag, direct, *peeled = line.split()
+            refs[tag] = peeled[0] if peeled else direct
+        return refs
+
+    completed = subprocess.run(
+        ["git", "ls-remote", "--tags", git_source(source), "refs/tags/v*"],
         check=False,
         capture_output=True,
         text=True,
     )
     if completed.returncode != 0:
-        detail = completed.stderr.strip()
-        message = (
-            f"dstack release tag {vcs_ref!r} is not available from {source!r}. "
-            "The setup helper will not fall back to an untagged HEAD."
+        message = f"Unable to discover dstack release tags from {source!r}"
+        raise SystemExit(message)
+    direct: dict[str, str] = {}
+    peeled: dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        sha, ref = line.split()
+        tag = ref.removeprefix("refs/tags/")
+        if tag.endswith("^{}"):
+            peeled[tag.removesuffix("^{}")] = sha
+        else:
+            direct[tag] = sha
+    return {tag: peeled.get(tag, sha) for tag, sha in direct.items()}
+
+
+def latest_stable(source: str) -> tuple[str, str]:
+    releases = [
+        (version, tag, sha)
+        for tag, sha in release_refs(source).items()
+        if (version := tagged_version(tag)) is not None and not version.is_prerelease and not version.is_devrelease
+    ]
+    if not releases:
+        message = f"No stable dstack release tags found in {source!r}"
+        raise SystemExit(message)
+    _, tag, sha = max(releases)
+    return tag, sha
+
+
+def source_head(source: str) -> tuple[str, str]:
+    root = local_git_root(source)
+    if root is not None:
+        branch = (
+            subprocess.run(
+                ["git", "-C", str(root), "symbolic-ref", "--short", "HEAD"],
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            or "HEAD"
         )
-        if detail:
-            message += f"\nGit reported: {detail}"
+        sha = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD^{commit}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        return branch, sha
+
+    completed = subprocess.run(
+        ["git", "ls-remote", "--symref", git_source(source), "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        message = f"Unable to resolve the default branch HEAD from {source!r}"
+        raise SystemExit(message)
+    branch = "HEAD"
+    sha = ""
+    for line in completed.stdout.splitlines():
+        if line.startswith("ref:") and line.endswith("\tHEAD"):
+            branch = line.split()[1].removeprefix("refs/heads/")
+        elif line.endswith("\tHEAD"):
+            sha = line.split()[0]
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        message = f"The default branch HEAD from {source!r} did not resolve to a commit"
+        raise SystemExit(message)
+    return branch, sha
+
+
+def explicit_ref(source: str, requested: str) -> tuple[str, str]:
+    root = local_git_root(source)
+    if root is not None:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", f"{requested}^{{commit}}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode == 0:
+            return requested, completed.stdout.strip()
+        message = f"Template revision {requested!r} is not available from {source!r}"
         raise SystemExit(message)
 
-    refs: dict[str, str] = {}
-    for line in completed.stdout.splitlines():
-        fields = line.split()
-        if len(fields) == 2:
-            refs[fields[1]] = fields[0]
-    return refs.get(f"refs/tags/{vcs_ref}^{{}}") or refs.get(f"refs/tags/{vcs_ref}")
+    patterns = [requested, f"refs/heads/{requested}", f"refs/tags/{requested}", f"refs/tags/{requested}^{{}}"]
+    completed = subprocess.run(
+        ["git", "ls-remote", git_source(source), *patterns],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    refs = {ref: sha for sha, ref in (line.split() for line in completed.stdout.splitlines())}
+    sha = refs.get(f"refs/tags/{requested}^{{}}") or refs.get(f"refs/tags/{requested}")
+    sha = sha or refs.get(f"refs/heads/{requested}") or refs.get(requested)
+    if not sha and re.fullmatch(r"[0-9a-f]{40}", requested):
+        with tempfile.TemporaryDirectory(prefix="dstack-revision-") as temporary:
+            subprocess.run(["git", "init", "--bare", temporary], check=True, capture_output=True)
+            fetched = subprocess.run(
+                ["git", "-C", temporary, "fetch", "--depth=1", git_source(source), requested],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if fetched.returncode == 0:
+                sha = requested
+    if completed.returncode != 0 or not sha:
+        message = f"Template revision {requested!r} is not available from {source!r}"
+        raise SystemExit(message)
+    return requested, sha
+
+
+def selected_revision(source: str, channel: str, requested: str | None) -> tuple[str, str]:
+    if requested:
+        return explicit_ref(source, requested)
+    return latest_stable(source) if channel == "stable" else source_head(source)
 
 
 def slugify(value: str) -> str:
@@ -483,12 +651,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--default-branch", default="main")
     parser.add_argument(
         "--template-source",
-        help="Development override for the template bundled with the installed setup-project skill.",
+        help="Template Git source; defaults to gh:RobertDeRose/dstack.",
     )
-    parser.add_argument(
-        "--vcs-ref",
-        help="Tag, branch, or commit for --template-source. The bundled template does not accept this option.",
-    )
+    parser.add_argument("--vcs-ref", help="One-shot template tag, branch, or commit override.")
+    channel = parser.add_mutually_exclusive_group()
+    channel.add_argument("--stable", action="store_true", help="Use the newest stable release tag (default).")
+    channel.add_argument("--unstable", action="store_true", help="Use the source default branch HEAD.")
     parser.add_argument("--delete-readme", action="store_true")
     parser.add_argument("--no-git-init", action="store_true")
     parser.add_argument("--skip-post-setup", action="store_true")
@@ -513,33 +681,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     destination = args.destination.expanduser().resolve()
-    skill_version = load_skill_version()
-    using_bundled_template = args.template_source is None
-
-    if using_bundled_template:
-        if args.vcs_ref is not None:
-            message = "--vcs-ref is only valid with an explicit --template-source override"
-            raise SystemExit(message)
-        validate_bundled_template()
-        template_source = str(BUNDLED_TEMPLATE_SOURCE)
-        render_vcs_ref = None
-        update_source = DEFAULT_UPDATE_SOURCE
-        recorded_vcs_ref: str | None = f"v{skill_version}"
-        resolved_template_commit = None
-    else:
-        template_source = args.template_source
-        validate_template_source(template_source)
-        render_vcs_ref = selected_vcs_ref(template_source, args.vcs_ref)
-        update_source = template_source
-        recorded_vcs_ref = render_vcs_ref
-        resolved_template_commit = require_release_tag(template_source, render_vcs_ref)
-
-    project_name = (args.project_name or Path.cwd().name).strip()
-    if not project_name:
-        message = "Project name cannot be empty"
-        raise SystemExit(message)
-    project_slug = args.project_slug or slugify(project_name)
-
     answers = destination / ".copier-answers.yml"
     if answers.exists():
         message = (
@@ -556,8 +697,30 @@ def main(argv: Sequence[str] | None = None) -> int:
             "Use /migrate-workflow for an existing project:\n" + shown
         )
 
+    project_name = (args.project_name or Path.cwd().name).strip()
+    if not project_name:
+        message = "Project name cannot be empty"
+        raise SystemExit(message)
+    project_slug = args.project_slug or slugify(project_name)
     brief = project_brief(args)
     language_profiles = canonical_language_profiles(args.language_profile)
+
+    skill_version = load_skill_version()
+    channel = "unstable" if args.unstable else "stable"
+    update_source = args.template_source or DEFAULT_UPDATE_SOURCE
+    validate_template_source(update_source)
+    selected_ref, resolved_template_commit = selected_revision(update_source, channel, args.vcs_ref)
+    using_bundled_template = args.template_source is None
+    if using_bundled_template:
+        verify_bundled_revision(update_source, resolved_template_commit)
+        template_source = str(BUNDLED_TEMPLATE_SOURCE)
+        render_vcs_ref = None
+    else:
+        template_source = update_source
+        render_vcs_ref = resolved_template_commit
+    source_root = local_git_root(update_source)
+    recorded_update_source = str(source_root.resolve()) if source_root is not None else update_source
+
     destination.mkdir(parents=True, exist_ok=True)
     run_copy(
         template_source,
@@ -569,6 +732,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "language_profiles": language_profiles,
             "repository_default_branch": args.default_branch,
             "include_readme": not args.delete_readme,
+            "dstack_template_channel": channel,
         },
         vcs_ref=render_vcs_ref,
         defaults=True,
@@ -580,14 +744,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not answers.exists():
         message = "Copier completed without creating .copier-answers.yml"
         raise SystemExit(message)
-    if using_bundled_template:
-        if recorded_vcs_ref is None:
-            message = "Bundled template setup did not determine a published update tag"
-            raise AssertionError(message)
-        record_update_state(answers, source=update_source, commit=recorded_vcs_ref)
-    else:
-        answer_data = load_yaml_mapping(answers, label="Copier answers")
-        recorded_vcs_ref = str(answer_data.get("_commit") or render_vcs_ref or "") or None
+    record_update_state(
+        answers,
+        source=recorded_update_source,
+        commit=resolved_template_commit,
+        channel=channel,
+    )
+    recorded_vcs_ref = selected_ref
 
     git_initialized = False
     if not args.no_git_init:
@@ -626,7 +789,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "destination": str(destination),
         "template_source": template_source,
         "template_source_kind": "bundled" if using_bundled_template else "override",
-        "update_source": update_source,
+        "template_channel": channel,
+        "update_source": recorded_update_source,
         "skill_version": skill_version,
         "vcs_ref": recorded_vcs_ref,
         "render_vcs_ref": render_vcs_ref,
@@ -648,7 +812,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Created dstack project: {project_name}")
         print(f"Destination: {destination}")
         print(f"Template: {template_source} ({recorded_vcs_ref or 'unversioned override'})")
-        print(f"Future update source: {update_source}")
+        print(f"Future update source: {recorded_update_source}")
         print(f"Copier state: {answers}")
         if beads_initialized:
             print("Beads initialized. Next: run 'bd prime', then use /plan-features.")

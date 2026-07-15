@@ -1,6 +1,6 @@
 ---
 name: update-project
-description: Update an existing Copier-managed dstack project to the latest eligible tagged template release, or route a legacy Markdown workflow through migration before updating.
+description: Update a Copier-managed dstack project through its stable or unstable template channel, explicitly bootstrap dstack self-adoption, or route a legacy Markdown workflow through migration.
 metadata:
   version: "0.2.1"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
@@ -8,9 +8,10 @@ allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 
 # Purpose
 
-Use this skill for an existing repository. It first decides whether the repository is ready for a Copier update or still
-needs legacy-workflow migration. A normal update discovers the latest eligible tagged release from the Git source
-recorded in `.copier-answers.yml`, then applies Copier's three-way update so project-owned changes remain local.
+Use this skill for an existing repository. It first decides whether the repository is ready for a Copier update, needs
+legacy-workflow migration, or is the dstack template source eligible for explicit self-adoption. A normal update
+resolves the recorded stable or unstable channel from the Git source in `.copier-answers.yml`, then applies Copier's
+three-way update so project-owned changes remain local.
 
 Resolve `<skill-dir>` as the directory containing this `SKILL.md`.
 
@@ -25,11 +26,11 @@ Update-specific authority:
 - Invocation authorizes preflight inspection. It authorizes a local Copier update and dedicated reconciliation commit
   only after the repository passes migration routing. It does not authorize push, merge, force-push, branch deletion, or
   unrelated project changes.
-- The default update queries the Git source recorded in `.copier-answers.yml` for tags and selects the newest stable PEP
-  440-compatible `vX.Y.Z` release.
-- The installed skill's `metadata.version` is not the update target. Skill installation and generated-project updates
-  are independent operations.
-- Explicit development revisions must be reported before mutation and never result from an implicit fallback to `HEAD`.
+- The default channel is `stable`, which selects the newest stable PEP 440-compatible `vX.Y.Z` release. `unstable`
+  selects the recorded source's default-branch HEAD. Existing projects preserve their recorded channel.
+- Every selected tag, branch, or explicit revision is resolved to a reachable commit and that exact SHA is persisted in
+  `_commit`; installed skill metadata is never template provenance.
+- Explicit development revisions must be reported before mutation. Template-source self-adoption is never implicit.
 
 ## 1. Route legacy repositories before update
 
@@ -65,19 +66,21 @@ Recursive package discovery is outside this workflow.
 
 ## 2. Update preconditions
 
-Continue only when preflight recommends `update-project` and:
+Continue with a normal update only when preflight recommends `update-project` and:
 
 - `.copier-answers.yml` records a Git-backed `_src_path` plus `_commit`;
 - the initial scaffold or completed migration checkpoint is committed;
 - the worktree is clean unless the user explicitly accepts a dirty update;
-- the recorded Git source contains at least one eligible release tag.
+- the recorded Git source can resolve the selected channel or explicit revision.
 
-## 3. Apply the tagged update
+## 3. Apply the template update
 
-Update to the newest stable published release:
+Update through the recorded channel, or override it explicitly:
 
 ```bash
 uv run <skill-dir>/scripts/update-project.py
+uv run <skill-dir>/scripts/update-project.py --stable
+uv run <skill-dir>/scripts/update-project.py --unstable
 ```
 
 Preview, include prereleases, or explicitly select another revision:
@@ -86,7 +89,7 @@ Preview, include prereleases, or explicitly select another revision:
 uv run <skill-dir>/scripts/update-project.py --pretend
 uv run <skill-dir>/scripts/update-project.py --prereleases --pretend
 uv run <skill-dir>/scripts/update-project.py --vcs-ref <release-tag>
-uv run <skill-dir>/scripts/update-project.py --vcs-ref HEAD
+uv run <skill-dir>/scripts/update-project.py --vcs-ref <reviewed-tag-branch-or-commit>
 uv run <skill-dir>/scripts/update-project.py --add-profile typescript
 uv run <skill-dir>/scripts/update-project.py --remove-profile python --add-profile other
 ```
@@ -95,19 +98,35 @@ Omitting profile flags preserves the recorded selection. Add/remove flags are re
 same profile cannot appear in both sets. `other` is exclusive, and removing the final recognized profile requires adding
 `other` in the same invocation.
 
-An explicit branch, commit, or `HEAD` is allowed for development, but the default command requires a published release
-tag and refuses to fall back silently.
+An explicit branch, commit, or `HEAD` is a one-shot override. The helper persists the exact resolved commit while
+leaving the selected stable/unstable channel as the default for the next update.
+
+### dstack self-adoption
+
+When preflight reports `update-project-adopt`, run only after explicit user approval and a clean worktree:
+
+```bash
+uv run <skill-dir>/scripts/update-project.py --adopt --unstable \
+  --project-name dstack --project-slug dstack \
+  --purpose "<purpose>" --users "<users>" --scope "<scope>" --boundaries "<boundaries>" \
+  --project-kind other --language-profile python --json
+```
+
+Self-adoption renders the reachable remote default-branch commit in isolation, copies missing generated paths, preserves
+existing dstack-owned paths, writes differing generated versions under `migration/copier-adoption-candidates/`, and
+records exact unstable Copier state. Reconcile every candidate and remove the directory before validation or commit. It
+never adopts a local-only commit or runs generated code before reconciliation.
 
 ## Helper contract
 
 The helper:
 
-1. resolves the Git root and performs migration routing before any tag lookup or mutation;
+1. resolves the Git root and performs migration/self-adoption routing before any revision lookup or mutation;
 2. reads the Copier source and previous revision from `.copier-answers.yml`;
-3. runs `git ls-remote --tags` against that source and selects the greatest eligible tag using PEP 440 ordering unless
-   `--vcs-ref` is supplied;
+3. resolves the preserved or explicit channel: stable uses the greatest eligible tag by PEP 440 ordering; unstable uses
+   the source default-branch HEAD;
 4. excludes prereleases by default and includes them only with `--prereleases`;
-5. verifies that a selected release tag exists before modifying the project;
+5. verifies every selected revision is reachable and persists its exact commit SHA before reporting success;
 6. requires a clean worktree by default;
 7. applies the Copier update;
 8. checks only Git-visible modified and untracked files for coherent conflict markers, Git unmerged paths, and newly
@@ -155,8 +174,8 @@ Report:
 
 1. preflight route, legacy task files, Beads-state result, and user consent decision when migration was offered;
 2. destination and Copier source;
-3. previous Copier revision;
-4. discovered or explicitly requested release tag and resolved revision;
+3. previous Copier revision and channel;
+4. selected channel, friendly tag/branch/ref, and exact resolved revision;
 5. previous, suggested, and resulting language profiles;
 6. changed files and the complete path-accounting ledger;
 7. real update conflicts and resolutions;

@@ -26,6 +26,21 @@
 The helper rejects NUL, CR, and LF in brief values. It preserves Unicode, quotes, backslashes, and Markdown punctuation.
 The result JSON and `.copier-answers.yml` record all five values.
 
+## Template channels
+
+| Channel    | Selection                                      | Persistence |
+|------------|------------------------------------------------|-------------|
+| `stable`   | Newest stable PEP 440 tag, dereferenced to SHA | Default     |
+| `unstable` | Git source default-branch HEAD                 | Explicit    |
+
+Setup and update always write the exact reachable commit to `_commit` and the selected channel to
+`dstack_template_channel`. `--stable` and `--unstable` change the persisted channel. `--vcs-ref` selects a reviewed
+one-shot tag, branch, or commit without changing the next update's channel.
+
+The dstack template source alone supports explicit `--adopt --unstable`. Adoption requires the full project brief and
+language profiles, creates `.copier-answers.yml`, copies missing paths, and writes generated versions of customized
+paths under `migration/copier-adoption-candidates/` for reconciliation.
+
 ## Language profile selection
 
 `language_profiles` is a canonical list ordered as `python`, `typescript`, `rust`, `go`, `elixir`, `nix`, then `other`.

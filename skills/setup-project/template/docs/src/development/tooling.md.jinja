@@ -17,6 +17,9 @@ mise run docs:deployment:enable
 mise run docs:serve
 ```
 
+Use `/update-project` for the recorded template channel, or `/update-project --stable` / `--unstable` to change it. The
+update always records the exact resolved template commit.
+
 `check` is read-only. `fix` changes the working tree. The pre-commit hook may fix files while safely stashing unrelated
 unstaged work. The commit-message hook enforces Conventional Commits, required scopes for changelog-visible changes,
 grammar, 72/100-character line limits, and canonical optional `Beads:` footers. Run `cog changelog` to preview the

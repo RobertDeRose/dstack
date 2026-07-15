@@ -1,6 +1,6 @@
 ---
 name: setup-project
-description: Create and initialize a new Copier-managed dstack project from the template bundled with the installed skill. Use only for a new project, with an explicit project name or basename($PWD) by default.
+description: Create and initialize a new Copier-managed dstack project from the latest stable template release or the explicitly selected unstable channel. Use only for a new project, with an explicit project name or basename($PWD) by default.
 metadata:
   version: "0.2.1"
 allowed-tools: Read Glob Bash AskUserQuestion
@@ -8,12 +8,12 @@ allowed-tools: Read Glob Bash AskUserQuestion
 
 # Purpose
 
-Use this skill only for a new repository. It renders the Copier template installed alongside this `SKILL.md`, records
-the published dstack source for future updates, initializes the new-project workflow, and validates the generated
-documentation. It does not download the template from GitHub and does not migrate legacy project state.
+Use this skill only for a new repository. It resolves the selected channel from the official Git source, verifies the
+installed bundled template matches that exact commit, renders the bundle, records the commit for future three-way
+updates, initializes the new-project workflow, and validates the generated documentation. It does not migrate legacy
+project state.
 
-Resolve `<skill-dir>` as the directory containing this `SKILL.md`. The bundled Copier source is `<skill-dir>` itself:
-`copier.yml` selects the adjacent `template/` directory.
+Resolve `<skill-dir>` as the directory containing this `SKILL.md`.
 
 ## Shared trust contract
 
@@ -23,12 +23,13 @@ normative for this workflow. If it conflicts with this skill, follow the more re
 
 Setup-specific authority:
 
-- The default source is the template bundled in the installed `setup-project` skill. Do not clone, download, or install
-  another template for normal setup.
-- The helper reads this skill's `metadata.version`, renders the local template with Copier `unsafe=False`, then records
-  `gh:RobertDeRose/dstack` and `v<metadata.version>` in `.copier-answers.yml` for `/update-project`.
-- `--template-source` is a development/testing override only. A remote override requires an explicit `--vcs-ref` and
-  never falls back silently to `HEAD`.
+- The default source is `gh:RobertDeRose/dstack`; `stable` selects its newest stable PEP 440 tag and `unstable` selects
+  its default-branch HEAD. Stable is the default.
+- The helper dereferences the selected tag, branch, or explicit revision, verifies the bundled `copier.yml` and
+  `template/` match that commit, and records the exact reachable 40-character SHA in `.copier-answers.yml`; skill
+  metadata is never used as template provenance.
+- `--template-source` and `--vcs-ref` are explicit development/testing overrides. A requested revision must be
+  retrievable from the recorded source.
 - Existing project content is never interpreted as migration input by this workflow. The helper has no overwrite mode
   for project files; route existing repositories through `/migrate-workflow`.
 
@@ -66,9 +67,10 @@ name or fabricate defaults.
 
 - Project name: supplied value, otherwise `basename "$PWD"`.
 - Destination: current working directory.
-- Render source: `<skill-dir>/copier.yml` and `<skill-dir>/template/`.
-- Recorded update source: `gh:RobertDeRose/dstack`.
-- Recorded baseline revision: `v<metadata.version>` from this frontmatter.
+- Template channel: `stable`; pass `--unstable` to select the source default-branch HEAD.
+- Render source: the installed bundle after exact revision verification; explicit `--template-source` overrides it.
+- Recorded update source: `gh:RobertDeRose/dstack` unless `--template-source` is explicit.
+- Recorded baseline revision: the exact resolved commit SHA; stable results also report the selected release tag.
 - Default branch: `main`.
 - Beads: initialize with `bd init --stealth --skip-agents` when `bd` is available; otherwise complete documentation
   setup and report Beads initialization as outstanding.
@@ -89,7 +91,7 @@ uv run <skill-dir>/scripts/setup-project.py [project-name] \
 ```
 
 The project name remains optional and defaults to `basename "$PWD"`. Add `--destination <path>` to target another new
-directory or `--delete-readme` to omit the starter README.
+directory, `--delete-readme` to omit the starter README, or `--unstable` to use the latest default-branch commit.
 
 Development-only template overrides retain the same required brief flags:
 
@@ -139,9 +141,9 @@ scripts/bootstrap.py
 scripts/migrate-legacy-workflow.py
 ```
 
-Verify `.copier-answers.yml` records the official update source and installed skill release, not a path inside the skill
-installation. Verify generated `AGENTS.md` requires real multiline commit messages via `git commit -F <file>` (never
-multiple `-m` flags or escaped `\n`) and permits only `git merge --ff-only` into `main`. The helper runs
+Verify `.copier-answers.yml` records the selected source, exact resolved commit SHA, and `dstack_template_channel`.
+Verify generated `AGENTS.md` requires real multiline commit messages via `git commit -F <file>` (never multiple `-m`
+flags or escaped `\n`) and permits only `git merge --ff-only` into `main`. The helper runs
 `uv run scripts/check-docs.py` as part of setup. A successful tooling run creates a nonempty `mise.lock`, installs with
 `--locked`, and runs `mise x -- hk install --mise`. If mise, resolution, installation, or hook setup fails, the scaffold
 remains intact and the JSON `tooling` object reports separate `mise`, `lock`, `install`, and `hooks` states, supported
@@ -168,14 +170,15 @@ initialization and verification as outstanding.
 ## Copier contract
 
 - Commit `.copier-answers.yml` and the initial scaffold.
-- Setup renders only bundled files; `/update-project` is the network-backed operation that discovers newer tags.
-- `npx skills update` updates installed skill definitions, scripts, and the bundled setup template.
-- `/update-project` applies newer published template releases to the repository.
+- Stable setup and updates select the newest stable tag; unstable setup and updates select the source default-branch
+  HEAD. Both persist the exact commit used.
+- `npx skills update` updates installed skill definitions and scripts.
+- `/update-project` preserves the recorded channel unless explicitly overridden.
 - Do not edit `.copier-answers.yml` manually.
 
 ## Return
 
-Report project name, slug, purpose, users, scope, boundaries, kind, language profiles, destination, bundled render
-source, skill version, recorded update source/revision, Git result, Beads result, documentation validation, the complete
+Report project name, slug, purpose, users, scope, boundaries, kind, language profiles, destination, template channel,
+selected ref, exact recorded commit, skill version, Git result, Beads result, documentation validation, the complete
 `tooling` status, outstanding recovery commands, and the next `/plan-features` action. If setup was routed to
 `/update-project`, report the user's consent decision and do not claim setup ran.

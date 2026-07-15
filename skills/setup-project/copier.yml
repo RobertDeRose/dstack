@@ -87,6 +87,13 @@ repository_default_branch:
   type: str
   help: Default Git branch used by feature worktrees.
   default: main
+dstack_template_channel:
+  type: str
+  choices:
+    - stable
+    - unstable
+  default: stable
+  when: false
 include_readme:
   type: bool
   default: true

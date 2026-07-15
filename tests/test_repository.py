@@ -19,6 +19,7 @@ from copier import run_copy
 
 from tests.support import (
     commit_repository,
+    copy_repository_fixture,
     initialize_git,
     merged_environment,
     run_command,
@@ -61,6 +62,7 @@ REQUIRED_COPIER_QUESTIONS = (
     "project_kind",
     "language_profiles",
     "repository_default_branch",
+    "dstack_template_channel",
     "include_readme",
 )
 
@@ -231,7 +233,8 @@ def setup_generated_project(
             *([name] if name else []),
             "--destination",
             str(project),
-            *(["--template-source", str(source)] if entrypoint == "repository" else []),
+            "--template-source",
+            str(source if entrypoint == "repository" else source / "skills/setup-project"),
             "--skip-post-setup",
             *([] if include_readme else ["--delete-readme"]),
             *brief_args,
@@ -1724,8 +1727,9 @@ def test_python_sources_compile(python_source: Path) -> None:
 
 
 @pytest.mark.integration
-def test_setup_project_uses_bundled_skill_template_and_records_remote_update_state(
+def test_setup_project_records_the_exact_stable_template_commit(
     repository_root: Path,
+    tagged_template_source: Path,
     tmp_path: Path,
 ) -> None:
     installed_skill = tmp_path / "installed/setup-project"
@@ -1740,6 +1744,8 @@ def test_setup_project_uses_bundled_skill_template_and_records_remote_update_sta
             str(project),
             "--skip-post-setup",
             "--no-git-init",
+            "--template-source",
+            str(tagged_template_source),
             *SETUP_BRIEF_ARGS,
             "--json",
         ],
@@ -1749,21 +1755,110 @@ def test_setup_project_uses_bundled_skill_template_and_records_remote_update_sta
     manifest = load_skill_manifest(installed_skill / "SKILL.md")
     version = manifest["metadata"]["version"]
     answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    expected_commit = run_command(["git", "rev-parse", "v0.0.1^{commit}"], cwd=tagged_template_source).stdout.strip()
 
-    assert payload["template_source"] == str(installed_skill)
-    assert payload["template_source_kind"] == "bundled"
-    assert payload["render_vcs_ref"] is None
-    assert payload["update_source"] == "gh:RobertDeRose/dstack"
+    assert payload["template_source"] == str(tagged_template_source)
+    assert payload["template_source_kind"] == "override"
+    assert payload["template_channel"] == "stable"
+    assert payload["render_vcs_ref"] == expected_commit
+    assert payload["update_source"] == str(tagged_template_source)
     assert payload["skill_version"] == version
-    assert payload["vcs_ref"] == f"v{version}"
-    assert answers["_src_path"] == "gh:RobertDeRose/dstack"
-    assert answers["_commit"] == f"v{version}"
+    assert payload["vcs_ref"] == "v0.0.1"
+    assert payload["resolved_template_commit"] == expected_commit
+    assert answers["_src_path"] == str(tagged_template_source)
+    assert answers["_commit"] == expected_commit
+    assert answers["dstack_template_channel"] == "stable"
     assert {key: answers[key] for key in SETUP_BRIEF} == SETUP_BRIEF
     assert {key: payload[key] for key in SETUP_BRIEF} == SETUP_BRIEF
     assert str(installed_skill) not in (project / ".copier-answers.yml").read_text(encoding="utf-8")
     assert (project / "docs/src/SUMMARY.md").is_file()
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (project / relative).exists(), relative
+
+
+@pytest.mark.integration
+def test_bundled_setup_requires_an_exact_selected_revision(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = repository_root / "skills/setup-project/scripts/setup-project.py"
+    spec = importlib.util.spec_from_file_location("dstack_setup_project", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "DEFAULT_UPDATE_SOURCE", str(tagged_template_source))
+    monkeypatch.setattr(module, "BUNDLED_TEMPLATE_SOURCE", tagged_template_source / "skills/setup-project")
+    monkeypatch.setattr(module, "SKILL_MANIFEST", tagged_template_source / "skills/setup-project/SKILL.md")
+    project = tmp_path / "matching-bundle"
+    assert (
+        module.main(
+            [
+                "--destination",
+                str(project),
+                "--skip-post-setup",
+                "--no-git-init",
+                *SETUP_BRIEF_ARGS,
+                "--json",
+            ]
+        )
+        == 0
+    )
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    expected_commit = run_command(["git", "rev-parse", "v0.0.1^{commit}"], cwd=tagged_template_source).stdout.strip()
+    assert answers["_commit"] == expected_commit
+
+    template_readme = tagged_template_source / "skills/setup-project/template/AGENTS.md.jinja"
+    template_readme.write_text(template_readme.read_text(encoding="utf-8") + "\nAhead of tag.\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="does not match the selected template commit"):
+        module.main(
+            [
+                "--destination",
+                str(tmp_path / "mismatched-bundle"),
+                "--skip-post-setup",
+                "--no-git-init",
+                *SETUP_BRIEF_ARGS,
+            ]
+        )
+
+
+@pytest.mark.integration
+def test_setup_project_records_the_exact_unstable_commit(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    marker = tagged_template_source / "skills/setup-project/template/.unstable.jinja"
+    marker.write_text("unstable\n", encoding="utf-8")
+    commit_repository(tagged_template_source, "unstable template")
+    expected_commit = run_command(["git", "rev-parse", "HEAD"], cwd=tagged_template_source).stdout.strip()
+    project = tmp_path / "unstable-project"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--unstable",
+            "--skip-post-setup",
+            "--no-git-init",
+            *SETUP_BRIEF_ARGS,
+            "--json",
+        ],
+        cwd=tmp_path,
+    )
+    payload = json.loads(result.stdout)
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert payload["template_channel"] == "unstable"
+    assert payload["resolved_template_commit"] == expected_commit
+    assert answers["_commit"] == expected_commit
+    assert answers["dstack_template_channel"] == "unstable"
+    assert (project / ".unstable").read_text(encoding="utf-8") == "unstable\n"
 
 
 @pytest.mark.integration
@@ -2150,10 +2245,8 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert payload["readme_created"] is include_readme
         assert payload["tooling"]["status"] == "skipped"
         assert payload["tooling"]["recovery"] == ["python3 scripts/setup-tooling.py --json"]
-        assert payload["template_source_kind"] == ("override" if entrypoint == "repository" else "bundled")
-        assert answers["_src_path"] == (
-            str(tagged_template_source) if entrypoint == "repository" else "gh:RobertDeRose/dstack"
-        )
+        assert payload["template_source_kind"] == "override"
+        assert answers["_src_path"] == str(tagged_template_source)
 
         overview = (docs / "introduction/project-overview.md").read_text(encoding="utf-8")
         assert overview == (
@@ -2475,6 +2568,88 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
 
 
 @pytest.mark.integration
+def test_update_project_stable_channel_supports_the_skill_subdirectory_source(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "skill-source-update"
+    setup_generated_project(tagged_template_source, project, entrypoint="bundled")
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+    marker = tagged_template_source / "skills/setup-project/template/.stable-update.jinja"
+    marker.write_text("stable subdirectory update\n", encoding="utf-8")
+    commit_repository(tagged_template_source, "stable subdirectory update", "v0.0.2")
+    expected_commit = run_command(["git", "rev-parse", "v0.0.2^{commit}"], cwd=tagged_template_source).stdout.strip()
+    fake_bin = tmp_path / "stable-subdirectory-bin"
+    write_fake_mise(fake_bin)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(project),
+            "--skip-beads-check",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        env=merged_environment(PATH=f"{fake_bin}{os.pathsep}{os.environ['PATH']}"),
+    )
+    payload = json.loads(result.stdout)
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert payload["selected_ref"] == "v0.0.2"
+    assert payload["resolved_commit"] == expected_commit
+    assert answers["_commit"] == expected_commit
+    assert (project / ".stable-update").read_text(encoding="utf-8") == "stable subdirectory update\n"
+
+
+@pytest.mark.integration
+def test_update_project_persists_unstable_channel_and_exact_commits(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "unstable-update"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+    release_marker = tagged_template_source / "skills/setup-project/template/.dstack-release.jinja"
+    release_marker.write_text("unstable one\n", encoding="utf-8")
+    commit_repository(tagged_template_source, "unstable one")
+    first_commit = run_command(["git", "rev-parse", "HEAD"], cwd=tagged_template_source).stdout.strip()
+    fake_bin = tmp_path / "unstable-bin"
+    write_fake_mise(fake_bin)
+    command = [
+        "uv",
+        "run",
+        str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+        "--destination",
+        str(project),
+        "--skip-beads-check",
+        "--json",
+    ]
+    environment = merged_environment(PATH=f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
+
+    first = json.loads(run_command([*command, "--unstable"], cwd=tagged_template_source, env=environment).stdout)
+    first_answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert first["template_channel"] == "unstable"
+    assert first["resolved_commit"] == first_commit
+    assert first_answers["_commit"] == first_commit
+    assert first_answers["dstack_template_channel"] == "unstable"
+    assert (project / ".dstack-release").read_text(encoding="utf-8") == "unstable one\n"
+
+    commit_repository(project, "Apply first unstable update")
+    release_marker.write_text("unstable two\n", encoding="utf-8")
+    commit_repository(tagged_template_source, "unstable two")
+    second_commit = run_command(["git", "rev-parse", "HEAD"], cwd=tagged_template_source).stdout.strip()
+    second = json.loads(run_command(command, cwd=tagged_template_source, env=environment).stdout)
+    second_answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert second["template_channel"] == "unstable"
+    assert second["resolved_commit"] == second_commit
+    assert second_answers["_commit"] == second_commit
+    assert (project / ".dstack-release").read_text(encoding="utf-8") == "unstable two\n"
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize(
     ("failure", "expected"),
     [
@@ -2693,6 +2868,232 @@ def test_update_project_refuses_a_non_git_destination(repository_root: Path, tmp
 
 
 @pytest.mark.integration
+def test_update_project_self_adoption_establishes_a_working_three_way_base(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    remote = tmp_path / "dstack.git"
+    run_command(["git", "clone", "--bare", tagged_template_source.as_uri(), str(remote)], cwd=tmp_path)
+    project = tmp_path / "dstack"
+    copy_repository_fixture(tagged_template_source, project)
+    initialize_git(project, "dstack template source")
+    update = tmp_path / "update-project.py"
+    update.write_text(
+        (project / "skills/update-project/scripts/update-project.py")
+        .read_text(encoding="utf-8")
+        .replace('DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"', f"DEFAULT_TEMPLATE_SOURCE = {str(remote)!r}"),
+        encoding="utf-8",
+    )
+    preflight = json.loads(
+        run_command(
+            ["uv", "run", str(update), "--destination", str(project), "--preflight", "--json"],
+            cwd=project,
+        ).stdout
+    )
+    assert preflight["recommended_workflow"] == "update-project-adopt"
+    assert preflight["template_source_repository"] is True
+
+    blocked = run_command(
+        ["uv", "run", str(update), "--destination", str(project), "--json"],
+        cwd=project,
+        expected=1,
+    )
+    assert "--adopt --unstable" in blocked.stderr
+    assert not (project / ".copier-answers.yml").exists()
+
+    adopt_command = [
+        "uv",
+        "run",
+        str(update),
+        "--destination",
+        str(project),
+        "--adopt",
+        "--unstable",
+        "--project-name",
+        "dstack",
+        "--project-slug",
+        "dstack",
+        *SETUP_BRIEF_ARGS[:-2],
+        "--language-profile",
+        "python",
+        "--json",
+    ]
+    dirty = project / "dirty.txt"
+    dirty.write_text("dirty\n", encoding="utf-8")
+    refused_dirty = run_command([*adopt_command, "--allow-dirty"], cwd=project, expected=1)
+    assert "Commit or stash changes" in refused_dirty.stderr
+    assert not (project / ".copier-answers.yml").exists()
+    dirty.unlink()
+
+    result = run_command(adopt_command, cwd=project, expected=2)
+    payload = json.loads(result.stdout)
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    expected_commit = run_command(["git", "rev-parse", "HEAD"], cwd=tagged_template_source).stdout.strip()
+    assert payload["template_channel"] == "unstable"
+    assert payload["resolved_commit"] == expected_commit
+    assert payload["project_customized"]
+    assert answers["_src_path"] == str(remote)
+    assert answers["_commit"] == expected_commit
+    assert answers["dstack_template_channel"] == "unstable"
+    candidates = project / "migration/copier-adoption-candidates"
+    assert candidates.is_dir()
+
+    readme = (project / "README.md").read_text(encoding="utf-8")
+    shutil.rmtree(candidates)
+    commit_repository(project, "Adopt dstack template")
+    template = tagged_template_source / "skills/setup-project/template/.three-way.jinja"
+    template.write_text("updated through Copier\n", encoding="utf-8")
+    commit_repository(tagged_template_source, "Add three-way marker")
+    run_command(["git", "push", str(remote), "main"], cwd=tagged_template_source)
+    expected_update = run_command(["git", "rev-parse", "HEAD"], cwd=tagged_template_source).stdout.strip()
+    fake_bin = tmp_path / "adoption-bin"
+    write_fake_mise(fake_bin)
+    updated = json.loads(
+        run_command(
+            [
+                "uv",
+                "run",
+                str(update),
+                "--destination",
+                str(project),
+                "--skip-docs-check",
+                "--skip-beads-check",
+                "--json",
+            ],
+            cwd=project,
+            env=merged_environment(PATH=f"{fake_bin}{os.pathsep}{os.environ['PATH']}"),
+        ).stdout
+    )
+    assert updated["resolved_commit"] == expected_update
+    assert (project / ".three-way").read_text(encoding="utf-8") == "updated through Copier\n"
+    assert (project / "README.md").read_text(encoding="utf-8") == readme
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("collision", "expected_error"),
+    [
+        ("file", "parent is not a directory"),
+        ("symlink", "parent must not be a symlink"),
+        ("matching-symlink", "destination must not be a symlink"),
+    ],
+)
+def test_update_project_self_adoption_preflights_paths_before_copier_state(
+    tagged_template_source: Path,
+    tmp_path: Path,
+    collision: str,
+    expected_error: str,
+) -> None:
+    remote = tmp_path / "dstack.git"
+    run_command(["git", "clone", "--bare", tagged_template_source.as_uri(), str(remote)], cwd=tmp_path)
+    project = tmp_path / "dstack"
+    copy_repository_fixture(tagged_template_source, project)
+    outside = tmp_path / "outside"
+    if collision in {"file", "symlink"}:
+        shutil.rmtree(project / "scripts")
+        if collision == "file":
+            (project / "scripts").write_text("blocks generated scripts\n", encoding="utf-8")
+        else:
+            outside.mkdir()
+            (project / "scripts").symlink_to(outside, target_is_directory=True)
+    else:
+        outside.mkdir()
+        formula = project / ".beads/formulas/dstack-feature.formula.toml"
+        external_formula = outside / "dstack-feature.formula.toml"
+        shutil.copy2(formula, external_formula)
+        formula.unlink()
+        formula.symlink_to(external_formula)
+    initialize_git(project, "dstack with path collision")
+    update = tmp_path / "update-project.py"
+    update.write_text(
+        (project / "skills/update-project/scripts/update-project.py")
+        .read_text(encoding="utf-8")
+        .replace('DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"', f"DEFAULT_TEMPLATE_SOURCE = {str(remote)!r}"),
+        encoding="utf-8",
+    )
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(update),
+            "--destination",
+            str(project),
+            "--adopt",
+            "--unstable",
+            "--project-name",
+            "dstack",
+            "--project-slug",
+            "dstack",
+            *SETUP_BRIEF_ARGS[:-2],
+            "--language-profile",
+            "python",
+            "--json",
+        ],
+        cwd=project,
+        expected=1,
+    )
+    assert expected_error in result.stderr
+    assert not (project / ".copier-answers.yml").exists()
+    assert not (project / "migration/copier-adoption-candidates").exists()
+    if collision == "symlink":
+        assert not list(outside.iterdir())
+    elif collision == "matching-symlink":
+        assert [path.name for path in outside.iterdir()] == ["dstack-feature.formula.toml"]
+
+
+@pytest.mark.integration
+def test_update_project_self_adoption_rolls_back_a_partial_final_copy(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    remote = tmp_path / "dstack.git"
+    run_command(["git", "clone", "--bare", tagged_template_source.as_uri(), str(remote)], cwd=tmp_path)
+    project = tmp_path / "dstack"
+    copy_repository_fixture(tagged_template_source, project)
+    initialize_git(project, "dstack template source")
+    module = load_update_module(repository_root)
+    args = module.parse_args(
+        [
+            "--destination",
+            str(project),
+            "--adopt",
+            "--unstable",
+            "--project-name",
+            "dstack",
+            "--project-slug",
+            "dstack",
+            *SETUP_BRIEF_ARGS[:-2],
+            "--language-profile",
+            "python",
+        ]
+    )
+    commit = run_command(["git", "rev-parse", "HEAD"], cwd=tagged_template_source).stdout.strip()
+    real_copy = module.shutil.copy2
+
+    def fail_after_answers_copy(source: Path, destination: Path) -> str:
+        result = real_copy(source, destination)
+        if Path(destination) == project / ".copier-answers.yml":
+            message = "injected final copy failure"
+            raise OSError(message)
+        return str(result)
+
+    monkeypatch.setattr(module.shutil, "copy2", fail_after_answers_copy)
+    with pytest.raises(OSError, match="injected final copy failure"):
+        module.adopt_template_source(
+            project,
+            args,
+            source=str(remote),
+            selected_ref="main",
+            commit=commit,
+        )
+    assert not (project / ".copier-answers.yml").exists()
+    assert not (project / ".github/workflows/docs.yml").exists()
+    assert not (project / "migration/copier-adoption-candidates").exists()
+
+
+@pytest.mark.integration
 def test_update_preflight_routes_legacy_tasks_without_beads_to_migration(
     repository_root: Path,
     tmp_path: Path,
@@ -2832,6 +3233,7 @@ def test_tested_workflow_gaps_are_explicit(repository_root: Path) -> None:
 @pytest.mark.integration
 def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     repository_root: Path,
+    tagged_template_source: Path,
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "new-project"
@@ -2847,6 +3249,8 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
             "--destination",
             str(project),
             "--no-git-init",
+            "--template-source",
+            str(tagged_template_source),
             *SETUP_BRIEF_ARGS,
             "--json",
         ],
@@ -3090,19 +3494,24 @@ def test_feature_resolver_selects_epics_by_human_reference_and_readiness(
     assert all("list --ready" not in command for command in commands)
 
 
-def test_setup_is_bundled_while_update_and_adoption_use_release_tags(repository_root: Path) -> None:
+def test_setup_and_update_record_exact_stable_or_unstable_commits(repository_root: Path) -> None:
     setup = (repository_root / "skills/setup-project/scripts/setup-project.py").read_text(encoding="utf-8")
-    assert "BUNDLED_TEMPLATE_SOURCE = SKILL_DIR" in setup
     assert "load_skill_version" in setup
+    assert "selected_revision" in setup
     assert "record_update_state" in setup
-    assert "using_bundled_template = args.template_source is None" in setup
-    assert "default=DEFAULT_TEMPLATE_SOURCE" not in setup
+    assert 'channel.add_argument("--stable"' in setup
+    assert 'channel.add_argument("--unstable"' in setup
+    assert '"dstack_template_channel": channel' in setup
 
     update = (repository_root / "skills/update-project/scripts/update-project.py").read_text(encoding="utf-8")
     assert "default_vcs_ref" in update
-    assert "git ls-remote" in (repository_root / "skills/update-project/SKILL.md").read_text(encoding="utf-8")
+    assert "exact commit SHA" in (repository_root / "skills/update-project/SKILL.md").read_text(encoding="utf-8")
     assert "ls-remote" in update
     assert "Version(" in update
+    assert "selected_revision" in update
+    assert 'channel.add_argument("--stable"' in update
+    assert 'channel.add_argument("--unstable"' in update
+    assert "write_copier_state" in update
     assert "metadata.version" not in update
 
     adoption = (repository_root / "skills/migrate-workflow/scripts/adopt-template.py").read_text(encoding="utf-8")
@@ -3342,8 +3751,14 @@ def test_update_tag_discovery_uses_pep440_ordering(repository_root: Path, tmp_pa
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
+    expected_commit = run_command(["git", "rev-parse", "HEAD"], cwd=source).stdout.strip()
     assert module.default_vcs_ref(str(source)) == "v0.0.10"
     assert module.default_vcs_ref(str(source), include_prereleases=True) == "v0.1.0rc1"
+    assert module.selected_revision(str(source), "stable", None) == ("v0.0.10", expected_commit)
+    assert module.selected_revision(str(source), "unstable", None) == ("main", expected_commit)
+    assert module.selected_revision(str(source), "stable", "HEAD") == ("HEAD", expected_commit)
+    with pytest.raises(SystemExit, match="not available"):
+        module.selected_revision(str(source), "stable", "missing")
 
 
 def test_mise_release_task_runs_semantic_release_with_signed_git_objects(repository_root: Path) -> None:

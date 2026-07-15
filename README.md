@@ -32,12 +32,13 @@ The project name defaults to `basename "$PWD"`. Override it explicitly:
 /setup-project Reader Control Plane
 ```
 
-The setup skill renders the Copier template bundled inside the installed skill, without downloading a second copy from
-GitHub. It creates `.copier-answers.yml`, records the corresponding published dstack release as the future update
-baseline, initializes Git when needed, initializes Beads when available, and validates the documentation scaffold. It is
-strictly a new-project workflow: it does not generate bootstrap or migration scripts and does not merge an existing
-repository. If `.copier-answers.yml` already exists, `/setup-project` asks whether to run `/update-project` and proceeds
-only after explicit approval. Other existing project files are routed to `/migrate-workflow`.
+The setup skill resolves the newest stable dstack tag, verifies its installed template matches that exact commit,
+renders the bundle, and records the SHA as the future update baseline. Pass `--unstable` to render and record the source
+default-branch HEAD instead. It creates `.copier-answers.yml`, initializes Git when needed, initializes Beads when
+available, and validates the documentation scaffold. It is strictly a new-project workflow: it does not generate
+bootstrap or migration scripts and does not merge an existing repository. If `.copier-answers.yml` already exists,
+`/setup-project` asks whether to run `/update-project` and proceeds only after explicit approval. Other existing project
+files are routed to `/migrate-workflow`.
 
 `/setup-project` collects the structured brief interactively. Direct invocation for a Codex/universal project
 installation supplies the same required fields explicitly:
@@ -59,15 +60,16 @@ These are separate operations:
 # Update installed skill definitions, scripts, and bundled assets.
 npx skills update
 
-# Apply newer tagged template changes to this repository.
+# Apply template changes through the repository's recorded channel.
 /update-project
 ```
 
 The project update helper first checks Copier state, legacy `tasks.md` files, and initialized Beads state. When active
 legacy task files exist without Beads, `/update-project` offers `/migrate-workflow` and runs it only after approval.
-Otherwise it reads the Git source recorded in `.copier-answers.yml`, queries its published tags, selects the newest
-stable PEP 440 release, and runs Copier's three-way update. Project-specific evolution is preserved where possible. Use
-`--vcs-ref` only for an explicitly reviewed development revision.
+Otherwise it reads the Git source and channel recorded in `.copier-answers.yml`: `stable` selects the newest stable PEP
+440 tag and `unstable` selects the source default-branch HEAD. It resolves and persists the exact commit before Copier's
+three-way update. Project-specific evolution is preserved where possible. Use `--stable` or `--unstable` to change the
+preserved channel and `--vcs-ref` only for an explicitly reviewed one-shot revision.
 
 ## Migrate an Existing Project
 
@@ -149,19 +151,17 @@ skills/
 tests/
 ```
 
-Normal setup renders from the installed `skills/setup-project` directory. Its nested `copier.yml` selects
-`skills/setup-project/template`, so setup remains self-contained after Skills CLI installation. The setup helper records
-`gh:RobertDeRose/dstack` and the installed skill's `metadata.version` in Copier state so later `/update-project` runs
-can query published Git tags. The root `copier.yml` remains the Git-repository entry point for local development and
-tests.
+Normal setup resolves `gh:RobertDeRose/dstack` through its stable or unstable channel, verifies the installed bundle
+matches the exact commit, and records that commit. The nested `skills/setup-project/copier.yml` and root `copier.yml`
+remain aligned entry points for local development and tests; skill `metadata.version` is not template provenance.
 
 Every skill declares the synchronized release in frontmatter as `metadata.version` and declares its required tools in
 the space-separated `allowed-tools` field.
 
 ## Release and Validation
 
-dstack releases use stable `vX.Y.Z` Git tags. `/update-project` discovers the latest eligible published tag and refuses
-to fall back to an untagged `HEAD`.
+dstack releases use stable `vX.Y.Z` Git tags. Stable setup/update selects the latest eligible tag; unstable setup/update
+explicitly selects the source default-branch HEAD. Both record the exact reachable commit.
 
 Prepare a release with the mise task. Python Semantic Release updates `[project].version`, `uv.lock`, and every skill's
 `metadata.version`, then creates a signed release commit and signed annotated `v<version>` tag. It does not push unless

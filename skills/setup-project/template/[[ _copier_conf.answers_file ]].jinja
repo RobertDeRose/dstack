@@ -19,5 +19,6 @@
 [% endif %]
 [# Copier accepts trusted pre-supplied data without question validation; force invalid direct renders to fail. #]
 [% if profile_validation.invalid %][[ 1 / 0 ]][% endif %]
+[% if dstack_template_channel not in ['stable', 'unstable'] %][[ 1 / 0 ]][% endif %]
 # This file is managed by Copier. Do not edit it manually.
 [[ _copier_answers | to_nice_yaml -]]
