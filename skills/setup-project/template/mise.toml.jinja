@@ -22,6 +22,7 @@ elixir = "latest"[% endif %][% if 'nix' in language_profiles %]
 "github:Mic92/nixfmt-rs" = { version = "latest", os = ["linux", "macos/arm64"] }[% endif %]
 
 [env]
+GIT_CONFIG_PARAMETERS = "'merge.ff=only'"
 HK_MISE = 1
 
 [tasks.check]

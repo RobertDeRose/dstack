@@ -27,6 +27,7 @@ yamllint = "latest"
 zizmor = "latest"
 
 [env]
+GIT_CONFIG_PARAMETERS = "'merge.ff=only'"
 HK_MISE = 1
 
 [hooks]

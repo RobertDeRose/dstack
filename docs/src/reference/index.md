@@ -85,7 +85,7 @@ release task.
 
 | Path                                  | Contract                                                                       |
 |---------------------------------------|--------------------------------------------------------------------------------|
-| `mise.toml`                           | Declares exactly seven universal tools, six tasks, and `HK_MISE=1`.            |
+| `mise.toml`                           | Declares seven tools, six tasks, hk routing, and fast-forward-only merges.     |
 | `mise.lock`                           | Project-owned, nonempty resolved lock for four supported platforms; commit it. |
 | `hk.pkl`                              | One shared step map for `check`, `fix`, and `pre-commit`.                      |
 | `.config/rumdl.toml`                  | Markdown policy compatible with the generated scaffold.                        |
@@ -115,6 +115,9 @@ as its last mutation, and returns the Pages `html_url`; external `gh` is not a u
 | `rumdl`                        | `latest`         |
 | `typos`                        | `latest`         |
 | `npm:markdown-table-formatter` | `latest`         |
+
+The mise environment sets `HK_MISE=1` and `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`. Git commands run through mise
+therefore reject merges that require a merge commit.
 
 Both hk Pkl imports use `1.49.0`. Supported lock targets are `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`;
 Windows is outside the POSIX task contract. With the Nix profile, nixfmt-rs is retained only for Linux x64/ARM64 and

@@ -2031,7 +2031,10 @@ def test_setup_project_renders_the_factual_book_matrix(
                 "run": ('#!/usr/bin/env bash\nset -euo pipefail\nmdbook serve docs --port "${usage_port:-3000}"\n'),
             },
         }
-        assert mise_config["env"] == {"HK_MISE": 1}
+        assert mise_config["env"] == {
+            "GIT_CONFIG_PARAMETERS": "'merge.ff=only'",
+            "HK_MISE": 1,
+        }
         assert "hooks" not in mise_config
 
         hk_config = (project / "hk.pkl").read_text(encoding="utf-8")
