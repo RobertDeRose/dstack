@@ -3629,28 +3629,31 @@ def test_commit_hook_requires_an_allowed_scope(repository_root: Path, tmp_path: 
     missing.write_text("fix: missing scope\n\nBeads: dstack-scp\n", encoding="utf-8")
     unknown.write_text("fix(unknown): invalid scope\n\nBeads: dstack-scp\n", encoding="utf-8")
     release.write_text("release: v1.0.0\n", encoding="utf-8")
-    git_identity = merged_environment(
-        GIT_CONFIG_COUNT="2",
-        GIT_CONFIG_KEY_0="user.name",
-        GIT_CONFIG_VALUE_0="dstack tests",
-        GIT_CONFIG_KEY_1="user.email",
-        GIT_CONFIG_VALUE_1="tests@example.com",
-    )
-
-    run_command(["hk", "run", "--quiet", "commit-msg", str(good)], cwd=repository_root, env=git_identity)
-    run_command(["hk", "run", "--quiet", "commit-msg", str(release)], cwd=repository_root, env=git_identity)
-    missing_result = run_command(
-        ["hk", "run", "--quiet", "commit-msg", str(missing)],
-        cwd=repository_root,
-        env=git_identity,
-        expected=1,
-    )
-    unknown_result = run_command(
-        ["hk", "run", "--quiet", "commit-msg", str(unknown)],
-        cwd=repository_root,
-        env=git_identity,
-        expected=1,
-    )
+    local_config = run_command(["git", "config", "--local", "--list"], cwd=repository_root).stdout.splitlines()
+    previous_identity = {
+        key: next((line.split("=", 1)[1] for line in local_config if line.startswith(f"{key}=")), "")
+        for key in ("user.name", "user.email")
+    }
+    try:
+        run_command(["git", "config", "--local", "user.name", "dstack tests"], cwd=repository_root)
+        run_command(["git", "config", "--local", "user.email", "tests@example.com"], cwd=repository_root)
+        run_command(["hk", "run", "--quiet", "commit-msg", str(good)], cwd=repository_root)
+        run_command(["hk", "run", "--quiet", "commit-msg", str(release)], cwd=repository_root)
+        missing_result = run_command(
+            ["hk", "run", "--quiet", "commit-msg", str(missing)],
+            cwd=repository_root,
+            expected=1,
+        )
+        unknown_result = run_command(
+            ["hk", "run", "--quiet", "commit-msg", str(unknown)],
+            cwd=repository_root,
+            expected=1,
+        )
+    finally:
+        for key, value in previous_identity.items():
+            run_command(["git", "config", "--local", "--unset", key], cwd=repository_root)
+            if value:
+                run_command(["git", "config", "--local", key, value], cwd=repository_root)
 
     assert "changelog-visible commit subject must use type(scope): summary" in missing_result.stderr
     assert "scope `unknown` not allowed" in unknown_result.stderr
