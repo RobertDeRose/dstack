@@ -28,4 +28,7 @@ jobs:
         with:
           cache: false
           install: false
+      - env:
+          MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml
+        run: mise install --locked
       - run: uv run --frozen --group test pytest -m external --durations=10

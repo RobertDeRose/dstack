@@ -1803,6 +1803,8 @@ def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> No
     assert "tags:" in external
     assert '      - "v*"' in external
     assert "pytest -m external" in external
+    assert "run: mise install --locked" in external
+    assert "MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml" in external
     assert "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7" in external
     assert "# v6\n      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38" in external
     assert "jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d" in external
