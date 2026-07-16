@@ -159,7 +159,7 @@ version_variables = [
 build_command = """
 git add uv.lock
 """
-commit_message = "Release v{version}"
+commit_message = "release: v{version}"
 commit_parser = "conventional"
 logging_use_named_masks = false
 major_on_zero = true

@@ -498,6 +498,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in root_agents
     assert "Omitted internal types may be unscoped" in root_agents
     assert "release: vX.Y.Z" in root_agents
+    release_config = tomllib.loads((repository_root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert release_config["tool"]["semantic_release"]["commit_message"] == "release: v{version}"
     assert "README's Commit scopes table" in root_agents
     root_readme = (repository_root / "README.md").read_text(encoding="utf-8")
     for scope in ("audit", "docs", "github", "profiles", "repo", "skill", "template", "toolchain", "workflow"):
