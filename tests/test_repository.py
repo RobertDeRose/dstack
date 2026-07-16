@@ -1320,7 +1320,7 @@ def test_rust_profile_renders_exact_contract(tagged_template_source: Path, tmp_p
     reference = (project / "docs/src/reference/tooling.md").read_text(encoding="utf-8")
 
     assert payload["language_profiles"] == ["rust"]
-    assert mise["tools"]["rust"] == "latest"
+    assert mise["tools"]["rust"] == {"version": "latest", "components": "rustfmt,clippy"}
     assert "go" not in mise["tools"]
     for command in (
         "rustfmt --check --edition 2024 {{ files }}",
