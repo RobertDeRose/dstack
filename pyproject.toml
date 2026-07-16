@@ -3,9 +3,7 @@ name = "dstack-workflow"
 version = "0.2.1"
 description = "Documentation-first, Beads-backed workflow skills and Copier template"
 requires-python = ">=3.13"
-dependencies = [
-  "python-semantic-release>=10.6.1",
-]
+dependencies = []
 
 [dependency-groups]
 test = [
@@ -141,100 +139,6 @@ docstring-code-format = true
 indent-style = "space"
 line-ending = "lf"
 quote-style = "double"
-
-[tool.semantic_release]
-version_toml = ["pyproject.toml:project.version"]
-version_variables = [
-  "skills/audit-project/SKILL.md:version",
-  "skills/close-feature/SKILL.md:version",
-  "skills/dstack-core/SKILL.md:version",
-  "skills/gh-pr-review/SKILL.md:version",
-  "skills/implement-feature/SKILL.md:version",
-  "skills/migrate-workflow/SKILL.md:version",
-  "skills/plan-features/SKILL.md:version",
-  "skills/setup-project/SKILL.md:version",
-  "skills/start-feature/SKILL.md:version",
-  "skills/update-project/SKILL.md:version"
-]
-build_command = """
-git add uv.lock
-"""
-commit_message = "release: v{version}"
-commit_parser = "conventional"
-logging_use_named_masks = false
-major_on_zero = true
-allow_zero_version = true
-no_git_verify = false
-tag_format = "v{version}"
-add_partial_tags = false
-vcs_release = false
-
-[tool.semantic_release.branches.main]
-match = "main"
-prerelease_token = "rc"
-prerelease = false
-
-[tool.semantic_release.changelog]
-mode = "update"
-insertion_flag = "<!-- version list -->"
-template_dir = "templates"
-
-[tool.semantic_release.changelog.default_templates]
-changelog_file = "CHANGELOG.md"
-output_format = "md"
-mask_initial_release = true
-
-[tool.semantic_release.changelog.environment]
-block_start_string = "{%"
-block_end_string = "%}"
-variable_start_string = "{{"
-variable_end_string = "}}"
-comment_start_string = "{#"
-comment_end_string = "#}"
-trim_blocks = false
-lstrip_blocks = false
-newline_sequence = "\n"
-keep_trailing_newline = false
-extensions = []
-autoescape = false
-
-[tool.semantic_release.commit_parser_options]
-minor_tags = ["feat"]
-patch_tags = ["fix", "perf"]
-other_allowed_tags = [
-  "build",
-  "chore",
-  "ci",
-  "docs",
-  "style",
-  "refactor",
-  "test"
-]
-allowed_tags = [
-  "feat",
-  "fix",
-  "perf",
-  "build",
-  "chore",
-  "ci",
-  "docs",
-  "style",
-  "refactor",
-  "test"
-]
-default_bump_level = 0
-parse_squash_commits = true
-ignore_merge_commits = true
-
-[tool.semantic_release.remote]
-name = "origin"
-type = "github"
-ignore_token_for_push = false
-insecure = false
-
-[tool.semantic_release.commit_author]
-env = "GIT_COMMIT_AUTHOR"
-default = "Robert DeRose <RobertDeRose@users.noreply.github.com>"
 
 [tool.uv]
 package = false

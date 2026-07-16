@@ -167,9 +167,9 @@ the space-separated `allowed-tools` field.
 dstack releases use stable `vX.Y.Z` Git tags. Stable setup/update selects the latest eligible tag; unstable setup/update
 explicitly selects the source default-branch HEAD. Both record the exact reachable commit.
 
-Prepare a release with the mise task. Python Semantic Release updates `[project].version`, `uv.lock`, and every skill's
-`metadata.version`, then creates a signed release commit and signed annotated `v<version>` tag. It does not push unless
-requested:
+Prepare a release with the mise task. Cocogitto selects the next pre-v1-safe version and generates the changelog; bump
+hooks update `[project].version`, `uv.lock`, and every skill's `metadata.version`. The task creates the canonical signed
+release commit and signed `v<version>` tag. It does not push unless requested:
 
 ```bash
 mise run release

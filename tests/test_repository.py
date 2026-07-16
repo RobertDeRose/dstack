@@ -498,8 +498,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in root_agents
     assert "Omitted internal types may be unscoped" in root_agents
     assert "release: vX.Y.Z" in root_agents
-    release_config = tomllib.loads((repository_root / "pyproject.toml").read_text(encoding="utf-8"))
-    assert release_config["tool"]["semantic_release"]["commit_message"] == "release: v{version}"
+    release_config = tomllib.loads((repository_root / "cog.toml").read_text(encoding="utf-8"))
+    assert release_config["commit_types"]["release"]["omit_from_changelog"] is True
     assert "README's Commit scopes table" in root_agents
     root_readme = (repository_root / "README.md").read_text(encoding="utf-8")
     for scope in ("audit", "docs", "github", "profiles", "repo", "skill", "template", "toolchain", "workflow"):
@@ -4065,22 +4065,34 @@ def test_update_tag_discovery_uses_pep440_ordering(repository_root: Path, tmp_pa
         module.selected_revision(str(source), "stable", "missing")
 
 
-def test_mise_release_task_runs_semantic_release_with_signed_git_objects(repository_root: Path) -> None:
+def test_mise_release_task_uses_cog_with_signed_git_objects(repository_root: Path, tmp_path: Path) -> None:
     config = tomllib.loads((repository_root / "mise.toml").read_text(encoding="utf-8"))
     release = config["tasks"]["release"]
+    cog = tomllib.loads((repository_root / "cog.toml").read_text(encoding="utf-8"))
 
     assert 'flag "-p --push"' in release["usage"]
     assert 'flag "-n --noop"' in release["usage"]
-    assert 'vargs=("--no-vcs-release")' in release["run"]
-    assert 'vargs+=("--no-push")' in release["run"]
-    assert release["env"] == {
-        "GIT_CONFIG_COUNT": 2,
-        "GIT_CONFIG_KEY_0": "commit.gpgSign",
-        "GIT_CONFIG_VALUE_0": "true",
-        "GIT_CONFIG_KEY_1": "tag.gpgSign",
-        "GIT_CONFIG_VALUE_1": "true",
-    }
-    assert 'uv run semantic-release "${args[@]}" version "${vargs[@]}"' in release["run"]
+    assert "cog bump --dry-run --auto" in release["run"]
+    assert "cog bump --auto --disable-bump-commit" in release["run"]
+    assert 'git commit -S -m "release: $tag"' in release["run"]
+    assert 'git tag -f -s "$tag" -m "$tag"' in release["run"]
+    assert 'if [ -n "${usage_push:-}" ]' in release["run"]
+    assert 'git push --atomic origin HEAD "$tag"' in release["run"]
+    assert cog["branch_whitelist"] == ["main"]
+    assert cog["pre_bump_hooks"] == [
+        "uv version {{version}}",
+        "python3 scripts/set-skill-version.py {{version}}",
+    ]
+    assert (
+        "semantic_release"
+        not in tomllib.loads((repository_root / "pyproject.toml").read_text(encoding="utf-8"))["tool"]
+    )
+
+    skill = tmp_path / "skills/example/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text('---\nmetadata:\n  version: "0.2.1"\n---\n\nBody version: 0.2.1.\n', encoding="utf-8")
+    run_command(["python3", str(repository_root / "scripts/set-skill-version.py"), "0.3.0"], cwd=tmp_path)
+    assert skill.read_text(encoding="utf-8") == ('---\nmetadata:\n  version: "0.3.0"\n---\n\nBody version: 0.2.1.\n')
 
 
 def test_tagged_release_name_matches_packaged_version(repository_root: Path) -> None:

@@ -64,30 +64,35 @@ mdbook serve docs --port "${usage_port:-3000}"
 '''
 
 [tasks.release]
-description = "Prepare and optionally push a dstack release using semantic-release"
+description = "Prepare and optionally push a dstack release using Cocogitto"
 alias = "pub"
 quiet = true
 usage = '''
-flag "-p --push" help="Push the release commit and annotated tag to the remote"
-flag "-n --noop" help="Test what semantic-release will do"
+flag "-p --push" help="Push the release commit and signed tag to the remote"
+flag "-n --noop" help="Print the next version without changing the repository"
 '''
 run = '''
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-args=()
-[ -n "${usage_noop}" ] && args+=("--noop")
+tag=$(cog bump --dry-run --auto)
+if [ -n "${usage_noop:-}" ]; then
+  printf '%s\n' "$tag"
+  exit 0
+fi
 
-vargs=("--no-vcs-release")
-[ -z "${usage_push}" ] && vargs+=("--no-push")
+if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+  printf 'release tag already exists: %s\n' "$tag" >&2
+  exit 1
+fi
+trap 'git tag -d "$tag" >/dev/null 2>&1 || true' ERR
 
-uv run semantic-release "${args[@]}" version "${vargs[@]}"
+cog bump --auto --disable-bump-commit
+git commit -S -m "release: $tag"
+git tag -f -s "$tag" -m "$tag"
+trap - ERR
 
-[[ "${args[*]}" =~ --noop ]] && git restore uv.lock || true
+if [ -n "${usage_push:-}" ]; then
+  git push --atomic origin HEAD "$tag"
+fi
 '''
-
-[tasks.release.env]
-GIT_CONFIG_COUNT = 2
-GIT_CONFIG_KEY_0 = "commit.gpgSign"
-GIT_CONFIG_VALUE_0 = "true"
-GIT_CONFIG_KEY_1 = "tag.gpgSign"
-GIT_CONFIG_VALUE_1 = "true"

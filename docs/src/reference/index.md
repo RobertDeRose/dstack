@@ -2,16 +2,16 @@
 
 ## Primary commands
 
-| Command                           | Purpose                                                               |
-|-----------------------------------|-----------------------------------------------------------------------|
-| `mise run check`                  | Run the shared read-only hk validation policy.                        |
-| `mise run fix`                    | Apply deterministic fixes from the shared hk policy.                  |
-| `mise run docs:check`             | Validate documentation structure and build the mdBook.                |
-| `mise run docs:serve`             | Serve the documentation locally.                                      |
-| `mise run docs:deployment:enable` | Configure and enable generated GitHub Pages through external `gh`.    |
-| `mise run release`                | Run semantic-release with signed commits and tags; pushing is opt-in. |
-| `cog changelog`                   | Render the concise user-facing changelog from Conventional Commits.   |
-| `uv run pytest`                   | Run all repository tests.                                             |
+| Command                           | Purpose                                                             |
+|-----------------------------------|---------------------------------------------------------------------|
+| `mise run check`                  | Run the shared read-only hk validation policy.                      |
+| `mise run fix`                    | Apply deterministic fixes from the shared hk policy.                |
+| `mise run docs:check`             | Validate documentation structure and build the mdBook.              |
+| `mise run docs:serve`             | Serve the documentation locally.                                    |
+| `mise run docs:deployment:enable` | Configure and enable generated GitHub Pages through external `gh`.  |
+| `mise run release`                | Run the Cocogitto release workflow; pushing is opt-in.              |
+| `cog changelog`                   | Render the concise user-facing changelog from Conventional Commits. |
+| `uv run pytest`                   | Run all repository tests.                                           |
 
 ## Setup project brief
 
@@ -92,10 +92,11 @@ Exact globs, manifest commands, hook placement, and prerequisite messages are pu
 
 ## Release contract
 
-Releases use `vX.Y.Z` tags. Python Semantic Release synchronizes the project version, lockfile, and skill metadata
-versions. Git configuration injected by the mise task requires both the release commit and annotated tag to be signed.
-The task does not create a remote VCS release and does not push unless requested. Generated projects do not receive this
-release task.
+Releases use `vX.Y.Z` tags. Cocogitto selects the next pre-v1-safe semantic version and generates the changelog. Its
+pre-bump hooks run `uv version` and synchronize skill metadata. The mise task replaces Cog's temporary tag after
+creating the canonical signed `release: vX.Y.Z` commit, then creates a signed tag on that commit. `--noop` only prints
+the next version; `--push` pushes the commit and tag. The task does not create a remote VCS release. Generated projects
+do not receive this release task.
 
 ## Changelog contract
 
