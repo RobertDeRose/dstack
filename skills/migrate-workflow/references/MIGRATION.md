@@ -56,20 +56,32 @@ Adoption renders the current tagged **new-project** template into a temporary di
 migration script copied into the target project. Commit the reconciled Copier adoption before initializing Beads so the
 framework and workflow-state boundaries remain distinct.
 
-Default adoption:
+Default adoption requires an explicit structured brief unless current Copier state already records individual values:
 
 ```bash
-uv run <skill-dir>/scripts/adopt-template.py --json
+uv run <skill-dir>/scripts/adopt-template.py \
+  --purpose '<problem and intended outcome>' \
+  --users '<intended users>' \
+  --scope '<current supported scope>' \
+  --boundaries '<key exclusions and ownership boundaries>' \
+  --project-kind <library|cli|service|application|infrastructure|documentation|other> \
+  --json
 ```
 
-The installed skill defaults to `gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies it
-before Copier runs. If tags cannot be discovered, supply an explicitly reviewed revision; never silently use GitHub
-`HEAD`.
+Collect missing values from the user one at a time. A legacy `project_description` is not authoritative for any new
+brief field and must not be converted or supplemented with generic defaults. The installed skill defaults to
+`gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies it before Copier runs. If tags cannot be
+discovered, supply an explicitly reviewed revision; never silently use GitHub `HEAD`.
 
 For a fork, local repository, branch, or commit:
 
 ```bash
 uv run <skill-dir>/scripts/adopt-template.py \
+  --purpose '<problem and intended outcome>' \
+  --users '<intended users>' \
+  --scope '<current supported scope>' \
+  --boundaries '<key exclusions and ownership boundaries>' \
+  --project-kind <library|cli|service|application|infrastructure|documentation|other> \
   --template-source <git-url-or-path> \
   --vcs-ref <tag-branch-or-commit> \
   --json

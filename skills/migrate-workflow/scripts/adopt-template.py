@@ -28,10 +28,19 @@ from copier import run_copy
 
 DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"
 RELEASE_TAG_PATTERN = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?")
+PROJECT_KINDS = ("library", "cli", "service", "application", "infrastructure", "documentation", "other")
+BRIEF_ARGUMENTS = {
+    "project_purpose": "purpose",
+    "project_users": "users",
+    "project_scope": "scope",
+    "project_boundaries": "boundaries",
+}
 CURRENT_ANSWER_KEYS = (
     "project_name",
     "project_slug",
     "project_description",
+    *BRIEF_ARGUMENTS,
+    "project_kind",
     "repository_default_branch",
     "include_readme",
 )
@@ -294,6 +303,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("project_name", nargs="?", help="Defaults to basename($PWD).")
     parser.add_argument("--destination", "-d", type=Path, default=Path.cwd())
     parser.add_argument("--project-slug")
+    parser.add_argument("--purpose")
+    parser.add_argument("--users")
+    parser.add_argument("--scope")
+    parser.add_argument("--boundaries")
+    parser.add_argument("--project-kind", choices=PROJECT_KINDS)
     parser.add_argument("--default-branch", default="main")
     parser.add_argument(
         "--template-source",
@@ -304,6 +318,39 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
+
+
+def project_brief(args: argparse.Namespace, existing: dict[str, object]) -> dict[str, str]:
+    brief: dict[str, str] = {}
+    missing: list[str] = []
+    for answer, argument in BRIEF_ARGUMENTS.items():
+        raw = getattr(args, argument)
+        if raw is None:
+            recorded = existing.get(answer)
+            raw = recorded if isinstance(recorded, str) else None
+        if raw is None:
+            missing.append(f"--{argument}")
+            continue
+        if any(character in raw for character in ("\x00", "\r", "\n")):
+            message = f"--{argument} must be a single line without NUL, CR, or LF characters"
+            raise SystemExit(message)
+        value = raw.strip()
+        if not value:
+            message = f"--{argument} must not be blank"
+            raise SystemExit(message)
+        brief[answer] = value
+
+    kind = args.project_kind or existing.get("project_kind")
+    if not isinstance(kind, str) or kind not in PROJECT_KINDS:
+        missing.append("--project-kind")
+    else:
+        brief["project_kind"] = kind
+    if missing:
+        message = "Template adoption requires " + ", ".join(missing)
+        if "--project-kind" in missing:
+            message += "; accepted kinds: " + ", ".join(PROJECT_KINDS)
+        raise SystemExit(message)
+    return brief
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -324,12 +371,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     recorded_name = str(existing_answers.get("project_name") or "").strip()
     recorded_slug = str(existing_answers.get("project_slug") or "").strip()
-    recorded_description = str(existing_answers.get("project_description") or "").strip()
     recorded_branch = str(existing_answers.get("repository_default_branch") or "").strip()
     recorded_readme = existing_answers.get("include_readme")
     project_name = (args.project_name or recorded_name or root.name).strip()
     project_slug = args.project_slug or recorded_slug or slugify(project_name)
-    project_description = recorded_description or "A documentation-first software project managed with Beads."
+    brief = project_brief(args, existing_answers)
     default_branch = args.default_branch if args.default_branch != "main" else recorded_branch or args.default_branch
     include_readme = recorded_readme if isinstance(recorded_readme, bool) else True
 
@@ -341,7 +387,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             data={
                 "project_name": project_name,
                 "project_slug": project_slug,
-                "project_description": project_description,
+                **brief,
                 "repository_default_branch": default_branch,
                 "include_readme": include_readme,
             },

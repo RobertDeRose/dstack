@@ -42,11 +42,9 @@ The conditional commit makes this resumable when the baseline is already committ
 
 ## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
-Render the latest tagged new-project template into an isolated directory and adopt its managed state:
-
-```bash
-uv run <skill-dir>/scripts/adopt-template.py --json
-```
+Collect the structured brief before rendering. Reuse a value only when current Copier state already records it;
+otherwise ask one question at a time for purpose, users, scope, boundaries, and project kind. Never infer these facts
+from legacy descriptions or repository contents. Run adoption with the exact flags in **Template source and revision**.
 
 The adoption helper copies missing scaffold files, merges marked dstack blocks in `AGENTS.md` and `.gitignore`, and
 updates only dstack-owned framework files directly. If Copier state already exists, it backs up the old answers and

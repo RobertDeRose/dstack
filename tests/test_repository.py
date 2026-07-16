@@ -3269,7 +3269,7 @@ def test_update_preflight_routes_legacy_tasks_without_beads_to_migration(
 
 
 @pytest.mark.integration
-def test_pre_f010_unmanaged_project_adoption_is_unsupported(
+def test_pre_f010_unmanaged_project_adoption_requires_and_records_a_brief(
     tagged_template_source: Path,
     tmp_path: Path,
 ) -> None:
@@ -3281,30 +3281,51 @@ def test_pre_f010_unmanaged_project_adoption_is_unsupported(
     original_summary = summary.read_text(encoding="utf-8")
 
     adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
-    result = run_command(
-        [
-            "uv",
-            "run",
-            str(adopt),
-            "--destination",
-            str(legacy),
-            "--template-source",
-            str(tagged_template_source),
-            "--vcs-ref",
-            "v0.0.1",
-            "--json",
-        ],
-        cwd=tagged_template_source,
-        expected=1,
-    )
+    command = [
+        "uv",
+        "run",
+        str(adopt),
+        "--destination",
+        str(legacy),
+        "--template-source",
+        str(tagged_template_source),
+        "--vcs-ref",
+        "v0.0.1",
+    ]
+    result = run_command([*command, "--json"], cwd=tagged_template_source, expected=1)
 
-    assert 'Question "project_purpose" is required' in result.stderr
+    assert "Template adoption requires --purpose, --users, --scope, --boundaries, --project-kind" in result.stderr
     assert summary.read_text(encoding="utf-8") == original_summary
     assert not (legacy / ".copier-answers.yml").exists()
 
+    adopted = run_command(
+        [
+            *command,
+            "--purpose",
+            "Preserve and modernize the legacy workflow.",
+            "--users",
+            "Maintainers migrating existing projects.",
+            "--scope",
+            "Workflow state and project documentation.",
+            "--boundaries",
+            "Project-owned content remains under maintainer control.",
+            "--project-kind",
+            "documentation",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+    payload = json.loads(adopted.stdout)
+    assert payload["copier_state"] == "created"
+    recorded = yaml.safe_load((legacy / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert recorded["project_purpose"] == "Preserve and modernize the legacy workflow."
+    assert recorded["project_kind"] == "documentation"
+    assert summary.read_text(encoding="utf-8") == original_summary
+    assert (legacy / "migration/template-adoption-candidates/docs/src/SUMMARY.md").is_file()
+
 
 @pytest.mark.integration
-def test_pre_f010_managed_project_adoption_is_unsupported(
+def test_pre_f010_managed_project_adoption_preserves_prior_state(
     tagged_template_source: Path,
     tmp_path: Path,
 ) -> None:
@@ -3333,14 +3354,29 @@ def test_pre_f010_managed_project_adoption_is_unsupported(
             str(project),
             "--vcs-ref",
             "v0.0.1",
+            "--purpose",
+            "Continue the established managed project.",
+            "--users",
+            "Existing project maintainers.",
+            "--scope",
+            "The current managed repository.",
+            "--boundaries",
+            "Existing project-owned files are preserved.",
+            "--project-kind",
+            "application",
             "--json",
         ],
         cwd=tagged_template_source,
-        expected=1,
     )
 
-    assert 'Question "project_purpose" is required' in result.stderr
-    assert answers.read_text(encoding="utf-8") == original_answers
+    payload = json.loads(result.stdout)
+    assert payload["copier_state"] == "rebased-existing"
+    adopted_answers = yaml.safe_load(answers.read_text(encoding="utf-8"))
+    assert adopted_answers["project_purpose"] == "Continue the established managed project."
+    assert adopted_answers["project_kind"] == "application"
+    assert adopted_answers["project_description"] == "Existing managed project."
+    backup = project / "migration/template-adoption-backup/.copier-answers.yml"
+    assert backup.read_text(encoding="utf-8") == original_answers
 
 
 def test_tested_workflow_gaps_are_explicit(repository_root: Path) -> None:
