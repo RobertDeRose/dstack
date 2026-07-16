@@ -1032,7 +1032,7 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
     profile_tools = {
         "python": {"ruff": "latest", "ty": "latest"},
         "typescript": {"aube": "latest", "biome": "latest"},
-        "rust": {"rust": "latest"},
+        "rust": {"rust": {"version": "latest", "components": "rustfmt,clippy"}},
         "go": {
             "go": "latest",
             "gofumpt": "latest",
@@ -3607,7 +3607,8 @@ def test_cocogitto_ignores_release_commits(repository_root: Path, tmp_path: Path
     run_command(["git", "commit", "--allow-empty", "-m", "refactor(workflow)!: change interface"], cwd=tmp_path)
     run_command(["git", "commit", "--allow-empty", "-m", "release: v1.0.0"], cwd=tmp_path)
 
-    result = run_command(["cog", "changelog"], cwd=tmp_path)
+    cog = run_command(["mise", "which", "cog"], cwd=repository_root).stdout.strip()
+    result = run_command([cog, "changelog"], cwd=tmp_path)
 
     assert result.stderr == ""
     assert "### Added" in result.stdout

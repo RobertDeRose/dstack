@@ -78,7 +78,7 @@ duplicated. The profile ignores `node_modules/` and `coverage/`.
 | Clippy  | `cargo clippy --all-targets --all-features -- -D warnings` | none                     | root `Cargo.toml`; check only |
 | tests   | `cargo test --all-targets --all-features`                  | none                     | root `Cargo.toml`; check only |
 
-The mise-managed tool is `rust = "latest"`. The profile ignores `target/`.
+The mise-managed Rust toolchain is `latest` with rustfmt and Clippy components. The profile ignores `target/`.
 
 [% endif %][% if 'go' in language_profiles %]
 
