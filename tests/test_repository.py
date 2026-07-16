@@ -1742,6 +1742,9 @@ def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> No
     assert 'pytest "${{ matrix.path }}" -m integration' in validate
     assert "actions/setup-node" not in validate
     assert validate.count("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7") == 2
+    assert validate.count("jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4") == 2
+    assert validate.count("run: mise install --locked") == 2
+    assert validate.count("MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml") == 2
     assert "actions/setup-python@v6" in validate
     assert "astral-sh/setup-uv@v8" in validate
 

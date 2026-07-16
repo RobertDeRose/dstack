@@ -19,6 +19,13 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.13"
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        with:
+          cache: false
+          install: false
+      - env:
+          MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml
+        run: mise install --locked
       - run: uv run --frozen --group test pytest -m "not integration and not external" --durations=10
   integration:
     name: Integration / ${{ matrix.suite }}
@@ -42,4 +49,11 @@ jobs:
         with:
           cache-suffix: ${{ matrix.suite }}
           python-version: "3.13"
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4
+        with:
+          cache: false
+          install: false
+      - env:
+          MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml
+        run: mise install --locked
       - run: uv run --frozen --group test pytest "${{ matrix.path }}" -m integration --durations=10
