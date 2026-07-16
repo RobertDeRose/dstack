@@ -609,40 +609,51 @@ def write_copier_state(path: Path, data: dict[str, Any], *, commit: str, channel
     )
 
 
+BRIEF_FIELDS = {
+    "project_purpose": ("purpose", "--purpose"),
+    "project_users": ("users", "--users"),
+    "project_scope": ("scope", "--scope"),
+    "project_boundaries": ("boundaries", "--boundaries"),
+    "project_kind": ("project_kind", "--project-kind"),
+}
+
+
+def project_brief_data(args: argparse.Namespace, existing: dict[str, Any], *, operation: str) -> dict[str, str]:
+    brief: dict[str, str] = {}
+    missing: list[str] = []
+    for answer, (argument, flag) in BRIEF_FIELDS.items():
+        value = getattr(args, argument)
+        if value is None:
+            recorded = existing.get(answer)
+            value = recorded if isinstance(recorded, str) else None
+        if value is None:
+            missing.append(flag)
+            continue
+        if any(character in value for character in ("\x00", "\r", "\n")) or not value.strip():
+            message = f"{flag} must be a nonempty single line"
+            raise SystemExit(message)
+        brief[answer] = value.strip()
+    if missing:
+        message = f"Template {operation} requires " + ", ".join(missing)
+        raise SystemExit(message)
+    return brief
+
+
 def adoption_data(args: argparse.Namespace) -> dict[str, Any]:
-    required = {
-        "--project-name": args.project_name,
-        "--project-slug": args.project_slug,
-        "--purpose": args.purpose,
-        "--users": args.users,
-        "--scope": args.scope,
-        "--boundaries": args.boundaries,
-        "--project-kind": args.project_kind,
-    }
+    required = {"--project-name": args.project_name, "--project-slug": args.project_slug}
     missing = [flag for flag, value in required.items() if not value]
     if missing:
         message = "Template self-adoption requires " + ", ".join(missing)
         raise SystemExit(message)
     values = {flag: value.strip() for flag, value in required.items()}
-    empty = [flag for flag, value in values.items() if not value]
-    if empty:
-        message = "Template self-adoption values must not be blank: " + ", ".join(empty)
-        raise SystemExit(message)
-    invalid = [
-        flag for flag, value in required.items() if any(character in value for character in ("\x00", "\r", "\n"))
-    ]
-    if invalid:
-        message = "Template self-adoption values must be nonempty single lines: " + ", ".join(invalid)
+    if any(not value or any(character in value for character in ("\x00", "\r", "\n")) for value in values.values()):
+        message = "Template self-adoption values must be nonempty single lines"
         raise SystemExit(message)
     profiles = canonical_language_profiles(args.language_profile)
     return {
         "project_name": values["--project-name"],
         "project_slug": values["--project-slug"],
-        "project_purpose": values["--purpose"],
-        "project_users": values["--users"],
-        "project_scope": values["--scope"],
-        "project_boundaries": values["--boundaries"],
-        "project_kind": args.project_kind,
+        **project_brief_data(args, {}, operation="self-adoption"),
         "language_profiles": profiles,
         "repository_default_branch": args.default_branch,
         "include_readme": True,
@@ -1046,6 +1057,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     previous_profiles = canonical_language_profiles(answer_data.get("language_profiles", ["other"]))
     requested_profiles = updated_language_profiles(previous_profiles, args.add_profile, args.remove_profile)
+    brief = project_brief_data(args, answer_data, operation="update")
 
     recorded_channel = answer_data.get("dstack_template_channel", "stable")
     if recorded_channel not in TEMPLATE_CHANNELS:
@@ -1075,6 +1087,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_update(
             destination,
             data={
+                **brief,
                 "language_profiles": requested_profiles,
                 "dstack_template_channel": channel,
             },

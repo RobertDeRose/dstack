@@ -771,6 +771,48 @@ def load_update_module(repository_root: Path) -> Any:
     return module
 
 
+def test_update_project_requires_missing_structured_brief_values(repository_root: Path) -> None:
+    module = load_update_module(repository_root)
+    args = module.parse_args([])
+
+    with pytest.raises(
+        SystemExit,
+        match=r"Template update requires --purpose, --users, --scope, --boundaries, --project-kind",
+    ):
+        module.project_brief_data(args, {"project_description": "Legacy description."}, operation="update")
+
+    recorded = {
+        "project_purpose": "Recorded purpose",
+        "project_users": "Recorded users",
+        "project_scope": "Recorded scope",
+        "project_boundaries": "Recorded boundaries",
+        "project_kind": "library",
+    }
+    assert module.project_brief_data(args, recorded, operation="update") == recorded
+
+    supplied = module.parse_args(
+        [
+            "--purpose",
+            " Preserve the project. ",
+            "--users",
+            "Maintainers",
+            "--scope",
+            "Current workflows",
+            "--boundaries",
+            "No application behavior",
+            "--project-kind",
+            "documentation",
+        ]
+    )
+    assert module.project_brief_data(supplied, {}, operation="update") == {
+        "project_purpose": "Preserve the project.",
+        "project_users": "Maintainers",
+        "project_scope": "Current workflows",
+        "project_boundaries": "No application behavior",
+        "project_kind": "documentation",
+    }
+
+
 def test_setup_project_requires_and_validates_the_project_brief(repository_root: Path) -> None:
     module = load_setup_module(repository_root)
 
@@ -2516,6 +2558,67 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
         run_command(["zizmor", "--no-progress", str(workflow)], cwd=project)
     run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
     run_command(["mdbook", "build", "docs"], cwd=project)
+
+
+def test_update_project_passes_supplied_structured_brief_to_copier(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_update_module(repository_root)
+    answers = tmp_path / ".copier-answers.yml"
+    answers.write_text(
+        f"_src_path: {tmp_path}\n_commit: {'0' * 40}\nproject_description: Legacy description.\n",
+        encoding="utf-8",
+    )
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(module, "git_root", lambda _path: tmp_path)
+    monkeypatch.setattr(
+        module,
+        "project_preflight",
+        lambda *_args: {
+            "recommended_workflow": "update-project",
+            "legacy_task_files": [],
+            "suggested_language_profiles": [],
+            "reason": "Copier state",
+        },
+    )
+    monkeypatch.setattr(module, "selected_revision", lambda *_args, **_kwargs: ("v1.0.0", "1" * 40))
+    monkeypatch.setattr(module, "git_status", lambda _path: [])
+    monkeypatch.setattr(module, "unmerged_paths", lambda _path: [])
+    monkeypatch.setattr(module, "reject_files", lambda _path: set())
+    monkeypatch.setattr(module, "run_update", lambda *_args, **kwargs: captured.update(kwargs))
+
+    assert (
+        module.main(
+            [
+                "--destination",
+                str(tmp_path),
+                "--purpose",
+                "Maintain the existing project.",
+                "--users",
+                "Project maintainers.",
+                "--scope",
+                "The current repository workflow.",
+                "--boundaries",
+                "No application behavior is introduced.",
+                "--project-kind",
+                "documentation",
+                "--pretend",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    assert captured["data"] == {
+        "project_purpose": "Maintain the existing project.",
+        "project_users": "Project maintainers.",
+        "project_scope": "The current repository workflow.",
+        "project_boundaries": "No application behavior is introduced.",
+        "project_kind": "documentation",
+        "language_profiles": ["other"],
+        "dstack_template_channel": "stable",
+    }
 
 
 @pytest.mark.integration

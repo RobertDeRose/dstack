@@ -98,6 +98,10 @@ Omitting profile flags preserves the recorded selection. Add/remove flags are re
 same profile cannot appear in both sets. `other` is exclusive, and removing the final recognized profile requires adding
 `other` in the same invocation.
 
+Updates reuse structured project-brief values already recorded by Copier. For an older project missing any of purpose,
+users, scope, boundaries, or project kind, ask one question at a time and pass the corresponding `--purpose`, `--users`,
+`--scope`, `--boundaries`, and `--project-kind` flags. Never derive missing values from a legacy description.
+
 An explicit branch, commit, or `HEAD` is a one-shot override. The helper persists the exact resolved commit while
 leaving the selected stable/unstable channel as the default for the next update.
 
