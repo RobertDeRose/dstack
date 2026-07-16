@@ -2054,7 +2054,7 @@ def test_setup_project_preserves_scaffold_and_reports_tooling_failures(
             executable = shutil.which(command)
             assert executable is not None
             (bin_dir / command).symlink_to(executable)
-        path = str(bin_dir)
+        path = f"{bin_dir}{os.pathsep}{os.defpath}"
     else:
         write_fake_mise(bin_dir)
         path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
@@ -2195,6 +2195,7 @@ def test_setup_project_uses_directory_name_and_preserves_template_tokens(
 ) -> None:
     project = tmp_path / "example-project"
     setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
 
     assert (project / ".copier-answers.yml").is_file()
     assert "# example-project" in (project / "README.md").read_text(encoding="utf-8")
