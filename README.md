@@ -1,5 +1,9 @@
 # dstack
 
+<p align="center">
+  <img src="docs/src/assets/img/dstack_logo.png" alt="dstack logo">
+</p>
+
 A documentation-first, Beads-backed workflow for agent-assisted software projects. The repository is both an installable
 Skills CLI package and a versioned Copier template.
 

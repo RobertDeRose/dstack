@@ -2,3 +2,13 @@ img[src*="#center"] {
     display: block;
     margin: 0 auto;
 }
+
+html.rust img[src*="dstack_logo.png"],
+html.ayu img[src*="dstack_logo.png"] {
+    content: url("../../../assets/img/dstack_logo_neon_orange.png");
+}
+
+html.coal img[src*="dstack_logo.png"],
+html.navy img[src*="dstack_logo.png"] {
+    content: url("../../../assets/img/dstack_logo_neon_blue.png");
+}
