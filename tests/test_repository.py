@@ -3526,13 +3526,20 @@ def test_template_formula_names_feature_tasks_and_uses_one_epic_container(reposi
     assert all("workflow:feature" not in step["labels"] for step in steps)
     assert all("workflow:feature-lifecycle" in step["labels"] for step in steps)
     assert "feature_number" not in formula["vars"]
+    dynamic_metadata = {"feature_slug", "feature_name", "design_path", "implemented_path", "base_branch"}
     for step in steps:
         assert "feature_number" not in step["metadata"]
-        assert step["metadata"]["feature_slug"] == "{{feature_slug}}"
-        assert step["metadata"]["feature_name"] == "{{feature_name}}"
+        assert dynamic_metadata.isdisjoint(step["metadata"])
+        assert "{{" not in json.dumps(step["metadata"])
 
     plan = (repository_root / "skills/plan-features/SKILL.md").read_text(encoding="utf-8")
     assert "The returned root is the feature epic" in plan
+    lifecycle_updates = plan.split(
+        "Beads does not substitute formula variables inside structured metadata", maxsplit=1
+    )[1].split("Lifecycle creation is complete", maxsplit=1)[0]
+    for field in dynamic_metadata:
+        assert f"--set-metadata {field}=" in lifecycle_updates
+    assert "no root or lifecycle metadata value contains a formula placeholder" in plan
     assert "not a second feature epic or a milestone" in " ".join(plan.split())
 
 

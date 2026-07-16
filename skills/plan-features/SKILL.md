@@ -177,8 +177,27 @@ bd update <root-id> \
   --set-metadata workflow_kind=molecule
 ```
 
+Beads does not substitute formula variables inside structured metadata. After resolving the lifecycle IDs, set concrete
+identity and path metadata on every lifecycle task; never retain a `{{variable}}` value:
+
+```bash
+for lifecycle_id in \
+  <design-id> <review-architecture-id> <review-simplicity-id> <review-documentation-id> <review-execution-id> \
+  <spec-reconcile-id> <implementation-id> <docs-reconcile-id> <validation-id> <review-delivery-id> \
+  <review-drift-id> <delivery-id>
+do
+  bd update "$lifecycle_id" \
+    --set-metadata feature_slug=<slug> \
+    --set-metadata feature_name="<title>" \
+    --set-metadata design_path=docs/src/features/<slug>/design.md \
+    --set-metadata implemented_path=docs/src/features/<slug>/index.md \
+    --set-metadata base_branch=<base>
+done
+```
+
 Lifecycle creation is complete when `bd show <root-id> --json` reports an epic, contains every required lifecycle ID,
-and each ID resolves to the intended child. Confirm the human selector resolves back to that root:
+each ID resolves to the intended child, and no root or lifecycle metadata value contains a formula placeholder. Confirm
+that the human selector resolves back to that root:
 
 ```bash
 uv run <core-dir>/scripts/resolve-feature.py <slug> --json
