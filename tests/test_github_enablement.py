@@ -31,6 +31,7 @@ UNIVERSAL_TOOLS = {
     "hk",
     "cocogitto",
     "harper-cli",
+    "npm:@contextlint/cli",
     "node",
     "mdbook",
     "uv",
@@ -180,7 +181,7 @@ def test_enablement_creates_then_updates_pages_with_variable_last(repository_roo
 
 @pytest.mark.integration
 @pytest.mark.parametrize("entrypoint", ["repository", "bundled"])
-def test_generated_enablement_keeps_nine_tools_and_adds_sixth_task(
+def test_generated_enablement_keeps_ten_tools_and_adds_sixth_task(
     tagged_template_source: Path,
     tmp_path: Path,
     entrypoint: str,

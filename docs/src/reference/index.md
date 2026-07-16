@@ -109,10 +109,11 @@ and release commits may be unscoped.
 
 | Path                                  | Contract                                                                       |
 |---------------------------------------|--------------------------------------------------------------------------------|
-| `mise.toml`                           | Declares nine tools, six tasks, hk routing, and fast-forward-only merges.      |
+| `mise.toml`                           | Declares ten tools, six tasks, hk routing, and fast-forward-only merges.       |
 | `mise.lock`                           | Project-owned, nonempty resolved lock for four supported platforms; commit it. |
 | `hk.pkl`                              | One shared step map for `check`, `fix`, and `pre-commit`.                      |
 | `.config/rumdl.toml`                  | Markdown policy compatible with the generated scaffold.                        |
+| `contextlint.config.json`             | Documentation link, anchor, and image-target policy.                           |
 | `cog.toml`                            | Conventional Commit and changelog policy.                                      |
 | `.config/cog-changelog.tera`          | Concise plain-Markdown changelog template.                                     |
 | `scripts/setup-tooling.py`            | Stdlib provisioner used by setup, update, and manual recovery.                 |
@@ -137,12 +138,16 @@ as its last mutation, and returns the Pages `html_url`; external `gh` is not a u
 | `hk`                           | `1.49.0`         |
 | `cocogitto`                    | `latest`         |
 | `harper-cli`                   | `latest`         |
+| `npm:@contextlint/cli`         | `latest`         |
 | `node`                         | `lts`            |
 | `mdbook`                       | `latest`         |
 | `uv`                           | `latest`         |
 | `rumdl`                        | `latest`         |
 | `typos`                        | `latest`         |
 | `npm:markdown-table-formatter` | `latest`         |
+
+Contextlint validates documentation links, anchors, and image targets. Its reviewed aube low-download exception is
+limited to `@contextlint/cli`.
 
 The mise environment sets `HK_MISE=1` and `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`. Git commands run through mise
 therefore reject merges that require a merge commit.

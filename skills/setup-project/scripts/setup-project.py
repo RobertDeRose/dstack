@@ -57,6 +57,7 @@ REQUIRED_GENERATED_PATHS = (
     Path("mise.toml"),
     Path("hk.pkl"),
     Path(".config/rumdl.toml"),
+    Path("contextlint.config.json"),
     Path("scripts/check-docs.py"),
     Path("scripts/setup-tooling.py"),
 )

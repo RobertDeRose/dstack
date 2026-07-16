@@ -84,6 +84,10 @@ local linters = new Mapping<String, Step> {
   ["check_case_conflict"] = Builtins.check_case_conflict
   ["check_executables_have_shebangs"] = Builtins.check_executables_have_shebangs
   ["check_merge_conflict"] = Builtins.check_merge_conflict
+  ["contextlint"] = new Step {
+    glob = List("README.md", "docs/**/*.md", "contextlint.config.json")
+    check = "contextlint"
+  }
   ["detect_private_key"] = Builtins.detect_private_key
   ["docs"] = new Step {
     depends = "mise"

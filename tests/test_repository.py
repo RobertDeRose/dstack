@@ -67,7 +67,7 @@ REQUIRED_COPIER_QUESTIONS = (
 )
 
 SETUP_BRIEF = {
-    "project_purpose": 'Coordinate [reader](missing.md) 😀 devices with a literal \\ path, café text, and "quotes".',
+    "project_purpose": ('Coordinate [reader] (external) 😀 devices with a literal \\ path, café text, and "quotes".'),
     "project_users": 'Operators who own "reader" fleets [team].',
     "project_scope": "Provisioning, health checks, and `status` workflows.",
     "project_boundaries": "Firmware # updates and identity-provider <admin> remain external.",
@@ -692,6 +692,7 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
         "mise.lock",
         "hk.pkl",
         ".config/rumdl.toml",
+        "contextlint.config.json",
         "cog.toml",
         ".config/cog-changelog.tera",
         "scripts/setup-tooling.py",
@@ -702,7 +703,11 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
         "docs/src/reference/tooling.md",
         "docs/src/operations/github-pages.md",
     }
-    assert dict(re.findall(r"^\| `([^`]+)`\s+\| `([^`]+)`", tools_table, flags=re.MULTILINE)) == mise["tools"]
+    documented_tools = dict(re.findall(r"^\| `([^`]+)`\s+\| `([^`]+)`", tools_table, flags=re.MULTILINE))
+    expected_versions = {
+        tool: value["version"] if isinstance(value, dict) else value for tool, value in mise["tools"].items()
+    }
+    assert documented_tools == expected_versions
 
     schema_match = re.search(r"## Tooling result schema.*?```json\n(.*?)\n```", reference, flags=re.DOTALL)
     assert schema_match is not None
@@ -1089,6 +1094,7 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
                 "hk": "1.49.0",
                 "cocogitto": "latest",
                 "harper-cli": "latest",
+                "npm:@contextlint/cli": {"version": "latest", "aube_args": "--allow-low-downloads"},
                 "node": "lts",
                 "mdbook": "latest",
                 "uv": "latest",
@@ -2226,7 +2232,7 @@ def test_setup_project_renders_the_factual_book_matrix(
 ) -> None:
     expected_name = 'A "quoted" &#92; café 😀 &#91;project&#93;'
     expected_purpose = (
-        'Coordinate &#91;reader&#93;(missing.md) 😀 devices with a literal &#92; path, café text, and "quotes".'
+        'Coordinate &#91;reader&#93; (external) 😀 devices with a literal &#92; path, café text, and "quotes".'
     )
     expected_users = 'Operators who own "reader" fleets &#91;team&#93;.'
     expected_scope = "Provisioning, health checks, and &#96;status&#96; workflows."
@@ -2264,6 +2270,7 @@ def test_setup_project_renders_the_factual_book_matrix(
             "hk": "1.49.0",
             "cocogitto": "latest",
             "harper-cli": "latest",
+            "npm:@contextlint/cli": {"version": "latest", "aube_args": "--allow-low-downloads"},
             "node": "lts",
             "mdbook": "latest",
             "uv": "latest",
@@ -2309,6 +2316,7 @@ def test_setup_project_renders_the_factual_book_matrix(
             "check_case_conflict",
             "check_executables_have_shebangs",
             "check_merge_conflict",
+            "contextlint",
             "detect_private_key",
             "docs",
             "fix_smart_quotes",
@@ -2335,6 +2343,12 @@ def test_setup_project_renders_the_factual_book_matrix(
             "fix",
         }
         assert (project / ".config/rumdl.toml").is_file()
+        contextlint = json.loads((project / "contextlint.config.json").read_text(encoding="utf-8"))
+        assert contextlint["include"] == ["README.md", "docs/**/*.md"]
+        assert [rule["rule"] for rule in contextlint["rules"]] == ["ref001", "ref005", "ref006"]
+        assert 'check = "contextlint"' in step_config
+        assert "contextlint {{ files }}" not in step_config
+        run_command(["contextlint"], cwd=project)
         assert "mise.lock" not in (project / ".gitignore").read_text(encoding="utf-8")
 
         answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))

@@ -17,10 +17,10 @@ mise run docs:deployment:enable
 mise run docs:serve
 ```
 
-`check` is read-only. `fix` changes the working tree. The pre-commit hook may fix files while safely stashing unrelated
-unstaged work. The commit-message hook enforces Conventional Commits, required scopes for changelog-visible changes,
-grammar, 72/100-character line limits, and canonical optional `Beads:` footers. Run `cog changelog` to preview the
-concise user-facing changelog.
+`check` is read-only. `fix` changes the working tree. Contextlint checks links, anchors, and image targets across README
+and `docs/**/*.md`. The pre-commit hook may fix files while safely stashing unrelated unstaged work. The commit-message
+hook enforces Conventional Commits, required scopes for changelog-visible changes, grammar, 72/100-character line
+limits, and canonical optional `Beads:` footers. Run `cog changelog` to preview the concise user-facing changelog.
 
 ## Python
 

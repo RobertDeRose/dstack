@@ -8,6 +8,7 @@
 | `mise.lock`                         | Project-owned resolved downloads; commit it.                                |
 | `hk.pkl`                            | Defines the shared check/fix/pre-commit step map.                           |
 | `.config/rumdl.toml`                | Configures Markdown linting and deterministic fixes.                        |
+| `contextlint.config.json`           | Checks documentation links, anchors, and image targets.                     |
 | `cog.toml`                          | Configures Conventional Commits and concise changelogs.                     |
 | `.config/cog-changelog.tera`        | Renders plain Markdown changelogs without author noise.                     |
 | `scripts/setup-tooling.py`          | Resolves the lock, installs tools, installs hooks, and returns JSON status. |
@@ -17,8 +18,9 @@
 
 ## Tools
 
-The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` Cocogitto, Harper CLI, mdBook, uv, rumdl, typos,
-and `npm:markdown-table-formatter` releases. Both hk Pkl imports use `1.49.0`.
+The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` Cocogitto, Harper CLI, Contextlint, mdBook, uv,
+rumdl, typos, and `npm:markdown-table-formatter` releases. Contextlint checks documentation links, anchors, and image
+targets. Its reviewed low-download aube exception applies only to `@contextlint/cli`. Both hk Pkl imports use `1.49.0`.
 
 Recorded language profiles: `[[ language_profiles | join(', ') ]]`.
 
@@ -138,7 +140,7 @@ POSIX-shell task contract.
 The mise environment routes hooks through mise with `HK_MISE=1` and sets `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`, so
 Git rejects merges that require a merge commit.
 
-The universal tool count remains nine; `gh` is an external administrative prerequisite, not a mise tool. Pages requires
+The universal tool count remains ten; `gh` is an external administrative prerequisite, not a mise tool. Pages requires
 `build_type=workflow` plus `DOCS_DEPLOYMENT_ENABLED=true`. The build job has `contents: read`; only the deploy job has
 `pages: write` and `id-token: write`.
 
