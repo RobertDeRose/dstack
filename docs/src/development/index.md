@@ -28,6 +28,10 @@ Use `mise run fix` for deterministic formatting fixes. The canonical full suite 
 `uv run --frozen --group test pytest`; pytest uses four bounded xdist workers with load-group scheduling. Mark tests
 that mutate shared repository state with `xdist_group` so those tests remain serialized.
 
+Migration checkpoint fixtures must exercise the rendered project-local provisioner and ordinary Git commits. They cover
+provisioning failure, installed hook routing, hook failure recovery, and the narrow approved docs-step exception without
+bypassing unrelated checks.
+
 ## Generated project command contract
 
 Generated projects expose six stable task names to contributors, operators, and future CI:

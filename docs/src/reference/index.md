@@ -24,7 +24,10 @@ rejects stale scans, missing steps, changed definitions, unevaluable current pol
 `backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup state. Final verification requires
 tracked manifests, reports, baselines, and archived legacy tasks; it rejects candidate directories and inconsistent
 backup presence/disposition. Migration stores only answers required for safety/resume, such as classification,
-dependency, collision, and artifact dispositions; question prose is not schema state.
+dependency, collision, and artifact dispositions; question prose is not schema state. Checkpoints require successful
+`scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit. The only intermediate
+exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs; its approval, reason, equivalent result, and
+risk are durable evidence.
 
 ## Setup project brief
 

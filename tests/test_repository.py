@@ -4044,6 +4044,123 @@ def test_migration_question_contract(repository_root: Path) -> None:
         assert phrase in operations
 
 
+def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Path) -> None:
+    skill = (repository_root / "skills/migrate-workflow/SKILL.md").read_text(encoding="utf-8")
+    reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(encoding="utf-8")
+    contract = skill + reference
+    normalized_reference = " ".join(reference.split())
+    assert "scripts/setup-tooling.py --json" in contract
+    assert "status: succeeded" in reference
+    assert "pkl eval hk.pkl" in contract
+    assert "mise x -- hk run pre-commit -a -P" in contract
+    assert "Never bypass all hooks" in normalized_reference
+    assert "HK_SKIP_HOOK" not in contract
+    assert "--no-verify" not in contract
+    for evidence in ("approval", "reason", "equivalent result", "residual risk"):
+        assert evidence in normalized_reference
+
+    project = tmp_path / "verified-checkpoint"
+    (project / "scripts").mkdir(parents=True)
+    (project / "bin").mkdir()
+    shutil.copy2(repository_root / "hk.pkl", project / "hk.pkl")
+    (project / "tracked.txt").write_text("initial\n", encoding="utf-8")
+    (project / "scripts/check-docs.py").write_text(
+        "import sys\nassert sys.argv[1:] == ['--migration-mode']\nprint('migration docs passed')\n", encoding="utf-8"
+    )
+    fake_hk_source = project / "hk-source"
+    fake_hk_source.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = install ]; then\n'
+        " printf '#!/bin/sh\\nexec bin/hk run pre-commit\\n' > .git/hooks/pre-commit\n"
+        " chmod +x .git/hooks/pre-commit\n"
+        " exit 0\n"
+        "fi\n"
+        'case " $* " in *" -P "*) echo "Plan: pre-commit; docs; unrelated"; exit 0;; esac\n'
+        'printf "skip=%s\\n" "${HK_SKIP_STEPS:-}" >> hook.log\n'
+        'echo "unrelated=ran" >> hook.log\n'
+        'test "${DSTACK_FAIL_HOOK:-0}" != 1 || { echo "named-step failed; run bin/hk run pre-commit" >&2; exit 1; }\n',
+        encoding="utf-8",
+    )
+    fake_hk_source.chmod(0o755)
+    fake_mise = project / "bin/mise"
+    fake_mise.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, shutil, subprocess, sys\n"
+        "from pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "if args and args[0] == 'lock':\n"
+        " if os.environ.get('DSTACK_FAIL_PROVISIONER') == '1':\n"
+        "  print('lock failed', file=sys.stderr)\n"
+        "  raise SystemExit(1)\n"
+        " Path('mise.lock').write_text('locked\\n'); raise SystemExit(0)\n"
+        "if args[:2] == ['install', '--locked']:\n"
+        " shutil.copy2('hk-source', 'bin/hk'); Path('bin/hk').chmod(0o755); raise SystemExit(0)\n"
+        "if args[:2] == ['x', '--']:\n"
+        " raise SystemExit(subprocess.run(['bin/hk', *args[3:]]).returncode)\n"
+        "raise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    fake_mise.chmod(0o755)
+    provisioner = project / "scripts/setup-tooling.py"
+    shutil.copy2(repository_root / "skills/setup-project/template/scripts/setup-tooling.py", provisioner)
+    initialize_git(project, "initial")
+    provision_environment = merged_environment(PATH=f"{project / 'bin'}:{os.environ['PATH']}")
+    failed_provisioner = run_command(
+        ["python3", "scripts/setup-tooling.py", "--json"],
+        cwd=project,
+        env=provision_environment | {"DSTACK_FAIL_PROVISIONER": "1"},
+    )
+    failed_payload = json.loads(failed_provisioner.stdout)
+    assert failed_payload["status"] == "degraded"
+    assert failed_payload["lock"]["status"] == "failed"
+    assert failed_payload["recovery"][-1] == "python3 scripts/setup-tooling.py --json"
+    tooling = json.loads(
+        run_command(["python3", "scripts/setup-tooling.py", "--json"], cwd=project, env=provision_environment).stdout
+    )
+    assert tooling["status"] == "succeeded"
+    assert {tooling[name]["status"] for name in ("lock", "install", "hooks")} == {"succeeded"}
+    assert (project / "bin/hk").is_file()
+    assert "exec bin/hk run pre-commit" in (project / ".git/hooks/pre-commit").read_text(encoding="utf-8")
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
+    plan = run_command(["bin/hk", "run", "pre-commit", "-a", "-P"], cwd=project)
+    assert "docs; unrelated" in plan.stdout
+
+    (project / "tracked.txt").write_text("blocked\n", encoding="utf-8")
+    run_command(["git", "add", "tracked.txt"], cwd=project)
+    failed = run_command(
+        ["git", "commit", "-m", "chore: blocked checkpoint"],
+        cwd=project,
+        env=merged_environment(DSTACK_FAIL_HOOK="1"),
+        expected=1,
+    )
+    assert "named-step failed; run bin/hk run pre-commit" in failed.stderr
+    assert run_command(["git", "status", "--short"], cwd=project).stdout
+    run_command(["git", "commit", "-m", "chore: verified checkpoint"], cwd=project)
+
+    exception = project / "migration/checkpoint-exception.md"
+    exception.parent.mkdir()
+    exception.write_text(
+        "Approval: user accepted docs-step exception.\nReason: legacy tasks remain.\n"
+        "Equivalent result: migration docs passed.\nResidual risk: strict docs deferred.\n",
+        encoding="utf-8",
+    )
+    run_command(["python3", "scripts/check-docs.py", "--migration-mode"], cwd=project)
+    run_command(["git", "add", "migration/checkpoint-exception.md"], cwd=project)
+    run_command(
+        ["git", "commit", "-m", "chore: approved migration checkpoint"],
+        cwd=project,
+        env=merged_environment(HK_SKIP_STEPS="docs"),
+    )
+    assert (project / "hook.log").read_text(encoding="utf-8").splitlines() == [
+        "skip=",
+        "unrelated=ran",
+        "skip=",
+        "unrelated=ran",
+        "skip=docs",
+        "unrelated=ran",
+    ]
+
+
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
     script = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
         encoding="utf-8"

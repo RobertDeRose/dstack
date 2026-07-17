@@ -49,7 +49,10 @@ the generated policy as equivalent. Durable manifests, reports, baselines, and l
 temporary candidates must be removed. Conditional adoption backups require an explicit retain/remove disposition.
 Repeated unchanged scans do not churn committed migration evidence. Migration asks one question at a time with a concise
 decision title, why it is needed, current evidence/uncertainty, controlled behavior, a concrete example, choices/safe
-default, and the consequence of deferral.
+default, and the consequence of deferral. After reconciliation, the rendered project provisioner must install the locked
+tools and Git hooks before an ordinary checkpoint commit. Failures stop with exact reproduction/recovery. A
+user-approved intermediate exception may skip only the strict docs step after migration-mode docs pass and the decision,
+equivalent evidence, and risk are recorded; whole-hook bypass is never allowed.
 
 Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
 `pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents

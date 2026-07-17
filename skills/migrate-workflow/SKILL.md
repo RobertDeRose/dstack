@@ -59,17 +59,16 @@ blocks lost or changed steps. Restore them or use the explicit user-approved pro
 **Additive hk reconciliation**. Never assert equivalence for an unevaluable baseline. Merge only the workflow structure
 the existing project needs into the current file; do not replace project-specific navigation, architecture, operations,
 or reference content wholesale. Remove temporary candidates, and explicitly retain or remove conditional backups using
-**Artifact lifecycle**; unresolved state blocks verification. Validate the reconciled structure in migration mode:
+**Artifact lifecycle**; unresolved state blocks verification. After conflicts are clean, use only the rendered
+`scripts/setup-tooling.py --json` provisioner and require lock/install/hook success. Verify `pkl eval hk.pkl`, installed
+hook routing, and `mise x -- hk run pre-commit -a -P`; stop with provisioner or hook reproduction/recovery on failure.
+See **Verified migration checkpoints**.
+
+Validate migration-mode docs, apply project-native formatting, stage, and use an ordinary verified commit. Only explicit
+user approval may set `HK_SKIP_STEPS=docs` for that commit after migration-mode docs pass and the durable exception note
+is staged. Never skip a whole hook:
 
 ```bash
-uv run scripts/check-docs.py --migration-mode
-```
-
-Before committing adoption, run the repository's Markdown formatter or heading-capitalization check against new or
-changed dstack-managed files. Apply project-native style without weakening lint policy, then checkpoint:
-
-```bash
-test ! -e migration/template-adoption-candidates
 git add -A
 git diff --cached --quiet || git commit -m "chore: adopt dstack workflow"
 test -z "$(git status --porcelain)"

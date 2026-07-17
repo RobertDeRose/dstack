@@ -98,6 +98,20 @@ backup disposition; and any other explicit policy choice. Do not ask the user to
 Persist only answers needed for safety or resume (for example, a collision disposition); product intent belongs in the
 design, roadmap, and Beads. Do not copy conversational prompt prose into the manifest.
 
+## Verified migration checkpoints
+
+After baseline capture and conflict-free candidate reconciliation, run the rendered
+`python3 scripts/setup-tooling.py --json`. Require `status: succeeded`; on failure stop with its reported stage and
+recovery commands. Do not introduce a second installer. Verify `pkl eval hk.pkl`, repository-local Git hook routing, and
+`mise x -- hk run pre-commit -a -P` before staging the adoption checkpoint.
+
+Use an ordinary `git commit` so configured hooks are authoritative. If it fails, preserve the worktree and report the
+named hook/step, the exact commit or `mise x -- hk run <hook>` reproduction, and corrective recovery. Never bypass all
+hooks. While live legacy tasks intentionally make strict docs premature, a single docs-step exception is allowed only
+after the user explicitly approves it and `uv run scripts/check-docs.py --migration-mode` passes. Stage a durable note
+containing approval, reason, equivalent result, and residual risk; then set `HK_SKIP_STEPS=docs` only for that commit.
+Final checkpoints run strict docs normally.
+
 ## Template source and revision
 
 Adoption renders the current tagged **new-project** template into a temporary directory first. It does not depend on a
