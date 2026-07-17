@@ -3704,6 +3704,7 @@ def test_cocogitto_ignores_release_commits(repository_root: Path, tmp_path: Path
 
 
 @pytest.mark.integration
+@pytest.mark.xdist_group("shared-repository-git-config")
 def test_commit_hook_requires_an_allowed_scope(repository_root: Path, tmp_path: Path) -> None:
     good = tmp_path / "good.txt"
     missing = tmp_path / "missing.txt"

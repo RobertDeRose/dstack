@@ -24,8 +24,9 @@ uv run --frozen --group test pytest -m integration
 uv run --frozen --group test pytest -m external
 ```
 
-Use `mise run fix` for deterministic formatting fixes. The full serial test suite is
-`uv run --frozen --group test pytest`.
+Use `mise run fix` for deterministic formatting fixes. The canonical full suite is
+`uv run --frozen --group test pytest`; pytest uses four bounded xdist workers with load-group scheduling. Mark tests
+that mutate shared repository state with `xdist_group` so those tests remain serialized.
 
 ## Generated project command contract
 
