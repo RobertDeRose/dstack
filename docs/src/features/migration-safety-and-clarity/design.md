@@ -27,6 +27,11 @@ hide migration failures with `git commit --no-verify`.
 - Clearly distinguish durable committed archives, temporary candidates, and conditional backups.
 - Give each migration question purpose, evidence, impact, examples, choices, safe default, and deferral consequence.
 - Prohibit broad hook bypasses and stop with actionable recovery when a hook fails.
+- Import large Beads histories with visible progress, bounded transactions, and resume work proportional to what
+  remains.
+- Preserve legacy task status and import audit metadata across scans and retries.
+- Require or reliably discover canonical project identity and default branch instead of using a migration worktree name.
+- Automate migration-safe validation and delivered-feature navigation without silently weakening final policy.
 - Exercise these guarantees in one resumable end-to-end migration fixture.
 
 ## Non-Goals
@@ -36,6 +41,7 @@ hide migration failures with `git commit --no-verify`.
 - Delete historical task archives by default.
 - Infer project purpose, users, scope, boundaries, classifications, or collision resolutions.
 - Weaken repository hooks or documentation policy to make intermediate migration checkpoints pass.
+- Automatically accept generated delivered-feature records without human semantic review.
 
 ## User-Facing Behavior
 
@@ -49,6 +55,16 @@ answer, and states what happens when the user defers.
 
 Migration uses ordinary verified commits. A hook failure stops the checkpoint and reports the failing hook, the relevant
 migration-safe validation command, and recovery. It never uses or recommends `--no-verify`.
+
+Dry-run and apply are separate, unmistakable operations. Apply announces its start, reports existing, recovered,
+pending, conflicting, completed, and remaining records per feature, and resumes incomplete features without replaying
+completed work. Checkbox task states remain authoritative when no explicit status is present. Rescans preserve
+import-level audit metadata.
+
+Adoption obtains an explicit canonical project name, slug, and default branch when repository evidence is ambiguous. It
+never derives identity from a migration worktree suffix. Migration mode automatically narrows only known transitional
+validation conflicts and finalization restores strict checks. Implemented-feature navigation is regenerated from
+delivered records; a helper may draft historical records, but a human must review their semantics.
 
 ## Requirements
 
@@ -106,6 +122,41 @@ policy choices. Questions remain one at a time. The skill and reference own one 
 examples rather than a new prompt-rendering framework. Durable state stores only answers needed for safety or
 resumability, not copies of conversational prose.
 
+#### Scalable, resumable Beads import
+
+Checkbox states map `[ ]` to open, `[-]` to in progress, and `[x]` to closed unless a nonempty explicit status overrides
+them. Import groups mutations into bounded transactions where the Beads interface supports it and avoids one full
+repository transaction per field or relationship. A retry examines recorded identities first and performs mutation only
+for incomplete or conflicting records.
+
+Dry-run never starts apply. Apply prints an unmistakable start notice and continuously reports per-feature and aggregate
+counts for existing, recovered, pending, conflicting, completed, and remaining records. Root creation, state closure,
+and dependency reconciliation are independently resumable phases. Rescans retain global import timestamps, completion
+state, imported identities, and phase progress. Performance acceptance uses a large fixture representative of at least
+300 Beads records and proves retries perform work proportional to the remaining records rather than the total history.
+
+#### Canonical repository identity and adoption
+
+The structured brief records `project_name`, `project_slug`, and `default_branch`. Repository evidence may propose
+values: the primary Git worktree/repository basename for identity and `refs/remotes/origin/HEAD` or existing policy for
+the branch. A migration worktree suffix is never accepted as canonical identity without confirmation. Missing or
+conflicting evidence triggers the contextual question contract before adoption.
+
+Stealth Beads initialization keeps the embedded database local. Instructions name the exact durable `.beads` files to
+track, including the project formula, and use explicit force-add only where Git ignore policy requires it; they never
+suggest committing the embedded database.
+
+#### Migration-safe validation and delivered records
+
+Migration mode automatically invokes `check-docs.py --migration-mode`, excludes identified generated assets and legacy
+workflow-command paths from generic checks, preserves mdBook H1 part headings, and records project acronyms rather than
+silently rewriting them. Every exception is narrow and removed or reconciled before strict final validation.
+
+Prepare or finalize regenerates implemented-feature marker regions in `docs/src/SUMMARY.md` and
+`docs/src/features/index.md` from delivered records. A drafting command may assemble a candidate historical design and
+standalone delivery record from legacy design/tasks, imported Beads identities, changed paths, and Git history.
+Generated content remains a candidate requiring human semantic review and cannot itself satisfy finalization.
+
 #### Verified checkpoint commits
 
 Migration instructions and helpers never use or recommend `git commit --no-verify`. Gate 2 first captures legacy
@@ -131,13 +182,17 @@ the worktree, and gives a reproduction and recovery command. `HK_SKIP_HOOK` and 
 - Failure fixtures prove unapproved step loss, untracked archives, temporary leftovers, and hook failure block
   completion.
 - Final migration leaves strict docs, tests, Beads graph, hooks, and worktree clean.
+- Large imports expose deterministic progress and retries mutate only incomplete/conflicting records.
+- Checkbox parsing covers `[ ]`, `[-]`, `[x]`, and nonempty explicit-status precedence.
+- Project identity tests cover dedicated migration worktrees and non-`main` default branches.
 
 ### Compatibility and Migration Requirements
 
-Existing migration manifests remain readable. New inventory, artifact, answer, and checkpoint evidence uses optional
-schema fields with explicit defaults; missing inventory/readiness and unresolved backup disposition block mutation until
-captured or decided. Resuming an older migration captures baseline evidence before further mutation, preserves imported
-Beads identities, and preserves existing archived tasks.
+Existing migration manifests remain readable. New inventory, artifact, answer, checkpoint, import-phase, identity, and
+progress evidence uses optional schema fields with explicit defaults; missing inventory/readiness and unresolved backup
+disposition block mutation until captured or decided. Resuming an older migration captures baseline evidence before
+further mutation, preserves imported Beads identities, import completion timestamps, phase progress, and existing
+archived tasks.
 
 ## Existing Context
 
@@ -150,10 +205,12 @@ explicitly prohibit it or prove hooks ran.
 
 ## Proposed Design
 
-Extend migration state with pre/post hk inventories and explicit dispositions, add artifact classification and tracked
-state checks, standardize contextual question templates, and strengthen checkpoint gates around real hook execution.
+Extend migration state with pre/post hk inventories, explicit dispositions, import phases/progress, and canonical
+repository identity; add artifact classification and tracked state checks; standardize contextual question templates;
+and strengthen checkpoint gates around real hook execution. Batch Beads mutations through the narrowest supported
+transaction boundary, regenerate delivered navigation, and keep generated historical records as reviewable candidates.
 Keep candidate reconciliation manual where syntax-aware merging would be unsafe. Validate the complete behavior in a
-legacy repository fixture containing custom hk steps and a deliberately failing hook.
+large legacy repository fixture containing custom hk steps and a deliberately failing hook.
 
 ## Architecture Consistency
 
@@ -184,16 +241,16 @@ it. Recovery remains local and resumable. Durable archives increase repository s
 
 ## Documentation Impact
 
-| Documentation concern      | Exact page                                                | Create or update        | Planned change                                                                                                        | Owning Beads task                |
-|----------------------------|-----------------------------------------------------------|-------------------------|-----------------------------------------------------------------------------------------------------------------------|----------------------------------|
-| Architecture               | `docs/src/architecture/index.md`                          | Update                  | Additive adoption and hook-verification boundary                                                                      | `dstack-mol-9zl.5`               |
-| Usage / Operations         | `docs/src/operations/index.md`                            | Update incrementally    | Questions/collisions (`.1`, `.3`), artifact lifecycle (`.2`), verified checkpoints, failure/exception recovery (`.4`) | tasks `.1`–`.4`; `.5` reconciles |
-| Development                | `docs/src/development/index.md`                           | Update incrementally    | Checkpoint validation and contributor workflow (`.4`), combined fixtures (`.5`)                                       | tasks `.4`–`.5`                  |
-| Reference                  | `docs/src/reference/index.md`                             | Update incrementally    | Exact commands/defaults plus inventory (`.1`), artifact (`.2`), answer (`.3`), and checkpoint (`.4`) fields           | tasks `.1`–`.4`; `.5` reconciles |
-| Skill procedure            | `skills/migrate-workflow/SKILL.md`                        | Update                  | Ordered gates, contextual questions, verified commits                                                                 | tasks `.1`–`.4`                  |
-| Migration reference        | `skills/migrate-workflow/references/MIGRATION.md`         | Update                  | Detailed reconciliation, archive, and recovery procedures                                                             | tasks `.1`–`.4`                  |
-| Navigation                 | `docs/src/SUMMARY.md`                                     | Update design markers   | Register this design                                                                                                  | planning                         |
-| Implemented Feature Record | `docs/src/features/migration-safety-and-clarity/index.md` | Create during close-out | Preserve delivery and audit history                                                                                   | lifecycle close-out              |
+| Documentation concern      | Exact page                                                | Create or update        | Planned change                                                                                                         | Owning Beads task                 |
+|----------------------------|-----------------------------------------------------------|-------------------------|------------------------------------------------------------------------------------------------------------------------|-----------------------------------|
+| Architecture               | `docs/src/architecture/index.md`                          | Update                  | Additive adoption, repository identity, import transaction/resume, and hook-verification boundaries                    | tasks `.8`, `.9`, `.5`            |
+| Usage / Operations         | `docs/src/operations/index.md`                            | Update incrementally    | Questions/artifacts/hooks (`.1`–`.4`), progress/retry (`.7`, `.9`), identity/adoption (`.8`), migration mode (`.10`)   | tasks `.1`–`.10`; `.5` reconciles |
+| Development                | `docs/src/development/index.md`                           | Update incrementally    | Checkpoints (`.4`), large import/performance fixtures (`.9`), generated records/navigation (`.10`), integration (`.5`) | tasks `.4`, `.9`, `.10`, `.5`     |
+| Reference                  | `docs/src/reference/index.md`                             | Update incrementally    | Exact inventory/artifact/question/checkpoint/import-progress/identity/drafting commands, fields, states, and defaults  | tasks `.1`–`.10`; `.5` reconciles |
+| Skill procedure            | `skills/migrate-workflow/SKILL.md`                        | Update                  | Ordered gates, contextual questions, verified commits                                                                  | tasks `.1`–`.4`                   |
+| Migration reference        | `skills/migrate-workflow/references/MIGRATION.md`         | Update                  | Detailed reconciliation, archive, and recovery procedures                                                              | tasks `.1`–`.4`                   |
+| Navigation                 | `docs/src/SUMMARY.md`                                     | Update design markers   | Register this design                                                                                                   | planning                          |
+| Implemented Feature Record | `docs/src/features/migration-safety-and-clarity/index.md` | Create during close-out | Preserve delivery and audit history                                                                                    | lifecycle close-out               |
 
 ## Validation Strategy
 
@@ -209,6 +266,11 @@ it. Recovery remains local and resumable. Durable archives increase repository s
 - Resume an older manifest before mutation; preserve baseline evidence, imported Beads identities, and existing
   archives.
 - Resume after each failure and confirm idempotence.
+- Parse checkbox states and preserve global import audit fields through rescans.
+- Import at least 300 records with progress assertions; interrupt/retry and assert only remaining mutations execute.
+- Exercise a suffixed migration worktree and non-`main` remote default branch; require explicit answers when ambiguous.
+- Verify exact stealth `.beads` tracking, migration-mode exclusions, acronym/H1 preservation, regenerated navigation,
+  and review-required delivered-record candidates.
 - Run migration verifier with Beads, strict documentation checks, focused/full tests, and final clean status.
 
 ## Implementation Decomposition
@@ -221,17 +283,25 @@ it. Recovery remains local and resumable. Durable archives increase repository s
    operations/reference sections.
 4. `dstack-mol-9zl.4`: provision the reconciled pinned hook, prohibit broad bypass, validate checkpoint hooks/targeted
    exceptions, and update development/operations/reference sections.
-5. `dstack-mol-9zl.5`: exercise old-manifest compatibility and the complete resumable migration, then reconcile all
+5. `dstack-mol-9zl.7`: fix task-status precedence, preserve import audit/phase state, and expose remaining-work resume
+   accounting.
+6. `dstack-mol-9zl.8`: make canonical project name/slug/default branch explicit or evidence-backed and reconcile stealth
+   Beads tracking instructions.
+7. `dstack-mol-9zl.9`: batch large Beads imports, report progress, and prove interrupted retries scale with remaining
+   work.
+8. `dstack-mol-9zl.10`: automate migration-safe validation, implemented-feature navigation, and review-required
+   delivered record drafting.
+9. `dstack-mol-9zl.5`: exercise old-manifest compatibility and the complete resumable migration, then reconcile all
    reader documentation.
 
 ## Dependencies and Parallelism
 
 This feature depends on hk policy simplification so its candidate inventory reflects the final generated policy. Tasks
-are serialized because they share the migration skill, reference, script, manifest, and integration fixture. Every task
-depends directly on specification reconciliation. Each task runs its named focused migration test with
-`uv run --frozen --group test pytest`, `uv run scripts/check-docs.py`, `HK_JOBS=1 mise run check`, and the full
-`uv run --frozen --group test pytest` suite before commit; `.5` additionally runs the complete migration test partition
-and asserts final clean status.
+are serialized because they share the migration skill, reference, script, manifest, and integration fixture; `.5` is the
+final integration gate after `.7`–`.10`. Every task depends directly on specification reconciliation. Each task runs its
+named focused migration test with `uv run --frozen --group test pytest`, `uv run scripts/check-docs.py`,
+`HK_JOBS=1 mise run check`, and the full `uv run --frozen --group test pytest` suite before commit; `.5` additionally
+runs the complete migration test partition and asserts final clean status.
 
 ## Rollout and Migration
 
@@ -244,7 +314,9 @@ Capability inventories cannot prove semantic equivalence for arbitrary custom sh
 human decision. More contextual prompts make individual questions longer but reduce uninformed answers and rework.
 Strict hook enforcement may uncover legacy defects earlier and lengthen migration, which is the intended safety
 tradeoff. Pre-adoption readiness evidence supports attribution but cannot by itself prove whether every later failure
-was pre-existing.
+was pre-existing. Transaction batching must preserve per-record recovery evidence; bounded phases and durable progress
+favor recoverability over one opaque all-or-nothing import. Drafted historical records reduce repetition but may contain
+incorrect semantic inference, so human review remains mandatory.
 
 ## Rejected Alternatives
 
@@ -278,6 +350,14 @@ because migration already requires a repository and clean checkpoint boundaries.
 
 The plan separates template hk simplification from migration protection, keeps Pkl reconciliation manual, and adds an
 automated capability-loss guard rather than attempting syntax-aware merging.
+
+A later production-scale migration of `checkpoint-artifact-server` supplied additional execution evidence: 300 Beads
+records required repeated 30–35 minute imports; retries revisited completed records; checkbox completion was lost;
+rescans dropped global import completion metadata; a suffixed migration worktree produced the wrong project name; `main`
+was chosen instead of the repository's `dev` default; stealth Beads guidance conflicted with staging; transitional
+validation needed manual exclusions; implemented-feature navigation was not generated; and 17 historical delivery
+records required repetitive reconstruction. Tasks `.7`–`.10` were added before final integration to turn those observed
+failures into explicit correctness, identity, performance, progress, validation, and documentation contracts.
 
 ### Source Material
 
