@@ -39,9 +39,9 @@ hide migration failures with `git commit --no-verify`.
 
 ## User-Facing Behavior
 
-Before adoption changes hk, migration records the existing hook and step inventory when evaluable. Generated hk is an
-additive candidate. Existing keys remain authoritative until the user resolves a collision with an explanation of both
-behaviors. Verification rejects unapproved step loss.
+Before adoption changes hk, migration records the existing hook and step inventory and a non-destructive readiness
+result when evaluable. Generated hk is an additive candidate. Existing keys remain authoritative until the user resolves
+a collision with an explanation of both behaviors. Verification rejects unapproved step loss.
 
 `migration/legacy-tasks/*.md` is reported as durable audit evidence that must be tracked and committed by default.
 Candidate directories are temporary and must be removed. Every prompt explains why it is being asked, shows a concrete
@@ -69,7 +69,8 @@ contextual question. If the original config cannot be evaluated, migration repor
 inventory confirmation; it does not assume the generated policy supersedes it.
 
 The adoption helper may continue staging `hk.pkl` as a candidate rather than implementing a general Pkl merge. The
-migration workflow and verifier own the preservation guard.
+migration workflow and verifier own the preservation guard. An unchanged repeated scan preserves the prior timestamp and
+committed report bytes; volatile generation time changes only when semantic scan state changes.
 
 #### Artifact lifecycle
 
@@ -82,8 +83,10 @@ Migration reports classify paths as:
 | Conditional backup evidence | `migration/template-adoption-backup/`                                                | Retained or removed according to an explicit recorded disposition |
 
 Default finalization archives legacy `tasks.md` into `migration/legacy-tasks/<slug>.md`. `--delete-tasks` remains an
-explicit alternative when Git history is accepted as sufficient. Verification rejects untracked durable migration
-artifacts and leftover temporary candidates.
+explicit alternative when Git history is accepted as sufficient. The manifest records backup disposition as
+`unresolved`, `retain`, or `remove`, defaulting older manifests to `unresolved`; verification rejects a present backup
+or recorded removal without a resolved disposition. Verification also rejects untracked durable migration artifacts and
+leftover temporary candidates.
 
 #### Contextual question contract
 
@@ -99,23 +102,31 @@ Each migration question contains:
 
 This contract applies to structured brief fields, project kind, feature classification, missing design intent,
 dependency direction/type, hk collisions/removals, candidate file reconciliation, archive deletion, and other explicit
-policy choices. Questions remain one at a time.
+policy choices. Questions remain one at a time. The skill and reference own one reusable checklist and representative
+examples rather than a new prompt-rendering framework. Durable state stores only answers needed for safety or
+resumability, not copies of conversational prose.
 
 #### Verified checkpoint commits
 
-Migration instructions and helpers never use or recommend `git commit --no-verify`. Before each post-adoption
-checkpoint, the workflow verifies that the reconciled hk config loads and runs the applicable hook path. If strict final
-documentation checks are intentionally premature, the workflow runs the documented migration-mode equivalent while
-preserving every unrelated hook; it must not bypass the entire hook set.
+Migration instructions and helpers never use or recommend `git commit --no-verify`. Gate 2 first captures legacy
+inventory/readiness, completes candidate reconciliation, and reaches a clean conflict gate. Only then may it invoke the
+existing generated project-local `scripts/setup-tooling.py --json`; no second installer is introduced. Lock, install,
+and hook setup must succeed or stop with the provisioner's recovery commands. Migration verifies the installed Git hook
+routing and direct config readiness before the adoption commit, so the ordinary commit exercises the reconciled pinned
+hook rather than ambient tooling.
 
-A hook failure stops. The response names the hook/step, preserves the worktree, and gives a command to reproduce and
-correct it. An exception to one incompatible intermediate check requires explicit user approval, an equivalent targeted
-validation result, and a durable migration note; broad bypass remains prohibited.
+If strict final documentation is intentionally premature because legacy task files remain, the only supported targeted
+exception is explicit user-approved `HK_SKIP_STEPS=docs git commit ...` after
+`uv run scripts/check-docs.py --migration-mode` passes. The durable migration note records approval, reason, equivalent
+result, and residual risk; every other configured hook step still runs. Once finalization removes legacy inputs,
+ordinary commits run strict docs without that environment variable. A hook failure stops, names the hook/step, preserves
+the worktree, and gives a reproduction and recovery command. `HK_SKIP_HOOK` and broad bypass remain prohibited.
 
 ### Quality Requirements
 
 - Preservation checks compare behavior inventories, not raw formatting.
-- Repeated scans/import/finalization remain idempotent.
+- Repeated scans/import/finalization remain idempotent, including byte-stable durable scan/report output when inputs are
+  unchanged.
 - Prompt contract tests cover every decision category.
 - Failure fixtures prove unapproved step loss, untracked archives, temporary leftovers, and hook failure block
   completion.
@@ -123,9 +134,10 @@ validation result, and a durable migration note; broad bypass remains prohibited
 
 ### Compatibility and Migration Requirements
 
-Existing migration manifests remain readable. New inventory, artifact, question, and checkpoint evidence uses optional
-schema fields with explicit defaults, or a schema migration when omission would be ambiguous. Resuming an older
-migration captures missing baseline evidence before further mutation. Existing archived tasks are preserved.
+Existing migration manifests remain readable. New inventory, artifact, answer, and checkpoint evidence uses optional
+schema fields with explicit defaults; missing inventory/readiness and unresolved backup disposition block mutation until
+captured or decided. Resuming an older migration captures baseline evidence before further mutation, preserves imported
+Beads identities, and preserves existing archived tasks.
 
 ## Existing Context
 
@@ -167,46 +179,59 @@ classes. Broad hook bypass is prohibited, and prompt clarity has a testable mini
 ## Operational Considerations
 
 An unevaluable legacy hk config may require manual inventory confirmation and can delay migration. This is preferable to
-silent loss. Hook failures may expose pre-existing defects; baseline evidence distinguishes them from adoption defects.
-Recovery remains local and resumable. Durable archives increase repository size slightly but preserve evidence.
+silent loss. Hook failures may expose pre-existing defects; baseline readiness evidence aids attribution without proving
+it. Recovery remains local and resumable. Durable archives increase repository size slightly but preserve evidence.
 
 ## Documentation Impact
 
-| Documentation concern      | Exact page                                                | Create or update        | Planned change                                            | Owning Beads task   |
-|----------------------------|-----------------------------------------------------------|-------------------------|-----------------------------------------------------------|---------------------|
-| Architecture               | `docs/src/architecture/index.md`                          | Update                  | Additive adoption and hook-verification boundary          | `dstack-mol-9zl.5`  |
-| Usage / Operations         | `docs/src/operations/index.md`                            | Update                  | Questions, collision flow, artifact lifecycle, recovery   | `dstack-mol-9zl.5`  |
-| Development                | `docs/src/development/index.md`                           | Update                  | Fixtures, checkpoint validation, and contributor workflow | `dstack-mol-9zl.5`  |
-| Reference                  | `docs/src/reference/index.md`                             | Update                  | Inventory/disposition fields and artifact state contracts | `dstack-mol-9zl.5`  |
-| Skill procedure            | `skills/migrate-workflow/SKILL.md`                        | Update                  | Ordered gates, contextual questions, verified commits     | tasks `.1`–`.4`     |
-| Migration reference        | `skills/migrate-workflow/references/MIGRATION.md`         | Update                  | Detailed reconciliation, archive, and recovery procedures | tasks `.1`–`.4`     |
-| Navigation                 | `docs/src/SUMMARY.md`                                     | Update design markers   | Register this design                                      | planning            |
-| Implemented Feature Record | `docs/src/features/migration-safety-and-clarity/index.md` | Create during close-out | Preserve delivery and audit history                       | lifecycle close-out |
+| Documentation concern      | Exact page                                                | Create or update        | Planned change                                                                                                        | Owning Beads task                |
+|----------------------------|-----------------------------------------------------------|-------------------------|-----------------------------------------------------------------------------------------------------------------------|----------------------------------|
+| Architecture               | `docs/src/architecture/index.md`                          | Update                  | Additive adoption and hook-verification boundary                                                                      | `dstack-mol-9zl.5`               |
+| Usage / Operations         | `docs/src/operations/index.md`                            | Update incrementally    | Questions/collisions (`.1`, `.3`), artifact lifecycle (`.2`), verified checkpoints, failure/exception recovery (`.4`) | tasks `.1`–`.4`; `.5` reconciles |
+| Development                | `docs/src/development/index.md`                           | Update incrementally    | Checkpoint validation and contributor workflow (`.4`), combined fixtures (`.5`)                                       | tasks `.4`–`.5`                  |
+| Reference                  | `docs/src/reference/index.md`                             | Update incrementally    | Exact commands/defaults plus inventory (`.1`), artifact (`.2`), answer (`.3`), and checkpoint (`.4`) fields           | tasks `.1`–`.4`; `.5` reconciles |
+| Skill procedure            | `skills/migrate-workflow/SKILL.md`                        | Update                  | Ordered gates, contextual questions, verified commits                                                                 | tasks `.1`–`.4`                  |
+| Migration reference        | `skills/migrate-workflow/references/MIGRATION.md`         | Update                  | Detailed reconciliation, archive, and recovery procedures                                                             | tasks `.1`–`.4`                  |
+| Navigation                 | `docs/src/SUMMARY.md`                                     | Update design markers   | Register this design                                                                                                  | planning                         |
+| Implemented Feature Record | `docs/src/features/migration-safety-and-clarity/index.md` | Create during close-out | Preserve delivery and audit history                                                                                   | lifecycle close-out              |
 
 ## Validation Strategy
 
 - Preserve and compare custom hk steps in a legacy migration fixture.
 - Inject same-key collisions and require a recorded disposition.
-- Reject unapproved step deletion and unevaluated claims of equivalence.
-- Finalize into tracked archives; reject untracked archives and candidate leftovers.
-- Assert every prompt category includes the seven required context elements.
-- Use a failing pre-commit hook to prove checkpoint mutation stops without bypass.
+- Reject unapproved step deletion and unevaluated claims of equivalence; require manual confirmation for unevaluable hk.
+- Repeat unchanged `scan --write` and assert byte-stable manifest/report output.
+- Finalize into tracked archives; reject untracked archives, candidate leftovers, and unresolved backup disposition;
+  cover retained and removed backups.
+- Assert every named prompt category includes the seven required context elements without snapshotting incidental prose.
+- Use failing and successful provisioner/hook fixtures to prove checkpoint mutation stops or commits through installed
+  hooks; cover the targeted docs exception record.
+- Resume an older manifest before mutation; preserve baseline evidence, imported Beads identities, and existing
+  archives.
 - Resume after each failure and confirm idempotence.
 - Run migration verifier with Beads, strict documentation checks, focused/full tests, and final clean status.
 
 ## Implementation Decomposition
 
-1. `dstack-mol-9zl.1`: capture inventories and guard additive hk reconciliation.
-2. `dstack-mol-9zl.2`: classify artifacts and reject untracked durable archives.
-3. `dstack-mol-9zl.3`: standardize contextual questions and examples.
-4. `dstack-mol-9zl.4`: prohibit broad hook bypass and validate checkpoint hooks.
-5. `dstack-mol-9zl.5`: exercise the complete resumable migration and reconcile reader documentation.
+1. `dstack-mol-9zl.1`: capture inventories/readiness, preserve byte-stable scans, guard additive hk reconciliation, and
+   update its operations/reference sections.
+2. `dstack-mol-9zl.2`: classify artifacts, enforce backup disposition and durable tracking, and update its
+   operations/reference sections.
+3. `dstack-mol-9zl.3`: standardize the reusable contextual-question checklist/examples and update its
+   operations/reference sections.
+4. `dstack-mol-9zl.4`: provision the reconciled pinned hook, prohibit broad bypass, validate checkpoint hooks/targeted
+   exceptions, and update development/operations/reference sections.
+5. `dstack-mol-9zl.5`: exercise old-manifest compatibility and the complete resumable migration, then reconcile all
+   reader documentation.
 
 ## Dependencies and Parallelism
 
 This feature depends on hk policy simplification so its candidate inventory reflects the final generated policy. Tasks
 are serialized because they share the migration skill, reference, script, manifest, and integration fixture. Every task
-depends directly on specification reconciliation.
+depends directly on specification reconciliation. Each task runs its named focused migration test with
+`uv run --frozen --group test pytest`, `uv run scripts/check-docs.py`, `HK_JOBS=1 mise run check`, and the full
+`uv run --frozen --group test pytest` suite before commit; `.5` additionally runs the complete migration test partition
+and asserts final clean status.
 
 ## Rollout and Migration
 
@@ -218,7 +243,8 @@ state without changing imported Beads identities. A migration blocked by new evi
 Capability inventories cannot prove semantic equivalence for arbitrary custom shell commands, so collisions remain a
 human decision. More contextual prompts make individual questions longer but reduce uninformed answers and rework.
 Strict hook enforcement may uncover legacy defects earlier and lengthen migration, which is the intended safety
-tradeoff.
+tradeoff. Pre-adoption readiness evidence supports attribution but cannot by itself prove whether every later failure
+was pre-existing.
 
 ## Rejected Alternatives
 
