@@ -57,8 +57,8 @@ renders shared root tooling plus package-local task ownership.
 
 ### Compatibility and Migration Requirements
 
-This depends on stable profile composition from Language quality profiles. It may ship later without blocking
-single-package adoption.
+This depends on stable profile composition from Language quality profiles and the native runner contract from hk policy
+simplification. It may ship later without blocking single-package adoption.
 
 ## Existing Context
 
@@ -120,8 +120,8 @@ current official behavior.
 
 ## Dependencies and Parallelism
 
-Depends on Language quality profiles. Research can begin earlier; implementation waits for profile answer and
-composition stability.
+Depends on Language quality profiles and hk policy simplification. Stable mise capability research can begin during
+implementation, but rendering waits for the simplified profile and runner contracts.
 
 ## Rollout and Migration
 

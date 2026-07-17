@@ -32,6 +32,8 @@
   - [Universal project tooling](features/universal-project-tooling/design.md)
   - [Language quality profiles](features/language-quality-profiles/design.md)
   - [GitHub validation and docs deployment](features/github-validation-and-docs-deployment/design.md)
+  - [hk policy simplification](features/hk-policy-simplification/design.md)
+  - [Migration safety and clarity](features/migration-safety-and-clarity/design.md)
   - [Monorepo tooling layout](features/monorepo-tooling-layout/design.md)
   <!-- END FEATURE DESIGNS -->
 - [Implemented features](features/index.md)
