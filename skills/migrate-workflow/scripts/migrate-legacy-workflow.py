@@ -74,6 +74,8 @@ DEFAULT_REPORT = Path("migration/workflow-migration.md")
 DEFAULT_TASK_ARCHIVE = Path("migration/legacy-tasks")
 DEFAULT_BASELINE_JSON = Path("migration/baseline.json")
 DEFAULT_BASELINE_REPORT = Path("migration/baseline.md")
+TEMPLATE_CANDIDATE_DIR = Path("migration/template-adoption-candidates")
+TEMPLATE_BACKUP_DIR = Path("migration/template-adoption-backup")
 FORMULA_PATH = Path(".beads/formulas/dstack-feature.formula.toml")
 FEATURES_PATH = Path("docs/src/features")
 ROADMAP_PATH = Path("docs/src/planned-features.md")
@@ -958,6 +960,16 @@ def build_manifest(
         )
     dispositions = [item for item in previous_hk.get("dispositions", []) if isinstance(item, dict)]
 
+    had_artifact_state = bool(existing_manifest and "artifacts" in existing_manifest)
+    previous_artifacts = (existing_manifest or {}).get("artifacts", {})
+    backup_exists = (root / TEMPLATE_BACKUP_DIR).exists()
+    backup_disposition = previous_artifacts.get("backup_disposition")
+    if (not had_artifact_state and existing_manifest) or (
+        backup_exists and backup_disposition not in {"retain", "remove"}
+    ):
+        backup_disposition = "unresolved"
+    elif not backup_exists and backup_disposition not in {"retain", "remove", "unresolved"}:
+        backup_disposition = "not_applicable"
     manifest = {
         **(existing_manifest or {}),
         "schema_version": SCHEMA_VERSION,
@@ -976,6 +988,14 @@ def build_manifest(
             "parsed_tasks": parsed_tasks,
         },
         "hk_reconciliation": hk_reconciliation_state(baseline_hk, current_hk, dispositions),
+        "artifacts": {
+            **previous_artifacts,
+            "candidate_directory": str(TEMPLATE_CANDIDATE_DIR),
+            "candidate_present": (root / TEMPLATE_CANDIDATE_DIR).exists(),
+            "backup_directory": str(TEMPLATE_BACKUP_DIR),
+            "backup_present": backup_exists,
+            "backup_disposition": backup_disposition,
+        },
         "features": features,
     }
     if existing_manifest:
@@ -1032,8 +1052,16 @@ def render_report(manifest: Mapping[str, Any]) -> str:
         location_text = f" `{location}`" if location else ""
         message = issue.get("message", "reconciliation required")
         lines.append(f"- `{issue.get('kind', 'unknown')}`{location_text}: {message}")
+    artifacts = manifest.get("artifacts", {})
     lines.extend(
         [
+            "",
+            "## Artifact Lifecycle",
+            "",
+            f"- Temporary candidates present: {bool(artifacts.get('candidate_present'))}",
+            f"- Conditional backup present: {bool(artifacts.get('backup_present'))}",
+            f"- Backup disposition: `{artifacts.get('backup_disposition', 'unresolved')}`",
+            f"- Backup disposition reason: {artifacts.get('backup_disposition_reason') or '—'}",
             "",
             "## Feature Mapping",
             "",
@@ -2665,6 +2693,51 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
             f"hk reconciliation {issue.get('kind', 'issue')}{f' at {location}' if location else ''}; "
             "restore the existing step or record an explicit reconcile-hk disposition"
         )
+    artifacts = manifest.get("artifacts", {})
+    candidate_dir = root / str(artifacts.get("candidate_directory", TEMPLATE_CANDIDATE_DIR))
+    backup_dir = root / str(artifacts.get("backup_directory", TEMPLATE_BACKUP_DIR))
+    backup_disposition = artifacts.get("backup_disposition", "unresolved" if backup_dir.exists() else "not_applicable")
+    if candidate_dir.exists():
+        errors.append(f"Temporary migration candidate directory remains: {candidate_dir.relative_to(root)}")
+    if backup_disposition == "unresolved":
+        errors.append("Template-adoption backup requires an explicit retain or remove disposition")
+    if backup_dir.exists() and backup_disposition == "remove":
+        errors.append("Template-adoption backup is marked remove but still exists")
+    if not backup_dir.exists() and backup_disposition == "retain":
+        errors.append("Template-adoption backup is marked retain but is missing")
+    if backup_disposition in {"retain", "remove"} and not str(artifacts.get("backup_disposition_reason", "")).strip():
+        errors.append("Template-adoption backup disposition requires a nonempty reason")
+    if manifest.get("migration_finalized"):
+        durable_paths = {
+            Path(str(manifest.get("manifest_path", DEFAULT_MANIFEST))),
+            DEFAULT_REPORT,
+            DEFAULT_BASELINE_JSON,
+            DEFAULT_BASELINE_REPORT,
+        }
+        durable_paths.update(
+            Path(str(feature["legacy_tasks_archive"]))
+            for feature in features
+            if feature.get("legacy_tasks_archive") and not str(feature["legacy_tasks_archive"]).startswith("deleted;")
+        )
+        durable_paths.update(
+            path.relative_to(root) for path in (root / DEFAULT_TASK_ARCHIVE).glob("*.md") if path.is_file()
+        )
+        for path in sorted(durable_paths):
+            target = root / path
+            if not target.exists():
+                errors.append(f"Required durable migration artifact is missing: {path}")
+                continue
+            if not (root / ".git").exists():
+                continue
+            tracked = subprocess.run(
+                ["git", "ls-files", "--error-unmatch", "--", str(path)],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if tracked.returncode != 0:
+                errors.append(f"Durable migration artifact is untracked: {path}")
     for cycle in beads_traversal_cycles(features):
         errors.append(
             "Migration manifest contains a Beads traversal cycle: " + render_relationship_cycle(cycle, features)
@@ -2885,6 +2958,28 @@ def baseline_repository(
     return 1 if any(item["status"] == "failed" for item in checks.values()) else 0
 
 
+def set_backup_disposition(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    manifest_path: Path,
+    report_path: Path,
+    disposition: str,
+    reason: str,
+) -> None:
+    reason = reason.strip()
+    if not reason:
+        message = "Backup disposition requires a nonempty reason"
+        raise MigrationError(message)
+    artifacts = manifest.setdefault("artifacts", {})
+    if not artifacts.get("backup_present") and artifacts.get("backup_disposition") == "not_applicable":
+        message = "No template-adoption backup requires a disposition"
+        raise MigrationError(message)
+    artifacts["backup_disposition"] = disposition
+    artifacts["backup_disposition_reason"] = reason
+    save_manifest_and_report(root, manifest_path, report_path, manifest)
+
+
 def confirm_hk_inventory(
     root: Path,
     manifest: dict[str, Any],
@@ -2994,6 +3089,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     scan = subparsers.add_parser("scan", help="Inventory the legacy workflow")
     add_common_arguments(scan)
     scan.add_argument("--write", action="store_true", help="Write manifest and report")
+
+    backup_disposition = subparsers.add_parser(
+        "backup-disposition",
+        help="Record whether conditional template-adoption backups are retained or removed",
+    )
+    add_common_arguments(backup_disposition)
+    backup_disposition.add_argument("disposition", choices=("retain", "remove"))
+    backup_disposition.add_argument("--reason", required=True)
 
     hk_confirmation = subparsers.add_parser(
         "confirm-hk-inventory",
@@ -3148,6 +3251,17 @@ def _main(args: argparse.Namespace) -> int:
             return 0
 
         manifest = load_or_scan(root, args)
+
+        if args.command == "backup-disposition":
+            set_backup_disposition(
+                root,
+                manifest,
+                manifest_path=args.manifest,
+                report_path=args.report,
+                disposition=args.disposition,
+                reason=args.reason,
+            )
+            return 0
 
         if args.command == "confirm-hk-inventory":
             confirm_hk_inventory(

@@ -59,8 +59,8 @@ Inspect every path in `manual_merge`. Preserve every baseline hk step by default
 blocks lost or changed steps. Restore them or use the explicit user-approved procedure in
 **Additive hk reconciliation**. Never assert equivalence for an unevaluable baseline. Merge only the workflow structure
 the existing project needs into the current file; do not replace project-specific navigation, architecture, operations,
-or reference content wholesale. Record the resolution, then remove `migration/template-adoption-candidates/`. The
-candidate directory is temporary and must not be committed. Validate the reconciled structure in migration mode:
+or reference content wholesale. Remove temporary candidates, and explicitly retain or remove conditional backups using
+**Artifact lifecycle**; unresolved state blocks verification. Validate the reconciled structure in migration mode:
 
 ```bash
 uv run scripts/check-docs.py --migration-mode

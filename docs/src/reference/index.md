@@ -21,6 +21,9 @@ definitions. `scan --write` compares current hk behavior and is byte-stable when
 unavailable. `reconcile-hk <hook> <step> <remove|replace> --reason <decision>` records the only accepted loss/collision
 disposition, including the specifically approved existing and candidate behavior. `verify` re-evaluates current hk and
 rejects stale scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed manual baseline.
+`backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup state. Final verification requires
+tracked manifests, reports, baselines, and archived legacy tasks; it rejects candidate directories and inconsistent
+backup presence/disposition.
 
 ## Setup project brief
 

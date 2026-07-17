@@ -3903,6 +3903,110 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
     assert {item["kind"] for item in confirmed["hk_reconciliation"]["issues"]} == {"current_inventory_unevaluable"}
 
 
+def test_migration_artifact_lifecycle(repository_root: Path, tmp_path: Path) -> None:
+    from tests.test_migrate_legacy_workflow import create_legacy_project
+
+    migrator = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
+    project = tmp_path / "artifacts"
+    create_legacy_project(project)
+    initialize_git(project, "legacy project")
+
+    def migrate(*arguments: str, expected: int = 0) -> subprocess.CompletedProcess[str]:
+        return run_command(
+            ["uv", "run", str(migrator), *arguments, "--root", str(project)], cwd=project, expected=expected
+        )
+
+    migrate("baseline", "--write")
+    migrate("scan", "--write")
+    candidates = project / "migration/template-adoption-candidates"
+    backup = project / "migration/template-adoption-backup"
+    (candidates / "hk.pkl").parent.mkdir(parents=True)
+    (candidates / "hk.pkl").write_text("candidate\n", encoding="utf-8")
+    (backup / "answers.yml").parent.mkdir(parents=True)
+    (backup / "answers.yml").write_text("backup\n", encoding="utf-8")
+    migrate("scan", "--write")
+    invalid = migrate("verify", "--skip-docs-check", expected=1)
+    assert "Temporary migration candidate directory remains" in invalid.stderr
+    assert "backup requires an explicit retain or remove disposition" in invalid.stderr
+
+    shutil.rmtree(candidates)
+    migrate("scan", "--write")
+    migrate("backup-disposition", "retain", "--reason", "Preserve prior Copier answers")
+    retained = json.loads((project / "migration/workflow-migration.json").read_text(encoding="utf-8"))
+    assert retained["artifacts"]["backup_disposition"] == "retain"
+    assert retained["artifacts"]["backup_disposition_reason"] == "Preserve prior Copier answers"
+    retained["artifacts"].pop("backup_disposition_reason")
+    (project / "migration/workflow-migration.json").write_text(json.dumps(retained), encoding="utf-8")
+    missing_reason = migrate("verify", "--skip-docs-check", expected=1)
+    assert "backup disposition requires a nonempty reason" in missing_reason.stderr
+    retained["artifacts"]["backup_disposition_reason"] = "Preserve prior Copier answers"
+    (project / "migration/workflow-migration.json").write_text(json.dumps(retained), encoding="utf-8")
+
+    migrate("backup-disposition", "remove", "--reason", "Git history and current answers are sufficient")
+    marked_remove = migrate("verify", "--skip-docs-check", expected=1)
+    assert "marked remove but still exists" in marked_remove.stderr
+    shutil.rmtree(backup)
+    migrate("scan", "--write")
+    removed = json.loads((project / "migration/workflow-migration.json").read_text(encoding="utf-8"))
+    assert removed["artifacts"]["backup_disposition"] == "remove"
+
+    manifest_path = project / "migration/workflow-migration.json"
+    old_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    old_manifest.pop("artifacts")
+    manifest_path.write_text(json.dumps(old_manifest), encoding="utf-8")
+    migrate("scan", "--write")
+    upgraded_without_backup = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert upgraded_without_backup["artifacts"]["backup_disposition"] == "unresolved"
+    unresolved_without_backup = migrate("verify", "--skip-docs-check", expected=1)
+    assert "backup requires an explicit retain or remove disposition" in unresolved_without_backup.stderr
+    whitespace_reason = migrate("backup-disposition", "remove", "--reason", "   ", expected=2)
+    assert "requires a nonempty reason" in whitespace_reason.stderr
+    backup.mkdir(parents=True)
+    migrate("scan", "--write")
+    upgraded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert upgraded["artifacts"]["backup_disposition"] == "unresolved"
+
+    shutil.rmtree(backup)
+    migrate("backup-disposition", "remove", "--reason", "No prior backup remains")
+    migrate("scan", "--write")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    archive = project / "migration/legacy-tasks/alpha.md"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    archive.write_text("# Archived tasks\n", encoding="utf-8")
+    manifest["migration_finalized"] = True
+    manifest["features"][0]["legacy_tasks_archive"] = "migration/legacy-tasks/alpha.md"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    orphan = project / "migration/legacy-tasks/orphan.md"
+    orphan.write_text("# Existing archived evidence\n", encoding="utf-8")
+    (project / "migration/baseline.md").unlink()
+    untracked = migrate("verify", "--skip-docs-check", expected=1)
+    assert "Required durable migration artifact is missing: migration/baseline.md" in untracked.stderr
+    assert "Durable migration artifact is untracked: migration/legacy-tasks/alpha.md" in untracked.stderr
+    assert "Durable migration artifact is untracked: migration/legacy-tasks/orphan.md" in untracked.stderr
+    (project / "migration/baseline.md").write_text("# Baseline\n", encoding="utf-8")
+    run_command(
+        [
+            "git",
+            "add",
+            "migration/baseline.json",
+            "migration/baseline.md",
+            "migration/workflow-migration.json",
+            "migration/workflow-migration.md",
+            "migration/legacy-tasks/alpha.md",
+            "migration/legacy-tasks/orphan.md",
+        ],
+        cwd=project,
+    )
+    tracked = migrate("verify", "--skip-docs-check", expected=1)
+    assert "Durable migration artifact is untracked" not in tracked.stderr
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["features"][0]["legacy_tasks_archive"] = "deleted; retained in Git history"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    deletion = migrate("verify", "--skip-docs-check", expected=1)
+    assert "deleted; retained in Git history" not in deletion.stderr
+
+
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
     script = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
         encoding="utf-8"

@@ -331,6 +331,7 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     legacy_project: Path,
     fake_bd_environment: tuple[dict[str, str], Path],
 ) -> None:
+    run_migrator(legacy_project, "baseline", "--write")
     run_migrator(legacy_project, "scan", "--write")
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
 
