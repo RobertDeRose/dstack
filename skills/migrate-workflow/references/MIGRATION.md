@@ -80,6 +80,24 @@ deleted. Final verification rejects untracked durable artifacts and every incons
 `finalize` archives legacy task files by default. `--delete-tasks` is the explicit alternative when the user accepts Git
 history as sufficient evidence.
 
+## Contextual migration questions
+
+Ask one decision at a time with this reusable contract:
+
+1. **Decision** — a concise title.
+2. **Why now** — why migration cannot safely continue without it.
+3. **Evidence and uncertainty** — current authoritative facts and what remains unknown.
+4. **Controlled behavior** — behavior/files changed by the answer.
+5. **Concrete example** — one valid answer in the current context.
+6. **Choices and safe default** — explicit options and the conservative default, when one exists.
+7. **Deferral consequence** — exactly what remains blocked if unanswered.
+
+Apply all seven elements to every category: structured brief fields; project kind; feature classification; missing
+design intent; dependency direction/type; hk collision/removal; candidate-file reconciliation; archive deletion or
+backup disposition; and any other explicit policy choice. Do not ask the user to inspect internal implementation files.
+Persist only answers needed for safety or resume (for example, a collision disposition); product intent belongs in the
+design, roadmap, and Beads. Do not copy conversational prompt prose into the manifest.
+
 ## Template source and revision
 
 Adoption renders the current tagged **new-project** template into a temporary directory first. It does not depend on a

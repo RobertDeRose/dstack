@@ -23,7 +23,8 @@ disposition, including the specifically approved existing and candidate behavior
 rejects stale scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed manual baseline.
 `backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup state. Final verification requires
 tracked manifests, reports, baselines, and archived legacy tasks; it rejects candidate directories and inconsistent
-backup presence/disposition.
+backup presence/disposition. Migration stores only answers required for safety/resume, such as classification,
+dependency, collision, and artifact dispositions; question prose is not schema state.
 
 ## Setup project brief
 

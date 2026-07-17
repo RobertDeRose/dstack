@@ -47,7 +47,9 @@ step or changed same-key definition blocks verification until restored or explic
 reason. If the legacy config cannot be evaluated, migration stops for manual inventory confirmation rather than treating
 the generated policy as equivalent. Durable manifests, reports, baselines, and legacy-task archives must be committed;
 temporary candidates must be removed. Conditional adoption backups require an explicit retain/remove disposition.
-Repeated unchanged scans do not churn committed migration evidence.
+Repeated unchanged scans do not churn committed migration evidence. Migration asks one question at a time with a concise
+decision title, why it is needed, current evidence/uncertainty, controlled behavior, a concrete example, choices/safe
+default, and the consequence of deferral.
 
 Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
 `pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents

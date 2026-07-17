@@ -42,9 +42,8 @@ candidate equivalence. See **Baseline interpretation** for commands, missing too
 
 ## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
-Collect the structured brief before rendering. Reuse a value only when current Copier state already records it;
-otherwise ask one question at a time for purpose, users, scope, boundaries, and project kind. Never infer these facts
-from legacy descriptions or repository contents. Run adoption with the exact flags in **Template source and revision**.
+Collect the structured brief before rendering. Reuse only current Copier state; otherwise ask purpose, users, scope,
+boundaries, and kind one at a time using **Contextual migration questions**. Never infer facts from legacy evidence.
 
 The adoption helper copies missing scaffold files, merges marked dstack blocks in `AGENTS.md` and `.gitignore`, and
 updates only dstack-owned framework files directly. If Copier state already exists, it backs up the old answers and
@@ -107,10 +106,9 @@ relationships. A `related` edge is contextual, but `bd list` still traverses it.
 - **Semantic decisions**;
 - **Dependency cycles**.
 
-For each imported feature or task, find missing outcomes, boundaries, acceptance, ownership, dependencies,
-documentation, validation, or alternatives. If execution needs a user decision, run the **Design Question Loop** from
-`/plan-features`: ask one at a time, persist answers in the migration plan, designs, and roadmap, and reconcile the
-planned graph until work is executable without invented intent. Gate 5 carries those decisions into Beads.
+For missing executable intent, use **Contextual migration questions** and the `/plan-features` Design Question Loop one
+answer at a time. Persist only safety/resumability answers in migration state; put product intent in designs/roadmap.
+Gate 5 carries those decisions into Beads.
 
 If the user stops or defers reconciliation, retain the task with `migration:reconciliation` provenance and a blocking
 reconciliation bead, then report semantic reconciliation pending. Only migration may retain unresolved decision tasks.
