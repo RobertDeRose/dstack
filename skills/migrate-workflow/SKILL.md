@@ -80,7 +80,7 @@ If `bd` exists, initialize it directly in stealth mode without installing extra 
 bd init --stealth --skip-agents
 bd formula show dstack-feature --json
 bd prime
-git add .beads
+git add -f .beads/formulas/dstack-feature.formula.toml
 git diff --cached --quiet || git commit -m "chore: initialize Beads workflow state"
 test -z "$(git status --porcelain)"
 ```

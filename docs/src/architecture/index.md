@@ -28,6 +28,22 @@ concrete content for them. Copier records the brief so later template renders re
 Root and generated hk configurations prefer version-pinned built-in steps. Native file locking coordinates independent
 checks; explicit dependencies are reserved for demonstrated output ownership rather than global serialization.
 
+## Migration boundary
+
+Legacy adoption is additive. The migration manifest records pre/post hook capabilities, artifact dispositions,
+contextual safety decisions, and verified checkpoint evidence; it does not replace Beads as live work authority or
+Copier as scaffold authority. Project-owned files remain authoritative through candidate reconciliation. Only the
+rendered project-local provisioner may install locked tools and hooks, and ordinary Git commits remain the checkpoint
+authority.
+
+## Repository identity boundary
+
+Migration distinguishes the active worktree path from canonical repository identity. Explicit recorded answers win;
+otherwise the primary Git common directory supplies the project name and slug, and `refs/remotes/origin/HEAD` supplies
+the default branch; only a primary worktree may use its current branch as evidence. A suffixed migration-worktree
+basename is never adopted as project identity. Stealth Beads runtime state remains local; the portable project formula
+is the durable tracked policy.
+
 ## Safety invariants
 
 - New-project setup does not overwrite or migrate existing project content.

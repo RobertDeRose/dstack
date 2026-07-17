@@ -36,6 +36,15 @@ mutation. Each feature's `beads.import_phase` is `root-created`, `state`, `relat
 survive rescans. Empty explicit task status uses checkbox fallback: `[ ]` is `open`, `[-]` is `in_progress`, and `[x]`
 is `closed`. A nonempty recognized explicit status takes precedence.
 
+## Migration repository identity
+
+Adoption precedence is explicit CLI value, recorded Copier answer, then Git evidence. Project name comes from the
+primary repository directory resolved through `--git-common-dir`; the slug is derived from that name. Default branch
+comes from `refs/remotes/origin/HEAD`; only the primary worktree may fall back to its current symbolic branch. A linked
+worktree requires `--default-branch` when the remote default is unavailable. Stealth initialization tracks
+`.beads/formulas/dstack-feature.formula.toml` with `git add -f`; its database and local runtime configuration remain
+untracked.
+
 ## Setup project brief
 
 | Copier answer        | Helper flag      | Contract                                                                                          |

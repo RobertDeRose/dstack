@@ -118,10 +118,13 @@ Adoption renders the current tagged **new-project** template into a temporary di
 migration script copied into the target project. Commit the reconciled Copier adoption before initializing Beads so the
 framework and workflow-state boundaries remain distinct.
 
-Default adoption requires an explicit structured brief unless current Copier state already records individual values:
+Default adoption requires explicit identity and a structured brief unless current Copier state already records
+individual values:
 
 ```bash
-uv run <skill-dir>/scripts/adopt-template.py \
+uv run <skill-dir>/scripts/adopt-template.py '<canonical project name>' \
+  --project-slug <canonical-project-slug> \
+  --default-branch <repository-default-branch> \
   --purpose '<problem and intended outcome>' \
   --users '<intended users>' \
   --scope '<current supported scope>' \
@@ -138,7 +141,9 @@ discovered, supply an explicitly reviewed revision; never silently use GitHub `H
 For a fork, local repository, branch, or commit:
 
 ```bash
-uv run <skill-dir>/scripts/adopt-template.py \
+uv run <skill-dir>/scripts/adopt-template.py '<canonical project name>' \
+  --project-slug <canonical-project-slug> \
+  --default-branch <repository-default-branch> \
   --purpose '<problem and intended outcome>' \
   --users '<intended users>' \
   --scope '<current supported scope>' \
@@ -172,8 +177,12 @@ Initialize Beads only after adoption is committed:
 
 ```bash
 bd init --stealth --skip-agents
+git add -f .beads/formulas/dstack-feature.formula.toml
 bd formula show dstack-feature --json
 ```
+
+Stealth mode keeps the embedded database and local `.beads` runtime configuration untracked. Commit only the durable
+project formula above unless repository policy explicitly names another portable Beads file.
 
 ## Task parser coverage
 

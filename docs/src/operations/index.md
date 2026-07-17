@@ -60,6 +60,13 @@ in the manifest, so retries skip completed state rather than replaying it. A lat
 and completion timestamps, phase state, identities, and the last progress summary. Legacy checkbox states map `[ ]` to
 open, `[-]` to in progress, and `[x]` to closed unless a nonempty explicit status overrides the checkbox.
 
+Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git common
+directory, not the migration worktree basename, and derives the default branch from `origin/HEAD` before the checked-out
+primary worktree branch. A linked migration worktree without `origin/HEAD` requires an explicit default branch. Supply
+explicit project name, slug, and default branch when evidence is missing or incorrect. After
+`bd init --stealth --skip-agents`, force-add only `.beads/formulas/dstack-feature.formula.toml`; keep the embedded
+database and local runtime configuration untracked.
+
 Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
 `pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents
 recognized profile suggestions for confirmation. It never applies suggestions automatically.

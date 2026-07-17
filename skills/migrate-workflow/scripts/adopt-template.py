@@ -215,6 +215,36 @@ def git_root(path: Path) -> Path:
     return Path(completed.stdout.strip()).resolve()
 
 
+def git_value(root: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), *arguments],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def canonical_repository_name(root: Path) -> str:
+    common_dir = git_value(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if common_dir:
+        common_path = Path(common_dir).resolve()
+        if common_path.name == ".git":
+            return common_path.parent.name
+    return root.name
+
+
+def repository_default_branch(root: Path) -> str:
+    remote_head = git_value(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    if remote_head.startswith("origin/"):
+        return remote_head.removeprefix("origin/")
+    git_dir = git_value(root, "rev-parse", "--path-format=absolute", "--git-dir")
+    common_dir = git_value(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if git_dir and common_dir and Path(git_dir).resolve() == Path(common_dir).resolve():
+        return git_value(root, "symbolic-ref", "--short", "HEAD")
+    return ""
+
+
 def git_status(root: Path) -> list[str]:
     completed = subprocess.run(
         ["git", "status", "--porcelain=v1", "--untracked-files=all"],
@@ -308,7 +338,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--scope")
     parser.add_argument("--boundaries")
     parser.add_argument("--project-kind", choices=PROJECT_KINDS)
-    parser.add_argument("--default-branch", default="main")
+    parser.add_argument("--default-branch")
     parser.add_argument(
         "--template-source",
         help="Template source override; defaults to existing Copier state or the official dstack repository.",
@@ -373,10 +403,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     recorded_slug = str(existing_answers.get("project_slug") or "").strip()
     recorded_branch = str(existing_answers.get("repository_default_branch") or "").strip()
     recorded_readme = existing_answers.get("include_readme")
-    project_name = (args.project_name or recorded_name or root.name).strip()
+    inferred_name = canonical_repository_name(root)
+    inferred_branch = repository_default_branch(root)
+    project_name = (args.project_name or recorded_name or inferred_name).strip()
     project_slug = args.project_slug or recorded_slug or slugify(project_name)
     brief = project_brief(args, existing_answers)
-    default_branch = args.default_branch if args.default_branch != "main" else recorded_branch or args.default_branch
+    default_branch = args.default_branch or recorded_branch or inferred_branch
+    if not default_branch:
+        message = "Template adoption requires --default-branch because repository policy could not be discovered"
+        raise SystemExit(message)
     include_readme = recorded_readme if isinstance(recorded_readme, bool) else True
 
     with tempfile.TemporaryDirectory(prefix="dstack-adopt-") as temporary:

@@ -3527,6 +3527,64 @@ def test_pre_f010_unmanaged_project_adoption_requires_and_records_a_brief(
 
 
 @pytest.mark.integration
+def test_adoption_uses_primary_repository_identity_and_remote_default_branch(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    primary = tmp_path / "canonical-project"
+    primary.mkdir()
+    (primary / "README.md").write_text("# Canonical project\n", encoding="utf-8")
+    initialize_git(primary, "canonical project")
+    run_command(["git", "branch", "dev"], cwd=primary)
+    migration = tmp_path / "canonical-project.chore-migrate-workflow"
+    run_command(["git", "worktree", "add", "-b", "chore/migrate-workflow", str(migration)], cwd=primary)
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    spec = importlib.util.spec_from_file_location("migration_adopt_template", adopt)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.repository_default_branch(migration) == ""
+
+    run_command(
+        ["git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/dev"],
+        cwd=primary,
+    )
+    assert module.repository_default_branch(migration) == "dev"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(migration),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--purpose",
+            "Adopt the canonical repository safely.",
+            "--users",
+            "Repository maintainers.",
+            "--scope",
+            "Workflow state and documentation.",
+            "--boundaries",
+            "Project content remains authoritative.",
+            "--project-kind",
+            "application",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["project_name"] == "canonical-project"
+    assert payload["project_slug"] == "canonical-project"
+    answers = yaml.safe_load((migration / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert answers["repository_default_branch"] == "dev"
+
+
+@pytest.mark.integration
 def test_pre_f010_managed_project_adoption_preserves_prior_state(
     tagged_template_source: Path,
     tmp_path: Path,
