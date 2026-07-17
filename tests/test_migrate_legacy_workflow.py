@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 import textwrap
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -180,6 +181,10 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
             state = Path(os.environ["FAKE_BD_STATE"])
             state.mkdir(parents=True, exist_ok=True)
             args = sys.argv[1:]
+            if args[:1] == ["--dolt-auto-commit=batch"]:
+                batch_count = state / "batch-count"
+                batch_count.write_text(str(int(batch_count.read_text()) + 1 if batch_count.exists() else 1))
+                args = args[1:]
             commands = state / "commands.jsonl"
             issues_path = state / "issues.json"
             issues = json.loads(issues_path.read_text()) if issues_path.exists() else {}
@@ -979,6 +984,72 @@ def test_selective_import_does_not_mark_global_completion(
     assert complete["beads_import_progress"]["completed"] == 2
     assert complete["beads_import_progress"]["remaining"] == 0
     assert "remaining: 0" in alpha.stdout
+
+
+@pytest.mark.integration
+def test_large_import_uses_bounded_batches_and_proportional_retry(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    roadmap = legacy_project / "docs/src/planned-features.md"
+    roadmap_additions: list[str] = []
+    for index in range(12):
+        slug = f"bulk-{index:02d}"
+        feature = legacy_project / "docs/src/features" / slug
+        feature.mkdir(parents=True)
+        (feature / "design.md").write_text(f"# {slug}\n", encoding="utf-8")
+        tasks = ["# Tasks", ""]
+        for task_index in range(12):
+            tasks.extend((f"- [x] `T{task_index + 10:03d}` Bulk task {task_index}", ""))
+        (feature / "tasks.md").write_text("\n".join(tasks), encoding="utf-8")
+        dependency = "None" if index == 0 else f"`bulk-{index - 1:02d}`"
+        roadmap_additions.extend((f"### `{slug}`", "", "- Status: Implemented", f"- Dependencies: {dependency}", ""))
+    roadmap.write_text(roadmap.read_text(encoding="utf-8") + "\n" + "\n".join(roadmap_additions), encoding="utf-8")
+
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    started = time.monotonic()
+    imported = run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    elapsed = time.monotonic() - started
+
+    issues = json.loads((state_dir / "issues.json").read_text(encoding="utf-8"))
+    commands_path = state_dir / "commands.jsonl"
+    before_retry = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
+    assert len(issues) >= 300
+    assert int((state_dir / "batch-count").read_text(encoding="utf-8")) >= len(issues)
+    batch_commits = [command for command in before_retry if command[:2] == ["dolt", "commit"]]
+    assert len(batch_commits) <= 2 * 14 + 1
+    assert elapsed < 240
+    assert "completed: 14" in imported.stdout
+    assert "remaining: 0" in imported.stdout
+
+    manifest_path = legacy_project / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    features = {feature["slug"]: feature for feature in manifest["features"]}
+    features["bulk-06"]["beads"]["import_phase"] = "relationships"
+    manifest["beads_import_completed_at"] = None
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    issues_path = state_dir / "issues.json"
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    source = features["bulk-06"]["beads"]["root_id"]
+    target = features["bulk-05"]["beads"]["root_id"]
+    issues[source]["dependencies"].pop(target)
+    issues_path.write_text(json.dumps(issues), encoding="utf-8")
+
+    resumed = run_migrator(legacy_project, "import-beads", "--feature", "bulk-06", "--apply", env=env)
+    after_retry = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
+    retry_mutations = [
+        command
+        for command in after_retry[len(before_retry) :]
+        if command and command[0] in {"create", "update", "close", "dep", "note"}
+    ]
+    assert retry_mutations == [["dep", "add", source, target, "--type", "blocks"]]
+    assert "remaining: 1" in resumed.stdout
+    assert resumed.stdout.rstrip().endswith("Import pass complete for 1 selected feature(s).")
+    progress = json.loads(manifest_path.read_text(encoding="utf-8"))["beads_import_progress"]
+    assert progress["completed"] == 14
+    assert progress["remaining"] == 0
 
 
 @pytest.mark.integration

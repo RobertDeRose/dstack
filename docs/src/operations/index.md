@@ -54,11 +54,12 @@ tools and Git hooks before an ordinary checkpoint commit. Failures stop with exa
 user-approved intermediate exception may skip only the strict docs step after migration-mode docs pass and the decision,
 equivalent evidence, and risk are recorded; whole-hook bypass is never allowed.
 
-Beads import dry-run is a separate nonmutating command. Apply begins with an explicit `APPLY STARTED` notice and reports
-existing, recovered, pending, conflicting, completed, remaining, and total features. Per-feature import phases persist
-in the manifest, so retries skip completed state rather than replaying it. A later `scan --write` preserves import start
-and completion timestamps, phase state, identities, and the last progress summary. Legacy checkbox states map `[ ]` to
-open, `[-]` to in progress, and `[x]` to closed unless a nonempty explicit status overrides the checkbox.
+Beads import dry-run is a separate nonmutating command. Apply uses bounded Dolt batch commits rather than one
+transaction per field or relationship. It begins with an explicit `APPLY STARTED` notice and reports existing,
+recovered, pending, conflicting, completed, remaining, and total features. Per-feature import phases persist in the
+manifest, so retries skip completed state rather than replaying it. A later `scan --write` preserves import start and
+completion timestamps, phase state, identities, and the last progress summary. Legacy checkbox states map `[ ]` to open,
+`[-]` to in progress, and `[x]` to closed unless a nonempty explicit status overrides the checkbox.
 
 Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git common
 directory, not the migration worktree basename, and derives the default branch from `origin/HEAD` before the checked-out

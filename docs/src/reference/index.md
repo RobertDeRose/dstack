@@ -29,12 +29,13 @@ dependency, collision, and artifact dispositions; question prose is not schema s
 exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs; its approval, reason, equivalent result, and
 risk are durable evidence.
 
-`import-beads` is dry-run by default and reports `existing`, `recovered`, `pending`, `conflicting`, `completed`,
-`remaining`, and `total`; only a separate invocation with `--apply` mutates Beads. Apply prints `APPLY STARTED` before
-mutation. Each feature's `beads.import_phase` is `root-created`, `state`, `relationships`, or `completed`.
-`beads_import_started_at`, `beads_import_completed_at`, `beads_import_progress`, imported IDs, and feature phases
-survive rescans. Empty explicit task status uses checkbox fallback: `[ ]` is `open`, `[-]` is `in_progress`, and `[x]`
-is `closed`. A nonempty recognized explicit status takes precedence.
+`import-beads` uses `bd --dolt-auto-commit=batch` and commits bounded per-feature state plus relationship phases. It is
+dry-run by default and reports `existing`, `recovered`, `pending`, `conflicting`, `completed`, `remaining`, and `total`;
+only a separate invocation with `--apply` mutates Beads. Apply prints `APPLY STARTED` before mutation. Each feature's
+`beads.import_phase` is `root-created`, `state`, `relationships`, or `completed`. `beads_import_started_at`,
+`beads_import_completed_at`, `beads_import_progress`, imported IDs, and feature phases survive rescans. Empty explicit
+task status uses checkbox fallback: `[ ]` is `open`, `[-]` is `in_progress`, and `[x]` is `closed`. A nonempty
+recognized explicit status takes precedence.
 
 ## Migration repository identity
 

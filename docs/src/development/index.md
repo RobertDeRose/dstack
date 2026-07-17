@@ -92,6 +92,14 @@ resolves the combined four-platform lock, exercises check/fix/pre-commit/commit-
 unrelated unstaged bytes are restored exactly. Separate regressions cover invalid selections, no-overwrite routing,
 update preservation, explicit add/remove transitions, conflicts, relocking, and conditional destination uniqueness.
 
+## Large migration imports
+
+Beads mutations run with `--dolt-auto-commit=batch`. Migration commits bounded root/state work per feature and performs
+a separate relationship reconciliation commit, while the JSON manifest preserves finer recovery phases. The
+deterministic large-import fixture creates at least 300 Beads records, bounds batch-commit count, records elapsed time,
+and proves a relationship-interrupted retry mutates only its missing outgoing dependency and does not replay completed
+dependents.
+
 ## Change discipline
 
 Keep both Copier entry points aligned. Template changes require generated-project tests and must preserve Copier update

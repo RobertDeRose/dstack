@@ -1514,6 +1514,9 @@ def shell_command(command: Sequence[str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
 
 
+BD_BATCH_ACTIVE = False
+
+
 def run_command(
     command: Sequence[str],
     *,
@@ -1521,8 +1524,11 @@ def run_command(
     capture: bool = True,
     allow_existing: bool = False,
 ) -> str:
+    actual_command = list(command)
+    if BD_BATCH_ACTIVE and actual_command[0] == "bd" and actual_command[1:2] != ["dolt"]:
+        actual_command.insert(1, "--dolt-auto-commit=batch")
     result = subprocess.run(
-        command,
+        actual_command,
         cwd=cwd,
         check=False,
         capture_output=capture,
@@ -1534,7 +1540,7 @@ def run_command(
             token in combined for token in ("already exists", "duplicate", "already closed", "dependency exists")
         ):
             return (result.stdout or "").strip()
-        msg = f"Command failed ({result.returncode}): {shell_command(command)}\n{result.stderr.strip()}"
+        msg = f"Command failed ({result.returncode}): {shell_command(actual_command)}\n{result.stderr.strip()}"
         raise MigrationError(msg)
     return (result.stdout or "").strip()
 
@@ -2531,6 +2537,10 @@ def print_import_progress(progress: Mapping[str, int], *, prefix: str = "  - ") 
     )
 
 
+def flush_bd_batch(root: Path, message: str) -> None:
+    run_command(["bd", "dolt", "commit", "-m", message], cwd=root, allow_existing=True)
+
+
 def import_beads(
     root: Path,
     manifest: dict[str, Any],
@@ -2553,10 +2563,16 @@ def import_beads(
         print("  - run a separate command with --apply to execute")
         return
 
-    print(f"APPLY STARTED: importing {len(features)} selected feature(s) into Beads.")
+    global BD_BATCH_ACTIVE
+    BD_BATCH_ACTIVE = True
+    print(f"APPLY STARTED: importing {len(features)} selected feature(s) into Beads with bounded batch commits.")
     print_import_progress(import_progress(all_features))
     ensure_bd_available(root, init_beads=init_beads)
-    incomplete_features = [feature for feature in features if not feature_import_completed(feature)]
+    incomplete_features = [
+        feature
+        for feature in features
+        if not feature_import_completed(feature) and feature.get("beads", {}).get("import_phase") != "relationships"
+    ]
     recovered_issues = reconcile_existing_beads_state(root, incomplete_features)
     if recovered_issues:
         save_manifest_and_report(root, manifest_path, report_path, manifest)
@@ -2570,11 +2586,15 @@ def import_beads(
         if feature_import_completed(feature):
             print(f"[{feature['slug']}] already completed; skipping mutations.")
             continue
+        if beads.get("import_phase") == "relationships":
+            print(f"[{feature['slug']}] state already applied; resuming relationships only.")
+            continue
         if not root_id:
             root_id = create_feature_root(root, feature)
             beads["root_id"] = root_id
             beads["import_phase"] = "root-created"
             save_manifest_and_report(root, manifest_path, report_path, manifest)
+            flush_bd_batch(root, f"migrate-workflow: create {feature['slug']} root")
         if feature["classification"] == "deferred" and not feature.get("has_design"):
             beads["state_applied"] = True
             continue
@@ -2604,6 +2624,7 @@ def import_beads(
         apply_imported_states(root, feature, root_id, lifecycle, implementation_tasks)
         beads["import_phase"] = "relationships"
         save_manifest_and_report(root, manifest_path, report_path, manifest)
+        flush_bd_batch(root, f"migrate-workflow: apply {feature['slug']} state")
         print(f"[{feature['slug']}] state applied; relationships pending.")
 
     roots_by_slug = {
@@ -2619,7 +2640,10 @@ def import_beads(
         related_slugs = set(feature.get("dependencies", [])) | set(feature.get("related_dependencies", []))
         parent_slug = feature.get("parent_feature")
         referenced_slugs = related_slugs | ({parent_slug} if parent_slug else set())
-        if str(feature["slug"]) not in changed_slugs and not referenced_slugs & changed_slugs:
+        feature_slug = str(feature["slug"])
+        if feature_import_completed(feature) and feature_slug not in changed_slugs:
+            continue
+        if feature_slug not in changed_slugs and not referenced_slugs & changed_slugs:
             continue
         root_id = feature.get("beads", {}).get("root_id")
         if not root_id:
@@ -2638,6 +2662,8 @@ def import_beads(
             bd_dep(root, root_id, parent_id, "related")
         if feature.get("beads", {}).get("state_applied") and relationships_complete:
             feature["beads"]["import_phase"] = "completed"
+    flush_bd_batch(root, "migrate-workflow: reconcile feature relationships")
+    BD_BATCH_ACTIVE = False
     progress = import_progress(all_features, recovered=recovered_issues)
     manifest["beads_import_progress"] = progress
     if progress["remaining"] == 0:

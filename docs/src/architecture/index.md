@@ -42,7 +42,8 @@ Migration distinguishes the active worktree path from canonical repository ident
 otherwise the primary Git common directory supplies the project name and slug, and `refs/remotes/origin/HEAD` supplies
 the default branch; only a primary worktree may use its current branch as evidence. A suffixed migration-worktree
 basename is never adopted as project identity. Stealth Beads runtime state remains local; the portable project formula
-is the durable tracked policy.
+is the durable tracked policy. Large imports use bounded Dolt batch commits per feature state and relationship phase;
+the manifest remains the recovery cursor rather than relying on one opaque all-or-nothing transaction.
 
 ## Safety invariants
 
