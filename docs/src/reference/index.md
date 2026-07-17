@@ -114,6 +114,8 @@ and release commits may be unscoped.
 | `mise.lock`                           | Project-owned, nonempty resolved lock for four supported platforms; commit it. |
 | `hk.pkl`                              | One shared step map for `check`, `fix`, and `pre-commit`.                      |
 | `.config/rumdl.toml`                  | Markdown policy compatible with the generated scaffold.                        |
+| `.editorconfig`                       | Universal UTF-8, LF, final-newline, and trailing-whitespace editor policy.     |
+| `_typos.toml`                         | Narrow typo exceptions for commit and artifact hashes.                         |
 | `contextlint.config.json`             | Documentation link, anchor, and image-target policy.                           |
 | `cog.toml`                            | Conventional Commit and changelog policy.                                      |
 | `.config/cog-changelog.tera`          | Concise plain-Markdown changelog template.                                     |

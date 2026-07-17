@@ -104,6 +104,7 @@ REQUIRED_TEMPLATE_FILES = (
     "[% if include_readme %]README.md[% endif %].jinja",
     "AGENTS.md.jinja",
     ".config/rumdl.toml",
+    ".editorconfig",
     ".github/workflows/docs.yml.jinja",
     ".github/workflows/validate.yml",
     "hk.pkl.jinja",
@@ -118,6 +119,7 @@ REQUIRED_TEMPLATE_FILES = (
     "scripts/check-docs.py",
     "scripts/enable-docs-deployment.py",
     "scripts/setup-tooling.py",
+    "_typos.toml",
 )
 
 FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES = (
@@ -692,6 +694,8 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
         "mise.lock",
         "hk.pkl",
         ".config/rumdl.toml",
+        ".editorconfig",
+        "_typos.toml",
         "contextlint.config.json",
         "cog.toml",
         ".config/cog-changelog.tera",
@@ -2346,6 +2350,17 @@ def test_setup_project_renders_the_factual_book_matrix(
             "fix",
         }
         assert (project / ".config/rumdl.toml").is_file()
+        assert (project / ".editorconfig").read_text(encoding="utf-8") == (
+            "root = true\n\n"
+            "[*]\n"
+            "charset = utf-8\n"
+            "end_of_line = lf\n"
+            "insert_final_newline = true\n"
+            "trim_trailing_whitespace = true\n"
+        )
+        assert tomllib.loads((project / "_typos.toml").read_text(encoding="utf-8")) == {
+            "default": {"extend-ignore-re": ["[0-9a-f]{7,40}"]}
+        }
         contextlint = json.loads((project / "contextlint.config.json").read_text(encoding="utf-8"))
         assert contextlint["include"] == ["README.md", "docs/**/*.md"]
         assert [rule["rule"] for rule in contextlint["rules"]] == ["ref001", "ref005", "ref006"]
