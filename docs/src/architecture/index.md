@@ -23,6 +23,11 @@ receives the same minimal reader file set; kind changes only the future-concern 
 The template omits architecture, usage, development-overview, and reference-overview pages until implementation creates
 concrete content for them. Copier records the brief so later template renders remain deterministic.
 
+## Validation policy
+
+Root and generated hk configurations prefer version-pinned built-in steps. Native file locking coordinates independent
+checks; explicit dependencies are reserved for demonstrated output ownership rather than global serialization.
+
 ## Safety invariants
 
 - New-project setup does not overwrite or migrate existing project content.

@@ -41,8 +41,8 @@ mise run docs:serve [port]
 ```
 
 `check` is read-only. `fix` applies deterministic changes. Pre-commit uses the same hk step map with fixes enabled and
-`stash = "git"`, so unrelated unstaged work is restored after the hook. Overlapping fixers are serialized before final
-read-only checks. `HK_MISE=1` makes installed hooks run tools through mise.
+`stash = "git"`, so unrelated unstaged work is restored after the hook. Native hk steps and file locking coordinate
+independent checks without a broad dependency chain. `HK_MISE=1` makes installed hooks run tools through mise.
 
 The generated baseline covers documentation, Markdown, typos, mise formatting, conflicts, private keys, BOM/newline and
 whitespace hygiene, case conflicts, and executable/shebang consistency. Commit-message Harper linting keeps its full

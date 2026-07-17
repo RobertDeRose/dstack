@@ -98,72 +98,38 @@ local linters = new Mapping<String, Step> {
   }
   ["detect_private_key"] = Builtins.detect_private_key
   ["docs"] = new Step {
-    depends = "mise"
     glob = List("docs/src/**/*.md", "docs/book.toml", "scripts/check-docs.py")
     check = "uv run scripts/check-docs.py && mdbook build docs"
   }
-  ["fix_smart_quotes"] = (Builtins.fix_smart_quotes) {
-    depends = "byte_order_marker"
-  }
+  ["fix_smart_quotes"] = Builtins.fix_smart_quotes
   ["markdown-table-formatter"] = new Step {
-    depends = "fix_smart_quotes"
     glob = List("**/*.md", "**/*.markdown")
     check_diff = "markdown-table-formatter --check {{ files }}"
     fix = "markdown-table-formatter {{ files }}"
   }
-  ["mise"] = (Builtins.mise) {
-    depends = "trailing_whitespace"
-  }
-  ["newlines"] = (Builtins.newlines) {
-    depends = "markdown-table-formatter"
-  }
+  ["mise"] = Builtins.mise
+  ["newlines"] = Builtins.newlines
   ["rumdl"] = new Step {
-    depends = "newlines"
     glob = List("**/*.md", "**/*.markdown")
-    check = "rumdl check --config .config/rumdl.toml {{ files }}"
-    fix = "rumdl check --config .config/rumdl.toml --fix {{ files }}"
+    check = "rumdl check {{ files }}"
+    fix = "rumdl check --fix {{ files }}"
   }
-  ["trailing_whitespace"] = (Builtins.trailing_whitespace) {
-    depends = "rumdl"
-  }
+  ["trailing_whitespace"] = Builtins.trailing_whitespace
 [% if 'python' in language_profiles %]
-  ["ruff"] = new Step {
-    depends = "mise"
-    glob = List("**/*.py", "**/*.pyi")
-    check = "ruff check --force-exclude {{ files }}"
-    fix = "ruff check --force-exclude --fix {{ files }}"
-  }
-  ["ruff-format"] = new Step {
-    depends = "ruff"
-    glob = List("**/*.py", "**/*.pyi")
-    check_diff = "ruff format --quiet --force-exclude --diff {{ files }}"
-    fix = "ruff format --quiet --force-exclude {{ files }}"
-  }
-  ["ty"] = new Step {
-    depends = "ruff-format"
-    glob = List("**/*.py", "**/*.pyi")
-    check = "ty check {{ files }}"
-  }
+  ["ruff"] = Builtins.ruff
+  ["ruff-format"] = Builtins.ruff_format
+  ["ty"] = Builtins.ty
 [% endif %]
 [% if 'typescript' in language_profiles %]
-  ["biome"] = new Step {
-    depends = "[% if 'python' in language_profiles %]ty[% else %]mise[% endif %]"
+  ["biome"] = (Builtins.biome) {
     glob = List("**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts")
-    check = "biome check --no-errors-on-unmatched {{ files }}"
-    fix = "biome check --write --no-errors-on-unmatched {{ files }}"
   }
 [% endif %]
 [% if 'rust' in language_profiles %]
-  ["rustfmt"] = new Step {
-    depends = "[% if 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
-    glob = List("**/*.rs")
-    check = "rustfmt --check --edition 2024 {{ files }}"
-    fix = "rustfmt --edition 2024 {{ files }}"
-  }
+  ["rustfmt"] = Builtins.rustfmt
 [% endif %]
 [% if 'go' in language_profiles %]
   ["goimports"] = new Step {
-    depends = "[% if 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
     glob = List("**/*.go")
     check = "output=$(goimports -l {{ files }}) && test -z \"$output\""
     fix = "goimports -w {{ files }}"
@@ -177,7 +143,6 @@ local linters = new Mapping<String, Step> {
 [% endif %]
 [% if 'elixir' in language_profiles %]
   ["mix-format"] = new Step {
-    depends = "[% if 'go' in language_profiles %]gofumpt[% elif 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
     glob = List("**/*.ex", "**/*.exs")
     check = "mix format --check-formatted {{ files }}"
     fix = "mix format {{ files }}"
@@ -185,15 +150,12 @@ local linters = new Mapping<String, Step> {
 [% endif %]
 [% if 'nix' in language_profiles %]
   ["nixfmt"] = new Step {
-    depends = "[% if 'elixir' in language_profiles %]mix-format[% elif 'go' in language_profiles %]gofumpt[% elif 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
     glob = List("**/*.nix")
     check = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt --check {{ files }}"
     fix = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt {{ files }}"
   }
 [% endif %]
-  ["typos"] = (Builtins.typos) {
-    depends = "[% if 'nix' in language_profiles %]nixfmt[% elif 'elixir' in language_profiles %]mix-format[% elif 'go' in language_profiles %]gofumpt[% elif 'rust' in language_profiles %]rustfmt[% elif 'typescript' in language_profiles %]biome[% elif 'python' in language_profiles %]ty[% else %]mise[% endif %]"
-  }
+  ["typos"] = Builtins.typos
 }
 
 hooks {
@@ -235,15 +197,12 @@ hooks {
 [% endif %]
 [% if 'go' in language_profiles %]
       ["go-mod"] = new Step {
-        depends = "gofumpt"
         check = "[ ! -f go.mod ] || { go mod tidy -diff && go mod verify; }"
       }
       ["golangci-lint"] = new Step {
-        depends = "go-mod"
         check = "[ ! -f go.mod ] || golangci-lint run"
       }
       ["go-test"] = new Step {
-        depends = "go-mod"
         check = "[ ! -f go.mod ] || go test ./..."
       }
 [% endif %]
@@ -271,7 +230,6 @@ hooks {
     steps = (linters) {
 [% if 'go' in language_profiles %]
       ["go-mod"] = new Step {
-        depends = "gofumpt"
         check = "[ ! -f go.mod ] || go mod tidy -diff"
         fix = "[ ! -f go.mod ] || go mod tidy"
       }

@@ -23,6 +23,9 @@
 The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` Cocogitto, Harper CLI, Contextlint, mdBook, uv,
 rumdl, typos, and `npm:markdown-table-formatter` releases. Contextlint checks documentation links, anchors, and image
 targets. Its reviewed low-download aube exception applies only to `@contextlint/cli`. Both hk Pkl imports use `1.49.0`.
+Equivalent native hk steps own formatter and linter commands; independent steps have no explicit `depends` edges. Custom
+steps remain only where behavior differs: Contextlint requires whole-project discovery, documentation is a project
+composite, Markdown-table formatting has no built-in, and rumdl avoids a noncanonical built-in diff header.
 
 Recorded language profiles: `python`.
 

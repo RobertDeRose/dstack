@@ -25,7 +25,9 @@ and `docs/**/*.md`. The pre-commit hook may fix files while safely stashing unre
 hook enforces Conventional Commits, required scopes for changelog-visible changes, grammar, 72/100-character line
 limits, and canonical optional `Beads:` footers. Harper applies its full native rule set to human-authored text after
 filtering Git comments/diffs, canonical release subjects, and the canonical machine-readable footer. Run `cog changelog`
-to preview the concise user-facing changelog.[% if language_profiles == ['other'] %]
+to preview the concise user-facing changelog. The hk policy uses native built-in steps whenever their behavior matches;
+hk's file locking coordinates independent steps. No dependency chain serializes unrelated checks. Go projects retain
+one ordering edge so `gofumpt` runs after `goimports` and owns the final formatting output.[% if language_profiles == ['other'] %]
 
 No recognized language profile is active; only the universal tooling baseline
 runs.[% endif %][% if 'python' in language_profiles %]

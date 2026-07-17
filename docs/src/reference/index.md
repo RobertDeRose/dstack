@@ -110,24 +110,24 @@ length, scope, and footer validators continue to inspect the unfiltered message.
 
 ## Generated tooling files
 
-| Path                                  | Contract                                                                       |
-|---------------------------------------|--------------------------------------------------------------------------------|
-| `mise.toml`                           | Declares ten tools, six tasks, hk routing, and fast-forward-only merges.       |
-| `mise.lock`                           | Project-owned, nonempty resolved lock for four supported platforms; commit it. |
-| `hk.pkl`                              | One shared step map for `check`, `fix`, and `pre-commit`.                      |
-| `.config/rumdl.toml`                  | Markdown policy compatible with the generated scaffold.                        |
-| `.editorconfig`                       | Universal UTF-8, LF, final-newline, and trailing-whitespace editor policy.     |
-| `_typos.toml`                         | Narrow typo exceptions for commit and artifact hashes.                         |
-| `contextlint.config.json`             | Documentation link, anchor, and image-target policy.                           |
-| `cog.toml`                            | Conventional Commit and changelog policy.                                      |
-| `.config/cog-changelog.tera`          | Concise plain-Markdown changelog template.                                     |
-| `scripts/setup-tooling.py`            | Stdlib provisioner used by setup, update, and manual recovery.                 |
-| `scripts/enable-docs-deployment.py`   | External-`gh` Pages configuration and enablement helper.                       |
-| `.github/workflows/validate.yml`      | Locked push and pull-request validation with `contents: read`.                 |
-| `.github/workflows/docs.yml`          | Default-branch/manual gated Pages build and deployment.                        |
-| `docs/src/development/tooling.md`     | Generated contributor commands and recovery.                                   |
-| `docs/src/reference/tooling.md`       | Generated exact tooling contract.                                              |
-| `docs/src/operations/github-pages.md` | Generated enablement, recovery, and URL instructions.                          |
+| Path                                  | Contract                                                                        |
+|---------------------------------------|---------------------------------------------------------------------------------|
+| `mise.toml`                           | Declares ten tools, six tasks, hk routing, and fast-forward-only merges.        |
+| `mise.lock`                           | Project-owned, nonempty resolved lock for four supported platforms; commit it.  |
+| `hk.pkl`                              | Shared native-first steps for `check`, `fix`, and `pre-commit`; no broad chain. |
+| `.config/rumdl.toml`                  | Markdown policy compatible with the generated scaffold.                         |
+| `.editorconfig`                       | Universal UTF-8, LF, final-newline, and trailing-whitespace editor policy.      |
+| `_typos.toml`                         | Narrow typo exceptions for commit and artifact hashes.                          |
+| `contextlint.config.json`             | Documentation link, anchor, and image-target policy.                            |
+| `cog.toml`                            | Conventional Commit and changelog policy.                                       |
+| `.config/cog-changelog.tera`          | Concise plain-Markdown changelog template.                                      |
+| `scripts/setup-tooling.py`            | Stdlib provisioner used by setup, update, and manual recovery.                  |
+| `scripts/enable-docs-deployment.py`   | External-`gh` Pages configuration and enablement helper.                        |
+| `.github/workflows/validate.yml`      | Locked push and pull-request validation with `contents: read`.                  |
+| `.github/workflows/docs.yml`          | Default-branch/manual gated Pages build and deployment.                         |
+| `docs/src/development/tooling.md`     | Generated contributor commands and recovery.                                    |
+| `docs/src/reference/tooling.md`       | Generated exact tooling contract.                                               |
+| `docs/src/operations/github-pages.md` | Generated enablement, recovery, and URL instructions.                           |
 
 ### GitHub workflow contract
 
@@ -157,9 +157,10 @@ limited to `@contextlint/cli`.
 The mise environment sets `HK_MISE=1` and `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`. Git commands run through mise
 therefore reject merges that require a merge commit.
 
-Both hk Pkl imports use `1.49.0`. Supported lock targets are `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`;
-Windows is outside the POSIX task contract. With the Nix profile, nixfmt-rs is retained only for Linux x64/ARM64 and
-macOS ARM64 while every other tool keeps the four-platform lock.
+Both hk Pkl imports use `1.49.0`. Matching validations use hk built-ins and native file locking rather than explicit
+ordering. Supported lock targets are `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`; Windows is outside the
+POSIX task contract. With the Nix profile, nixfmt-rs is retained only for Linux x64/ARM64 and macOS ARM64 while every
+other tool keeps the four-platform lock.
 
 ## Tooling result schema
 

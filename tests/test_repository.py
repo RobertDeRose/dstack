@@ -344,6 +344,10 @@ def write_logging_shims(bin_dir: Path, *names: str) -> Path:
         "check_only = check_only or (name == 'mix' and '--check-formatted' in args)\n"
         "check_only = check_only or (name == 'nixfmt' and '--check' in args)\n"
         "if fail_check and name in {'goimports', 'gofumpt'} and '-l' in args: print('needs-format')\n"
+        "if os.environ.get('DSTACK_ORDER_SENSITIVE') == '1' and '-w' in args:\n"
+        "    target = Path(args[-1])\n"
+        "    if name == 'goimports' and target.read_text() == 'before\\n': target.write_text('imports\\n')\n"
+        "    if name == 'gofumpt' and target.read_text() == 'imports\\n': target.write_text('final\\n')\n"
         "fail_tidy = os.environ.get('DSTACK_FAIL_GO_TIDY') == '1' and name == 'go' and '-diff' in args\n"
         "raise SystemExit(name == os.environ.get('DSTACK_FAIL_COMMAND') or fail_tidy or (fail_check and check_only))\n",
         encoding="utf-8",
@@ -703,8 +707,8 @@ def test_repository_contains_no_stale_tracked_files(repository_root: Path) -> No
 
 def test_hk_rumdl_avoids_nonstandard_diff_headers(repository_root: Path) -> None:
     config = (repository_root / "hk.pkl").read_text(encoding="utf-8")
-    assert 'check = "rumdl check --config .config/rumdl.toml {{ files }}"' in config
-    assert 'check_diff = "rumdl check --config .config/rumdl.toml --diff {{ files }}"' not in config
+    assert 'check = "rumdl check {{ files }}"' in config
+    assert 'check_diff = "rumdl check --diff {{ files }}"' not in config
 
 
 def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Path) -> None:
@@ -1227,11 +1231,9 @@ def test_python_profile_renders_exact_contract(tagged_template_source: Path, tmp
     assert "aube" not in mise["tools"]
     assert "biome" not in mise["tools"]
     for command in (
-        "ruff check --force-exclude {{ files }}",
-        "ruff check --force-exclude --fix {{ files }}",
-        "ruff format --quiet --force-exclude --diff {{ files }}",
-        "ruff format --quiet --force-exclude {{ files }}",
-        "ty check {{ files }}",
+        '["ruff"] = Builtins.ruff',
+        '["ruff-format"] = Builtins.ruff_format',
+        '["ty"] = Builtins.ty',
         "uv run pytest",
     ):
         assert command in hk
@@ -1308,8 +1310,7 @@ def test_typescript_profile_renders_exact_contract(tagged_template_source: Path,
     assert list(mise["tools"]).count("node") == 1
     assert "ruff" not in mise["tools"]
     for command in (
-        "biome check --no-errors-on-unmatched {{ files }}",
-        "biome check --write --no-errors-on-unmatched {{ files }}",
+        '["biome"] = (Builtins.biome)',
         "aube exec vitest --version",
         "aube exec vitest run",
     ):
@@ -1371,8 +1372,7 @@ def test_rust_profile_renders_exact_contract(tagged_template_source: Path, tmp_p
     assert mise["tools"]["rust"] == {"version": "latest", "components": "rustfmt,clippy"}
     assert "go" not in mise["tools"]
     for command in (
-        "rustfmt --check --edition 2024 {{ files }}",
-        "rustfmt --edition 2024 {{ files }}",
+        '["rustfmt"] = Builtins.rustfmt',
         "cargo clippy --all-targets --all-features -- -D warnings",
         "cargo test --all-targets --all-features",
     ):
@@ -1447,6 +1447,8 @@ def test_go_profile_renders_exact_contract(tagged_template_source: Path, tmp_pat
     ):
         assert command in hk
     assert hk.index('["goimports"]') < hk.index('["gofumpt"]')
+    assert hk.count('depends = "goimports"') == 1
+    assert len(re.findall(r"depends =", hk)) == 1
     assert "Root `go.mod` enables" in development
     assert "Recorded language profiles: `go`" in reference
     assert "coverage.out" in (project / ".gitignore").read_text(encoding="utf-8")
@@ -1502,6 +1504,16 @@ def test_go_profile_renders_exact_contract(tagged_template_source: Path, tmp_pat
     fix_log = log.read_text(encoding="utf-8")
     assert "goimports -w" in fix_log
     assert "gofumpt -w" in fix_log
+    assert fix_log.index("goimports -w") < fix_log.index("gofumpt -w")
+
+    source.write_text("before\n", encoding="utf-8")
+    order_environment = environment | {"DSTACK_FAIL_CHECK": "1", "DSTACK_ORDER_SENSITIVE": "1"}
+    run_command(["gofumpt", "-w", str(source)], cwd=project, env=order_environment)
+    run_command(["goimports", "-w", str(source)], cwd=project, env=order_environment)
+    assert source.read_text(encoding="utf-8") == "imports\n"
+    source.write_text("before\n", encoding="utf-8")
+    run_command(["hk", "fix", "-a", "-f", "-S", "goimports", "-S", "gofumpt"], cwd=project, env=order_environment)
+    assert source.read_text(encoding="utf-8") == "final\n"
 
     log.write_text("", encoding="utf-8")
     (project / "go.mod").write_text("module example.test/project\n\ngo 1.24\n", encoding="utf-8")
@@ -2368,16 +2380,11 @@ def test_setup_project_renders_the_factual_book_matrix(
             "trailing_whitespace",
             "typos",
         }
-        for dependency in (
-            'depends = "byte_order_marker"',
-            'depends = "fix_smart_quotes"',
-            'depends = "markdown-table-formatter"',
-            'depends = "newlines"',
-            'depends = "rumdl"',
-            'depends = "trailing_whitespace"',
-            'depends = "mise"',
-        ):
-            assert dependency in hk_config
+        assert "depends =" not in step_config
+        for builtin in ("fix_smart_quotes", "mise", "newlines", "trailing_whitespace", "typos"):
+            assert f"Builtins.{builtin}" in step_config
+        assert 'check = "rumdl check {{ files }}"' in step_config
+        assert "rumdl check --diff" not in step_config
         assert set(re.findall(r'^  \["(pre-commit|check|fix)"\]', hk_config, flags=re.MULTILINE)) == {
             "pre-commit",
             "check",
