@@ -20,7 +20,9 @@ mise run docs:serve
 `check` is read-only. `fix` changes the working tree. Contextlint checks links, anchors, and image targets across README
 and `docs/**/*.md`. The pre-commit hook may fix files while safely stashing unrelated unstaged work. The commit-message
 hook enforces Conventional Commits, required scopes for changelog-visible changes, grammar, 72/100-character line
-limits, and canonical optional `Beads:` footers. Run `cog changelog` to preview the concise user-facing changelog.
+limits, and canonical optional `Beads:` footers. Harper applies its full native rule set to human-authored text after
+filtering Git comments/diffs, canonical release subjects, and the canonical machine-readable footer. Run `cog changelog`
+to preview the concise user-facing changelog.
 
 ## Python
 

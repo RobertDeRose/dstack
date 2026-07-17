@@ -45,7 +45,9 @@ mise run docs:serve [port]
 read-only checks. `HK_MISE=1` makes installed hooks run tools through mise.
 
 The generated baseline covers documentation, Markdown, typos, mise formatting, conflicts, private keys, BOM/newline and
-whitespace hygiene, case conflicts, and executable/shebang consistency. Selected profiles extend the same hooks:
+whitespace hygiene, case conflicts, and executable/shebang consistency. Commit-message Harper linting keeps its full
+native rule set but filters Git comments/diffs, a canonical release subject, and a canonical machine-readable `Beads:`
+footer before checking the human-authored text. Selected profiles extend the same hooks:
 
 | Profile    | Source check/fix          | Root-manifest checks                                 |
 |------------|---------------------------|------------------------------------------------------|

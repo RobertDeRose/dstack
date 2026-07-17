@@ -9,7 +9,7 @@
 | `hk.pkl`                            | Defines the shared check/fix/pre-commit step map.                           |
 | `.config/rumdl.toml`                | Configures Markdown linting and deterministic fixes.                        |
 | `.editorconfig`                     | Keeps editor output on UTF-8, LF, final newlines, and no trailing spaces.   |
-| `_typos.toml`                       | Ignores hash-like identifiers while retaining typo checks elsewhere.       |
+| `_typos.toml`                       | Ignores hash-like identifiers while retaining typo checks elsewhere.        |
 | `contextlint.config.json`           | Checks documentation links, anchors, and image targets.                     |
 | `cog.toml`                          | Configures Conventional Commits and concise changelogs.                     |
 | `.config/cog-changelog.tera`        | Renders plain Markdown changelogs without author noise.                     |
@@ -36,8 +36,10 @@ selects the newest stable tag; unstable selects the source default-branch HEAD. 
 
 Changelog-visible `feat`, `fix`, `perf`, and `refactor` commits require a semantic scope. The commit hook also checks
 Conventional Commit syntax, grammar, a 72-character subject, 100-character body lines, and canonical optional `Beads:`
-footers. Internal build, chore, CI, documentation, release, style, and test commits are omitted from `cog changelog`.
-Breaking changes render as plain Markdown.
+footers. Harper uses its full native rule set after filtering Git comments/diffs, canonical release subjects, and a
+canonical `Beads:` footer; the other commit validators still inspect the unfiltered message. Internal build, chore, CI,
+documentation, release, style, and test commits are omitted from `cog changelog`. Breaking changes render as plain
+Markdown.
 
 The generated `cog.toml` initially accepts any syntactically valid scope. To constrain scopes, add a `scopes = ["..."]`
 allowlist, document each stable subsystem in README when present or on this page otherwise, and update `AGENTS.md` so

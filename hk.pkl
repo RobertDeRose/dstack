@@ -75,8 +75,16 @@ local commit_message_scope = new Step {
 
 local harper_commit_message = (Builtins.harper_commit_message) {
   check =
-    "harper-cli lint --quiet --no-color --ignore "
-      + "SentenceCapitalization,SpellCheck,SplitWords,RoadMap,OrthographicConsistency {{commit_msg_file}}"
+    #"""
+    awk '
+      /^# ------------------------ >8 ------------------------/ { exit }
+      /^diff --git / { exit }
+      /^#/ { next }
+      NR == 1 && /^release: v[0-9]+\.[0-9]+\.[0-9]+$/ { next }
+      /^Beads: [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*(, [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*)*$/ { next }
+      { print }
+    ' {{commit_msg_file}} | harper-cli lint --quiet --no-color
+    """#
 }
 
 local linters = new Mapping<String, Step> {

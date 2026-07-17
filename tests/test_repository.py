@@ -279,6 +279,50 @@ def configure_project_git(project: Path) -> None:
     run_command(["git", "config", "tag.gpgSign", "false"], cwd=project)
 
 
+def assert_commit_message_policy(project: Path, messages: Path) -> None:
+    messages.mkdir(exist_ok=True)
+
+    def run_message(name: str, text: str, *, step: str | None = None, expected: int = 0) -> Any:
+        path = messages / f"{name}.txt"
+        path.write_text(text, encoding="utf-8")
+        command = ["hk", "run", "--quiet", "commit-msg"]
+        if step is not None:
+            command.extend(["--step", step])
+        command.append(str(path))
+        return run_command(command, cwd=project, expected=expected)
+
+    valid = "fix(workflow): validate policy\n"
+    valid_footer = valid + "\nBeads: dstack-mol-v8c.1\n"
+    run_message("valid", valid)
+    run_message("valid-footer", valid_footer)
+    run_message("valid-release", "release: v1.0.0\n")
+
+    harper_cases = {
+        "repetition": ("fix(workflow): the the policy\n", "RepeatedWords"),
+        "spelling": ("fix(workflow): t" + "eh policy\n", "Typo::The"),
+        "agreement": ("fix(workflow): I is working\n", "PronounVerbAgreement"),
+        "release-body": (valid + "\nrelease: v1.0.0\n", "SentenceCapitalization"),
+    }
+    for name, (message, lint) in harper_cases.items():
+        result = run_message(name, message, step="harper_commit_message", expected=1)
+        assert lint in result.stdout + result.stderr
+
+    run_message("cocogitto", "not conventional\n", step="cocogitto_commit_msg", expected=1)
+    run_message(
+        "length",
+        "fix(workflow): " + "x" * 80 + "\n",
+        step="commit_message_length",
+        expected=1,
+    )
+    run_message("scope", "fix: missing scope\n", step="commit_message_scope", expected=1)
+    run_message(
+        "beads",
+        valid + "\nBeads: invalid footer\n",
+        step="commit_message_beads",
+        expected=1,
+    )
+
+
 def write_logging_shims(bin_dir: Path, *names: str) -> Path:
     script = bin_dir / "profile-shim"
     script.parent.mkdir(parents=True, exist_ok=True)
@@ -2214,17 +2258,7 @@ def test_setup_project_uses_directory_name_and_preserves_template_tokens(
     assert (project / ".beads/formulas/dstack-feature.formula.toml").is_file()
 
     run_command(["uv", "run", str(project / "scripts/check-docs.py")], cwd=project)
-    good_message = project / "good-commit.txt"
-    missing_scope = project / "missing-scope.txt"
-    good_message.write_text("fix(workflow): valid scope\n\nBeads: example-abc\n", encoding="utf-8")
-    missing_scope.write_text("fix: missing scope\n\nBeads: example-abc\n", encoding="utf-8")
-    run_command(["hk", "run", "--quiet", "commit-msg", str(good_message)], cwd=project)
-    result = run_command(
-        ["hk", "run", "--quiet", "commit-msg", str(missing_scope)],
-        cwd=project,
-        expected=1,
-    )
-    assert "changelog-visible commit subject must use type(scope): summary" in result.stderr
+    assert_commit_message_policy(project, project / "commit-messages")
 
 
 @pytest.mark.integration
@@ -3658,6 +3692,7 @@ def test_commit_hook_requires_an_allowed_scope(repository_root: Path, tmp_path: 
         run_command(["git", "config", "--local", "user.email", "tests@example.com"], cwd=repository_root)
         run_command(["hk", "run", "--quiet", "commit-msg", str(good)], cwd=repository_root)
         run_command(["hk", "run", "--quiet", "commit-msg", str(release)], cwd=repository_root)
+        assert_commit_message_policy(repository_root, tmp_path / "policy-messages")
         missing_result = run_command(
             ["hk", "run", "--quiet", "commit-msg", str(missing)],
             cwd=repository_root,

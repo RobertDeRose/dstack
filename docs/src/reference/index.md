@@ -104,7 +104,9 @@ do not receive this release task.
 changes, concise `Added`, `Fixed`, `Changed`, and `Performance` groups, short commit hashes, and no author suffix.
 Internal build, chore, CI, documentation, release, style, and test commits are omitted. Tags use the `vX.Y.Z` prefix.
 Changelog-visible `feat`, `fix`, `perf`, and `refactor` commits require an allowed `cog.toml` scope; omitted internal
-and release commits may be unscoped.
+and release commits may be unscoped. Harper checks the human-authored commit text with its full native rule set after
+filtering Git comments/diffs, canonical release subjects, and a canonical machine-readable `Beads:` footer. Cocogitto,
+length, scope, and footer validators continue to inspect the unfiltered message.
 
 ## Generated tooling files
 
