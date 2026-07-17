@@ -3745,6 +3745,164 @@ def test_commit_hook_requires_an_allowed_scope(repository_root: Path, tmp_path: 
     assert "scope `unknown` not allowed" in unknown_result.stderr
 
 
+def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Path) -> None:
+    from tests.test_migrate_legacy_workflow import create_legacy_project
+
+    migrator = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
+    project = tmp_path / "preservation"
+    create_legacy_project(project)
+    shutil.copy2(repository_root / "hk.pkl", project / "hk.pkl")
+
+    def migrate(*arguments: str, expected: int = 0) -> subprocess.CompletedProcess[str]:
+        return run_command(
+            ["uv", "run", str(migrator), *arguments, "--root", str(project)],
+            cwd=project,
+            expected=expected,
+        )
+
+    migrate("baseline", "--write")
+    baseline = json.loads((project / "migration/baseline.json").read_text(encoding="utf-8"))
+    assert baseline["hk"]["status"] == "evaluable"
+    assert "typos" in baseline["hk"]["hooks"]["pre-commit"]
+    manual_inventory = project / "manual-hk.json"
+    manual_inventory.write_text('{"hooks": {}}\n', encoding="utf-8")
+
+    migrate("scan", "--write")
+    rejected_confirmation = migrate(
+        "confirm-hk-inventory",
+        "--inventory-json",
+        str(manual_inventory),
+        "--reason",
+        "Must not replace evaluated evidence",
+        expected=2,
+    )
+    assert "only replace a missing or manual-confirmation-required baseline" in rejected_confirmation.stderr
+    manifest_path = project / "migration/workflow-migration.json"
+    report_path = project / "migration/workflow-migration.md"
+    first = (manifest_path.read_bytes(), report_path.read_bytes())
+    migrate("scan", "--write")
+    assert (manifest_path.read_bytes(), report_path.read_bytes()) == first
+
+    config = project / "hk.pkl"
+    original = config.read_text(encoding="utf-8")
+    config.write_text(original.replace('  ["typos"] = Builtins.typos\n', ""), encoding="utf-8")
+    migrate("scan", "--write")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert {item["kind"] for item in manifest["hk_reconciliation"]["issues"]} == {"unapproved_step_loss"}
+    migrate("verify", "--skip-docs-check", expected=1)
+    for hook in ("pre-commit", "check", "fix"):
+        migrate("reconcile-hk", hook, "typos", "remove", "--reason", "User approved replacement coverage")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["hk_reconciliation"]["issues"] == []
+    assert len(manifest["hk_reconciliation"]["dispositions"]) == 3
+    for disposition in manifest["hk_reconciliation"]["dispositions"]:
+        assert disposition["existing_behavior"]
+        assert disposition["candidate_behavior"] == "absent"
+
+    collision = tmp_path / "collision"
+    create_legacy_project(collision)
+    shutil.copy2(repository_root / "hk.pkl", collision / "hk.pkl")
+    run_command(["uv", "run", str(migrator), "baseline", "--write", "--root", str(collision)], cwd=collision)
+    collision_config = collision / "hk.pkl"
+    collision_config.write_text(
+        collision_config.read_text(encoding="utf-8").replace(
+            '  ["typos"] = Builtins.typos\n',
+            '  ["typos"] = (Builtins.typos) { exclude = List("vendor/**") }\n',
+        ),
+        encoding="utf-8",
+    )
+    run_command(["uv", "run", str(migrator), "scan", "--write", "--root", str(collision)], cwd=collision)
+    collision_manifest_path = collision / "migration/workflow-migration.json"
+    collision_manifest = json.loads(collision_manifest_path.read_text(encoding="utf-8"))
+    assert {item["kind"] for item in collision_manifest["hk_reconciliation"]["issues"]} == {"unresolved_step_collision"}
+    run_command(
+        [
+            "uv",
+            "run",
+            str(migrator),
+            "reconcile-hk",
+            "pre-commit",
+            "typos",
+            "replace",
+            "--reason",
+            "User approved vendor exclusion",
+            "--root",
+            str(collision),
+        ],
+        cwd=collision,
+    )
+    collision_config.write_text(
+        collision_config.read_text(encoding="utf-8").replace("vendor/**", "generated/**"), encoding="utf-8"
+    )
+    stale_verify = run_command(
+        ["uv", "run", str(migrator), "verify", "--skip-docs-check", "--root", str(collision)],
+        cwd=collision,
+        expected=1,
+    )
+    assert "unresolved_step_collision" in stale_verify.stderr
+
+    old_manifest = json.loads(collision_manifest_path.read_text(encoding="utf-8"))
+    old_manifest.pop("hk_reconciliation")
+    collision_manifest_path.write_text(json.dumps(old_manifest), encoding="utf-8")
+    (collision / "migration/baseline.json").unlink()
+    blocked_prepare = run_command(
+        ["uv", "run", str(migrator), "prepare", "--apply", "--allow-dirty", "--root", str(collision)],
+        cwd=collision,
+        expected=2,
+    )
+    assert "hk reconciliation must be resolved" in blocked_prepare.stderr
+    assert json.loads(collision_manifest_path.read_text(encoding="utf-8")).get("migration_prepared") is not True
+
+    unevaluable = tmp_path / "unevaluable"
+    create_legacy_project(unevaluable)
+    (unevaluable / "hk.pkl").write_text("not valid Pkl\n", encoding="utf-8")
+    run_command(["uv", "run", str(migrator), "baseline", "--write", "--root", str(unevaluable)], cwd=unevaluable)
+    run_command(["uv", "run", str(migrator), "scan", "--write", "--root", str(unevaluable)], cwd=unevaluable)
+    unresolved = json.loads((unevaluable / "migration/workflow-migration.json").read_text(encoding="utf-8"))
+    assert unresolved["hk_reconciliation"]["issues"][0]["kind"] == "manual_inventory_required"
+    failed = run_command(
+        [
+            "uv",
+            "run",
+            str(migrator),
+            "reconcile-hk",
+            "pre-commit",
+            "custom",
+            "replace",
+            "--reason",
+            "Unsupported equivalence claim",
+            "--root",
+            str(unevaluable),
+        ],
+        cwd=unevaluable,
+        expected=2,
+    )
+    assert "record manual inventory first" in failed.stderr
+    confirmed_inventory = unevaluable / "manual-hk.json"
+    confirmed_inventory.write_text(
+        '{"hooks": {"pre-commit": {"custom": {"definition": "legacy custom behavior"}}}}\n',
+        encoding="utf-8",
+    )
+    run_command(
+        [
+            "uv",
+            "run",
+            str(migrator),
+            "confirm-hk-inventory",
+            "--inventory-json",
+            str(confirmed_inventory),
+            "--reason",
+            "Reviewed against legacy policy",
+            "--root",
+            str(unevaluable),
+        ],
+        cwd=unevaluable,
+    )
+    confirmed = json.loads((unevaluable / "migration/workflow-migration.json").read_text(encoding="utf-8"))
+    assert confirmed["hk_reconciliation"]["baseline"]["status"] == "manually_confirmed"
+    assert {item["kind"] for item in confirmed["hk_reconciliation"]["issues"]} == {"current_inventory_unevaluable"}
+
+
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
     script = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
         encoding="utf-8"

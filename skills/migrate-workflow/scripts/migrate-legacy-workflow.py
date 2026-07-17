@@ -661,6 +661,111 @@ def add_global_dependency_findings(features: list[dict[str, Any]]) -> list[list[
     return traversal_cycles
 
 
+def _pkl_string_set(root: Path, expression: str) -> list[str]:
+    result = subprocess.run(
+        ["pkl", "eval", "hk.pkl", "--expression", expression],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout).strip())
+    return re.findall(r'"((?:[^"\\]|\\.)*)"', result.stdout)
+
+
+def capture_hk_inventory(root: Path) -> dict[str, Any]:
+    config = root / "hk.pkl"
+    command = "pkl eval hk.pkl"
+    if not config.is_file():
+        return {"status": "absent", "command": command, "hooks": {}, "note": "No pre-adoption hk.pkl exists."}
+    if shutil.which("pkl") is None:
+        return {
+            "status": "manual_confirmation_required",
+            "command": command,
+            "hooks": {},
+            "note": "pkl is unavailable; manually confirm the hook and step inventory before mutation.",
+        }
+    try:
+        hook_names = _pkl_string_set(root, "hooks.keys")
+        hooks: dict[str, dict[str, Any]] = {}
+        for hook in hook_names:
+            step_names = _pkl_string_set(root, f'hooks["{hook}"].steps.keys')
+            steps: dict[str, Any] = {}
+            for step in step_names:
+                expression = f'hooks["{hook}"].steps["{step}"]'
+                result = subprocess.run(
+                    ["pkl", "eval", "hk.pkl", "--expression", expression],
+                    cwd=root,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError((result.stderr or result.stdout).strip())
+                definition = " ".join(result.stdout.split())
+                steps[step] = {
+                    "fingerprint": hashlib.sha256(definition.encode()).hexdigest(),
+                    "definition": definition,
+                }
+            hooks[hook] = steps
+        return {"status": "evaluable", "command": command, "hooks": hooks, "note": "Pkl evaluation passed."}
+    except (OSError, RuntimeError) as error:
+        return {
+            "status": "manual_confirmation_required",
+            "command": command,
+            "hooks": {},
+            "note": f"hk.pkl could not be evaluated; manually confirm inventory before mutation: {error}",
+        }
+
+
+def hk_reconciliation_state(
+    baseline: Mapping[str, Any],
+    current: Mapping[str, Any],
+    dispositions: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    approved = {
+        (str(item.get("hook")), str(item.get("step"))): item
+        for item in dispositions
+        if item.get("action") in {"remove", "replace"} and item.get("reason")
+    }
+    issues: list[dict[str, str]] = []
+    if not baseline.get("status"):
+        issues.append(
+            {
+                "kind": "missing_baseline_inventory",
+                "message": "Pre-adoption hk inventory is missing; capture or manually confirm it before mutation.",
+            }
+        )
+    elif baseline.get("status") == "manual_confirmation_required":
+        issues.append({"kind": "manual_inventory_required", "message": str(baseline.get("note", ""))})
+    elif baseline.get("status") in {"evaluable", "manually_confirmed"} and current.get("status") != "evaluable":
+        issues.append({"kind": "current_inventory_unevaluable", "message": str(current.get("note", ""))})
+    if baseline.get("status") in {"evaluable", "manually_confirmed"} and current.get("status") == "evaluable":
+        for hook, old_steps in baseline.get("hooks", {}).items():
+            new_steps = current.get("hooks", {}).get(hook, {})
+            for step, old in old_steps.items():
+                key = (str(hook), str(step))
+                disposition = approved.get(key, {})
+                if step not in new_steps and disposition.get("action") != "remove":
+                    issues.append({"kind": "unapproved_step_loss", "hook": str(hook), "step": str(step)})
+                elif (
+                    step in new_steps
+                    and old.get("fingerprint") != new_steps[step].get("fingerprint")
+                    and not (
+                        disposition.get("action") == "replace"
+                        and disposition.get("candidate_fingerprint") == new_steps[step].get("fingerprint")
+                    )
+                ):
+                    issues.append({"kind": "unresolved_step_collision", "hook": str(hook), "step": str(step)})
+    return {
+        "baseline": baseline,
+        "current": current,
+        "dispositions": list(dispositions),
+        "issues": issues,
+    }
+
+
 def build_manifest(
     root: Path,
     *,
@@ -836,8 +941,25 @@ def build_manifest(
     legacy_task_files = sum(bool(feature.get("has_tasks")) for feature in features)
     parsed_task_files = sum(bool(feature.get("has_tasks") and feature.get("tasks")) for feature in features)
     parsed_tasks = sum(len(feature.get("tasks", [])) for feature in features)
+    baseline_record = load_json(root / DEFAULT_BASELINE_JSON) or {}
+    current_hk = capture_hk_inventory(root)
+    previous_hk = (existing_manifest or {}).get("hk_reconciliation", {})
+    baseline_hk = previous_hk.get("baseline") or baseline_record.get("hk")
+    if not isinstance(baseline_hk, dict):
+        baseline_hk = (
+            current_hk
+            if current_hk.get("status") == "absent"
+            else {
+                "status": "manual_confirmation_required",
+                "command": "pkl eval hk.pkl",
+                "hooks": {},
+                "note": "Pre-adoption hk inventory is missing; confirm it manually before further mutation.",
+            }
+        )
+    dispositions = [item for item in previous_hk.get("dispositions", []) if isinstance(item, dict)]
 
-    return {
+    manifest = {
+        **(existing_manifest or {}),
         "schema_version": SCHEMA_VERSION,
         "generated_at": utc_now(),
         "source_workflow": "legacy-markdown-feature-workflow",
@@ -853,8 +975,15 @@ def build_manifest(
             "unparsed_task_files": legacy_task_files - parsed_task_files,
             "parsed_tasks": parsed_tasks,
         },
+        "hk_reconciliation": hk_reconciliation_state(baseline_hk, current_hk, dispositions),
         "features": features,
     }
+    if existing_manifest:
+        comparable_manifest = {key: value for key, value in manifest.items() if key != "generated_at"}
+        comparable_existing = {key: value for key, value in existing_manifest.items() if key != "generated_at"}
+        if comparable_manifest == comparable_existing:
+            manifest["generated_at"] = existing_manifest.get("generated_at", manifest["generated_at"])
+    return manifest
 
 
 def render_report(manifest: Mapping[str, Any]) -> str:
@@ -884,6 +1013,25 @@ def render_report(manifest: Mapping[str, Any]) -> str:
     ]
     for key in sorted(counts):
         lines.append(f"- `{key}`: {counts[key]}")
+    hk_state = manifest.get("hk_reconciliation", {})
+    baseline_hk = hk_state.get("baseline", {})
+    current_hk = hk_state.get("current", {})
+    lines.extend(
+        [
+            "",
+            "## hk Reconciliation",
+            "",
+            f"- Baseline status: `{baseline_hk.get('status', 'missing')}`",
+            f"- Current status: `{current_hk.get('status', 'missing')}`",
+            f"- Recorded dispositions: {len(hk_state.get('dispositions', []))}",
+            f"- Blocking inventory issues: {len(hk_state.get('issues', []))}",
+        ]
+    )
+    for issue in hk_state.get("issues", []):
+        location = "/".join(str(issue.get(key, "")) for key in ("hook", "step") if issue.get(key))
+        location_text = f" `{location}`" if location else ""
+        message = issue.get("message", "reconciliation required")
+        lines.append(f"- `{issue.get('kind', 'unknown')}`{location_text}: {message}")
     lines.extend(
         [
             "",
@@ -2505,6 +2653,18 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
     warnings: list[str] = []
     features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
     mapping = {Path(feature["source_dir"]).name: feature["slug"] for feature in features}
+    stored_hk = manifest.get("hk_reconciliation", {})
+    refreshed_hk = hk_reconciliation_state(
+        stored_hk.get("baseline", {}),
+        capture_hk_inventory(root),
+        stored_hk.get("dispositions", []),
+    )
+    for issue in refreshed_hk.get("issues", []):
+        location = "/".join(str(issue.get(key, "")) for key in ("hook", "step") if issue.get(key))
+        errors.append(
+            f"hk reconciliation {issue.get('kind', 'issue')}{f' at {location}' if location else ''}; "
+            "restore the existing step or record an explicit reconcile-hk disposition"
+        )
     for cycle in beads_traversal_cycles(features):
         errors.append(
             "Migration manifest contains a Beads traversal cycle: " + render_relationship_cycle(cycle, features)
@@ -2636,7 +2796,7 @@ def render_baseline_report(result: Mapping[str, Any]) -> str:
         f"Generated: `{result.get('generated_at', '')}`",
         "",
     ]
-    for name in ("documentation", "tests"):
+    for name in ("documentation", "tests", "hk"):
         item = result.get(name, {})
         lines.extend(
             [
@@ -2706,9 +2866,11 @@ def baseline_repository(
             tests = run_baseline_command(root, command)
             tests["note"] = f"Discovered {len(discovered_tests)} Python test file(s)."
 
+    hk = capture_hk_inventory(root)
     checks: dict[str, dict[str, Any]] = {
         "documentation": documentation,
         "tests": tests,
+        "hk": hk,
     }
     result: dict[str, Any] = {
         "generated_at": utc_now(),
@@ -2721,6 +2883,92 @@ def baseline_repository(
     for name, item in checks.items():
         print(f"{name}: {item['status']} ({item.get('command') or item.get('note')})")
     return 1 if any(item["status"] == "failed" for item in checks.values()) else 0
+
+
+def confirm_hk_inventory(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    manifest_path: Path,
+    report_path: Path,
+    inventory_path: Path,
+    reason: str,
+) -> None:
+    state = manifest.get("hk_reconciliation", {})
+    baseline_status = state.get("baseline", {}).get("status")
+    if baseline_status not in {None, "manual_confirmation_required"}:
+        message = "Manual hk inventory can only replace a missing or manual-confirmation-required baseline"
+        raise MigrationError(message)
+    raw = load_json(root / inventory_path)
+    hooks = raw.get("hooks") if isinstance(raw, dict) else None
+    if not isinstance(hooks, dict):
+        message = "Manual hk inventory must be a JSON object containing a hooks mapping"
+        raise MigrationError(message)
+    normalized: dict[str, dict[str, Any]] = {}
+    for hook, steps in hooks.items():
+        if not isinstance(steps, dict):
+            message = "Each manual hk hook must map step keys to behavior definitions"
+            raise MigrationError(message)
+        normalized[str(hook)] = {}
+        for step, value in steps.items():
+            definition = value.get("definition") if isinstance(value, dict) else value
+            if not isinstance(definition, str) or not definition.strip():
+                message = "Each manual hk step requires a nonempty behavior definition"
+                raise MigrationError(message)
+            canonical = " ".join(definition.split())
+            normalized[str(hook)][str(step)] = {
+                "definition": canonical,
+                "fingerprint": hashlib.sha256(canonical.encode()).hexdigest(),
+            }
+    baseline = {
+        "status": "manually_confirmed",
+        "command": None,
+        "hooks": normalized,
+        "note": reason,
+    }
+    manifest["hk_reconciliation"] = hk_reconciliation_state(
+        baseline,
+        state.get("current", capture_hk_inventory(root)),
+        state.get("dispositions", []),
+    )
+    save_manifest_and_report(root, manifest_path, report_path, manifest)
+
+
+def set_hk_disposition(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    manifest_path: Path,
+    report_path: Path,
+    hook: str,
+    step: str,
+    action: str,
+    reason: str,
+) -> None:
+    state = manifest.get("hk_reconciliation", {})
+    baseline_step = state.get("baseline", {}).get("hooks", {}).get(hook, {}).get(step)
+    if not isinstance(baseline_step, dict):
+        message = f"Baseline hk inventory has no step {hook}/{step}; record manual inventory first"
+        raise MigrationError(message)
+    current_step = state.get("current", {}).get("hooks", {}).get(hook, {}).get(step)
+    disposition = {
+        "hook": hook,
+        "step": step,
+        "action": action,
+        "reason": reason,
+        "existing_behavior": baseline_step.get("definition", ""),
+        "existing_fingerprint": baseline_step.get("fingerprint", ""),
+        "candidate_behavior": current_step.get("definition", "") if isinstance(current_step, dict) else "absent",
+        "candidate_fingerprint": current_step.get("fingerprint", "") if isinstance(current_step, dict) else None,
+    }
+    dispositions = [
+        item for item in state.get("dispositions", []) if not (item.get("hook") == hook and item.get("step") == step)
+    ]
+    dispositions.append(disposition)
+    manifest["hk_reconciliation"] = hk_reconciliation_state(
+        state.get("baseline", {}), state.get("current", {}), dispositions
+    )
+    save_manifest_and_report(root, manifest_path, report_path, manifest)
 
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
@@ -2746,6 +2994,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     scan = subparsers.add_parser("scan", help="Inventory the legacy workflow")
     add_common_arguments(scan)
     scan.add_argument("--write", action="store_true", help="Write manifest and report")
+
+    hk_confirmation = subparsers.add_parser(
+        "confirm-hk-inventory",
+        help="Record a manually confirmed pre-adoption hk inventory",
+    )
+    add_common_arguments(hk_confirmation)
+    hk_confirmation.add_argument("--inventory-json", type=Path, required=True)
+    hk_confirmation.add_argument("--reason", required=True)
+
+    hk_disposition = subparsers.add_parser(
+        "reconcile-hk",
+        help="Record an explicit disposition for a removed or replaced legacy hk step",
+    )
+    add_common_arguments(hk_disposition)
+    hk_disposition.add_argument("hook")
+    hk_disposition.add_argument("step")
+    hk_disposition.add_argument("action", choices=("remove", "replace"))
+    hk_disposition.add_argument("--reason", required=True)
 
     prepare = subparsers.add_parser("prepare", help="Normalize feature paths and rewrite links")
     add_common_arguments(prepare)
@@ -2842,8 +3108,16 @@ def normalize_manifest_identity(manifest: dict[str, Any]) -> dict[str, Any]:
 def load_or_scan(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_json(root / args.manifest)
     if manifest is not None:
-        return normalize_manifest_identity(manifest)
+        normalize_manifest_identity(manifest)
     return build_manifest(root, manifest_path=args.manifest)
+
+
+def require_hk_reconciliation(manifest: Mapping[str, Any]) -> None:
+    issues = manifest.get("hk_reconciliation", {}).get("issues", [])
+    if issues:
+        kinds = ", ".join(sorted({str(item.get("kind", "issue")) for item in issues}))
+        message = f"hk reconciliation must be resolved before migration mutation: {kinds}"
+        raise MigrationError(message)
 
 
 def _main(args: argparse.Namespace) -> int:
@@ -2874,6 +3148,40 @@ def _main(args: argparse.Namespace) -> int:
             return 0
 
         manifest = load_or_scan(root, args)
+
+        if args.command == "confirm-hk-inventory":
+            confirm_hk_inventory(
+                root,
+                manifest,
+                manifest_path=args.manifest,
+                report_path=args.report,
+                inventory_path=args.inventory_json,
+                reason=args.reason,
+            )
+            return 0
+
+        if args.command == "reconcile-hk":
+            set_hk_disposition(
+                root,
+                manifest,
+                manifest_path=args.manifest,
+                report_path=args.report,
+                hook=args.hook,
+                step=args.step,
+                action=args.action,
+                reason=args.reason,
+            )
+            return 0
+
+        if args.command in {
+            "prepare",
+            "classify",
+            "dependency",
+            "resolve-findings",
+            "import-beads",
+            "finalize",
+        }:
+            require_hk_reconciliation(manifest)
 
         if args.command == "prepare":
             prepare_filesystem(

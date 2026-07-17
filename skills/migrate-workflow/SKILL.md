@@ -37,8 +37,8 @@ git diff --cached --quiet || git commit -m "chore: record pre-migration baseline
 test -z "$(git status --porcelain)"
 ```
 
-The conditional commit makes this resumable when the baseline is already committed and unchanged. See
-**Baseline interpretation** for missing documentation tooling, zero-test repositories, or explicit baseline commands.
+The baseline records hk definitions and Pkl readiness. Stop for manual confirmation when unevaluable; never claim
+candidate equivalence. See **Baseline interpretation** for commands, missing tools, zero tests, and resumability.
 
 ## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
@@ -55,10 +55,12 @@ differs from the rendered new-project structure, it preserves the project file a
 migration/template-adoption-candidates/<same-relative-path>
 ```
 
-Inspect every path in `manual_merge`. Merge only the workflow structure the existing project needs into the current
-file; do not replace project-specific navigation, architecture, operations, or reference content wholesale. Record the
-resolution, then remove `migration/template-adoption-candidates/`. The candidate directory is temporary and must not be
-committed. Validate the reconciled structure in migration mode:
+Inspect every path in `manual_merge`. Preserve every baseline hk step by default; after reconciliation, `scan --write`
+blocks lost or changed steps. Restore them or use the explicit user-approved procedure in
+**Additive hk reconciliation**. Never assert equivalence for an unevaluable baseline. Merge only the workflow structure
+the existing project needs into the current file; do not replace project-specific navigation, architecture, operations,
+or reference content wholesale. Record the resolution, then remove `migration/template-adoption-candidates/`. The
+candidate directory is temporary and must not be committed. Validate the reconciled structure in migration mode:
 
 ```bash
 uv run scripts/check-docs.py --migration-mode

@@ -13,6 +13,15 @@
 | `cog changelog`                   | Render the concise user-facing changelog from Conventional Commits. |
 | `uv run pytest`                   | Run all repository tests.                                           |
 
+## Migration inventory commands
+
+`migrate-legacy-workflow.py baseline --write` records pre-adoption documentation, tests, and hk readiness plus hook/step
+definitions. `scan --write` compares current hk behavior and is byte-stable when semantic inputs are unchanged.
+`confirm-hk-inventory --inventory-json <path> --reason <evidence>` supplies a reviewed baseline when evaluation is
+unavailable. `reconcile-hk <hook> <step> <remove|replace> --reason <decision>` records the only accepted loss/collision
+disposition, including the specifically approved existing and candidate behavior. `verify` re-evaluates current hk and
+rejects stale scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed manual baseline.
+
 ## Setup project brief
 
 | Copier answer        | Helper flag      | Contract                                                                                          |

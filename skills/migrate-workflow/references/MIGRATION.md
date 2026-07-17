@@ -30,7 +30,11 @@ Record the pre-adoption baseline while the repository still reflects the legacy 
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py baseline --write
 ```
 
-The command writes `migration/baseline.json` and `migration/baseline.md`.
+The command writes `migration/baseline.json` and `migration/baseline.md`. It also evaluates `hk.pkl` when present and
+records every hook/step definition and fingerprint before adoption. An absent config is explicit; an unavailable Pkl or
+failed evaluation is `manual_confirmation_required` and blocks any later equivalence claim until the user records a
+reviewed `{"hooks": {"<hook>": {"<step>": {"definition": "<behavior>"}}}}` JSON inventory with
+`confirm-hk-inventory --inventory-json <path> --reason <evidence>`.
 
 Statuses mean:
 
@@ -49,6 +53,21 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py baseline --write \
 
 Because `adopt-template.py` requires a clean worktree, commit the written baseline before adoption. Do not use
 `--allow-dirty` merely to bypass this checkpoint.
+
+## Additive hk reconciliation
+
+A scan compares the pre-adoption baseline with the current evaluated policy by hook and step key plus normalized
+behavior fingerprint. It preserves `generated_at` and report bytes when semantic inputs are unchanged. Verification
+blocks on:
+
+- a baseline step missing from the candidate;
+- a same-key definition that changed;
+- a current config that cannot be evaluated after an evaluable baseline;
+- a baseline that required manual confirmation but was never supplied.
+
+Restore the original behavior by default. When the user explicitly approves removal or replacement, record the exact
+hook, step, both definitions, action, and reason with `reconcile-hk`; a removal disposition cannot approve a changed
+same-key collision, and a replacement disposition cannot approve deletion.
 
 ## Template source and revision
 
