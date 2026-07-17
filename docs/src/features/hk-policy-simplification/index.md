@@ -3,10 +3,10 @@
 ## Delivery Summary
 
 - Beads feature root: `dstack-mol-5v0`
-- Status: close-out in progress
-- Delivery action: merge requested
+- Status: delivered
+- Delivery action: fast-forward merge
 - Pull request: not created
-- Merge commit: pending close-out and fast-forward delivery
+- Merge commit: `668a3a4a0b3b4d778047397da680d08b28078f0a`
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -97,4 +97,6 @@ and Harper rule classes are not disabled to accommodate machine-authored metadat
 - Native Harper restoration (`dstack-mol-v8c.1`): `13baa637767345bc37fe3562ecc7962c6222ab73`.
 - Native-step and dependency simplification (`dstack-mol-v8c.2`): `3e6239b695e993c4322921db5f5509c098ed5fd9`.
 - Final validation evidence (`dstack-mol-v8c.3`): `3eedbe50af0d0e20e450ba89fc62e5b5c915dbf4`.
+- Close-out reconciliation and Go module ordering fix: `82642bcca216818cd56f2607dbb9a811081b7a7f`.
+- Recursive root policy self-test removal: `668a3a4a0b3b4d778047397da680d08b28078f0a`.
 - Implementation coordinator `dstack-mol-v8c` closed after all reviewed tasks passed acceptance.
