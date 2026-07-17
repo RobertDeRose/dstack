@@ -29,15 +29,15 @@ clarity then protects existing project checks and verified history without block
 
 ## Feature map
 
-| Feature                                                                         | Beads root       | Roadmap state | Dependencies                                           | Design                                                             |
-|---------------------------------------------------------------------------------|------------------|---------------|--------------------------------------------------------|--------------------------------------------------------------------|
-| `purposeful-project-scaffold` — Purposeful project scaffold                     | `dstack-mol-ln9` | delivered     | —                                                      | [Design](features/purposeful-project-scaffold/design.md)           |
-| `universal-project-tooling` — Universal project tooling                         | `dstack-mol-lg3` | delivered     | —                                                      | [Design](features/universal-project-tooling/design.md)             |
-| `language-quality-profiles` — Language quality profiles                         | `dstack-mol-ni2` | delivered     | Universal project tooling                              | [Design](features/language-quality-profiles/design.md)             |
-| `github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | delivered     | Purposeful project scaffold, Universal project tooling | [Design](features/github-validation-and-docs-deployment/design.md) |
-| `hk-policy-simplification` — hk policy simplification                           | `dstack-mol-5v0` | design        | Language quality profiles                              | [Design](features/hk-policy-simplification/design.md)              |
-| `migration-safety-and-clarity` — Migration safety and clarity                   | `dstack-mol-tki` | design        | hk policy simplification                               | [Design](features/migration-safety-and-clarity/design.md)          |
-| `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | design        | Language quality profiles, hk policy simplification    | [Design](features/monorepo-tooling-layout/design.md)               |
+| Feature                                                                         | Beads root       | Roadmap state  | Dependencies                                           | Design                                                             |
+|---------------------------------------------------------------------------------|------------------|----------------|--------------------------------------------------------|--------------------------------------------------------------------|
+| `purposeful-project-scaffold` — Purposeful project scaffold                     | `dstack-mol-ln9` | delivered      | —                                                      | [Design](features/purposeful-project-scaffold/design.md)           |
+| `universal-project-tooling` — Universal project tooling                         | `dstack-mol-lg3` | delivered      | —                                                      | [Design](features/universal-project-tooling/design.md)             |
+| `language-quality-profiles` — Language quality profiles                         | `dstack-mol-ni2` | delivered      | Universal project tooling                              | [Design](features/language-quality-profiles/design.md)             |
+| `github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | delivered      | Purposeful project scaffold, Universal project tooling | [Design](features/github-validation-and-docs-deployment/design.md) |
+| `hk-policy-simplification` — hk policy simplification                           | `dstack-mol-5v0` | implementation | Language quality profiles                              | [Design](features/hk-policy-simplification/design.md)              |
+| `migration-safety-and-clarity` — Migration safety and clarity                   | `dstack-mol-tki` | design         | hk policy simplification                               | [Design](features/migration-safety-and-clarity/design.md)          |
+| `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | design         | Language quality profiles, hk policy simplification    | [Design](features/monorepo-tooling-layout/design.md)               |
 
 ## Cross-cutting decisions
 
@@ -64,6 +64,7 @@ result must preserve the already-decided root/package ownership contract.
 
 ## Recommended next work
 
-Start `hk-policy-simplification`. After it is delivered, `migration-safety-and-clarity` and `monorepo-tooling-layout`
-can proceed from the simplified generated policy. GitHub validation and docs deployment's waived live Pages exercise
-remains recorded with its GitHub API, permission, and provisioning risk.
+Implement `hk-policy-simplification`; its reviewed design and execution graph are ready. After it is delivered,
+`migration-safety-and-clarity` and `monorepo-tooling-layout` can proceed from the simplified generated policy. GitHub
+validation and docs deployment's waived live Pages exercise remains recorded with its GitHub API, permission, and
+provisioning risk.

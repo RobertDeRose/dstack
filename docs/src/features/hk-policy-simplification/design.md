@@ -7,7 +7,7 @@
 - Design path: `docs/src/features/hk-policy-simplification/design.md`
 - Implemented record: `docs/src/features/hk-policy-simplification/index.md`
 - Base branch: `main`
-- Status: draft
+- Status: reviewed
 
 ## Feature Summary
 
@@ -49,8 +49,11 @@ claiming artificial ordering.
 
 #### Native commit-message linting
 
-Both root and generated `hk.pkl` use `Builtins.harper_commit_message` directly unless an upstream incompatibility is
-proved by a failing fixture. Tests invoke the real `commit-msg` hook with:
+Both root and generated `hk.pkl` derive `harper_commit_message` from `Builtins.harper_commit_message`. Direct use is not
+compatible with the existing commit contract: Harper 2.6 rejects a valid canonical `Beads: dstack-mol-v8c.1` footer as
+spelling and split-word errors. The sole command override filters Git comments, scissors/diff content, and a canonical
+`Beads:` footer before piping the remaining human-authored text to `harper-cli lint --quiet --no-color`. It does not
+ignore any Harper rule class. Tests invoke the Harper step in isolation and the complete real `commit-msg` hook with:
 
 - a valid scoped Conventional Commit subject;
 - a valid subject plus final `Beads:` footer;
@@ -58,8 +61,8 @@ proved by a failing fixture. Tests invoke the real `commit-msg` hook with:
 - a representative spelling error;
 - pronoun/verb disagreement.
 
-The first two pass and the invalid fixtures fail specifically because of Harper. Cocogitto, subject/body length,
-required scope, and Beads footer checks remain independently covered.
+The first two pass and each invalid fixture fails in the isolated Harper step. Separate fixtures prove Cocogitto,
+subject/body length, required scope, and Beads footer checks independently reject their own invalid inputs.
 
 #### Built-in and config-discovery policy
 
@@ -70,8 +73,9 @@ For every current custom step, implementation records one disposition:
 3. retain a custom step because no built-in represents required behavior.
 
 Rumdl uses normal `.config/rumdl.toml` discovery rather than an explicit default config argument. Equivalent redundant
-flags are removed. The semantic documentation validator, commit footer rules, and manifest prerequisite guards may
-remain custom because they are dstack-specific.
+flags are removed. The semantic documentation validator, commit footer rules, manifest prerequisite guards, and the
+minimal Harper machine-line filter remain custom because they represent dstack-specific behavior not covered by the
+upstream built-ins.
 
 #### Dependency policy
 
@@ -143,32 +147,40 @@ lint so contributors can correct the message rather than bypass the hook.
 
 ## Documentation Impact
 
-| Documentation concern      | Exact page                                                            | Create or update        | Planned change                                          | Owning Beads task   |
-|----------------------------|-----------------------------------------------------------------------|-------------------------|---------------------------------------------------------|---------------------|
-| Architecture               | `docs/src/architecture/index.md`                                      | Update                  | Native lock and customization boundary                  | `dstack-mol-v8c.2`  |
-| Usage / Operations         | Not applicable                                                        | —                       | Contributor behavior is development/reference material  | —                   |
-| Development                | `docs/src/development/index.md`                                       | Update                  | Hook behavior, Harper fixtures, and validation workflow | `dstack-mol-v8c.3`  |
-| Reference                  | `docs/src/reference/index.md`                                         | Update                  | Exact retained custom steps and dependency exceptions   | `dstack-mol-v8c.3`  |
-| Generated Development      | `skills/setup-project/template/docs/src/development/tooling.md.jinja` | Update                  | Native check/fix behavior                               | `dstack-mol-v8c.3`  |
-| Generated Reference        | `skills/setup-project/template/docs/src/reference/tooling.md.jinja`   | Update                  | Actual steps and any justified ordering                 | `dstack-mol-v8c.3`  |
-| Navigation                 | `docs/src/SUMMARY.md`                                                 | Update design markers   | Register this design                                    | planning            |
-| Implemented Feature Record | `docs/src/features/hk-policy-simplification/index.md`                 | Create during close-out | Preserve delivery and audit history                     | lifecycle close-out |
+| Documentation concern      | Exact page                                                            | Create or update        | Planned change                                                          | Owning Beads task   |
+|----------------------------|-----------------------------------------------------------------------|-------------------------|-------------------------------------------------------------------------|---------------------|
+| Architecture               | `docs/src/architecture/index.md`                                      | Update                  | Native lock and customization boundary                                  | `dstack-mol-v8c.2`  |
+| Usage / Operations         | Not applicable                                                        | —                       | Contributor behavior is development/reference material                  | —                   |
+| Development                | `docs/src/development/index.md`                                       | Update incrementally    | Harper behavior (`.1`), native policy (`.2`), validation matrix (`.3`)  | tasks `.1`–`.3`     |
+| Reference                  | `docs/src/reference/index.md`                                         | Update incrementally    | Harper contract (`.1`), exact custom steps/dependency exceptions (`.2`) | tasks `.1`–`.2`     |
+| Generated Development      | `skills/setup-project/template/docs/src/development/tooling.md.jinja` | Update incrementally    | Harper behavior (`.1`) and native check/fix behavior (`.2`)             | tasks `.1`–`.2`     |
+| Generated Reference        | `skills/setup-project/template/docs/src/reference/tooling.md.jinja`   | Update incrementally    | Harper contract (`.1`) and actual steps/justified ordering (`.2`)       | tasks `.1`–`.2`     |
+| Published Development      | `docs/src/development/tooling.md`                                     | Update incrementally    | Keep dog-food contributor contract aligned with template changes        | tasks `.1`–`.2`     |
+| Published Reference        | `docs/src/reference/tooling.md`                                       | Update incrementally    | Keep dog-food exact contract aligned with template changes              | tasks `.1`–`.2`     |
+| Planned navigation         | `docs/src/SUMMARY.md`                                                 | Already updated         | Design is registered under planned features                             | planning            |
+| Delivered navigation       | `docs/src/SUMMARY.md`; `docs/src/features/index.md`                   | Update during close-out | Register the implemented feature in both delivered indexes              | lifecycle close-out |
+| Implemented Feature Record | `docs/src/features/hk-policy-simplification/index.md`                 | Create during close-out | Preserve delivery and audit history                                     | lifecycle close-out |
 
 ## Validation Strategy
 
 - Evaluate root and representative rendered Pkl.
-- Invoke real commit-msg hooks with valid and invalid Harper fixtures.
+- Invoke the isolated Harper step and complete commit-msg hook with valid and invalid fixtures, attributing each failure
+  to the intended validator.
 - Compare pre/post capability inventories.
-- Exercise check/fix/pre-commit convergence with overlapping Markdown and language files.
+- Exercise check/fix/pre-commit convergence with overlapping Markdown and language files, verifying byte-for-byte
+  restoration of unrelated unstaged content.
+- Give every retained dependency a focused output/order-sensitivity fixture.
 - Render both Copier entrypoints for `other`, representative single profiles, and one polyglot profile.
 - Run focused tests while iterating, then the full repository suite, `mise run check`, documentation checker, and mdBook
   build after review fixes stabilize.
 
 ## Implementation Decomposition
 
-1. `dstack-mol-v8c.1`: restore native Harper behavior and direct hook fixtures.
-2. `dstack-mol-v8c.2`: replace redundant custom steps and remove non-semantic dependencies without losing checks.
-3. `dstack-mol-v8c.3`: validate representative generated policies and reconcile exact documentation.
+1. `dstack-mol-v8c.1`: restore native Harper behavior, direct hook fixtures, and Harper-specific root/generated docs.
+2. `dstack-mol-v8c.2`: replace redundant custom steps, remove non-semantic dependencies, test each retained edge, and
+   update native-policy root/generated docs.
+3. `dstack-mol-v8c.3`: validate representative generated policies, fix→check convergence, unstaged restoration, and
+   final matrix evidence without re-owning the product-contract pages.
 
 ## Dependencies and Parallelism
 
@@ -216,7 +228,9 @@ hk 1.49's documented file-level locking remains the behavior of the currently pi
 ### Design Changes During Planning
 
 The work was separated from migration safety so the template policy can stabilize before migration preservation tests
-consume it.
+consume it. Specification review added published dog-food pages and delivered-index ownership, made task documentation
+ownership explicitly incremental, strengthened convergence/dependency acceptance, and replaced direct Harper use with a
+minimal machine-line filter after Harper 2.6 rejected a valid canonical Beads footer.
 
 ### Source Material
 
