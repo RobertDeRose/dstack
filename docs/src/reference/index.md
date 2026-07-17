@@ -27,7 +27,9 @@ backup presence/disposition. Migration stores only answers required for safety/r
 dependency, collision, and artifact dispositions; question prose is not schema state. Checkpoints require successful
 `scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit. The only intermediate
 exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs; its approval, reason, equivalent result, and
-risk are durable evidence.
+risk are durable evidence. `checkpoint-evidence --hook <hook> --status <passed|failed|exception> --command <command>`
+appends `checkpoint_evidence[]`; exceptions additionally require `--reason`, `--equivalent-result`, and
+`--residual-risk`.
 
 `import-beads` uses `bd --dolt-auto-commit=batch` and commits bounded per-feature state plus relationship phases. It is
 dry-run by default and reports `existing`, `recovered`, `pending`, `conflicting`, `completed`, `remaining`, and `total`;

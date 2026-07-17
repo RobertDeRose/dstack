@@ -109,8 +109,17 @@ Use an ordinary `git commit` so configured hooks are authoritative. If it fails,
 named hook/step, the exact commit or `mise x -- hk run <hook>` reproduction, and corrective recovery. Never bypass all
 hooks. While live legacy tasks intentionally make strict docs premature, a single docs-step exception is allowed only
 after the user explicitly approves it and `uv run scripts/check-docs.py --migration-mode` passes. Stage a durable note
-containing approval, reason, equivalent result, and residual risk; then set `HK_SKIP_STEPS=docs` only for that commit.
-Final checkpoints run strict docs normally.
+through:
+
+```bash
+checkpoint-evidence --hook pre-commit --status exception \
+  --command '<commit command>' --reason '<approval and reason>' \
+  --equivalent-result '<migration-mode result>' --residual-risk '<risk>'
+```
+
+This records the equivalent result and residual risk. Stage the updated manifest, then set `HK_SKIP_STEPS=docs` only for
+that commit. Record ordinary passed/failed hook evidence with the same command. Final checkpoints run strict docs
+normally.
 
 ## Template source and revision
 

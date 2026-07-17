@@ -65,8 +65,8 @@ hook routing, and `mise x -- hk run pre-commit -a -P`; stop with provisioner or 
 See **Verified migration checkpoints**.
 
 Validate migration-mode docs, apply project-native formatting, stage, and use an ordinary verified commit. Only explicit
-user approval may set `HK_SKIP_STEPS=docs` for that commit after migration-mode docs pass and the durable exception note
-is staged. Never skip a whole hook:
+user approval may set `HK_SKIP_STEPS=docs` for that commit after migration-mode docs pass and `checkpoint-evidence` is
+staged. Never skip a whole hook:
 
 ```bash
 git add -A

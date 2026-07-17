@@ -1020,6 +1020,7 @@ def build_manifest(
             "parsed_tasks": parsed_tasks,
         },
         "hk_reconciliation": hk_reconciliation_state(baseline_hk, current_hk, dispositions),
+        "checkpoint_evidence": (existing_manifest or {}).get("checkpoint_evidence", []),
         "artifacts": {
             **previous_artifacts,
             "candidate_directory": str(TEMPLATE_CANDIDATE_DIR),
@@ -1094,6 +1095,20 @@ def render_report(manifest: Mapping[str, Any]) -> str:
             f"- Conditional backup present: {bool(artifacts.get('backup_present'))}",
             f"- Backup disposition: `{artifacts.get('backup_disposition', 'unresolved')}`",
             f"- Backup disposition reason: {artifacts.get('backup_disposition_reason') or '—'}",
+            "",
+            "## Checkpoint Evidence",
+            "",
+        ]
+    )
+    for item in manifest.get("checkpoint_evidence", []):
+        lines.append(
+            f"- `{item.get('hook', 'unknown')}` `{item.get('status', 'unknown')}` — "
+            f"`{item.get('command', '')}` — {item.get('reason') or 'ordinary verified checkpoint'}"
+        )
+    if not manifest.get("checkpoint_evidence"):
+        lines.append("- No checkpoint evidence recorded.")
+    lines.extend(
+        [
             "",
             "## Feature Mapping",
             "",
@@ -2868,6 +2883,9 @@ def finalize_migration(
         if not operations:
             print("  - no legacy tasks.md files remain")
         return
+    if manifest.get("migration_finalized") and not operations:
+        print("Migration finalization already complete; no changes required.")
+        return
     manifest["migration_finalized"] = True
     manifest["finalized_at"] = utc_now()
     checker = root / "scripts/check-docs.py"
@@ -3167,6 +3185,35 @@ def baseline_repository(
     return 1 if any(item["status"] == "failed" for item in checks.values()) else 0
 
 
+def record_checkpoint_evidence(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    manifest_path: Path,
+    report_path: Path,
+    hook: str,
+    status: str,
+    command: str,
+    reason: str,
+    equivalent_result: str,
+    residual_risk: str,
+) -> None:
+    if status == "exception" and not all(value.strip() for value in (reason, equivalent_result, residual_risk)):
+        message = "Checkpoint exceptions require reason, equivalent result, and residual risk"
+        raise MigrationError(message)
+    evidence = {
+        "hook": hook,
+        "status": status,
+        "command": command,
+        "reason": reason.strip(),
+        "equivalent_result": equivalent_result.strip(),
+        "residual_risk": residual_risk.strip(),
+        "recorded_at": utc_now(),
+    }
+    manifest.setdefault("checkpoint_evidence", []).append(evidence)
+    save_manifest_and_report(root, manifest_path, report_path, manifest)
+
+
 def set_backup_disposition(
     root: Path,
     manifest: dict[str, Any],
@@ -3298,6 +3345,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     scan = subparsers.add_parser("scan", help="Inventory the legacy workflow")
     add_common_arguments(scan)
     scan.add_argument("--write", action="store_true", help="Write manifest and report")
+
+    checkpoint = subparsers.add_parser(
+        "checkpoint-evidence",
+        help="Record verified hook or targeted checkpoint exception evidence",
+    )
+    add_common_arguments(checkpoint)
+    checkpoint.add_argument("--hook", required=True)
+    checkpoint.add_argument("--status", choices=("passed", "failed", "exception"), required=True)
+    checkpoint.add_argument("--command", dest="checkpoint_command", required=True)
+    checkpoint.add_argument("--reason", default="")
+    checkpoint.add_argument("--equivalent-result", default="")
+    checkpoint.add_argument("--residual-risk", default="")
 
     backup_disposition = subparsers.add_parser(
         "backup-disposition",
@@ -3434,6 +3493,8 @@ def load_or_scan(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_json(root / args.manifest)
     if manifest is not None:
         normalize_manifest_identity(manifest)
+        if manifest.get("migration_finalized"):
+            return manifest
     return build_manifest(root, manifest_path=args.manifest)
 
 
@@ -3473,6 +3534,21 @@ def _main(args: argparse.Namespace) -> int:
             return 0
 
         manifest = load_or_scan(root, args)
+
+        if args.command == "checkpoint-evidence":
+            record_checkpoint_evidence(
+                root,
+                manifest,
+                manifest_path=args.manifest,
+                report_path=args.report,
+                hook=args.hook,
+                status=args.status,
+                command=args.checkpoint_command,
+                reason=args.reason,
+                equivalent_result=args.equivalent_result,
+                residual_risk=args.residual_risk,
+            )
+            return 0
 
         if args.command == "backup-disposition":
             set_backup_disposition(

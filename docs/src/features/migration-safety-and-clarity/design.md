@@ -32,7 +32,8 @@ hide migration failures with `git commit --no-verify`.
 - Preserve legacy task status and import audit metadata across scans and retries.
 - Require or reliably discover canonical project identity and default branch instead of using a migration worktree name.
 - Automate migration-safe validation and delivered-feature navigation without silently weakening final policy.
-- Exercise these guarantees in one resumable end-to-end migration fixture.
+- Exercise these guarantees through one integration contract that composes bounded resumable fixtures without
+  duplicating expensive 300-record imports and provisioner setup in a single repository.
 
 ## Non-Goals
 
@@ -209,8 +210,8 @@ Extend migration state with pre/post hk inventories, explicit dispositions, impo
 repository identity; add artifact classification and tracked state checks; standardize contextual question templates;
 and strengthen checkpoint gates around real hook execution. Batch Beads mutations through the narrowest supported
 transaction boundary, regenerate delivered navigation, and keep generated historical records as reviewable candidates.
-Keep candidate reconciliation manual where syntax-aware merging would be unsafe. Validate the complete behavior in a
-large legacy repository fixture containing custom hk steps and a deliberately failing hook.
+Keep candidate reconciliation manual where syntax-aware merging would be unsafe. Validate the complete behavior through
+a named integration contract over bounded legacy, large-import, custom-hk, and deliberately failing-hook fixtures.
 
 ## Architecture Consistency
 
@@ -291,8 +292,8 @@ it. Recovery remains local and resumable. Durable archives increase repository s
    work.
 8. `dstack-mol-9zl.10`: automate migration-safe validation, implemented-feature navigation, and review-required
    delivered record drafting.
-9. `dstack-mol-9zl.5`: exercise old-manifest compatibility and the complete resumable migration, then reconcile all
-   reader documentation.
+9. `dstack-mol-9zl.5`: aggregate old-manifest compatibility and all bounded resumable fixtures into the complete
+   integration contract, then reconcile all reader documentation.
 
 ## Dependencies and Parallelism
 

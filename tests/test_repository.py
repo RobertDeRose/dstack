@@ -4219,6 +4219,97 @@ def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Pa
     ]
 
 
+def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: Path) -> None:
+    from tests.test_migrate_legacy_workflow import create_legacy_project
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            "--frozen",
+            "--group",
+            "test",
+            "pytest",
+            "-q",
+            "tests/test_migrate_legacy_workflow.py::test_prepare_import_and_finalize_are_resumable_and_guarded",
+            "tests/test_migrate_legacy_workflow.py::test_large_import_uses_bounded_batches_and_proportional_retry",
+            "tests/test_migrate_legacy_workflow.py::test_delivered_navigation_and_review_required_drafts",
+            "tests/test_repository.py::test_migration_verified_checkpoint_hooks",
+            "tests/test_repository.py::test_adoption_uses_primary_repository_identity_and_remote_default_branch",
+        ],
+        cwd=repository_root,
+    )
+    assert "5 passed" in result.stdout
+
+    project = tmp_path / "old-manifest-resume"
+    create_legacy_project(project)
+    shutil.copy2(repository_root / "hk.pkl", project / "hk.pkl")
+    migrator = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
+
+    def migrate(*arguments: str) -> subprocess.CompletedProcess[str]:
+        return run_command(["uv", "run", str(migrator), *arguments, "--root", str(project)], cwd=project)
+
+    migrate("baseline", "--write")
+    migrate("scan", "--write")
+    manifest_path = project / "migration/workflow-migration.json"
+    old = json.loads(manifest_path.read_text(encoding="utf-8"))
+    old.pop("artifacts")
+    old.pop("checkpoint_evidence")
+    manifest_path.write_text(json.dumps(old), encoding="utf-8")
+    existing_archive = project / "migration/legacy-tasks/existing.md"
+    existing_archive.parent.mkdir(parents=True)
+    existing_archive.write_text("# Existing archive\n", encoding="utf-8")
+
+    migrate("scan", "--write")
+    upgraded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert upgraded["artifacts"]["backup_disposition"] == "unresolved"
+    assert "typos" in upgraded["hk_reconciliation"]["baseline"]["hooks"]["pre-commit"]
+    migrate("backup-disposition", "remove", "--reason", "No conditional backup exists")
+    incomplete_exception = run_command(
+        [
+            "uv",
+            "run",
+            str(migrator),
+            "checkpoint-evidence",
+            "--hook",
+            "pre-commit",
+            "--status",
+            "exception",
+            "--command",
+            "HK_SKIP_STEPS=docs git commit",
+            "--reason",
+            "User approved",
+            "--root",
+            str(project),
+        ],
+        cwd=project,
+        expected=2,
+    )
+    assert incomplete_exception.returncode == 2
+    assert "require reason, equivalent result, and residual risk" in incomplete_exception.stderr
+    migrate(
+        "checkpoint-evidence",
+        "--hook",
+        "pre-commit",
+        "--status",
+        "exception",
+        "--command",
+        "HK_SKIP_STEPS=docs git commit",
+        "--reason",
+        "User approved while legacy tasks remain",
+        "--equivalent-result",
+        "migration-mode docs passed",
+        "--residual-risk",
+        "strict docs deferred until archival",
+    )
+    first = manifest_path.read_bytes()
+    migrate("scan", "--write")
+    assert manifest_path.read_bytes() == first
+    resumed = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert resumed["checkpoint_evidence"][0]["status"] == "exception"
+    assert existing_archive.read_text(encoding="utf-8") == "# Existing archive\n"
+
+
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
     script = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
         encoding="utf-8"
