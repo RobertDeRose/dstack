@@ -348,7 +348,15 @@ def write_logging_shims(bin_dir: Path, *names: str) -> Path:
         "    target = Path(args[-1])\n"
         "    if name == 'goimports' and target.read_text() == 'before\\n': target.write_text('imports\\n')\n"
         "    if name == 'gofumpt' and target.read_text() == 'imports\\n': target.write_text('final\\n')\n"
+        "if os.environ.get('DSTACK_MODULE_ORDER_SENSITIVE') == '1' and name == 'go' and args == ['mod', 'tidy']:\n"
+        "    state = 'current\\n' if Path('main.go').read_text() == 'final\\n' else 'stale\\n'\n"
+        "    Path('go.sum').write_text(state)\n"
         "fail_tidy = os.environ.get('DSTACK_FAIL_GO_TIDY') == '1' and name == 'go' and '-diff' in args\n"
+        "fail_tidy = fail_tidy or (\n"
+        "    os.environ.get('DSTACK_MODULE_ORDER_SENSITIVE') == '1'\n"
+        "    and name == 'go' and '-diff' in args\n"
+        "    and Path('go.sum').read_text() != 'current\\n'\n"
+        ")\n"
         "raise SystemExit(name == os.environ.get('DSTACK_FAIL_COMMAND') or fail_tidy or (fail_check and check_only))\n",
         encoding="utf-8",
     )
@@ -1448,7 +1456,8 @@ def test_go_profile_renders_exact_contract(tagged_template_source: Path, tmp_pat
         assert command in hk
     assert hk.index('["goimports"]') < hk.index('["gofumpt"]')
     assert hk.count('depends = "goimports"') == 1
-    assert len(re.findall(r"depends =", hk)) == 1
+    assert hk.count('depends = "gofumpt"') == 1
+    assert len(re.findall(r"depends =", hk)) == 2
     assert "Root `go.mod` enables" in development
     assert "Recorded language profiles: `go`" in reference
     assert "coverage.out" in (project / ".gitignore").read_text(encoding="utf-8")
@@ -1518,6 +1527,20 @@ def test_go_profile_renders_exact_contract(tagged_template_source: Path, tmp_pat
     log.write_text("", encoding="utf-8")
     (project / "go.mod").write_text("module example.test/project\n\ngo 1.24\n", encoding="utf-8")
     original_module = (project / "go.mod").read_bytes()
+    module_environment = order_environment | {"DSTACK_MODULE_ORDER_SENSITIVE": "1"}
+    source.write_text("before\n", encoding="utf-8")
+    run_command(["go", "mod", "tidy"], cwd=project, env=module_environment)
+    run_command(["goimports", "-w", str(source)], cwd=project, env=module_environment)
+    run_command(["gofumpt", "-w", str(source)], cwd=project, env=module_environment)
+    assert (project / "go.sum").read_text(encoding="utf-8") == "stale\n"
+    source.write_text("before\n", encoding="utf-8")
+    run_command(
+        ["hk", "fix", "-a", "-f", "-S", "goimports", "-S", "gofumpt", "-S", "go-mod"],
+        cwd=project,
+        env=module_environment,
+    )
+    assert source.read_text(encoding="utf-8") == "final\n"
+    assert (project / "go.sum").read_text(encoding="utf-8") == "current\n"
     run_command(
         ["hk", "check", "-a", "-S", "go-mod", "-S", "golangci-lint", "-S", "go-test"], cwd=project, env=environment
     )

@@ -27,7 +27,7 @@ limits, and canonical optional `Beads:` footers. Harper applies its full native 
 filtering Git comments/diffs, canonical release subjects, and the canonical machine-readable footer. Run `cog changelog`
 to preview the concise user-facing changelog. The hk policy uses native built-in steps whenever their behavior matches;
 hk's file locking coordinates independent steps. No dependency chain serializes unrelated checks. Go projects retain
-one ordering edge so `gofumpt` runs after `goimports` and owns the final formatting output.[% if language_profiles == ['other'] %]
+two output-sensitive edges: `gofumpt` follows `goimports`, then fix-only module tidy observes the final imports.[% if language_profiles == ['other'] %]
 
 No recognized language profile is active; only the universal tooling baseline
 runs.[% endif %][% if 'python' in language_profiles %]

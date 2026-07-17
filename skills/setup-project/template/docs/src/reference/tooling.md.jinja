@@ -24,7 +24,8 @@ The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` Cocogitto, H
 rumdl, typos, and `npm:markdown-table-formatter` releases. Contextlint checks documentation links, anchors, and image
 targets. Its reviewed low-download aube exception applies only to `@contextlint/cli`. Both hk Pkl imports use `1.49.0`.
 Equivalent native hk steps own matching formatter and linter commands. Independent steps have no explicit `depends`
-edges; Go formatting alone retains `gofumpt` after `goimports` so the stricter formatter owns final output.
+edges. Go retains two output-sensitive edges: `gofumpt` follows `goimports` so the stricter formatter owns final source,
+and fix-only `go-mod` follows `gofumpt` so module metadata observes the final imports.
 
 Custom steps are limited to behavior hk does not provide equivalently: Contextlint must discover its whole-project
 configuration without a changed-file argument; documentation and Markdown-table checks are project composites or have

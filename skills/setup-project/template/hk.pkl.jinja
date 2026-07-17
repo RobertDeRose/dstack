@@ -230,6 +230,7 @@ hooks {
     steps = (linters) {
 [% if 'go' in language_profiles %]
       ["go-mod"] = new Step {
+        depends = "gofumpt"
         check = "[ ! -f go.mod ] || go mod tidy -diff"
         fix = "[ ! -f go.mod ] || go mod tidy"
       }

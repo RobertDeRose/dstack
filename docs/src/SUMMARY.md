@@ -42,4 +42,5 @@
   - [Universal project tooling](features/universal-project-tooling/index.md)
   - [Language quality profiles](features/language-quality-profiles/index.md)
   - [GitHub validation and docs deployment](features/github-validation-and-docs-deployment/index.md)
+  - [hk policy simplification](features/hk-policy-simplification/index.md)
   <!-- END IMPLEMENTED FEATURES -->

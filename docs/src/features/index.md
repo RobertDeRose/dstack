@@ -22,4 +22,5 @@ here only during close-out.
 - [Universal project tooling](universal-project-tooling/index.md)
 - [Language quality profiles](language-quality-profiles/index.md)
 - [GitHub validation and docs deployment](github-validation-and-docs-deployment/index.md)
+- [hk policy simplification](hk-policy-simplification/index.md)
 <!-- END IMPLEMENTED FEATURES -->
