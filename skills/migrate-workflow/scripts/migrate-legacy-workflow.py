@@ -76,6 +76,7 @@ DEFAULT_BASELINE_JSON = Path("migration/baseline.json")
 DEFAULT_BASELINE_REPORT = Path("migration/baseline.md")
 TEMPLATE_CANDIDATE_DIR = Path("migration/template-adoption-candidates")
 TEMPLATE_BACKUP_DIR = Path("migration/template-adoption-backup")
+DELIVERED_CANDIDATE_DIR = Path("migration/delivered-record-candidates")
 FORMULA_PATH = Path(".beads/formulas/dstack-feature.formula.toml")
 FEATURES_PATH = Path("docs/src/features")
 ROADMAP_PATH = Path("docs/src/planned-features.md")
@@ -914,6 +915,15 @@ def build_manifest(
         if computed_classification == "completed" and conflicts:
             computed_classification = "needs_review"
         classification = classification_override or computed_classification
+        legacy_source_dirs = list(previous.get("legacy_source_dirs", []))
+        previous_source = previous.get("source_dir")
+        for candidate_source in (previous_source, str(source_dir.relative_to(root))):
+            if (
+                candidate_source
+                and candidate_source != str(target_dir.relative_to(root))
+                and candidate_source not in legacy_source_dirs
+            ):
+                legacy_source_dirs.append(candidate_source)
         beads_state = copy.deepcopy(previous.get("beads", {}))
         if beads_state.get("state_applied") and not beads_state.get("import_phase"):
             beads_state["import_phase"] = "completed" if legacy_import_globally_complete else "relationships"
@@ -921,6 +931,7 @@ def build_manifest(
             "slug": slug,
             "title": (entry.title if entry and entry.title else previous.get("title") or slug_title(slug)),
             "source_dir": str(source_dir.relative_to(root)),
+            "legacy_source_dirs": legacy_source_dirs,
             "target_dir": str(target_dir.relative_to(root)),
             "design_path": str((target_dir / "design.md").relative_to(root)),
             "implemented_path": str((target_dir / "index.md").relative_to(root)),
@@ -1000,6 +1011,7 @@ def build_manifest(
         "beads_import_started_at": (existing_manifest or {}).get("beads_import_started_at"),
         "beads_import_completed_at": (existing_manifest or {}).get("beads_import_completed_at"),
         "beads_import_progress": (existing_manifest or {}).get("beads_import_progress", {}),
+        "delivered_record_candidates": (existing_manifest or {}).get("delivered_record_candidates", []),
         "migration_finalized": bool(existing_manifest and existing_manifest.get("migration_finalized")),
         "inventory": {
             "legacy_task_files": legacy_task_files,
@@ -1343,6 +1355,24 @@ def ensure_summary_markers(text: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def replace_marker_body(text: str, entries: Sequence[str], *, indent: str = "") -> str:
+    lines = text.splitlines()
+    start = next(index for index, line in enumerate(lines) if MARKER_START in line)
+    end = next(index for index, line in enumerate(lines[start + 1 :], start + 1) if MARKER_END in line)
+    return "\n".join([*lines[: start + 1], *(indent + entry for entry in entries), *lines[end:]]).rstrip() + "\n"
+
+
+def delivered_navigation(manifest: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+    delivered = [
+        feature
+        for feature in manifest.get("features", [])
+        if feature.get("has_index") and feature.get("classification") == "completed"
+    ]
+    summary = [f"- [{feature['title']}](features/{feature['slug']}/index.md)" for feature in delivered]
+    feature_index = [f"- [{feature['title']}]({feature['slug']}/index.md)" for feature in delivered]
+    return summary, feature_index
+
+
 def ensure_feature_index_markers(text: str) -> str:
     if MARKER_START in text and MARKER_END in text:
         return text.rstrip() + "\n"
@@ -1468,10 +1498,14 @@ def prepare_filesystem(
                 for concern_page in concern_pages:
                     operations.append(f"create {concern_page.relative_to(root)}")
                 new = ensure_summary_markers(new)
+                summary_entries, _ = delivered_navigation(manifest)
+                new = replace_marker_body(new, summary_entries, indent="  ")
                 if (root / "docs/src/development/feature-lifecycle.md").exists():
                     new = ensure_feature_lifecycle_link(new)
             if path == root / FEATURE_INDEX_PATH:
                 new = ensure_feature_index_markers(new)
+                _, feature_entries = delivered_navigation(manifest)
+                new = replace_marker_body(new, feature_entries)
             if new != old:
                 operations.append(f"rewrite {path.relative_to(root)}")
                 changed_files.append(path)
@@ -2675,6 +2709,72 @@ def import_beads(
     print(f"Import pass complete for {len(features)} selected feature(s).")
 
 
+def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool) -> None:
+    previous = {
+        str(candidate.get("slug")): candidate
+        for candidate in manifest.get("delivered_record_candidates", [])
+        if isinstance(candidate, dict)
+    }
+    candidates: list[dict[str, Any]] = []
+    for feature in manifest.get("features", []):
+        if feature.get("classification") != "completed":
+            continue
+        slug = str(feature["slug"])
+        target = root / DELIVERED_CANDIDATE_DIR / slug / "index.md"
+        task_labels = ", ".join(task["label"] for task in feature.get("tasks", [])) or "none parsed"
+        root_id = feature.get("beads", {}).get("root_id") or "not imported"
+        evidence_paths = [str(feature["target_dir"]), *map(str, feature.get("legacy_source_dirs", []))]
+        git_evidence = subprocess.run(
+            ["git", "log", "--format=%H", "--name-only", "--", *evidence_paths],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        commits = [line for line in git_evidence if re.fullmatch(r"[0-9a-f]{7,64}", line)]
+        changed_paths = [line for line in git_evidence if line and line not in commits]
+        text = (
+            f"# {feature['title']}\n\n"
+            "## Delivery summary\n\n"
+            "Candidate generated from legacy migration evidence; semantic review is required.\n\n"
+            f"- Imported Beads root: `{root_id}`\n"
+            f"- Legacy tasks: {task_labels}\n"
+            f"- Legacy design: `{feature['design_path']}`\n"
+            f"- Git commits: {', '.join(commits[:10]) or 'none found'}\n"
+            f"- Changed paths: {', '.join(changed_paths[:25]) or 'none found'}\n"
+        )
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        prior = previous.get(slug, {})
+        candidate = {
+            "slug": slug,
+            "path": str(target.relative_to(root)),
+            "evidence_digest": digest,
+            "reviewed": bool(prior.get("reviewed")) and prior.get("evidence_digest") == digest,
+        }
+        for key in ("review_reason", "reviewed_at"):
+            if key in prior:
+                candidate[key] = prior[key]
+        candidates.append(candidate)
+        if apply:
+            write_text(target, text)
+    manifest["delivered_record_candidates"] = candidates
+    print(f"{'Drafted' if apply else 'Would draft'} {len(candidates)} delivered-record candidate(s).")
+
+
+def review_delivered_record(manifest: dict[str, Any], slug: str, reason: str) -> None:
+    if not reason.strip():
+        message = "--reason is required for delivered-record semantic review"
+        raise MigrationError(message)
+    for candidate in manifest.get("delivered_record_candidates", []):
+        if candidate.get("slug") == slug:
+            candidate["reviewed"] = True
+            candidate["review_reason"] = reason.strip()
+            candidate["reviewed_at"] = utc_now()
+            return
+    message = f"No delivered-record candidate exists for {slug}"
+    raise MigrationError(message)
+
+
 def task_references(root: Path) -> list[str]:
     references: list[str] = []
     docs_src = root / "docs/src"
@@ -2702,6 +2802,16 @@ def finalize_migration(
     delete_tasks: bool,
     archive_dir: Path,
 ) -> None:
+    unreviewed = [
+        str(candidate.get("slug"))
+        for candidate in manifest.get("delivered_record_candidates", [])
+        if not candidate.get("reviewed")
+    ]
+    if unreviewed:
+        message = "Delivered-record candidates require semantic review before finalization: " + ", ".join(
+            sorted(unreviewed)
+        )
+        raise MigrationError(message)
     references = task_references(root)
     if references:
         details = "\n".join(f"  - {path}" for path in references)
@@ -2768,6 +2878,15 @@ def finalize_migration(
 
 def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: bool) -> tuple[list[str], list[str]]:
     errors: list[str] = []
+    unreviewed_candidates = [
+        str(candidate.get("slug"))
+        for candidate in manifest.get("delivered_record_candidates", [])
+        if not candidate.get("reviewed")
+    ]
+    if unreviewed_candidates:
+        errors.append(
+            "Delivered-record candidates require semantic review: " + ", ".join(sorted(unreviewed_candidates))
+        )
     warnings: list[str] = []
     features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
     mapping = {Path(feature["source_dir"]).name: feature["slug"] for feature in features}
@@ -3259,6 +3378,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     import_parser.add_argument("--init-beads", action="store_true")
     import_parser.add_argument("--feature", action="append", default=[], help="Import only a slug")
 
+    draft_records = subparsers.add_parser(
+        "draft-delivered-records", help="Draft historical delivered records for required human review"
+    )
+    add_common_arguments(draft_records)
+    draft_records.add_argument("--apply", action="store_true")
+
+    review_record = subparsers.add_parser(
+        "review-delivered-record", help="Record human semantic review of a drafted delivered record"
+    )
+    add_common_arguments(review_record)
+    review_record.add_argument("feature")
+    review_record.add_argument("--reason", required=True)
+
     finalize = subparsers.add_parser("finalize", help="Archive legacy task files after semantic reconciliation")
     add_common_arguments(finalize)
     finalize.add_argument("--apply", action="store_true")
@@ -3446,6 +3578,17 @@ def _main(args: argparse.Namespace) -> int:
                 init_beads=args.init_beads,
                 requested=args.feature,
             )
+            return 0
+
+        if args.command == "draft-delivered-records":
+            draft_delivered_records(root, manifest, apply=args.apply)
+            if args.apply:
+                save_manifest_and_report(root, args.manifest, args.report, manifest)
+            return 0
+
+        if args.command == "review-delivered-record":
+            review_delivered_record(manifest, args.feature, args.reason)
+            save_manifest_and_report(root, args.manifest, args.report, manifest)
             return 0
 
         if args.command == "finalize":

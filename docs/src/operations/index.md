@@ -68,6 +68,11 @@ explicit project name, slug, and default branch when evidence is missing or inco
 `bd init --stealth --skip-agents`, force-add only `.beads/formulas/dstack-feature.formula.toml`; keep the embedded
 database and local runtime configuration untracked.
 
+`prepare --apply` regenerates implemented-feature navigation from standalone completed records.
+`draft-delivered-records --apply` can create historical record candidates from legacy tasks, design paths, and imported
+Beads identities, but candidates do not establish truth: inspect and reconcile each one, then record semantic approval
+with `review-delivered-record <slug> --reason <evidence>`. Verification blocks every unreviewed candidate.
+
 Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
 `pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents
 recognized profile suggestions for confirmation. It never applies suggestions automatically.

@@ -100,6 +100,15 @@ deterministic large-import fixture creates at least 300 Beads records, bounds ba
 and proves a relationship-interrupted retry mutates only its missing outgoing dependency and does not replay completed
 dependents.
 
+## Migration reconciliation automation
+
+Before finalization, `verify` automatically runs `check-docs.py --migration-mode`; afterward it runs strict mode. The
+migration checker operates on reader documentation, so generated assets and legacy command directories are not broadened
+into its input, and it never rewrites project acronyms or mdBook H1 part headings. Prepare regenerates only bounded
+implemented-feature marker bodies. Delivered-record drafts include legacy tasks/design, imported Beads identity, Git
+commits, and changed paths, remain candidates, and block verification and finalization until semantic review is
+recorded.
+
 ## Change discipline
 
 Keep both Copier entry points aligned. Template changes require generated-project tests and must preserve Copier update

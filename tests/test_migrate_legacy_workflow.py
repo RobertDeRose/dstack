@@ -14,7 +14,7 @@ from typing import Any, cast
 
 import pytest
 
-from tests.support import merged_environment, run_command
+from tests.support import commit_repository, initialize_git, merged_environment, run_command
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -458,6 +458,63 @@ def test_checkbox_status_fallback_and_explicit_precedence(tmp_path: Path) -> Non
     assert tasks["T020"]["status"] == "in_progress"
     assert tasks["T030"]["status"] == "closed"
     assert tasks["T040"]["status"] == "blocked"
+
+
+@pytest.mark.integration
+def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -> None:
+    alpha = legacy_project / "docs/src/features/alpha"
+    numbered_alpha = legacy_project / "docs/src/features/001-alpha"
+    alpha.rename(numbered_alpha)
+    (numbered_alpha / "index.md").write_text(
+        "# Alpha\n\n## Delivery summary\n\nLegacy delivery evidence.\n",
+        encoding="utf-8",
+    )
+    initialize_git(legacy_project, "legacy delivered feature")
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    summary_path = legacy_project / "docs/src/SUMMARY.md"
+    index_path = legacy_project / "docs/src/features/index.md"
+    assert "[Alpha](features/alpha/index.md)" in summary_path.read_text(encoding="utf-8")
+    assert "[Alpha](alpha/index.md)" in index_path.read_text(encoding="utf-8")
+    prepared = (summary_path.read_bytes(), index_path.read_bytes())
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    assert (summary_path.read_bytes(), index_path.read_bytes()) == prepared
+
+    run_migrator(legacy_project, "draft-delivered-records", "--apply")
+    manifest_path = legacy_project / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    candidates = manifest["delivered_record_candidates"]
+    assert candidates
+    assert all(not candidate["reviewed"] for candidate in candidates)
+    blocked = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)
+    assert "Delivered-record candidates require semantic review" in blocked.stderr
+    finalize = run_migrator(legacy_project, "finalize", "--apply", expected=2)
+    assert "require semantic review before finalization" in finalize.stderr
+    for candidate in candidates:
+        run_migrator(
+            legacy_project,
+            "review-delivered-record",
+            candidate["slug"],
+            "--reason",
+            "Maintainer reconciled the candidate with legacy and Git evidence",
+        )
+    reviewed = json.loads(manifest_path.read_text(encoding="utf-8"))["delivered_record_candidates"]
+    assert all(candidate["reviewed"] for candidate in reviewed)
+    run_migrator(legacy_project, "draft-delivered-records", "--apply")
+    redrafted = json.loads(manifest_path.read_text(encoding="utf-8"))["delivered_record_candidates"]
+    assert all(candidate["reviewed"] for candidate in redrafted)
+    candidate_text = (legacy_project / redrafted[0]["path"]).read_text(encoding="utf-8")
+    assert "Git commits:" in candidate_text
+    assert "Changed paths: docs/src/features/001-alpha" in candidate_text
+    (legacy_project / "docs/src/features/alpha/design.md").write_text(
+        "# Alpha design\n\nAdditional delivered evidence.\n",
+        encoding="utf-8",
+    )
+    commit_repository(legacy_project, "add delivered evidence")
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "draft-delivered-records", "--apply")
+    changed = json.loads(manifest_path.read_text(encoding="utf-8"))["delivered_record_candidates"]
+    assert any(not candidate["reviewed"] for candidate in changed)
 
 
 def create_heading_status_project(root: Path) -> None:
