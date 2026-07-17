@@ -253,6 +253,18 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
                     save()
                 print("ok")
             elif args[:2] == ["dep", "add"]:
+                failure_marker = state / "dep-failed-once"
+                source = issues.get(args[2], {})
+                target = issues.get(args[3], {})
+                if (
+                    os.environ.get("FAKE_BD_FAIL_DEP_ONCE") == "1"
+                    and source.get("type") == "epic"
+                    and target.get("type") == "epic"
+                    and not failure_marker.exists()
+                ):
+                    failure_marker.write_text("failed")
+                    print("injected dependency failure", file=sys.stderr)
+                    raise SystemExit(1)
                 issue = issues.get(args[2])
                 if issue is not None:
                     issue.setdefault("dependencies", {})[args[3]] = flag("--type", "blocks")
@@ -364,8 +376,19 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     assert alpha["beads"]["migration_reconciliation_id"]
     assert beta["beads"]["root_id"]
     assert beta["beads"]["implementation_tasks"]["T010"]
+    imported_identities = {slug: feature["beads"] for slug, feature in features.items()}
+    commands_path = state_dir / "commands.jsonl"
+    before_retry = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
+    retry = run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    after_retry = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
+    mutation_verbs = {"create", "update", "close", "dep", "note"}
+    assert [command for command in after_retry if command and command[0] in mutation_verbs] == [
+        command for command in before_retry if command and command[0] in mutation_verbs
+    ]
+    assert "already completed; skipping mutations" in retry.stdout
+    assert {slug: feature["beads"] for slug, feature in features_by_slug(legacy_project).items()} == imported_identities
 
-    commands = [json.loads(line) for line in (state_dir / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
+    commands = after_retry
     alpha_root = alpha["beads"]["root_id"]
     assert not any(command[:2] == ["close", alpha_root] for command in commands)
     metadata_updates = [
@@ -374,11 +397,16 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
         if len(command) >= 2 and command[0] == "update" and command[1] == alpha_root and "--set-metadata" in command
     ]
     assert metadata_updates
-    assert f"implementation_id={alpha['beads']['lifecycle']['implementation']}" in metadata_updates[-1]
+    assert any(
+        f"implementation_id={alpha['beads']['lifecycle']['implementation']}" in command for command in metadata_updates
+    )
 
     result = run_migrator(legacy_project, "finalize", expected=2)
     assert "still referenced" in result.stderr
 
+    existing_archive = legacy_project / "migration/legacy-tasks/existing.md"
+    existing_archive.parent.mkdir(parents=True, exist_ok=True)
+    existing_archive.write_text("# Existing archive\n", encoding="utf-8")
     (legacy_project / "docs/src/features/alpha/index.md").write_text(
         "# Alpha\n\n## Delivery Summary\n\nStandalone migrated record.\n",
         encoding="utf-8",
@@ -387,7 +415,44 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     assert not (legacy_project / "docs/src/features/alpha/tasks.md").exists()
     assert (legacy_project / "migration/legacy-tasks/alpha.md").is_file()
     assert (legacy_project / "migration/legacy-tasks/beta.md").is_file()
-    run_migrator(legacy_project, "verify", "--skip-docs-check")
+    assert existing_archive.read_text(encoding="utf-8") == "# Existing archive\n"
+    finalized = (legacy_project / "migration/workflow-migration.json").read_bytes()
+    run_migrator(legacy_project, "finalize", "--apply")
+    assert (legacy_project / "migration/workflow-migration.json").read_bytes() == finalized
+    run_migrator(legacy_project, "verify")
+
+
+@pytest.mark.integration
+def test_checkbox_status_fallback_and_explicit_precedence(tmp_path: Path) -> None:
+    feature = tmp_path / "docs/src/features/alpha"
+    feature.mkdir(parents=True)
+    (tmp_path / "docs/src/planned-features.md").write_text(
+        "# Planned Features\n\n### `alpha`\n\n- Status: In Progress\n",
+        encoding="utf-8",
+    )
+    (feature / "design.md").write_text("# Alpha\n", encoding="utf-8")
+    (feature / "tasks.md").write_text(
+        textwrap.dedent(
+            """
+            # Tasks
+
+            - [ ] `T010` Open
+            - [-] `T020` Active
+            - [x] `T030` Closed
+            - [x] `T040` Explicit override
+
+              Status: blocked
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+
+    run_migrator(tmp_path, "scan", "--write")
+    tasks = {task["label"]: task for task in features_by_slug(tmp_path)["alpha"]["tasks"]}
+    assert tasks["T010"]["status"] == "open"
+    assert tasks["T020"]["status"] == "in_progress"
+    assert tasks["T030"]["status"] == "closed"
+    assert tasks["T040"]["status"] == "blocked"
 
 
 def create_heading_status_project(root: Path) -> None:
@@ -876,7 +941,48 @@ def test_baseline_records_missing_docs_checker_and_absent_tests_without_running_
 
 
 @pytest.mark.integration
-def test_import_recovers_existing_beads_ids_and_does_not_duplicate_issues(
+def test_selective_import_does_not_mark_global_completion(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+
+    beta = run_migrator(legacy_project, "import-beads", "--feature", "beta", "--apply", env=env)
+    manifest_path = legacy_project / "migration/workflow-migration.json"
+    partial = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert partial["beads_import_completed_at"] is None
+    assert partial["beads_import_progress"]["total"] == 2
+    assert partial["beads_import_progress"]["completed"] == 0
+    assert partial["beads_import_progress"]["remaining"] == 2
+    assert features_by_slug(legacy_project)["beta"]["beads"]["import_phase"] == "relationships"
+    assert "remaining: 2" in beta.stdout
+
+    failing_env = {**env, "FAKE_BD_FAIL_DEP_ONCE": "1"}
+    run_migrator(
+        legacy_project,
+        "import-beads",
+        "--feature",
+        "alpha",
+        "--apply",
+        env=failing_env,
+        expected=2,
+    )
+    interrupted = features_by_slug(legacy_project)
+    assert interrupted["alpha"]["beads"]["import_phase"] == "relationships"
+    assert interrupted["beta"]["beads"]["import_phase"] == "relationships"
+
+    alpha = run_migrator(legacy_project, "import-beads", "--feature", "alpha", "--apply", env=env)
+    complete = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert complete["beads_import_completed_at"]
+    assert complete["beads_import_progress"]["completed"] == 2
+    assert complete["beads_import_progress"]["remaining"] == 0
+    assert "remaining: 0" in alpha.stdout
+
+
+@pytest.mark.integration
+def test_legacy_interrupted_state_retries_relationships(
     legacy_project: Path,
     fake_bd_environment: tuple[dict[str, str], Path],
 ) -> None:
@@ -884,6 +990,43 @@ def test_import_recovers_existing_beads_ids_and_does_not_duplicate_issues(
     run_migrator(legacy_project, "scan", "--write")
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     run_migrator(legacy_project, "import-beads", "--apply", env=env)
+
+    manifest_path = legacy_project / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    features = {feature["slug"]: feature for feature in manifest["features"]}
+    for feature in features.values():
+        feature["beads"].pop("import_phase")
+    manifest.pop("beads_import_completed_at")
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    issues_path = state_dir / "issues.json"
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    beta_root = features["beta"]["beads"]["root_id"]
+    alpha_root = features["alpha"]["beads"]["root_id"]
+    issues[beta_root]["dependencies"].pop(alpha_root)
+    issues_path.write_text(json.dumps(issues), encoding="utf-8")
+
+    run_migrator(legacy_project, "scan", "--write")
+    rescanned = features_by_slug(legacy_project)
+    assert rescanned["alpha"]["beads"]["import_phase"] == "relationships"
+    assert rescanned["beta"]["beads"]["import_phase"] == "relationships"
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    repaired = json.loads(issues_path.read_text(encoding="utf-8"))
+    assert repaired[beta_root]["dependencies"][alpha_root] == "blocks"
+    assert all(feature["beads"]["import_phase"] == "completed" for feature in features_by_slug(legacy_project).values())
+
+
+@pytest.mark.integration
+def test_import_recovers_existing_beads_ids_and_does_not_duplicate_issues(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    first_apply = run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    assert "APPLY STARTED" in first_apply.stdout
+    assert "remaining: 0" in first_apply.stdout
 
     commands_path = state_dir / "commands.jsonl"
     initial_commands = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
@@ -901,6 +1044,9 @@ def test_import_recovers_existing_beads_ids_and_does_not_duplicate_issues(
 
     result = run_migrator(legacy_project, "import-beads", "--apply", env=env)
     assert "Recovered" in result.stdout
+    assert "existing:" in result.stdout
+    assert "pending:" in result.stdout
+    assert "remaining: 0" in result.stdout
 
     final_commands = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
     final_creates = [command for command in final_commands if command and command[0] == "create"]
@@ -909,6 +1055,13 @@ def test_import_recovers_existing_beads_ids_and_does_not_duplicate_issues(
     assert final_issue_count == initial_issue_count
 
     recovered = features_by_slug(legacy_project)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    completed_at = manifest["beads_import_completed_at"]
+    progress = manifest["beads_import_progress"]
+    run_migrator(legacy_project, "scan", "--write")
+    rescanned = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert rescanned["beads_import_completed_at"] == completed_at
+    assert rescanned["beads_import_progress"] == progress
     assert recovered["alpha"]["beads"]["root_id"]
     assert recovered["alpha"]["beads"]["lifecycle"]["implementation"]
     assert recovered["alpha"]["beads"]["implementation_tasks"]["T010"]

@@ -328,6 +328,8 @@ def parse_design_status(path: Path) -> str:
 
 def normalize_task_status(value: str, *, fallback: str = "open") -> str:
     normalized = re.sub(r"[\s_-]+", " ", value.casefold().strip())
+    if not normalized:
+        return fallback
     if normalized in {"x", "done", "complete", "completed", "closed", "passed"}:
         return "closed"
     if normalized in {"-", "~", ">", "in progress", "active", "started", "doing"}:
@@ -338,13 +340,18 @@ def normalize_task_status(value: str, *, fallback: str = "open") -> str:
         return "deferred"
     if normalized in {"skipped", "cancelled", "canceled", "not applicable", "n/a", "na"}:
         return "skipped"
-    if normalized in {"", " ", "todo", "open", "pending", "planned", "not started"}:
+    if normalized in {"todo", "open", "pending", "planned", "not started"}:
         return "open"
     return fallback
 
 
 def checkbox_status(mark: str) -> str:
-    return normalize_task_status(mark)
+    normalized = mark.casefold().strip()
+    if normalized == "x":
+        return "closed"
+    if normalized in {"-", "~", ">"}:
+        return "in_progress"
+    return "open"
 
 
 def parse_task_fields(lines: list[str]) -> dict[str, str]:
@@ -798,6 +805,13 @@ def build_manifest(
             if isinstance(feature, dict) and isinstance(feature.get("slug"), str)
         }
 
+    legacy_import_globally_complete = bool(
+        existing_manifest
+        and existing_manifest.get("beads_import_completed_at")
+        and existing_by_slug
+        and all(feature.get("beads", {}).get("state_applied") for feature in existing_by_slug.values())
+    )
+
     features: list[dict[str, Any]] = []
     for slug in ordered_slugs:
         directory = directories.get(slug)
@@ -900,6 +914,9 @@ def build_manifest(
         if computed_classification == "completed" and conflicts:
             computed_classification = "needs_review"
         classification = classification_override or computed_classification
+        beads_state = copy.deepcopy(previous.get("beads", {}))
+        if beads_state.get("state_applied") and not beads_state.get("import_phase"):
+            beads_state["import_phase"] = "completed" if legacy_import_globally_complete else "relationships"
         feature = {
             "slug": slug,
             "title": (entry.title if entry and entry.title else previous.get("title") or slug_title(slug)),
@@ -933,7 +950,7 @@ def build_manifest(
             "resolved_conflicts": resolved_conflicts,
             "finding_resolutions": finding_resolutions,
             "tasks": [task.as_dict() for task in tasks],
-            "beads": previous.get("beads", {}),
+            "beads": beads_state,
             "migration_decisions": previous.get("migration_decisions", []),
             "legacy_tasks_archive": previous.get("legacy_tasks_archive"),
         }
@@ -980,6 +997,9 @@ def build_manifest(
         "manifest_path": str(manifest_path),
         "migration_prepared": bool(existing_manifest and existing_manifest.get("migration_prepared")),
         "beads_import_started": bool(existing_manifest and existing_manifest.get("beads_import_started")),
+        "beads_import_started_at": (existing_manifest or {}).get("beads_import_started_at"),
+        "beads_import_completed_at": (existing_manifest or {}).get("beads_import_completed_at"),
+        "beads_import_progress": (existing_manifest or {}).get("beads_import_progress", {}),
         "migration_finalized": bool(existing_manifest and existing_manifest.get("migration_finalized")),
         "inventory": {
             "legacy_task_files": legacy_task_files,
@@ -1643,7 +1663,7 @@ def reconcile_existing_beads_state(
         default_discriminator="status-reconciliation",
     )
 
-    recovered = 0
+    recovered_features: set[str] = set()
     problems: list[str] = []
     for feature in features:
         slug = str(feature["slug"])
@@ -1659,7 +1679,7 @@ def reconcile_existing_beads_state(
             problems.append(problem)
         elif did_recover:
             beads["root_id"] = root_id
-            recovered += 1
+            recovered_features.add(slug)
 
         lifecycle_state = beads.setdefault("lifecycle", {})
         for step_id in LIFECYCLE_METADATA_KEYS:
@@ -1673,7 +1693,7 @@ def reconcile_existing_beads_state(
                 problems.append(problem)
             elif did_recover:
                 lifecycle_state[step_id] = issue_id
-                recovered += 1
+                recovered_features.add(slug)
 
         task_state = beads.setdefault("implementation_tasks", {})
         for task in feature.get("tasks", []):
@@ -1690,7 +1710,7 @@ def reconcile_existing_beads_state(
                 problems.append(problem)
             elif did_recover:
                 task_state[label] = issue_id
-                recovered += 1
+                recovered_features.add(slug)
 
         reconciliation_id, did_recover, problem = reconcile_recorded_issue(
             feature=feature,
@@ -1702,7 +1722,7 @@ def reconcile_existing_beads_state(
             problems.append(problem)
         elif did_recover:
             beads["migration_reconciliation_id"] = reconciliation_id
-            recovered += 1
+            recovered_features.add(slug)
 
     if problems:
         raise MigrationError(
@@ -1718,7 +1738,7 @@ def reconcile_existing_beads_state(
         for issue_id in {str(value) for value in issue_ids if value}:
             bd_set_metadata(root, issue_id, {"feature_slug": feature["slug"], "feature_name": feature["title"]})
             bd_unset_metadata(root, issue_id, "feature_number")
-    return recovered
+    return len(recovered_features)
 
 
 def bd_create(
@@ -2482,6 +2502,35 @@ def resolve_findings(
     print(f"Resolved {len(selected_ids)} migration finding(s) for {feature['slug']}.")
 
 
+def feature_import_completed(feature: Mapping[str, Any]) -> bool:
+    return feature.get("beads", {}).get("import_phase") == "completed"
+
+
+def import_progress(features: Sequence[Mapping[str, Any]], *, recovered: int = 0) -> dict[str, int]:
+    completed = sum(feature_import_completed(feature) for feature in features)
+    existing = sum(bool(feature.get("beads", {}).get("root_id")) for feature in features)
+    conflicting = sum(bool(feature.get("conflicts")) for feature in features)
+    return {
+        "existing": existing,
+        "recovered": recovered,
+        "pending": len(features) - existing,
+        "conflicting": conflicting,
+        "completed": completed,
+        "remaining": len(features) - completed,
+        "total": len(features),
+    }
+
+
+def print_import_progress(progress: Mapping[str, int], *, prefix: str = "  - ") -> None:
+    print(
+        prefix
+        + ", ".join(
+            f"{key}: {progress[key]}"
+            for key in ("existing", "recovered", "pending", "conflicting", "completed", "remaining", "total")
+        )
+    )
+
+
 def import_beads(
     root: Path,
     manifest: dict[str, Any],
@@ -2493,37 +2542,38 @@ def import_beads(
     requested: Sequence[str],
 ) -> None:
     features = selected_features(manifest, requested)
+    all_features = manifest["features"]
+    initially_completed = {str(feature["slug"]) for feature in all_features if feature_import_completed(feature)}
+    changed_slugs = {str(feature["slug"]) for feature in features} - initially_completed
     formula = load_formula(root)
     preflight_import(manifest, formula)
     if not apply:
-        lifecycle_features = sum(
-            1 for feature in features if feature.get("has_design") and feature["classification"] != "deferred"
-        )
-        task_count = sum(
-            len([task for task in feature.get("tasks", []) if task["label"] not in {"T000", "T999"}])
-            for feature in features
-        )
-        print("Beads import dry-run:")
-        print(f"  - feature roots: {len(features)}")
-        print(f"  - lifecycle graphs: {lifecycle_features}")
-        print(f"  - implementation tasks: {task_count}")
-        print("  - pass --apply to execute")
+        print("Beads import dry-run (no mutations):")
+        print_import_progress(import_progress(all_features))
+        print("  - run a separate command with --apply to execute")
         return
 
+    print(f"APPLY STARTED: importing {len(features)} selected feature(s) into Beads.")
+    print_import_progress(import_progress(all_features))
     ensure_bd_available(root, init_beads=init_beads)
-    recovered_issues = reconcile_existing_beads_state(root, features)
+    incomplete_features = [feature for feature in features if not feature_import_completed(feature)]
+    recovered_issues = reconcile_existing_beads_state(root, incomplete_features)
     if recovered_issues:
         save_manifest_and_report(root, manifest_path, report_path, manifest)
-        print(f"Recovered {recovered_issues} existing Beads issue ID(s) from migration metadata.")
+        print(f"Recovered migration identities for {recovered_issues} feature(s).")
     manifest["beads_import_started"] = True
     manifest["beads_import_started_at"] = manifest.get("beads_import_started_at") or utc_now()
 
     for feature in features:
         beads = feature.setdefault("beads", {})
         root_id = beads.get("root_id")
+        if feature_import_completed(feature):
+            print(f"[{feature['slug']}] already completed; skipping mutations.")
+            continue
         if not root_id:
             root_id = create_feature_root(root, feature)
             beads["root_id"] = root_id
+            beads["import_phase"] = "root-created"
             save_manifest_and_report(root, manifest_path, report_path, manifest)
         if feature["classification"] == "deferred" and not feature.get("has_design"):
             beads["state_applied"] = True
@@ -2549,8 +2599,12 @@ def import_beads(
             report_path,
             manifest,
         )
-        apply_imported_states(root, feature, root_id, lifecycle, implementation_tasks)
+        beads["import_phase"] = "state"
         save_manifest_and_report(root, manifest_path, report_path, manifest)
+        apply_imported_states(root, feature, root_id, lifecycle, implementation_tasks)
+        beads["import_phase"] = "relationships"
+        save_manifest_and_report(root, manifest_path, report_path, manifest)
+        print(f"[{feature['slug']}] state applied; relationships pending.")
 
     roots_by_slug = {
         feature["slug"]: feature.get("beads", {}).get("root_id")
@@ -2561,10 +2615,16 @@ def import_beads(
     # only the batch selected for this invocation. This makes repeated
     # --feature imports order-independent: once both roots exist, the edge is
     # added on the next import command.
-    for feature in manifest["features"]:
+    for feature in all_features:
+        related_slugs = set(feature.get("dependencies", [])) | set(feature.get("related_dependencies", []))
+        parent_slug = feature.get("parent_feature")
+        referenced_slugs = related_slugs | ({parent_slug} if parent_slug else set())
+        if str(feature["slug"]) not in changed_slugs and not referenced_slugs & changed_slugs:
+            continue
         root_id = feature.get("beads", {}).get("root_id")
         if not root_id:
             continue
+        relationships_complete = all(roots_by_slug.get(slug) for slug in referenced_slugs)
         for dependency_slug in feature.get("dependencies", []):
             dependency_id = roots_by_slug.get(dependency_slug)
             if dependency_id:
@@ -2573,16 +2633,20 @@ def import_beads(
             dependency_id = roots_by_slug.get(dependency_slug)
             if dependency_id:
                 bd_dep(root, root_id, dependency_id, "related")
-        parent_slug = feature.get("parent_feature")
         parent_id = roots_by_slug.get(parent_slug) if parent_slug else None
         if parent_id:
             bd_dep(root, root_id, parent_id, "related")
-
-    manifest["beads_import_completed_at"] = utc_now()
+        if feature.get("beads", {}).get("state_applied") and relationships_complete:
+            feature["beads"]["import_phase"] = "completed"
+    progress = import_progress(all_features, recovered=recovered_issues)
+    manifest["beads_import_progress"] = progress
+    if progress["remaining"] == 0:
+        manifest["beads_import_completed_at"] = manifest.get("beads_import_completed_at") or utc_now()
     ensure_trailing_newline(root / ".beads/metadata.json")
     ensure_trailing_newline(root / ".beads/config.yaml")
     save_manifest_and_report(root, manifest_path, report_path, manifest)
-    print(f"Imported {len(features)} feature roots into Beads.")
+    print_import_progress(progress)
+    print(f"Import pass complete for {len(features)} selected feature(s).")
 
 
 def task_references(root: Path) -> list[str]:
