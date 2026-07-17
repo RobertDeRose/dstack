@@ -51,18 +51,21 @@ claiming artificial ordering.
 
 Both root and generated `hk.pkl` derive `harper_commit_message` from `Builtins.harper_commit_message`. Direct use is not
 compatible with the existing commit contract: Harper 2.6 rejects a valid canonical `Beads: dstack-mol-v8c.1` footer as
-spelling and split-word errors. The sole command override filters Git comments, scissors/diff content, and a canonical
+spelling and split-word errors. The sole command override filters Git comments, scissors/diff content, a canonical
+machine-authored `release: vX.Y.Z` subject only when it is the first line and exact stable release form, and a canonical
 `Beads:` footer before piping the remaining human-authored text to `harper-cli lint --quiet --no-color`. It does not
 ignore any Harper rule class. Tests invoke the Harper step in isolation and the complete real `commit-msg` hook with:
 
 - a valid scoped Conventional Commit subject;
 - a valid subject plus final `Beads:` footer;
+- a canonical `release: vX.Y.Z` subject;
+- the same release-shaped text in a human-authored body, which must still be linted;
 - repeated words;
 - a representative spelling error;
 - pronoun/verb disagreement.
 
-The first two pass and each invalid fixture fails in the isolated Harper step. Separate fixtures prove Cocogitto,
-subject/body length, required scope, and Beads footer checks independently reject their own invalid inputs.
+The three valid messages pass and each invalid fixture fails in the isolated Harper step. Separate fixtures prove
+Cocogitto, subject/body length, required scope, and Beads footer checks independently reject their own invalid inputs.
 
 #### Built-in and config-discovery policy
 
@@ -230,7 +233,7 @@ hk 1.49's documented file-level locking remains the behavior of the currently pi
 The work was separated from migration safety so the template policy can stabilize before migration preservation tests
 consume it. Specification review added published dog-food pages and delivered-index ownership, made task documentation
 ownership explicitly incremental, strengthened convergence/dependency acceptance, and replaced direct Harper use with a
-minimal machine-line filter after Harper 2.6 rejected a valid canonical Beads footer.
+minimal machine-line filter after Harper 2.6 rejected valid canonical release and Beads metadata.
 
 ### Source Material
 
