@@ -7,7 +7,7 @@
 - Design path: `docs/src/features/migration-safety-and-clarity/design.md`
 - Implemented record: `docs/src/features/migration-safety-and-clarity/index.md`
 - Base branch: `main`
-- Status: draft
+- Status: reviewed
 
 ## Feature Summary
 

@@ -233,7 +233,10 @@ def finding_id(message: str) -> str:
 
 
 def slug_title(slug: str) -> str:
-    return slug.replace("-", " ").capitalize()
+    acronyms = {"api", "cli", "ci", "cd", "git", "hk", "http", "https", "mqtt", "sdk", "ui", "url"}
+    words = [word.upper() if word in acronyms else word for word in slug.split("-")]
+    title = " ".join(words)
+    return title[:1].upper() + title[1:]
 
 
 def strip_number(name: str) -> tuple[str | None, str]:
@@ -2776,12 +2779,20 @@ def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool
     print(f"{'Drafted' if apply else 'Would draft'} {len(candidates)} delivered-record candidate(s).")
 
 
-def review_delivered_record(manifest: dict[str, Any], slug: str, reason: str) -> None:
+def review_delivered_record(root: Path, manifest: dict[str, Any], slug: str, reason: str) -> None:
     if not reason.strip():
         message = "--reason is required for delivered-record semantic review"
         raise MigrationError(message)
     for candidate in manifest.get("delivered_record_candidates", []):
         if candidate.get("slug") == slug:
+            path = root / str(candidate.get("path", ""))
+            if not path.is_file():
+                message = f"Delivered-record candidate is missing: {path.relative_to(root)}"
+                raise MigrationError(message)
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest != candidate.get("evidence_digest"):
+                message = f"Delivered-record candidate changed after drafting: {slug}"
+                raise MigrationError(message)
             candidate["reviewed"] = True
             candidate["review_reason"] = reason.strip()
             candidate["reviewed_at"] = utc_now()
@@ -2905,6 +2916,16 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
         errors.append(
             "Delivered-record candidates require semantic review: " + ", ".join(sorted(unreviewed_candidates))
         )
+    for candidate in manifest.get("delivered_record_candidates", []):
+        if not candidate.get("reviewed"):
+            continue
+        path = root / str(candidate.get("path", ""))
+        if not path.is_file():
+            errors.append(f"Reviewed delivered-record candidate is missing: {candidate.get('slug')}")
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != candidate.get("evidence_digest"):
+            errors.append(f"Reviewed delivered-record candidate changed after approval: {candidate.get('slug')}")
     warnings: list[str] = []
     features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
     mapping = {Path(feature["source_dir"]).name: feature["slug"] for feature in features}
@@ -3296,6 +3317,9 @@ def set_hk_disposition(
     action: str,
     reason: str,
 ) -> None:
+    if not reason.strip():
+        message = "hk reconciliation disposition requires a nonempty reason"
+        raise MigrationError(message)
     state = manifest.get("hk_reconciliation", {})
     baseline_step = state.get("baseline", {}).get("hooks", {}).get(hook, {}).get(step)
     if not isinstance(baseline_step, dict):
@@ -3306,7 +3330,7 @@ def set_hk_disposition(
         "hook": hook,
         "step": step,
         "action": action,
-        "reason": reason,
+        "reason": reason.strip(),
         "existing_behavior": baseline_step.get("definition", ""),
         "existing_fingerprint": baseline_step.get("fingerprint", ""),
         "candidate_behavior": current_step.get("definition", "") if isinstance(current_step, dict) else "absent",
@@ -3663,7 +3687,7 @@ def _main(args: argparse.Namespace) -> int:
             return 0
 
         if args.command == "review-delivered-record":
-            review_delivered_record(manifest, args.feature, args.reason)
+            review_delivered_record(root, manifest, args.feature, args.reason)
             save_manifest_and_report(root, args.manifest, args.report, manifest)
             return 0
 

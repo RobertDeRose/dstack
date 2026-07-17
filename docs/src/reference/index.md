@@ -40,9 +40,10 @@ task status uses checkbox fallback: `[ ]` is `open`, `[-]` is `in_progress`, and
 recognized explicit status takes precedence.
 
 `prepare --apply` replaces implemented-feature marker bodies from completed features with standalone `index.md` records.
-`draft-delivered-records [--apply]` writes candidates under `migration/delivered-record-candidates/<slug>/index.md` and
-records `delivered_record_candidates[]` with `reviewed: false`. `review-delivered-record <slug> --reason <evidence>`
-records review without copying candidate prose into authoritative documentation. `verify` rejects unreviewed candidates.
+`draft-delivered-records` previews; with `--apply` it writes candidates under
+`migration/delivered-record-candidates/<slug>/index.md` and records `delivered_record_candidates[]` with
+`reviewed: false`. `review-delivered-record <slug> --reason <evidence>` records review without copying candidate prose
+into authoritative documentation. `verify` rejects unreviewed candidates.
 
 ## Migration repository identity
 

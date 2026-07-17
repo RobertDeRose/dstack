@@ -500,6 +500,19 @@ def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -
         )
     reviewed = json.loads(manifest_path.read_text(encoding="utf-8"))["delivered_record_candidates"]
     assert all(candidate["reviewed"] for candidate in reviewed)
+    candidate_path = legacy_project / reviewed[0]["path"]
+    candidate_path.write_text(candidate_path.read_text(encoding="utf-8") + "\nTampered.\n", encoding="utf-8")
+    tampered = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)
+    assert "changed after approval" in tampered.stderr
+    rejected_review = run_migrator(
+        legacy_project,
+        "review-delivered-record",
+        reviewed[0]["slug"],
+        "--reason",
+        "Attempt review after tampering",
+        expected=2,
+    )
+    assert "changed after drafting" in rejected_review.stderr
     run_migrator(legacy_project, "draft-delivered-records", "--apply")
     redrafted = json.loads(manifest_path.read_text(encoding="utf-8"))["delivered_record_candidates"]
     assert all(candidate["reviewed"] for candidate in redrafted)
@@ -979,11 +992,11 @@ def test_prepare_uses_sentence_case_human_title_and_rescan_preserves_feature(tmp
     run_migrator(tmp_path, "scan", "--write")
     run_migrator(tmp_path, "prepare", "--apply", "--allow-dirty")
     roadmap = (tmp_path / "docs/src/planned-features.md").read_text(encoding="utf-8")
-    assert "### Passport mqtt roles (`passport-mqtt-roles`)" in roadmap
+    assert "### Passport MQTT roles (`passport-mqtt-roles`)" in roadmap
 
     run_migrator(tmp_path, "scan", "--write")
     feature_state = features_by_slug(tmp_path)["passport-mqtt-roles"]
-    assert feature_state["title"] == "Passport mqtt roles"
+    assert feature_state["title"] == "Passport MQTT roles"
 
 
 @pytest.mark.integration

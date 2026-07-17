@@ -23,4 +23,5 @@ here only during close-out.
 - [Language quality profiles](language-quality-profiles/index.md)
 - [GitHub validation and docs deployment](github-validation-and-docs-deployment/index.md)
 - [hk policy simplification](hk-policy-simplification/index.md)
+- [Migration safety and clarity](migration-safety-and-clarity/index.md)
 <!-- END IMPLEMENTED FEATURES -->

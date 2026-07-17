@@ -3873,6 +3873,24 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
     collision_manifest_path = collision / "migration/workflow-migration.json"
     collision_manifest = json.loads(collision_manifest_path.read_text(encoding="utf-8"))
     assert {item["kind"] for item in collision_manifest["hk_reconciliation"]["issues"]} == {"unresolved_step_collision"}
+    blank_reason = run_command(
+        [
+            "uv",
+            "run",
+            str(migrator),
+            "reconcile-hk",
+            "pre-commit",
+            "typos",
+            "replace",
+            "--reason",
+            "   ",
+            "--root",
+            str(collision),
+        ],
+        cwd=collision,
+        expected=2,
+    )
+    assert "requires a nonempty reason" in blank_reason.stderr
     run_command(
         [
             "uv",
