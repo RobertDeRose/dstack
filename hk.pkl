@@ -101,7 +101,6 @@ local linters = new Mapping<String, Step> {
     check = "uv run scripts/check-docs.py && mdbook build docs"
   }
   ["fix_smart_quotes"] = Builtins.fix_smart_quotes
-  ["hk_test"] = Builtins.hk_test
   ["mise"] = Builtins.mise
   ["markdown-table-formatter"] = new Step {
     glob = List("**/*.md", "**/*.markdown")
