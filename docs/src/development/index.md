@@ -81,10 +81,11 @@ identical.
 
 The integration matrix renders every project kind and all 64 valid language-profile selections through both Copier entry
 points. It checks structured answers, conditional tools/hooks/ignores/docs, Pkl and TOML parsing, stable tasks and
-navigation, generated checker success, and mdBook builds. Profile fixtures execute source and manifest gates with shims;
-bounded external checks resolve the combined four-platform lock. Separate regressions cover invalid selections,
-no-overwrite routing, update preservation, explicit add/remove transitions, conflicts, relocking, and conditional
-destination uniqueness.
+navigation, generated checker success, and mdBook builds. Single-profile fixtures execute source and manifest gates with
+shims; the full polyglot external fixture runs real source fix-to-check convergence. Bounded external validation
+resolves the combined four-platform lock, exercises check/fix/pre-commit/commit-message contracts, and verifies
+unrelated unstaged bytes are restored exactly. Separate regressions cover invalid selections, no-overwrite routing,
+update preservation, explicit add/remove transitions, conflicts, relocking, and conditional destination uniqueness.
 
 ## Change discipline
 

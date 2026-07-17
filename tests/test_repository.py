@@ -2529,10 +2529,11 @@ def test_generated_tooling_contract_end_to_end(
     run_command(["git", "add", "race.md", "mise.toml"], cwd=project)
     readme = project / "README.md"
     readme.write_text(readme.read_text(encoding="utf-8") + "\nUnstaged project note.\n", encoding="utf-8")
+    unstaged_readme = readme.read_bytes()
 
     run_command(["git", "commit", "-m", "test(tooling): exercise installed hook"], cwd=project)
     run_command(["mise", "fmt", "--check"], cwd=project)
-    assert readme.read_text(encoding="utf-8").endswith("\nUnstaged project note.\n")
+    assert readme.read_bytes() == unstaged_readme
     assert markdown.is_file()
 
     fix_target.write_text("# Updated target  \n", encoding="utf-8")
