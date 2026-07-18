@@ -9,7 +9,9 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import tomllib
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -1040,6 +1042,7 @@ def test_package_config_render_preserves_occupied_destination(
     candidate = tmp_path / rendered["candidates"][0]
     assert "[tools]" not in candidate.read_text(encoding="utf-8")
     assert "[tasks.check]" in candidate.read_text(encoding="utf-8")
+    candidate_bytes = candidate.read_bytes()
     rerendered = module.render_package_configs(
         preflight,
         tmp_path,
@@ -1047,7 +1050,28 @@ def test_package_config_render_preserves_occupied_destination(
         candidate_root=tmp_path / "migration/copier-adoption-candidates",
     )
     assert target.read_bytes() == original
+    assert candidate.read_bytes() == candidate_bytes
     assert rerendered["candidates"] == rendered["candidates"]
+
+
+def test_homogeneous_package_matrix_is_deterministic(repository_root: Path, tmp_path: Path) -> None:
+    module = load_layout_module(repository_root)
+    packages = [
+        {
+            "display_name": f"Python API {index}",
+            "slug": f"python-api-{index}",
+            "path": f"packages/api-{index}",
+            "language_profiles": ["python"],
+        }
+        for index in range(4)
+    ]
+    preflight = module.validate_layout("monorepo", packages, tmp_path)
+    first = module.render_package_configs(preflight, tmp_path)
+    before = {path: (tmp_path / path).read_bytes() for path in first["rendered"]}
+    second = module.render_package_configs(preflight, tmp_path, managed_paths=set(first["rendered"]))
+    assert second["rendered"] == first["rendered"]
+    assert {path: (tmp_path / path).read_bytes() for path in second["rendered"]} == before
+    assert all(b"uv run pytest" in content and b"[tools]" not in content for content in before.values())
 
 
 def test_update_project_requires_missing_structured_brief_values(repository_root: Path) -> None:
@@ -2248,6 +2272,73 @@ def test_setup_project_renders_explicit_monorepo_task_ownership(
 
 
 @pytest.mark.integration
+def test_monorepo_maximum_matrix_is_bounded_scoped_and_byte_stable(
+    tagged_template_source: Path,
+    tmp_path: Path,
+    repository_root: Path,
+) -> None:
+    project = tmp_path / "maximum-monorepo"
+    profiles = ("python", "typescript", "rust", "go", "elixir", "nix", "other")
+    packages: list[dict[str, Any]] = [
+        {
+            "display_name": f"Package {index:02d}",
+            "slug": f"package-{index:02d}",
+            "path": f"packages/package-{index:02d}",
+            "language_profiles": [profiles[index % len(profiles)]],
+        }
+        for index in range(32)
+    ]
+    started = time.monotonic()
+    setup_generated_project(
+        tagged_template_source,
+        project,
+        repository_layout="monorepo",
+        monorepo_packages=packages,
+    )
+    elapsed = time.monotonic() - started
+
+    package_files = [project / package["path"] / "mise.toml" for package in packages]
+    before = {path.relative_to(project).as_posix(): path.read_bytes() for path in package_files}
+    module = load_layout_module(repository_root)
+    preflight = module.validate_layout("monorepo", packages, project)
+    rerender = module.render_package_configs(preflight, project, managed_paths=set(before))
+    after = {path.relative_to(project).as_posix(): path.read_bytes() for path in package_files}
+    assert rerender["rendered"] == list(before)
+    assert before == after
+    assert elapsed < 120
+
+    env = merged_environment(MISE_EXPERIMENTAL="0", MISE_TRUSTED_CONFIG_PATHS=str(project))
+    tasks = run_command(["mise", "tasks", "--all", "--name-only"], cwd=project, env=env).stdout.splitlines()
+    assert len([task for task in tasks if task.startswith("//packages/") and task.endswith(":check")]) == 32
+
+    marker = project / "package-checks.txt"
+    for package, path in zip(packages, package_files, strict=True):
+        path.write_text(
+            f"[tasks.check]\nrun = \"printf '%s\\n' {package['slug']} >> {marker}\"\n",
+            encoding="utf-8",
+        )
+    root_mise = project / "mise.toml"
+    root_text = root_mise.read_text(encoding="utf-8").replace('run = "hk check -a"', 'run = "true"', 1)
+    root_mise.write_text(root_text, encoding="utf-8")
+    run_command(["mise", "run", "check"], cwd=project, env=env)
+    output_counts = Counter(marker.read_text(encoding="utf-8").splitlines())
+    assert output_counts == Counter({package["slug"]: 1 for package in packages})
+
+    policy = json.loads(run_command(["pkl", "eval", "-f", "json", "hk.pkl"], cwd=project).stdout)
+    steps = policy["hooks"]["pre-commit"]["steps"]
+    changed_slug = "package-15"
+    changed_path = Path(f"packages/{changed_slug}/src/main.ts")
+    selected_package_steps = {
+        name
+        for name, step in steps.items()
+        if any(changed_path.match(glob.replace("**", "*")) for glob in step.get("glob", []))
+        and name.rsplit("-", 2)[-2:] != ["order", "marker"]
+    }
+    selected_profile_steps = {name for name in selected_package_steps if re.search(r"-package-\d{2}$", name)}
+    assert selected_profile_steps == {f"biome-{changed_slug}"}
+
+
+@pytest.mark.integration
 def test_setup_project_records_the_exact_stable_template_commit(
     repository_root: Path,
     tagged_template_source: Path,
@@ -3344,6 +3435,58 @@ def test_update_project_preserves_update_and_reports_degraded_tooling(
 
 
 @pytest.mark.integration
+def test_update_project_candidates_block_retries_and_preserve_bytes(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "candidate-update"
+    setup_generated_project(tagged_template_source, project)
+    occupied = project / "packages/api/mise.toml"
+    occupied.parent.mkdir(parents=True)
+    original = b"# project-owned package config\n"
+    occupied.write_bytes(original)
+    configure_project_git(project)
+    commit_repository(project, "Initial project with package config")
+    package = json.dumps(
+        {
+            "display_name": "API",
+            "slug": "api",
+            "path": "packages/api",
+            "language_profiles": ["go"],
+        }
+    )
+    command = [
+        "uv",
+        "run",
+        str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+        "--destination",
+        str(project),
+        "--vcs-ref",
+        "v0.0.1",
+        "--repository-layout",
+        "monorepo",
+        "--monorepo-package",
+        package,
+        "--skip-docs-check",
+        "--skip-beads-check",
+        "--json",
+    ]
+
+    first = json.loads(run_command(command, cwd=tagged_template_source, expected=2).stdout)
+    candidate = project / first["layout_render"]["candidates"][0]
+    candidate_bytes = candidate.read_bytes()
+    commit_repository(project, "Record unresolved package candidate")
+    second = json.loads(run_command(command, cwd=tagged_template_source, expected=2).stdout)
+
+    assert occupied.read_bytes() == original
+    assert candidate.read_bytes() == candidate_bytes
+    assert second["layout_render"]["candidates"] == first["layout_render"]["candidates"]
+    assert first["tooling"]["status"] == second["tooling"]["status"] == "skipped"
+    assert not first["ready_to_resume_feature_work"]
+    assert not second["ready_to_resume_feature_work"]
+
+
+@pytest.mark.integration
 def test_update_project_skips_generated_code_when_copier_conflicts(
     tagged_template_source: Path,
     tmp_path: Path,
@@ -3393,6 +3536,11 @@ def test_update_project_skips_generated_code_when_copier_conflicts(
     assert payload["tooling"]["status"] == "skipped"
     assert payload["tooling"]["recovery"] == ["python3 scripts/setup-tooling.py --json"]
     assert payload["ready_to_resume_feature_work"] is False
+    conflicted_readme = readme.read_text(encoding="utf-8")
+    assert "<<<<<<<" in conflicted_readme
+    assert ">>>>>>>" in conflicted_readme
+    assert "mise run project-check" in conflicted_readme
+    assert "mise run upstream-check" in conflicted_readme
     assert not log.exists()
 
 

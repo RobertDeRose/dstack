@@ -134,6 +134,16 @@ Implicit recursive discovery was rejected in favor of explicit `config_roots`. P
 lockfile migration are supported by current mise, but dstack deliberately keeps the profile-tool union at root to
 preserve its single provisioner and cross-platform/Nix lock contract. No experimental setting is required.
 
+## Monorepo scale and update evidence
+
+The bounded maximum fixture renders 32 explicit packages across all seven profile choices. On 2026-07-18 it completed in
+94.55 seconds, discovered exactly 32 package `check` tasks, executed every package through the root dependency graph,
+and produced one package marker per declared slug. A second deterministic render produced byte-identical package mise
+files. Pkl evaluation confirmed a middle TypeScript path selected only its package-namespaced Biome step; neighboring
+package steps did not match. Candidate retries preserve the original occupied bytes, retain the same generated
+candidate, and continue blocking update completion until reconciliation. Existing Copier conflict fixtures continue to
+exercise managed three-way recovery separately.
+
 ## Change discipline
 
 Keep both Copier entry points aligned. Template changes require generated-project tests and must preserve Copier update
