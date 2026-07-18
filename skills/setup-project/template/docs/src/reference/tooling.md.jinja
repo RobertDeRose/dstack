@@ -55,7 +55,7 @@ Markdown.
 
 The generated `cog.toml` initially accepts any syntactically valid scope. To constrain scopes, add a `scopes = ["..."]`
 allowlist, document each stable subsystem in README when present or on this page otherwise, and update `AGENTS.md` so
-agents apply the same taxonomy. Run `cog check` after changing the allowlist.[% if language_profiles == ['other'] %]
+agents apply the same taxonomy. Run `cog check` after changing the allowlist.[% if repository_layout == 'single-package' %][% if language_profiles == ['other'] %]
 
 No recognized language profile is active; only the universal tooling baseline is
 configured.[% endif %][% if 'python' in language_profiles %]
@@ -137,7 +137,15 @@ The mise-managed tools are `erlang` and `elixir` at `latest`. The profile ignore
 x64 fail with `Nix profile does not support macOS x64`. A missing system Nix executable for a flake fails with
 `Nix profile requires system nix for flake checks`. The profile ignores `.direnv/`, `result`, and `result-*`.
 
-[% endif %]
+[% endif %][% else %]
+
+## Package profile checks
+
+Package `check` tasks run from each package config root. They gate Python pytest on package `pyproject.toml`, TypeScript
+Vitest on package `package.json`, Rust Clippy/tests on package `Cargo.toml`, Go module/lint/tests on package `go.mod`,
+Elixir compile/Credo/tests on package `mix.exs`, and Nix flake checks on package `flake.nix`. Missing project-owned
+pytest, Vitest, or Credo fails with the profile prerequisite diagnostic. Nix retains the macOS x64 and missing system-Nix
+failures. Go package `fix` runs `go mod tidy`; root hk package-prefixed globs own changed-file formatting.[% endif %]
 
 ## Tasks
 

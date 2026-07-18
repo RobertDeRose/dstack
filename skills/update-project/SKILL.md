@@ -188,10 +188,11 @@ Report:
 3. previous Copier revision and channel;
 4. selected channel, friendly tag/branch/ref, and exact resolved revision;
 5. previous, suggested, and resulting language profiles;
-6. changed files and the complete path-accounting ledger;
-7. real update conflicts and resolutions;
-8. separate tooling availability, lock, install, and hook states plus exact recovery commands;
-9. documentation and Beads validation;
-10. warnings and any unclassified path;
-11. readiness to resume feature work, which must be false while migration is required, conflicts or degraded tooling
-    remain, the lock is stale or missing, or a changed path is unclassified.
+6. repository layout, exact package preflight, rendered package paths, and every unresolved candidate;
+7. changed files and the complete path-accounting ledger;
+8. real update conflicts and resolutions;
+9. separate tooling availability, lock, install, and hook states plus exact recovery commands;
+10. documentation and Beads validation;
+11. warnings and any unclassified path;
+12. readiness to resume feature work, which must be false while migration is required, conflicts or degraded tooling
+    remain, candidates remain unresolved, the lock is stale or missing, or a changed path is unclassified.

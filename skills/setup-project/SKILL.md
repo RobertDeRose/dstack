@@ -185,7 +185,8 @@ initialization and verification as outstanding.
 
 ## Return
 
-Report project name, slug, purpose, users, scope, boundaries, kind, language profiles, destination, template channel,
-selected ref, exact recorded commit, skill version, Git result, Beads result, documentation validation, the complete
-`tooling` status, outstanding recovery commands, and the next `/plan-features` action. If setup was routed to
-`/update-project`, report the user's consent decision and do not claim setup ran.
+Report project name, slug, purpose, users, scope, boundaries, kind, language profiles, repository layout, exact package
+answers, layout preflight/render destinations, destination, template channel, selected ref, exact recorded commit, skill
+version, Git result, Beads result, documentation validation, the complete `tooling` status, outstanding recovery
+commands, and the next `/plan-features` action. If setup was routed to `/update-project`, report the user's consent
+decision and do not claim setup ran.

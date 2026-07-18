@@ -116,9 +116,15 @@ def package_mise_content(package: dict[str, Any]) -> str:
     checks: list[str] = []
     fixes = ["hk fix"]
     if "python" in profiles:
-        checks.append("[ ! -f pyproject.toml ] || { uv run python -c 'import pytest' && uv run pytest; }")
+        checks.append(
+            "[ ! -f pyproject.toml ] || { uv run python -c 'import pytest' || { printf '%s\\n' "
+            "'Python profile requires project-owned pytest' >&2; exit 1; }; uv run pytest; }"
+        )
     if "typescript" in profiles:
-        checks.append("[ ! -f package.json ] || { aube exec vitest --version >/dev/null && aube exec vitest run; }")
+        checks.append(
+            "[ ! -f package.json ] || { aube exec vitest --version >/dev/null || { printf '%s\\n' "
+            "'TypeScript profile requires project-owned Vitest' >&2; exit 1; }; aube exec vitest run; }"
+        )
     if "rust" in profiles:
         checks.extend(
             (
@@ -145,7 +151,11 @@ def package_mise_content(package: dict[str, Any]) -> str:
             )
         )
     if "nix" in profiles:
-        checks.append("[ ! -f flake.nix ] || nix flake check")
+        checks.append(
+            "[ ! -f flake.nix ] || { [ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' "
+            "'Nix profile does not support macOS x64' >&2; exit 1; }; command -v nix >/dev/null || { printf '%s\\n' "
+            "'Nix profile requires system nix for flake checks' >&2; exit 1; }; nix flake check; }"
+        )
     if not checks:
         checks.append("true")
     rendered_checks = ",\n  ".join(json.dumps(command) for command in checks)
@@ -179,9 +189,9 @@ def render_package_configs(
         if candidate is not None and candidate.exists():
             candidates.append(candidate.relative_to(root).as_posix())
             continue
-        if target.exists() and relative not in managed_paths:
+        if target.exists() and target.read_bytes() != content.encode("utf-8"):
             if candidate is None:
-                raise ValueError(f"New package config destination is occupied: {relative}")
+                raise ValueError(f"Package config destination differs from generated content: {relative}")
             candidate.parent.mkdir(parents=True, exist_ok=True)
             candidate.write_text(content, encoding="utf-8")
             candidates.append(candidate.relative_to(root).as_posix())

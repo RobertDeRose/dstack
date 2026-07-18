@@ -31,7 +31,7 @@ limits, and canonical optional `Beads:` footers. Harper applies its full native 
 filtering Git comments/diffs, canonical release subjects, and the canonical machine-readable footer. Run `cog changelog`
 to preview the concise user-facing changelog. The hk policy uses native built-in steps whenever their behavior matches;
 hk's file locking coordinates independent steps. No dependency chain serializes unrelated checks. Go projects retain
-two output-sensitive edges: `gofumpt` follows `goimports`, then fix-only module tidy observes the final imports.[% if language_profiles == ['other'] %]
+two output-sensitive edges: `gofumpt` follows `goimports`, then fix-only module tidy observes the final imports.[% if repository_layout == 'single-package' %][% if language_profiles == ['other'] %]
 
 No recognized language profile is active; only the universal tooling baseline
 runs.[% endif %][% if 'python' in language_profiles %]
@@ -71,7 +71,15 @@ project-owned.[% endif %][% if 'nix' in language_profiles %]
 
 nixfmt checks and fixes Nix files on Linux and macOS ARM64. Matching Nix inputs fail clearly on unsupported macOS x64.
 Root `flake.nix` enables check-only `nix flake check` and requires system Nix; setup provisions no Nix executable.[%
-endif %]
+endif %][% else %]
+
+## Package profiles
+
+Each package runs its project-owned compiler, linter, module, and test commands from its package root. Root hk formatting
+steps use package-prefixed globs, so pre-commit selects only changed package source. Python requires package-owned pytest;
+TypeScript requires package-owned Vitest; Elixir requires package-owned Credo. Nix package checks preserve the macOS x64
+failure and system-Nix prerequisite. Go package fix runs module tidy from the package root. Exact package profiles and
+task names are listed in [Repository layout](../reference/repository-layout.md).[% endif %]
 
 ## GitHub validation
 

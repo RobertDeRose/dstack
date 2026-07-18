@@ -1054,6 +1054,35 @@ def test_package_config_render_preserves_occupied_destination(
     assert rerendered["candidates"] == rendered["candidates"]
 
 
+def test_modified_managed_package_config_becomes_candidate(repository_root: Path, tmp_path: Path) -> None:
+    module = load_layout_module(repository_root)
+    package = {
+        "display_name": "API",
+        "slug": "api",
+        "path": "packages/api",
+        "language_profiles": ["nix"],
+    }
+    preflight = module.validate_layout("monorepo", [package], tmp_path)
+    first = module.render_package_configs(preflight, tmp_path)
+    target = tmp_path / first["rendered"][0]
+    modified = module.package_mise_content(package).replace("\n", "\r\n").encode()
+    target.write_bytes(modified)
+
+    update = module.render_package_configs(
+        preflight,
+        tmp_path,
+        managed_paths={first["rendered"][0]},
+        candidate_root=tmp_path / "migration/copier-adoption-candidates",
+    )
+
+    assert target.read_bytes() == modified
+    assert update["rendered"] == []
+    assert update["candidates"] == ["migration/copier-adoption-candidates/packages/api/mise.toml"]
+    candidate_text = (tmp_path / update["candidates"][0]).read_text(encoding="utf-8")
+    assert "Nix profile does not support macOS x64" in candidate_text
+    assert "Nix profile requires system nix" in candidate_text
+
+
 def test_homogeneous_package_matrix_is_deterministic(repository_root: Path, tmp_path: Path) -> None:
     module = load_layout_module(repository_root)
     packages = [
@@ -1197,6 +1226,41 @@ def test_tooling_provisioner_reports_independent_stage_outcomes(
         assert result["install"]["error"] == "install failed"
     if failure == "hooks":
         assert result["hooks"]["error"] == "hooks failed"
+
+
+def test_monorepo_tooling_layout_integration_contract(repository_root: Path) -> None:
+    partition = {
+        "compatibility": {"test_mise_monorepo_compatibility_contract"},
+        "schema-preflight": {
+            "test_layout_contract_preserves_exact_package_answers",
+            "test_layout_contract_rejects_overlap_casefold_limit_and_symlinks",
+            "test_setup_layout_preflight_reports_existing_package_collision",
+        },
+        "rendering-scope": {
+            "test_setup_project_renders_explicit_monorepo_task_ownership",
+            "test_monorepo_maximum_matrix_is_bounded_scoped_and_byte_stable",
+        },
+        "update-safety": {
+            "test_update_project_candidates_block_retries_and_preserve_bytes",
+            "test_update_project_skips_generated_code_when_copier_conflicts",
+        },
+    }
+    assert set(partition) == {"compatibility", "schema-preflight", "rendering-scope", "update-safety"}
+    names = set().union(*partition.values())
+    assert len(names) == sum(len(group) for group in partition.values())
+    assert all(callable(globals().get(name)) for name in names)
+
+    required_contracts = {
+        "docs/src/architecture/index.md": ("Monorepo tooling ownership", "Copier"),
+        "docs/src/operations/index.md": ("Repository-layout preflight", "copier-adoption-candidates"),
+        "docs/src/development/index.md": ("Monorepo scale and update evidence", "32"),
+        "docs/src/reference/index.md": ("Repository-layout answers", "monorepo_packages"),
+        "skills/setup-project/SKILL.md": ("--repository-layout", "layout_preflight"),
+        "skills/update-project/SKILL.md": ("--monorepo-package", "Copier"),
+    }
+    for relative, phrases in required_contracts.items():
+        text = (repository_root / relative).read_text(encoding="utf-8")
+        assert all(phrase in text for phrase in phrases)
 
 
 def test_mise_monorepo_compatibility_contract(
