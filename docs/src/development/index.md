@@ -109,6 +109,31 @@ implemented-feature marker bodies. Delivered-record drafts include legacy tasks/
 commits, and changed paths, remain candidates, and block verification and finalization until semantic review is
 recorded.
 
+## Monorepo mise compatibility
+
+The monorepo implementation targets stable mise task-path behavior, verified with mise 2026.7.5 while
+`MISE_EXPERIMENTAL=0`. A root config with `monorepo_root = true` and explicit `[monorepo].config_roots` discovers
+namespaced package tasks such as `//packages/api:check`; root aggregate dependencies execute those tasks in each package
+config root. `[monorepo].lockfile = true` selects one root lockfile. dstack keeps every profile tool declaration in the
+root config, so package configs contribute tasks and working directories but cannot create independent tool locks.
+
+Primary evidence: mise's [Monorepo Tasks](https://mise.jdx.dev/tasks/monorepo.html),
+[configuration](https://mise.jdx.dev/configuration.html), and [lockfile](https://mise.jdx.dev/dev-tools/mise-lock.html)
+documentation, reviewed 2026-07-18. Verification used mise 2026.7.5 with user-global configuration isolated:
+
+- `MISE_EXPERIMENTAL=0 mise tasks --all --name-only` discovered `//:check`, `//packages/api:check`, and
+  `//packages/web:check` from the two explicit `config_roots`;
+- `MISE_EXPERIMENTAL=0 mise run check` executed both package checks from the root aggregate;
+- `mise lock --dry-run --platform linux-x64` targeted the root `mise.lock` and resolved the root-declared tool;
+- the regression drives the rendered provisioner's lock, `install --locked`, and hook stages, asserts root lock
+  contents, and rejects package lock creation; the existing external generated-tooling fixture supplies live
+  locked-install coverage.
+
+`task_config.includes` remains supported for reusable file tasks but does not supply package config-root semantics.
+Implicit recursive discovery was rejected in favor of explicit `config_roots`. Package-owned tools plus monorepo
+lockfile migration are supported by current mise, but dstack deliberately keeps the profile-tool union at root to
+preserve its single provisioner and cross-platform/Nix lock contract. No experimental setting is required.
+
 ## Change discipline
 
 Keep both Copier entry points aligned. Template changes require generated-project tests and must preserve Copier update

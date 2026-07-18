@@ -961,6 +961,69 @@ def test_tooling_provisioner_reports_independent_stage_outcomes(
         assert result["hooks"]["error"] == "hooks failed"
 
 
+def test_mise_monorepo_compatibility_contract(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "monorepo"
+    (root / "packages/api").mkdir(parents=True)
+    (root / "packages/web").mkdir(parents=True)
+    (root / "isolated-config").mkdir()
+    (root / "mise.toml").write_text(
+        'monorepo_root = true\n\n[monorepo]\nconfig_roots = ["packages/api", "packages/web"]\n'
+        'lockfile = true\n\n[tools]\nnode = "lts"\nuv = "latest"\n\n'
+        '[tasks.check]\ndepends = ["//packages/api:check", "//packages/web:check"]\n',
+        encoding="utf-8",
+    )
+    for package in ("api", "web"):
+        (root / f"packages/{package}/mise.toml").write_text(
+            f'[tasks.check]\nrun = "printf {package}"\n',
+            encoding="utf-8",
+        )
+    env = merged_environment(
+        MISE_EXPERIMENTAL="0",
+        MISE_GLOBAL_CONFIG_FILE=str(root / "isolated-config/config.toml"),
+        MISE_TRUSTED_CONFIG_PATHS=str(root),
+    )
+
+    tasks = run_command(["mise", "tasks", "--all", "--name-only"], cwd=root, env=env)
+    assert tasks.stdout.splitlines() == ["//:check", "//packages/api:check", "//packages/web:check"]
+    checked = run_command(["mise", "run", "check"], cwd=root, env=env)
+    assert "api" in checked.stdout
+    assert "web" in checked.stdout
+    assert not list((root / "packages").rglob("mise*.lock"))
+    config = tomllib.loads((root / "mise.toml").read_text(encoding="utf-8"))
+    assert config["monorepo"] == {
+        "config_roots": ["packages/api", "packages/web"],
+        "lockfile": True,
+    }
+    assert set(config["tools"]) == {"node", "uv"}
+
+    module = load_tooling_module(repository_root)
+    (root / ".git").mkdir()
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], project_root: Path) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command == module.LOCK_COMMAND:
+            (project_root / "mise.lock").write_text(
+                '[tools.node]\nversion = "24.18.0"\n\n[tools.uv]\nversion = "0.8.0"\n',
+                encoding="utf-8",
+            )
+        if command == module.INSTALL_COMMAND:
+            assert (project_root / "mise.lock").is_file()
+            assert not list((project_root / "packages").rglob("mise*.lock"))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(module, "run", fake_run)
+    provisioned = module.provision(root)
+    assert provisioned["status"] == "succeeded"
+    assert commands == [module.LOCK_COMMAND, module.INSTALL_COMMAND, module.HOOK_COMMAND]
+    lock = tomllib.loads((root / "mise.lock").read_text(encoding="utf-8"))
+    assert set(lock["tools"]) == {"node", "uv"}
+
+
 def test_tooling_provisioner_isolates_project_lock_from_global_mise_tools(
     repository_root: Path,
     tmp_path: Path,

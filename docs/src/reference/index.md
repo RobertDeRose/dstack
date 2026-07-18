@@ -54,6 +54,24 @@ worktree requires `--default-branch` when the remote default is unavailable. Ste
 `.beads/formulas/dstack-feature.formula.toml` with `git add -f`; its database and local runtime configuration remain
 untracked.
 
+## Monorepo mise composition
+
+The supported root form is:
+
+```toml
+monorepo_root = true
+
+[monorepo]
+config_roots = ["<package-path>", "..."]
+lockfile = true
+```
+
+Package configs declare package tasks without `[tools]`. Root `mise.toml` declares the profile-tool union and aggregate
+tasks with absolute task targets such as `//packages/api:check`. `mise tasks --all` discovers package tasks;
+`mise run check` invokes every declared package check. Exactly one root `mise.lock` and the existing root
+`scripts/setup-tooling.py` own lock, locked install, Nix host normalization, and hk installation. No experimental mise
+setting is required.
+
 ## Setup project brief
 
 | Copier answer        | Helper flag      | Contract                                                                                          |
