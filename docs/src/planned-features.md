@@ -37,7 +37,7 @@ clarity then protects existing project checks and verified history without block
 | `github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | delivered     | Purposeful project scaffold, Universal project tooling | [Design](features/github-validation-and-docs-deployment/design.md) |
 | `hk-policy-simplification` — hk policy simplification                           | `dstack-mol-5v0` | delivered     | Language quality profiles                              | [Design](features/hk-policy-simplification/design.md)              |
 | `migration-safety-and-clarity` — Migration safety and clarity                   | `dstack-mol-tki` | delivered     | hk policy simplification                               | [Design](features/migration-safety-and-clarity/design.md)          |
-| `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | close-out     | Language quality profiles, hk policy simplification    | [Design](features/monorepo-tooling-layout/design.md)               |
+| `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | delivered     | Language quality profiles, hk policy simplification    | [Design](features/monorepo-tooling-layout/design.md)               |
 
 ## Cross-cutting decisions
 
@@ -62,5 +62,6 @@ No planning-blocking cross-feature decisions remain.
 
 ## Recommended next work
 
-Complete delivery of `monorepo-tooling-layout`. GitHub validation and docs deployment's waived live Pages exercise
-remains recorded with its GitHub API, permission, and provisioning risk.
+Plan the next capability from the delivered single-package, migration-safe, and monorepo-aware baseline. GitHub
+validation and docs deployment's waived live Pages exercise remains recorded with its GitHub API, permission, and
+provisioning risk.

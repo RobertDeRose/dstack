@@ -3,9 +3,9 @@
 ## Delivery Summary
 
 - Beads feature root: `dstack-mol-7s4`
-- Status: ready for local fast-forward delivery
-- Pull request: not created; merge mode selected
-- Merge commit: pending local fast-forward
+- Status: delivered
+- Pull request: not created; delivered by local fast-forward merge
+- Merge commit: `3da287c59c1ff7d22792f3a3f1f37c048477d8a7`
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
