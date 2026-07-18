@@ -258,6 +258,17 @@ hooks {
         check = "[ ! -f go.mod ] || go mod tidy -diff"
         fix = "[ ! -f go.mod ] || go mod tidy"
       }
+[% elif repository_layout == 'monorepo' %]
+[% for package in monorepo_packages %]
+[% if 'go' in package.language_profiles %]
+      ["go-mod-[[ package.slug ]]"] = new Step {
+        depends = "gofumpt-[[ package.slug ]]"
+        glob = List("[[ package.path ]]/**/*.go", "[[ package.path ]]/go.mod", "[[ package.path ]]/go.sum")
+        check = "cd [[ package.path ]] && { [ ! -f go.mod ] || go mod tidy -diff; }"
+        fix = "cd [[ package.path ]] && { [ ! -f go.mod ] || go mod tidy; }"
+      }
+[% endif %]
+[% endfor %]
 [% endif %]
     }
   }

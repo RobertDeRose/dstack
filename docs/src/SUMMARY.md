@@ -44,4 +44,5 @@
   - [GitHub validation and docs deployment](features/github-validation-and-docs-deployment/index.md)
   - [hk policy simplification](features/hk-policy-simplification/index.md)
   - [Migration safety and clarity](features/migration-safety-and-clarity/index.md)
+  - [Monorepo tooling layout](features/monorepo-tooling-layout/index.md)
   <!-- END IMPLEMENTED FEATURES -->

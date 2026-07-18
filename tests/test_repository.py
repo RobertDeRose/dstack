@@ -815,6 +815,72 @@ def test_copier_entry_points_are_consistent(repository_root: Path) -> None:
         assert root_config[question] == bundled_config[question]
 
 
+@pytest.mark.parametrize("path", ["-api", "packages/-api", "packages/.api", "packages/_api"])
+def test_copier_rejects_package_components_without_alphanumeric_start(
+    repository_root: Path,
+    tmp_path: Path,
+    path: str,
+) -> None:
+    data = {
+        "project_name": "Invalid Layout",
+        "project_slug": "invalid-layout",
+        **SETUP_BRIEF,
+        "language_profiles": ["python"],
+        "repository_layout": "monorepo",
+        "monorepo_packages": [
+            {
+                "display_name": "API",
+                "slug": "api",
+                "path": path,
+                "language_profiles": ["python"],
+            }
+        ],
+        "repository_default_branch": "main",
+        "include_readme": True,
+    }
+
+    source = tmp_path / "source"
+    (source / "skills/setup-project").mkdir(parents=True)
+    shutil.copy2(repository_root / "copier.yml", source / "copier.yml")
+    shutil.copytree(repository_root / "skills/setup-project/template", source / "skills/setup-project/template")
+    with pytest.raises((ValueError, ZeroDivisionError)):
+        run_copy(
+            str(source),
+            tmp_path / "project",
+            data=data,
+            defaults=True,
+            quiet=True,
+            unsafe=False,
+        )
+
+
+def test_copier_rejects_root_package_profile_union_mismatch(repository_root: Path, tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    (source / "skills/setup-project").mkdir(parents=True)
+    shutil.copy2(repository_root / "copier.yml", source / "copier.yml")
+    shutil.copytree(repository_root / "skills/setup-project/template", source / "skills/setup-project/template")
+    data = {
+        "project_name": "Mismatched Layout",
+        "project_slug": "mismatched-layout",
+        **SETUP_BRIEF,
+        "language_profiles": ["python"],
+        "repository_layout": "monorepo",
+        "monorepo_packages": [
+            {
+                "display_name": "Go API",
+                "slug": "go-api",
+                "path": "packages/api",
+                "language_profiles": ["go"],
+            }
+        ],
+        "repository_default_branch": "main",
+        "include_readme": True,
+    }
+
+    with pytest.raises((ValueError, ZeroDivisionError)):
+        run_copy(str(source), tmp_path / "project", data=data, defaults=True, quiet=True, unsafe=False)
+
+
 def load_layout_module(repository_root: Path) -> Any:
     path = repository_root / "skills/setup-project/scripts/layout_contract.py"
     spec = importlib.util.spec_from_file_location("dstack_layout_contract", path)
@@ -886,7 +952,41 @@ def test_layout_contract_preserves_exact_package_answers(repository_root: Path, 
         ([], "1-32"),
         ([{"display_name": "API", "slug": "API", "path": "packages/api", "language_profiles": ["python"]}], "slug"),
         ([{"display_name": "API", "slug": "api", "path": "/api", "language_profiles": ["python"]}], "relative"),
-        ([{"display_name": "API", "slug": "api", "path": ".", "language_profiles": ["python"]}], "cannot be"),
+        (
+            [{"display_name": "API", "slug": "api", "path": ".", "language_profiles": ["python"]}],
+            "cannot be",
+        ),
+        (
+            [{"display_name": "API\n[tools]", "slug": "api", "path": "packages/api", "language_profiles": ["python"]}],
+            "single-line",
+        ),
+        (
+            [
+                {
+                    "display_name": "API",
+                    "slug": "api",
+                    "path": "packages/api;touch-pwned",
+                    "language_profiles": ["python"],
+                }
+            ],
+            "ASCII letters",
+        ),
+        (
+            [{"display_name": "API", "slug": "api", "path": "packages/api space", "language_profiles": ["go"]}],
+            "ASCII letters",
+        ),
+        (
+            [{"display_name": "API", "slug": "api", "path": "packages/api:task", "language_profiles": ["go"]}],
+            "ASCII letters",
+        ),
+        (
+            [{"display_name": "API", "slug": "api", "path": "packages/api|pipe", "language_profiles": ["go"]}],
+            "ASCII letters",
+        ),
+        (
+            [{"display_name": "API", "slug": "api", "path": 'packages/api"quote', "language_profiles": ["go"]}],
+            "ASCII letters",
+        ),
         (
             [{"display_name": "API", "slug": "api", "path": "packages/../api", "language_profiles": ["python"]}],
             "normalized",
@@ -1013,6 +1113,30 @@ def test_setup_layout_preflight_reports_existing_package_collision(
     assert (package_path / "owned.txt").read_text(encoding="utf-8") == "preserved\n"
 
 
+def test_package_config_render_rejects_final_symlinks(repository_root: Path, tmp_path: Path) -> None:
+    module = load_layout_module(repository_root)
+    package = {
+        "display_name": "API",
+        "slug": "api",
+        "path": "packages/api",
+        "language_profiles": ["go"],
+    }
+    target = tmp_path / "packages/api/mise.toml"
+    target.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.toml"
+    target.symlink_to(outside)
+    preflight = module.validate_layout("monorepo", [package], tmp_path)
+
+    with pytest.raises(ValueError, match="destination must not be a symlink"):
+        module.render_package_configs(
+            preflight,
+            tmp_path,
+            candidate_root=tmp_path / "migration/copier-adoption-candidates",
+        )
+
+    assert not outside.exists()
+
+
 def test_package_config_render_preserves_occupied_destination(
     repository_root: Path,
     tmp_path: Path,
@@ -1054,7 +1178,7 @@ def test_package_config_render_preserves_occupied_destination(
     assert rerendered["candidates"] == rendered["candidates"]
 
 
-def test_modified_managed_package_config_becomes_candidate(repository_root: Path, tmp_path: Path) -> None:
+def test_modified_managed_package_config_refreshes_from_answers(repository_root: Path, tmp_path: Path) -> None:
     module = load_layout_module(repository_root)
     package = {
         "display_name": "API",
@@ -1075,12 +1199,12 @@ def test_modified_managed_package_config_becomes_candidate(repository_root: Path
         candidate_root=tmp_path / "migration/copier-adoption-candidates",
     )
 
-    assert target.read_bytes() == modified
-    assert update["rendered"] == []
-    assert update["candidates"] == ["migration/copier-adoption-candidates/packages/api/mise.toml"]
-    candidate_text = (tmp_path / update["candidates"][0]).read_text(encoding="utf-8")
-    assert "Nix profile does not support macOS x64" in candidate_text
-    assert "Nix profile requires system nix" in candidate_text
+    assert target.read_bytes() != modified
+    assert update["rendered"] == ["packages/api/mise.toml"]
+    assert update["candidates"] == []
+    managed_text = target.read_text(encoding="utf-8")
+    assert "Nix profile does not support macOS x64" in managed_text
+    assert "Nix profile requires system nix" in managed_text
 
 
 def test_homogeneous_package_matrix_is_deterministic(repository_root: Path, tmp_path: Path) -> None:
@@ -2400,6 +2524,13 @@ def test_monorepo_maximum_matrix_is_bounded_scoped_and_byte_stable(
     }
     selected_profile_steps = {name for name in selected_package_steps if re.search(r"-package-\d{2}$", name)}
     assert selected_profile_steps == {f"biome-{changed_slug}"}
+    fix_steps = policy["hooks"]["fix"]["steps"]
+    assert fix_steps["go-mod-package-17"]["glob"] == [
+        "packages/package-17/**/*.go",
+        "packages/package-17/go.mod",
+        "packages/package-17/go.sum",
+    ]
+    assert fix_steps["go-mod-package-17"]["depends"] == ["gofumpt-package-17"]
 
 
 @pytest.mark.integration

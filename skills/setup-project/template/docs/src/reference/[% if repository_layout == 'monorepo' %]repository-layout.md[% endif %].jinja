@@ -6,7 +6,7 @@ This repository uses the explicit monorepo layout recorded by Copier.
 
 | Package | Slug | Path | Profiles | Check task |
 |---|---|---|---|---|
-[% for package in monorepo_packages %]| [[ package.display_name ]] | `[[ package.slug ]]` | `[[ package.path ]]` | `[[ package.language_profiles | join(', ') ]]` | `//[[ package.path ]]:check` |
+[% for package in monorepo_packages %]| [[ package.display_name | replace('|', '\\|') ]] | `[[ package.slug ]]` | `[[ package.path ]]` | `[[ package.language_profiles | join(', ') ]]` | `//[[ package.path ]]:check` |
 [% endfor %]
 
 The root `mise.toml` owns the union of tool versions, aggregate tasks, and the only `mise.lock`.

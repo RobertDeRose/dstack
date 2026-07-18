@@ -66,11 +66,13 @@ path: packages/mqtt-api
 language_profiles: [python, typescript]
 ```
 
-Display names are nonempty and byte-preserved. Slugs match `[a-z0-9]+(?:-[a-z0-9]+)*`. Paths are normalized relative
-POSIX directories; absolute, empty, dot/traversal, backslash, case-fold duplicate, ancestor/descendant, symlinked, and
-root-owned `.git`, `.beads`, `docs`, `migration`, `scripts`, or `skills` paths are invalid. Slugs are case-fold unique.
-Profiles use canonical order, contain no duplicates, and treat `other` as exclusive. The maximum package count is 32.
-Older answers without these keys resolve to single-package and require explicit conversion.
+Display names are nonempty, single-line, and byte-preserved. Slugs match `[a-z0-9]+(?:-[a-z0-9]+)*`. Paths are
+normalized relative POSIX directories whose components start with an ASCII letter or digit and continue with ASCII
+letters, digits, dot, underscore, or hyphen; absolute, empty, dot/traversal, backslash, case-fold duplicate,
+ancestor/descendant, symlinked, and root-owned `.git`, `.beads`, `docs`, `migration`, `scripts`, or `skills` paths are
+invalid. Slugs are case-fold unique. Profiles use canonical order, contain no duplicates, and treat `other` as
+exclusive. The maximum package count is 32. Older answers without these keys resolve to single-package and require
+explicit conversion.
 
 For each package, setup/update produces `<package-path>/mise.toml` with only `check` and `fix` tasks. Root tools and
 absolute task names remain authoritative. Newly occupied package config files produce a same-relative-path candidate

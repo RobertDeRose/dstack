@@ -23,10 +23,10 @@ and the tooling provisioner remain repository authorities. Explicit package root
 configuration owns the profile-tool union and aggregate check/fix dependencies. Setup and update render those
 deterministic package configs from Copier answers without package discovery or a progress manifest.
 
-Ordinary managed template changes retain Copier's three-way update behavior. If a newly requested package config path
-already contains a project file, update preserves its bytes and writes the generated alternative under
-`migration/copier-adoption-candidates/<same-relative-path>`. Candidate presence blocks generated tooling execution until
-explicit reconciliation.
+Ordinary managed template changes retain Copier's three-way update behavior, and previously recorded package configs
+refresh from current answers. If a newly requested package config path already contains a project file, update preserves
+its bytes and writes the generated alternative under `migration/copier-adoption-candidates/<same-relative-path>`.
+Candidate presence blocks generated tooling execution until explicit reconciliation.
 
 ## Template rendering boundary
 

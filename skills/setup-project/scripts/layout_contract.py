@@ -13,6 +13,7 @@ LANGUAGE_PROFILES = ("python", "typescript", "rust", "go", "elixir", "nix", "oth
 PACKAGE_KEYS = {"display_name", "slug", "path", "language_profiles"}
 RESERVED_ROOTS = {".git", ".beads", "docs", "migration", "scripts", "skills"}
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+SAFE_PATH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*\Z")
 
 
 def _profiles(value: Any, *, package: str) -> list[str]:
@@ -41,6 +42,10 @@ def _path(value: Any, *, package: str, root: Path) -> PurePosixPath:
         raise ValueError(f"{package}.path must be relative")
     if value != path.as_posix() or any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError(f"{package}.path must be normalized and cannot contain . or ..")
+    if not SAFE_PATH.fullmatch(value):
+        raise ValueError(
+            f"{package}.path components may contain only ASCII letters, digits, dot, underscore, and hyphen"
+        )
     if path.parts[0].casefold() in RESERVED_ROOTS:
         raise ValueError(f"{package}.path is reserved for root-owned state: {value}")
     current = root
@@ -74,8 +79,12 @@ def validate_layout(layout: Any, packages: Any, root: Path) -> dict[str, Any]:
         if not isinstance(value, dict) or set(value) != PACKAGE_KEYS:
             raise ValueError(f"{label} must contain exactly: {', '.join(sorted(PACKAGE_KEYS))}")
         display_name = value["display_name"]
-        if not isinstance(display_name, str) or not display_name.strip():
-            raise ValueError(f"{label}.display_name must be nonempty text")
+        if (
+            not isinstance(display_name, str)
+            or not display_name.strip()
+            or any(character in display_name for character in "\r\n\0")
+        ):
+            raise ValueError(f"{label}.display_name must be nonempty single-line text")
         slug = value["slug"]
         if not isinstance(slug, str) or not SLUG.fullmatch(slug):
             raise ValueError(f"{label}.slug must match [a-z0-9]+(?:-[a-z0-9]+)*")
@@ -170,6 +179,22 @@ def package_mise_content(package: dict[str, Any]) -> str:
     )
 
 
+def _safe_destination(root: Path, target: Path) -> None:
+    """Reject symlinked/non-directory parents and destinations before writing."""
+    relative = target.relative_to(root)
+    current = root
+    for part in relative.parts[:-1]:
+        current /= part
+        if current.is_symlink():
+            raise ValueError(f"Package config parent must not be a symlink: {current.relative_to(root)}")
+        if current.exists() and not current.is_dir():
+            raise ValueError(f"Package config parent is not a directory: {current.relative_to(root)}")
+    if target.is_symlink():
+        raise ValueError(f"Package config destination must not be a symlink: {relative}")
+    if target.exists() and not target.is_file():
+        raise ValueError(f"Package config destination must be a regular file: {relative}")
+
+
 def render_package_configs(
     preflight: dict[str, Any],
     root: Path,
@@ -186,10 +211,17 @@ def render_package_configs(
         target = root / relative
         content = package_mise_content(package)
         candidate = candidate_root / relative if candidate_root is not None else None
+        _safe_destination(root, target)
+        if candidate is not None:
+            _safe_destination(root, candidate)
         if candidate is not None and candidate.exists():
             candidates.append(candidate.relative_to(root).as_posix())
             continue
         if target.exists() and target.read_bytes() != content.encode("utf-8"):
+            if relative in managed_paths:
+                target.write_text(content, encoding="utf-8")
+                rendered.append(relative)
+                continue
             if candidate is None:
                 raise ValueError(f"Package config destination differs from generated content: {relative}")
             candidate.parent.mkdir(parents=True, exist_ok=True)
