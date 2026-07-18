@@ -32,6 +32,15 @@ with explicit consent.
 Use `bd prime` at session start. Beads owns live readiness and dependencies; `docs/src/planned-features.md` is only the
 human roadmap.
 
+## Repository-layout preflight
+
+New and older projects remain single-package unless monorepo conversion is explicit. Before setup or update, supply the
+complete 1-32 package list and inspect the JSON layout preflight. It reports each preserved display name, slug, profile
+list, exact destination, occupied state, and collision paths. Rendering does not start when a package is invalid,
+overlaps another package, uses a root-owned path, differs only by case, traverses a symlink, or exceeds the bounded
+list. Existing package destinations are reported as collisions for later additive-render reconciliation; they are never
+permission to overwrite project files.
+
 ## Update
 
 - `npx skills update` refreshes installed skill definitions and scripts.

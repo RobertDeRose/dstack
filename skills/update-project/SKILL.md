@@ -64,6 +64,12 @@ For Copier-managed projects whose answers do not yet contain `language_profiles`
 suggestions; never apply them automatically. If none are found or accepted, offer the exclusive `other` profile.
 Recursive package discovery is outside this workflow.
 
+Older answer files default to `single-package` with no packages. Preserve that state unless the user explicitly requests
+conversion. Convert only with `--repository-layout monorepo` and one `--monorepo-package '<JSON object>'` per complete
+package; never infer packages. The preflight lists exact destinations and occupied paths and rejects invalid, reserved,
+overlapping, case-colliding, or symlinked paths before revision lookup or rendering. Package objects contain exactly
+`display_name`, `slug`, `path`, and `language_profiles`; preserve display names and acronyms exactly.
+
 ## 2. Update preconditions
 
 Continue with a normal update only when preflight recommends `update-project` and:
@@ -144,7 +150,8 @@ The helper:
 14. validates the project feature formula when present;
 15. preserves or explicitly adds/removes canonical language profiles, with legacy root-manifest suggestions reported by
     preflight but never silently applied;
-16. reports the selected release, resolved Copier commit, changed files, tooling stages, validation, warnings,
+16. defaults older layout answers to single-package and validates explicit package conversion before rendering;
+17. reports the selected release, resolved Copier commit, changed files, tooling stages, validation, warnings,
     conflicts, and readiness.
 
 `bd doctor` is not used because it is not supported by every Beads storage mode.

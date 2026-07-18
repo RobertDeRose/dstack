@@ -54,6 +54,24 @@ worktree requires `--default-branch` when the remote default is unavailable. Ste
 `.beads/formulas/dstack-feature.formula.toml` with `git add -f`; its database and local runtime configuration remain
 untracked.
 
+## Repository-layout answers
+
+`repository_layout` is `single-package` by default or `monorepo`. `monorepo_packages` is empty for single-package and
+contains 1-32 exact objects for monorepo:
+
+```yaml
+display_name: MQTT API
+slug: mqtt-api
+path: packages/mqtt-api
+language_profiles: [python, typescript]
+```
+
+Display names are nonempty and byte-preserved. Slugs match `[a-z0-9]+(?:-[a-z0-9]+)*`. Paths are normalized relative
+POSIX directories; absolute, empty, dot/traversal, backslash, case-fold duplicate, ancestor/descendant, symlinked, and
+root-owned `.git`, `.beads`, `docs`, `migration`, `scripts`, or `skills` paths are invalid. Slugs are case-fold unique.
+Profiles use canonical order, contain no duplicates, and treat `other` as exclusive. The maximum package count is 32.
+Older answers without these keys resolve to single-package and require explicit conversion.
+
 ## Monorepo mise composition
 
 The supported root form is:

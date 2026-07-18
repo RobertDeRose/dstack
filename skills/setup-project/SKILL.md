@@ -63,6 +63,12 @@ Selecting the kind and profiles is confirmation; do not ask a second confirmatio
 means no recognized language tooling. Values must be non-empty single lines. Do not infer missing facts from the project
 name or fabricate defaults.
 
+Then ask whether the repository is `single-package` (the default) or `monorepo`. For monorepo mode, collect 1-32
+explicit package objects with exact `display_name`, lowercase hyphenated `slug`, normalized relative POSIX `path`, and a
+nonempty canonical `language_profiles` list. Preserve display names and technical acronyms exactly. Pass each object as
+JSON with `--monorepo-package` and pass `--repository-layout monorepo`. Report the helper's complete `layout_preflight`;
+do not render when it reports an invalid, reserved, overlapping, case-colliding, or symlinked path.
+
 ## Defaults
 
 - Project name: supplied value, otherwise `basename "$PWD"`.
@@ -87,7 +93,8 @@ uv run <skill-dir>/scripts/setup-project.py [project-name] \
   --scope "<current supported scope>" \
   --boundaries "<key exclusions and ownership boundaries>" \
   --project-kind <kind> \
-  --language-profile <profile> [...]
+  --language-profile <profile> [...] \
+  --repository-layout single-package
 ```
 
 The project name remains optional and defaults to `basename "$PWD"`. Add `--destination <path>` to target another new

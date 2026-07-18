@@ -61,6 +61,8 @@ REQUIRED_COPIER_QUESTIONS = (
     "project_boundaries",
     "project_kind",
     "language_profiles",
+    "repository_layout",
+    "monorepo_packages",
     "repository_default_branch",
     "dstack_template_channel",
     "include_readme",
@@ -806,6 +808,16 @@ def test_copier_entry_points_are_consistent(repository_root: Path) -> None:
         assert root_config[question] == bundled_config[question]
 
 
+def load_layout_module(repository_root: Path) -> Any:
+    path = repository_root / "skills/setup-project/scripts/layout_contract.py"
+    spec = importlib.util.spec_from_file_location("dstack_layout_contract", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def load_setup_module(repository_root: Path) -> Any:
     path = repository_root / "skills/setup-project/scripts/setup-project.py"
     spec = importlib.util.spec_from_file_location("dstack_setup_project", path)
@@ -834,6 +846,164 @@ def load_update_module(repository_root: Path) -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_layout_contract_preserves_exact_package_answers(repository_root: Path, tmp_path: Path) -> None:
+    module = load_layout_module(repository_root)
+    packages = [
+        {
+            "display_name": "MQTT API",
+            "slug": "mqtt-api",
+            "path": "packages/mqtt-api",
+            "language_profiles": ["python", "typescript"],
+        },
+        {
+            "display_name": "Web UI",
+            "slug": "web-ui",
+            "path": "packages/web-ui",
+            "language_profiles": ["typescript"],
+        },
+    ]
+
+    result = module.validate_layout("monorepo", packages, tmp_path)
+
+    assert result["packages"][0]["display_name"] == "MQTT API"
+    assert [package["path"] for package in result["packages"]] == ["packages/mqtt-api", "packages/web-ui"]
+    assert result["collisions"] == []
+    assert module.validate_layout("single-package", [], tmp_path)["packages"] == []
+
+
+@pytest.mark.parametrize(
+    ("packages", "message"),
+    [
+        ([], "1-32"),
+        ([{"display_name": "API", "slug": "API", "path": "packages/api", "language_profiles": ["python"]}], "slug"),
+        ([{"display_name": "API", "slug": "api", "path": "/api", "language_profiles": ["python"]}], "relative"),
+        ([{"display_name": "API", "slug": "api", "path": ".", "language_profiles": ["python"]}], "cannot be"),
+        (
+            [{"display_name": "API", "slug": "api", "path": "packages/../api", "language_profiles": ["python"]}],
+            "normalized",
+        ),
+        ([{"display_name": "API", "slug": "api", "path": "docs/api", "language_profiles": ["python"]}], "reserved"),
+        (
+            [{"display_name": "API", "slug": "api", "path": "packages/api", "language_profiles": ["other", "python"]}],
+            "canonical order",
+        ),
+    ],
+)
+def test_layout_contract_rejects_invalid_packages(
+    repository_root: Path,
+    tmp_path: Path,
+    packages: list[dict[str, Any]],
+    message: str,
+) -> None:
+    module = load_layout_module(repository_root)
+    with pytest.raises(ValueError, match=message):
+        module.validate_layout("monorepo", packages, tmp_path)
+
+
+def test_layout_contract_rejects_overlap_casefold_limit_and_symlinks(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    module = load_layout_module(repository_root)
+
+    def package(index: int, path: str) -> dict[str, Any]:
+        return {
+            "display_name": f"Package {index}",
+            "slug": f"package-{index}",
+            "path": path,
+            "language_profiles": ["go"],
+        }
+
+    with pytest.raises(ValueError, match="overlap"):
+        module.validate_layout("monorepo", [package(1, "packages/api"), package(2, "packages/api/client")], tmp_path)
+    with pytest.raises(ValueError, match="case-fold unique"):
+        module.validate_layout("monorepo", [package(1, "packages/API"), package(2, "packages/api")], tmp_path)
+    with pytest.raises(ValueError, match="overlap"):
+        module.validate_layout(
+            "monorepo",
+            [package(1, "packages/API"), package(2, "packages/api/client")],
+            tmp_path,
+        )
+    with pytest.raises(ValueError, match="1-32"):
+        module.validate_layout("monorepo", [package(index, f"packages/p{index}") for index in range(33)], tmp_path)
+    (tmp_path / "linked").symlink_to(tmp_path / "target", target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        module.validate_layout("monorepo", [package(1, "linked/api")], tmp_path)
+
+
+def test_setup_layout_preflight_is_mutation_free(repository_root: Path, tmp_path: Path, capsys: Any) -> None:
+    module = load_setup_module(repository_root)
+    destination = tmp_path / "new-project"
+    package = json.dumps(
+        {
+            "display_name": "MQTT API",
+            "slug": "mqtt-api",
+            "path": "packages/mqtt-api",
+            "language_profiles": ["python"],
+        }
+    )
+
+    assert (
+        module.main(
+            [
+                "--destination",
+                str(destination),
+                "--repository-layout",
+                "monorepo",
+                "--monorepo-package",
+                package,
+                "--preflight",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["packages"][0]["display_name"] == "MQTT API"
+    assert result["packages"][0]["destination"] == str(destination / "packages/mqtt-api")
+    assert not destination.exists()
+
+
+def test_setup_layout_preflight_reports_existing_package_collision(
+    repository_root: Path,
+    tmp_path: Path,
+    capsys: Any,
+) -> None:
+    module = load_setup_module(repository_root)
+    destination = tmp_path / "existing"
+    package_path = destination / "packages/api"
+    package_path.mkdir(parents=True)
+    (package_path / "owned.txt").write_text("preserved\n", encoding="utf-8")
+    package = json.dumps(
+        {
+            "display_name": "API",
+            "slug": "api",
+            "path": "packages/api",
+            "language_profiles": ["go"],
+        }
+    )
+
+    assert (
+        module.main(
+            [
+                "--destination",
+                str(destination),
+                "--repository-layout",
+                "monorepo",
+                "--monorepo-package",
+                package,
+                "--preflight",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["collisions"] == ["packages/api"]
+    assert result["packages"][0]["occupied"] is True
+    assert (package_path / "owned.txt").read_text(encoding="utf-8") == "preserved\n"
 
 
 def test_update_project_requires_missing_structured_brief_values(repository_root: Path) -> None:
@@ -2777,6 +2947,8 @@ def test_update_project_passes_supplied_structured_brief_to_copier(
         "project_boundaries": "No application behavior is introduced.",
         "project_kind": "documentation",
         "language_profiles": ["other"],
+        "repository_layout": "single-package",
+        "monorepo_packages": [],
         "dstack_template_channel": "stable",
     }
 

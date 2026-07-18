@@ -83,6 +83,64 @@ language_profiles:
     Language profiles must use canonical order: [[ validation.canonical | join(', ') ]].
     [% endif %]
     [% endif %]
+repository_layout:
+  type: str
+  help: Repository layout; older answer files default to single-package.
+  choices:
+    - single-package
+    - monorepo
+  default: single-package
+# yamllint disable rule:line-length
+monorepo_packages:
+  type: yaml
+  help: Explicit 1–32 package objects for monorepo mode.
+  default: []
+  when: "[[ repository_layout == 'monorepo' ]]"
+  validator: |
+    [% set profiles = ['python', 'typescript', 'rust', 'go', 'elixir', 'nix', 'other'] %]
+    [% set required = ['display_name', 'language_profiles', 'path', 'slug'] %]
+    [% set state = namespace(error='') %]
+    [% if monorepo_packages is mapping or monorepo_packages is string or monorepo_packages is not sequence %]
+    [% set state.error = 'monorepo_packages must be a list.' %]
+    [% elif repository_layout == 'single-package' and monorepo_packages %]
+    [% set state.error = 'Single-package mode requires an empty package list.' %]
+    [% elif repository_layout == 'monorepo' and (monorepo_packages | length < 1 or monorepo_packages | length > 32) %]
+    [% set state.error = 'Monorepo mode requires 1-32 packages.' %]
+    [% endif %]
+    [% for package in monorepo_packages if not state.error %]
+    [% if package is not mapping or package.keys() | sort | list != required %]
+    [% set state.error = 'Each package must contain exactly display_name, slug, path, and language_profiles.' %]
+    [% elif package.display_name is not string or not package.display_name | trim %]
+    [% set state.error = 'Package display_name must be nonempty text.' %]
+    [% elif package.slug is not string or not package.slug or package.slug != package.slug | lower or package.slug.startswith('-') or package.slug.endswith('-') or '--' in package.slug %]
+    [% set state.error = 'Package slug must be lowercase alphanumeric words separated by hyphens.' %]
+    [% elif package.path is not string or not package.path or package.path.startswith('/') or '\\' in package.path or '' in package.path.split('/') or '.' in package.path.split('/') or '..' in package.path.split('/') %]
+    [% set state.error = 'Package path must be a normalized relative POSIX path.' %]
+    [% elif package.path.split('/')[0].casefold() in ['.git', '.beads', 'docs', 'migration', 'scripts', 'skills'] %]
+    [% set state.error = 'Package path is reserved for root-owned state.' %]
+    [% elif package.language_profiles is mapping or package.language_profiles is string or package.language_profiles is not sequence or not package.language_profiles %]
+    [% set state.error = 'Package language_profiles must be a nonempty list.' %]
+    [% elif package.language_profiles | unique | list | length != package.language_profiles | length or ('other' in package.language_profiles and package.language_profiles | length > 1) %]
+    [% set state.error = 'Package language_profiles must be unique and other is exclusive.' %]
+    [% endif %]
+    [% for character in package.slug if not state.error and character not in 'abcdefghijklmnopqrstuvwxyz0123456789-' %]
+    [% set state.error = 'Package slug contains an unsupported character.' %]
+    [% endfor %]
+    [% set order = namespace(selected=[]) %]
+    [% for profile in profiles if profile in package.language_profiles %][% set order.selected = order.selected + [profile] %][% endfor %]
+    [% if not state.error and order.selected != package.language_profiles %][% set state.error = 'Package language_profiles must use canonical supported order.' %][% endif %]
+    [% endfor %]
+    [% for package in monorepo_packages if not state.error %]
+    [% set outer_index = loop.index0 %]
+    [% for other in monorepo_packages if not state.error %]
+    [% set left = package.path.casefold() %][% set right = other.path.casefold() %]
+    [% if outer_index != loop.index0 and (left == right or left.startswith(right + '/') or right.startswith(left + '/') or package.slug.casefold() == other.slug.casefold()) %]
+    [% set state.error = 'Package slugs and paths must be case-fold unique and paths cannot overlap.' %]
+    [% endif %]
+    [% endfor %]
+    [% endfor %]
+    [% if state.error %][[ state.error ]][% endif %]
+# yamllint enable rule:line-length
 repository_default_branch:
   type: str
   help: Default Git branch used by feature worktrees.

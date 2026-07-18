@@ -8,13 +8,14 @@
 #     "PyYAML>=6.0,<7",
 # ]
 # ///
-# ruff: noqa: S603, S607
+# ruff: noqa: EM101, EM102, S603, S607
 """Update a Copier-managed dstack project and validate the resulting scaffold."""
 
 from __future__ import annotations
 
 import argparse
 import filecmp
+import importlib.util
 import json
 import os
 import re
@@ -77,6 +78,25 @@ LEGACY_TASK_IGNORED_DIRS = IGNORED_SCAN_DIRS | {
     "vendor",
     "vendors",
 }
+
+
+def layout_validator(destination: Path) -> Any:
+    """Load the setup skill's validator from an installed or managed skills tree."""
+    candidates = (
+        Path(__file__).with_name("layout_contract.py"),
+        destination / "skills/update-project/scripts/layout_contract.py",
+    )
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None:
+        message = "Layout validator is missing from skills/update-project/scripts"
+        raise SystemExit(message)
+    spec = importlib.util.spec_from_file_location("dstack_layout_contract", path)
+    if spec is None or spec.loader is None:
+        message = f"Unable to load layout validator: {path}"
+        raise SystemExit(message)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.validate_layout
 
 
 def run(
@@ -958,6 +978,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--language-profile", action="append", default=[], choices=LANGUAGE_PROFILES)
     parser.add_argument("--default-branch", default="main")
+    parser.add_argument("--repository-layout", choices=("single-package", "monorepo"))
+    parser.add_argument(
+        "--monorepo-package",
+        action="append",
+        default=[],
+        metavar="JSON",
+        help="Exact package object as JSON; repeat to explicitly convert or replace the package list.",
+    )
     parser.add_argument(
         "--preflight",
         action="store_true",
@@ -991,6 +1019,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     destination = git_root(args.destination.expanduser().resolve())
     preflight = project_preflight(destination, args.answers_file)
+    existing_answers_path = destination / args.answers_file
+    existing_answers = load_answers(existing_answers_path) if existing_answers_path.exists() else {}
+    recorded_layout = existing_answers.get("repository_layout", "single-package")
+    recorded_packages = existing_answers.get("monorepo_packages", [])
+    try:
+        requested_packages = (
+            [json.loads(value) for value in args.monorepo_package] if args.monorepo_package else recorded_packages
+        )
+        requested_layout = args.repository_layout or recorded_layout
+        if args.repository_layout == "monorepo" and recorded_layout == "single-package" and not args.monorepo_package:
+            raise ValueError("explicit conversion to monorepo requires --monorepo-package")
+        if args.monorepo_package and requested_layout != "monorepo":
+            raise ValueError("--monorepo-package requires --repository-layout monorepo")
+        layout_preflight = layout_validator(destination)(requested_layout, requested_packages, destination)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"Invalid repository layout: {exc}") from exc
+    preflight["layout"] = layout_preflight
     if args.preflight:
         if args.json:
             print(json.dumps(preflight, indent=2, sort_keys=True))
@@ -1057,6 +1102,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     previous_profiles = canonical_language_profiles(answer_data.get("language_profiles", ["other"]))
     requested_profiles = updated_language_profiles(previous_profiles, args.add_profile, args.remove_profile)
+    if requested_layout == "monorepo":
+        profile_set = {profile for package in requested_packages for profile in package["language_profiles"]}
+        requested_profiles = [profile for profile in LANGUAGE_PROFILES if profile in profile_set]
+        if "other" in requested_profiles and len(requested_profiles) > 1:
+            requested_profiles.remove("other")
     brief = project_brief_data(args, answer_data, operation="update")
 
     recorded_channel = answer_data.get("dstack_template_channel", "stable")
@@ -1089,6 +1139,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             data={
                 **brief,
                 "language_profiles": requested_profiles,
+                "repository_layout": requested_layout,
+                "monorepo_packages": requested_packages,
                 "dstack_template_channel": channel,
             },
             answers_file=args.answers_file,

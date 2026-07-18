@@ -8,7 +8,7 @@
 #     "PyYAML>=6.0,<7",
 # ]
 # ///
-# ruff: noqa: S603, S607
+# ruff: noqa: EM102, S603, S607
 """Create and initialize a new Copier-managed dstack project."""
 
 from __future__ import annotations
@@ -30,6 +30,10 @@ from packaging.version import InvalidVersion, Version
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SKILL_DIR / "scripts"))
+from layout_contract import validate_layout  # noqa: E402
+
+
 SKILL_MANIFEST = SKILL_DIR / "SKILL.md"
 BUNDLED_TEMPLATE_SOURCE = SKILL_DIR
 DEFAULT_UPDATE_SOURCE = "gh:RobertDeRose/dstack"
@@ -651,6 +655,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--default-branch", default="main")
     parser.add_argument(
+        "--repository-layout",
+        choices=("single-package", "monorepo"),
+        default="single-package",
+    )
+    parser.add_argument(
+        "--monorepo-package",
+        action="append",
+        default=[],
+        metavar="JSON",
+        help="Exact package object as JSON; repeat once per explicit package.",
+    )
+    parser.add_argument(
         "--template-source",
         help="Template Git source; defaults to gh:RobertDeRose/dstack.",
     )
@@ -674,6 +690,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         metavar="INTEGRATION",
         help="Run bd setup for an integration after bd init; repeatable.",
     )
+    parser.add_argument("--preflight", action="store_true", help="Validate and report layout without rendering.")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
@@ -691,7 +708,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise SystemExit(message)
 
     existing = unexpected_entries(destination)
-    if existing:
+    if existing and not args.preflight:
         shown = "\n".join(f"  - {entry.name}" for entry in existing[:25])
         raise SystemExit(
             "Destination contains project files. New-project setup will not adopt or migrate them. "
@@ -703,8 +720,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         message = "Project name cannot be empty"
         raise SystemExit(message)
     project_slug = args.project_slug or slugify(project_name)
+    try:
+        package_answers = [json.loads(value) for value in args.monorepo_package]
+        layout_preflight = validate_layout(args.repository_layout, package_answers, destination)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"Invalid repository layout: {exc}") from exc
+    if args.preflight:
+        if args.json:
+            print(json.dumps(layout_preflight, indent=2, sort_keys=True))
+        else:
+            print(f"Repository layout: {layout_preflight['repository_layout']}")
+            for package in layout_preflight["packages"]:
+                print(f"  - {package['slug']}: {package['destination']} (occupied={package['occupied']})")
+        return 0
+
     brief = project_brief(args)
-    language_profiles = canonical_language_profiles(args.language_profile)
+    if args.repository_layout == "monorepo":
+        profile_set = {profile for package in package_answers for profile in package["language_profiles"]}
+        language_profiles = [profile for profile in LANGUAGE_PROFILES if profile in profile_set]
+        if "other" in language_profiles and len(language_profiles) > 1:
+            language_profiles.remove("other")
+    else:
+        language_profiles = canonical_language_profiles(args.language_profile)
 
     skill_version = load_skill_version()
     channel = "unstable" if args.unstable else "stable"
@@ -731,6 +768,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "project_slug": project_slug,
             **brief,
             "language_profiles": language_profiles,
+            "repository_layout": args.repository_layout,
+            "monorepo_packages": package_answers,
             "repository_default_branch": args.default_branch,
             "include_readme": not args.delete_readme,
             "dstack_template_channel": channel,
@@ -787,6 +826,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "project_slug": project_slug,
         **brief,
         "language_profiles": language_profiles,
+        "repository_layout": args.repository_layout,
+        "monorepo_packages": package_answers,
+        "layout_preflight": layout_preflight,
         "destination": str(destination),
         "template_source": template_source,
         "template_source_kind": "bundled" if using_bundled_template else "override",
