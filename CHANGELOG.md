@@ -2,6 +2,34 @@
 
 - - -
 
+## v0.4.0 — 2026-07-17
+
+### Added
+
+- **workflow:** Integrate safe migration recovery (`23f0a55`)
+- **workflow:** Automate migration record reconciliation (`ff92dfb`)
+
+### Fixed
+
+- **workflow:** Reconcile migration delivery (`047bc5b`)
+- **workflow:** Batch large migration imports (`b863d13`)
+- **workflow:** Preserve migration repository identity (`d872cc2`)
+- **workflow:** Preserve migration import progress (`e56ffc5`)
+- **workflow:** Require verified migration commits (`7f5ba3a`)
+- **workflow:** Enforce migration artifact handling (`9aeb28a`)
+- **workflow:** Preserve legacy hook behavior (`0de2faf`)
+- **toolchain:** Reduce repository test time (`a34574c`)
+- **toolchain:** Prevent recursive policy tests (`668a3a4`)
+- **toolchain:** Restore module update ordering (`82642bc`)
+- **toolchain:** Restore native Harper linting (`13baa63`)
+- **template:** Add editor and typo policy (`9510a21`)
+
+### Changed
+
+- **toolchain:** Simplify validation step policy (`3e6239b`)
+
+- - -
+
 ## v0.3.0 — 2026-07-16
 
 ### Breaking changes

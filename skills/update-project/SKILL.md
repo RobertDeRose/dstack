@@ -2,7 +2,7 @@
 name: update-project
 description: Update a Copier-managed dstack project through its stable or unstable template channel, explicitly bootstrap dstack self-adoption, or route a legacy Markdown workflow through migration.
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 ---
 
