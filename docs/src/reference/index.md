@@ -72,6 +72,10 @@ root-owned `.git`, `.beads`, `docs`, `migration`, `scripts`, or `skills` paths a
 Profiles use canonical order, contain no duplicates, and treat `other` as exclusive. The maximum package count is 32.
 Older answers without these keys resolve to single-package and require explicit conversion.
 
+For each package, setup/update produces `<package-path>/mise.toml` with only `check` and `fix` tasks. Root tools and
+absolute task names remain authoritative. Newly occupied package config files produce a same-relative-path candidate
+under `migration/copier-adoption-candidates/`; candidates never replace project bytes and prevent tooling execution.
+
 ## Monorepo mise composition
 
 The supported root form is:

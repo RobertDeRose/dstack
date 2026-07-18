@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -107,3 +108,85 @@ def validate_layout(layout: Any, packages: Any, root: Path) -> dict[str, Any]:
             }
         )
     return {"repository_layout": layout, "packages": normalized, "collisions": collisions}
+
+
+def package_mise_content(package: dict[str, Any]) -> str:
+    """Return deterministic package-owned commands without tool declarations."""
+    profiles = package["language_profiles"]
+    checks: list[str] = []
+    fixes = ["hk fix"]
+    if "python" in profiles:
+        checks.append("[ ! -f pyproject.toml ] || { uv run python -c 'import pytest' && uv run pytest; }")
+    if "typescript" in profiles:
+        checks.append("[ ! -f package.json ] || { aube exec vitest --version >/dev/null && aube exec vitest run; }")
+    if "rust" in profiles:
+        checks.extend(
+            (
+                "[ ! -f Cargo.toml ] || cargo clippy --all-targets --all-features -- -D warnings",
+                "[ ! -f Cargo.toml ] || cargo test --all-targets --all-features",
+            )
+        )
+    if "go" in profiles:
+        checks.extend(
+            (
+                "[ ! -f go.mod ] || { go mod tidy -diff && go mod verify; }",
+                "[ ! -f go.mod ] || golangci-lint run",
+                "[ ! -f go.mod ] || go test ./...",
+            )
+        )
+        fixes.append("[ ! -f go.mod ] || go mod tidy")
+    if "elixir" in profiles:
+        checks.extend(
+            (
+                "[ ! -f mix.exs ] || mix compile --warnings-as-errors",
+                "[ ! -f mix.exs ] || { mix help credo >/dev/null || { printf '%s\\n' "
+                "'Elixir profile requires project-owned Credo' >&2; exit 1; }; mix credo --strict; }",
+                "[ ! -f mix.exs ] || mix test --warnings-as-errors",
+            )
+        )
+    if "nix" in profiles:
+        checks.append("[ ! -f flake.nix ] || nix flake check")
+    if not checks:
+        checks.append("true")
+    rendered_checks = ",\n  ".join(json.dumps(command) for command in checks)
+    rendered_fixes = ",\n  ".join(json.dumps(command) for command in fixes)
+    return (
+        "#:schema https://mise.jdx.dev/schema/mise.json\n\n"
+        f"# Package tasks for {package['display_name']}. Tool versions are owned by the root config.\n\n"
+        '[tasks.check]\ndescription = "Run package validation"\n'
+        f"run = [\n  {rendered_checks},\n]\n\n"
+        '[tasks.fix]\ndescription = "Apply changed-file package fixes"\n'
+        f"run = [\n  {rendered_fixes},\n]\n"
+    )
+
+
+def render_package_configs(
+    preflight: dict[str, Any],
+    root: Path,
+    *,
+    managed_paths: set[str] | None = None,
+    candidate_root: Path | None = None,
+) -> dict[str, list[str]]:
+    """Render task-only package configs, preserving newly occupied project files."""
+    managed_paths = managed_paths or set()
+    rendered: list[str] = []
+    candidates: list[str] = []
+    for package in preflight["packages"]:
+        relative = f"{package['path']}/mise.toml"
+        target = root / relative
+        content = package_mise_content(package)
+        candidate = candidate_root / relative if candidate_root is not None else None
+        if candidate is not None and candidate.exists():
+            candidates.append(candidate.relative_to(root).as_posix())
+            continue
+        if target.exists() and relative not in managed_paths:
+            if candidate is None:
+                raise ValueError(f"New package config destination is occupied: {relative}")
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            candidate.write_text(content, encoding="utf-8")
+            candidates.append(candidate.relative_to(root).as_posix())
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        rendered.append(relative)
+    return {"rendered": rendered, "candidates": candidates}

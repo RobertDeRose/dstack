@@ -16,6 +16,18 @@
 Skills CLI installs and updates workflow code. Copier records and applies scaffold evolution. Beads owns executable
 work. Git commits and tests provide implementation evidence. No helper silently substitutes one authority for another.
 
+## Monorepo tooling ownership
+
+Monorepo answers remain Copier-recorded state. Root `mise.toml`, `mise.lock`, hk policy, documentation, workflow state,
+and the tooling provisioner remain repository authorities. Explicit package roots receive task-only mise configs; root
+configuration owns the profile-tool union and aggregate check/fix dependencies. Setup and update render those
+deterministic package configs from Copier answers without package discovery or a progress manifest.
+
+Ordinary managed template changes retain Copier's three-way update behavior. If a newly requested package config path
+already contains a project file, update preserves its bytes and writes the generated alternative under
+`migration/copier-adoption-candidates/<same-relative-path>`. Candidate presence blocks generated tooling execution until
+explicit reconciliation.
+
 ## Template rendering boundary
 
 New-project setup treats the structured project brief as the only source for initial product facts. Every project kind

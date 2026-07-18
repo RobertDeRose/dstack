@@ -1,0 +1,18 @@
+# Repository layout
+
+This repository uses the explicit monorepo layout recorded by Copier.
+
+## Package map
+
+| Package | Slug | Path | Profiles | Check task |
+|---|---|---|---|---|
+[% for package in monorepo_packages %]| [[ package.display_name ]] | `[[ package.slug ]]` | `[[ package.path ]]` | `[[ package.language_profiles | join(', ') ]]` | `//[[ package.path ]]:check` |
+[% endfor %]
+
+The root `mise.toml` owns the union of tool versions, aggregate tasks, and the only `mise.lock`.
+`scripts/setup-tooling.py` is the only lock, locked-install, and hook authority. Package `mise.toml` files own task
+commands and execute from their package roots; they do not declare tools.
+
+`mise run check` validates every declared package plus shared repository policy. Pre-commit and `mise run fix` use hk
+file globs, so package source checks are selected by changed package paths while shared documentation and workflow files
+continue to use root policy.

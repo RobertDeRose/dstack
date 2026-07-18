@@ -1,5 +1,11 @@
 #:schema https://mise.jdx.dev/schema/mise.json
+[% if repository_layout == 'monorepo' %]
+monorepo_root = true
 
+[monorepo]
+config_roots = [ [% for package in monorepo_packages %]"[[ package.path ]]"[[ ", " if not loop.last else "" ]][% endfor %] ]
+lockfile = true
+[% endif %]
 [tools]
 hk = "1.49.0"
 cocogitto = "latest"
@@ -30,11 +36,12 @@ HK_MISE = 1
 
 [tasks.check]
 description = "Run repository validation"
-run = "hk check -a"
+[% if repository_layout == 'monorepo' %]depends = [ [% for package in monorepo_packages %]"//[[ package.path ]]:check"[[ ", " if not loop.last else "" ]][% endfor %] ]
+[% endif %]run = "hk check -a"
 
 [tasks.fix]
 description = "Apply deterministic repository fixes"
-run = "hk fix -a"
+run = "hk fix[[ ' -a' if repository_layout == 'single-package' else '' ]]"
 
 [tasks."docs:check"]
 description = "Validate and build the documentation"

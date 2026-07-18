@@ -80,7 +80,7 @@ LEGACY_TASK_IGNORED_DIRS = IGNORED_SCAN_DIRS | {
 }
 
 
-def layout_validator(destination: Path) -> Any:
+def layout_module(destination: Path) -> Any:
     """Load the setup skill's validator from an installed or managed skills tree."""
     candidates = (
         Path(__file__).with_name("layout_contract.py"),
@@ -96,7 +96,7 @@ def layout_validator(destination: Path) -> Any:
         raise SystemExit(message)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.validate_layout
+    return module
 
 
 def run(
@@ -1032,7 +1032,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("explicit conversion to monorepo requires --monorepo-package")
         if args.monorepo_package and requested_layout != "monorepo":
             raise ValueError("--monorepo-package requires --repository-layout monorepo")
-        layout_preflight = layout_validator(destination)(requested_layout, requested_packages, destination)
+        layout_support = layout_module(destination)
+        layout_preflight = layout_support.validate_layout(requested_layout, requested_packages, destination)
     except (json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"Invalid repository layout: {exc}") from exc
     preflight["layout"] = layout_preflight
@@ -1169,6 +1170,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             write_copier_state(answers, current_answers, commit=verified_source_commit, channel=channel)
 
+    layout_render = {"rendered": [], "candidates": []}
+    if not args.pretend:
+        managed_package_paths = {
+            f"{package['path']}/mise.toml"
+            for package in recorded_packages
+            if isinstance(package, dict) and isinstance(package.get("path"), str)
+        }
+        layout_render = layout_support.render_package_configs(
+            layout_preflight,
+            destination,
+            managed_paths=managed_package_paths,
+            candidate_root=destination / ADOPTION_CANDIDATES,
+        )
+        candidate_root = destination / ADOPTION_CANDIDATES
+        unresolved_candidates = (
+            sorted(path.relative_to(destination).as_posix() for path in candidate_root.rglob("*") if path.is_file())
+            if candidate_root.is_dir()
+            else []
+        )
+        layout_render["candidates"] = sorted(set(layout_render["candidates"]) | set(unresolved_candidates))
+
     conflicts: list[str] = []
     docs_validated = False
     beads_health: dict[str, Any] | None = None
@@ -1181,12 +1203,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Copier produced unresolved conflicts:", file=sys.stderr)
             for path in conflicts:
                 print(f"  - {path}", file=sys.stderr)
+        elif layout_render["candidates"]:
+            tooling = skipped_tooling(recovery=[TOOLING_RERUN])
+            warnings.append("New package config candidates require explicit reconciliation")
         else:
             tooling = provision_tooling(destination)
             if tooling["status"] != "succeeded":
                 warnings.append("Tooling reconciliation is incomplete; run the reported recovery commands")
 
-        if not conflicts and not args.skip_docs_check:
+        if not conflicts and not layout_render["candidates"] and not args.skip_docs_check:
             checker = destination / "scripts/check-docs.py"
             if checker.exists():
                 run(
@@ -1198,7 +1223,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 warnings.append("scripts/check-docs.py is not present; documentation validation skipped")
 
-        if not conflicts and not args.skip_beads_check:
+        if not conflicts and not layout_render["candidates"] and not args.skip_beads_check:
             if not bd_available(destination):
                 warnings.append("bd is unavailable or its launcher cannot execute; Beads health checks skipped")
             else:
@@ -1228,6 +1253,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "previous_language_profiles": previous_profiles,
         "language_profiles": requested_profiles,
         "suggested_language_profiles": preflight["suggested_language_profiles"],
+        "layout_preflight": layout_preflight,
+        "layout_render": layout_render,
         "pretend": args.pretend,
         "conflicts": conflicts,
         "changed_files": changed,
@@ -1238,7 +1265,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "tooling": tooling,
         "outstanding": [f"Tooling recovery: {command}" for command in tooling["recovery"]],
         "ready_to_resume_feature_work": bool(
-            not args.pretend and not conflicts and tooling["status"] == "succeeded" and not changed
+            not args.pretend
+            and not conflicts
+            and not layout_render["candidates"]
+            and tooling["status"] == "succeeded"
+            and not changed
         ),
         "preflight": preflight,
     }
@@ -1262,7 +1293,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for warning in warnings:
             print(f"Warning: {warning}")
         print("Review the diff and commit the template update as a dedicated change.")
-    return 2 if conflicts else 0
+    return 2 if conflicts or layout_render["candidates"] else 0
 
 
 if __name__ == "__main__":

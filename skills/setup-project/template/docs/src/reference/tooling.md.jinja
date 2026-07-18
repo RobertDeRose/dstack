@@ -32,7 +32,11 @@ configuration without a changed-file argument; documentation and Markdown-table 
 no built-in; rumdl avoids the built-in diff header while discovering `.config/rumdl.toml`; Go, Elixir, and Nix commands
 lack matching built-ins; and test, compiler, linter, and module checks must remain gated by their project manifests.
 
-Recorded language profiles: `[[ language_profiles | join(', ') ]]`.
+Recorded language profiles: `[[ language_profiles | join(', ') ]]`.[% if repository_layout == 'monorepo' %]
+
+The root config sets `monorepo_root = true`, lists every explicit package in `[monorepo].config_roots`, and enables the
+single root lockfile. Each package config contains only `check` and `fix` tasks. Absolute package task names use
+`//<package-path>:check` and `//<package-path>:fix`; package configs never contain `[tools]`.[% endif %]
 
 ## Template updates
 

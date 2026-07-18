@@ -212,6 +212,8 @@ def setup_generated_project(
     include_readme: bool = True,
     brief: dict[str, str] | None = None,
     language_profiles: tuple[str, ...] = ("other",),
+    repository_layout: str = "single-package",
+    monorepo_packages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Render a project while simulating an existing Skills CLI installation."""
     installed_skill = project / ".agents/skills/setup-project"
@@ -235,6 +237,9 @@ def setup_generated_project(
         "--project-kind",
         selected_brief["project_kind"],
         *(value for profile in language_profiles for value in ("--language-profile", profile)),
+        "--repository-layout",
+        repository_layout,
+        *(value for package in (monorepo_packages or []) for value in ("--monorepo-package", json.dumps(package))),
     ]
     result = run_command(
         [
@@ -1004,6 +1009,45 @@ def test_setup_layout_preflight_reports_existing_package_collision(
     assert result["collisions"] == ["packages/api"]
     assert result["packages"][0]["occupied"] is True
     assert (package_path / "owned.txt").read_text(encoding="utf-8") == "preserved\n"
+
+
+def test_package_config_render_preserves_occupied_destination(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    module = load_layout_module(repository_root)
+    package = {
+        "display_name": "MQTT API",
+        "slug": "mqtt-api",
+        "path": "packages/api",
+        "language_profiles": ["go"],
+    }
+    target = tmp_path / "packages/api/mise.toml"
+    target.parent.mkdir(parents=True)
+    original = b"# project owned\n"
+    target.write_bytes(original)
+    preflight = module.validate_layout("monorepo", [package], tmp_path)
+
+    rendered = module.render_package_configs(
+        preflight,
+        tmp_path,
+        candidate_root=tmp_path / "migration/copier-adoption-candidates",
+    )
+
+    assert target.read_bytes() == original
+    assert rendered["rendered"] == []
+    assert rendered["candidates"] == ["migration/copier-adoption-candidates/packages/api/mise.toml"]
+    candidate = tmp_path / rendered["candidates"][0]
+    assert "[tools]" not in candidate.read_text(encoding="utf-8")
+    assert "[tasks.check]" in candidate.read_text(encoding="utf-8")
+    rerendered = module.render_package_configs(
+        preflight,
+        tmp_path,
+        managed_paths={"packages/api/mise.toml"},
+        candidate_root=tmp_path / "migration/copier-adoption-candidates",
+    )
+    assert target.read_bytes() == original
+    assert rerendered["candidates"] == rendered["candidates"]
 
 
 def test_update_project_requires_missing_structured_brief_values(repository_root: Path) -> None:
@@ -2149,6 +2193,58 @@ PYTHON_SOURCES = sorted(
 )
 def test_python_sources_compile(python_source: Path) -> None:
     compile(python_source.read_text(encoding="utf-8"), str(python_source), "exec")
+
+
+@pytest.mark.integration
+def test_setup_project_renders_explicit_monorepo_task_ownership(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "monorepo"
+    packages: list[dict[str, Any]] = [
+        {
+            "display_name": "MQTT API",
+            "slug": "mqtt-api",
+            "path": "packages/api",
+            "language_profiles": ["python"],
+        },
+        {
+            "display_name": "Go Worker",
+            "slug": "go-worker",
+            "path": "packages/worker",
+            "language_profiles": ["go"],
+        },
+    ]
+    result = setup_generated_project(
+        tagged_template_source,
+        project,
+        repository_layout="monorepo",
+        monorepo_packages=packages,
+    )
+
+    assert result["repository_layout"] == "monorepo"
+    assert result["layout_render"]["rendered"] == ["packages/api/mise.toml", "packages/worker/mise.toml"]
+    root_config = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
+    assert root_config["monorepo"] == {
+        "config_roots": ["packages/api", "packages/worker"],
+        "lockfile": True,
+    }
+    assert {"ruff", "ty", "go", "gofumpt", "golangci-lint"} <= set(root_config["tools"])
+    for package in packages:
+        config = tomllib.loads((project / package["path"] / "mise.toml").read_text(encoding="utf-8"))
+        assert "tools" not in config
+        assert isinstance(config["tasks"], dict)
+        assert set(config["tasks"]) == {"check", "fix"}
+    summary = (project / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
+    assert "[Repository layout](reference/repository-layout.md)" in summary
+    layout_page = (project / "docs/src/reference/repository-layout.md").read_text(encoding="utf-8")
+    assert "MQTT API" in layout_page
+    assert "//packages/api:check" in layout_page
+    env = merged_environment(MISE_EXPERIMENTAL="0", MISE_TRUSTED_CONFIG_PATHS=str(project))
+    tasks = run_command(["mise", "tasks", "--all", "--name-only"], cwd=project, env=env)
+    assert "//packages/api:check" in tasks.stdout.splitlines()
+    assert "//packages/worker:check" in tasks.stdout.splitlines()
+    run_command(["pkl", "eval", "hk.pkl"], cwd=project)
 
 
 @pytest.mark.integration

@@ -31,7 +31,7 @@ from packaging.version import InvalidVersion, Version
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_DIR / "scripts"))
-from layout_contract import validate_layout  # noqa: E402
+from layout_contract import render_package_configs, validate_layout  # noqa: E402
 
 
 SKILL_MANIFEST = SKILL_DIR / "SKILL.md"
@@ -790,6 +790,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         commit=resolved_template_commit,
         channel=channel,
     )
+    try:
+        layout_render = render_package_configs(layout_preflight, destination)
+    except ValueError as exc:
+        raise SystemExit(f"Unable to render repository layout: {exc}") from exc
     recorded_vcs_ref = selected_ref
 
     git_initialized = False
@@ -829,6 +833,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "repository_layout": args.repository_layout,
         "monorepo_packages": package_answers,
         "layout_preflight": layout_preflight,
+        "layout_render": layout_render,
         "destination": str(destination),
         "template_source": template_source,
         "template_source_kind": "bundled" if using_bundled_template else "override",

@@ -41,6 +41,11 @@ overlaps another package, uses a root-owned path, differs only by case, traverse
 list. Existing package destinations are reported as collisions for later additive-render reconciliation; they are never
 permission to overwrite project files.
 
+During update, a newly occupied `<package-path>/mise.toml` remains byte-identical. Its generated alternative is written
+to `migration/copier-adoption-candidates/<package-path>/mise.toml`; tooling and documentation execution stop until the
+operator compares the files, chooses the supported result, removes the candidate, and reruns `/update-project`. Ordinary
+Copier-managed conflicts continue to use Copier's configured inline or reject-file recovery.
+
 ## Update
 
 - `npx skills update` refreshes installed skill definitions and scripts.

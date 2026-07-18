@@ -115,45 +115,69 @@ local linters = new Mapping<String, Step> {
     fix = "rumdl check --fix {{ files }}"
   }
   ["trailing_whitespace"] = Builtins.trailing_whitespace
+[% if repository_layout == 'monorepo' %]
+[% for package in monorepo_packages %]
+[% if 'python' in package.language_profiles %]
+  ["ruff-[[ package.slug ]]"] = (Builtins.ruff) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
+  ["ruff-format-[[ package.slug ]]"] = (Builtins.ruff_format) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
+  ["ty-[[ package.slug ]]"] = (Builtins.ty) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
+[% endif %]
+[% if 'typescript' in package.language_profiles %]
+  ["biome-[[ package.slug ]]"] = (Builtins.biome) { glob = List("[[ package.path ]]/**/*.ts", "[[ package.path ]]/**/*.tsx", "[[ package.path ]]/**/*.mts", "[[ package.path ]]/**/*.cts") }
+[% endif %]
+[% if 'rust' in package.language_profiles %]
+  ["rustfmt-[[ package.slug ]]"] = (Builtins.rustfmt) { glob = List("[[ package.path ]]/**/*.rs") }
+[% endif %]
+[% if 'go' in package.language_profiles %]
+  ["goimports-[[ package.slug ]]"] = new Step {
+    glob = List("[[ package.path ]]/**/*.go")
+    check = "output=$(goimports -l {{ files }}) && test -z \"$output\""
+    fix = "goimports -w {{ files }}"
+  }
+  ["gofumpt-[[ package.slug ]]"] = new Step {
+    depends = "goimports-[[ package.slug ]]"
+    glob = List("[[ package.path ]]/**/*.go")
+    check = "output=$(gofumpt -l {{ files }}) && test -z \"$output\""
+    fix = "gofumpt -w {{ files }}"
+  }
+[% endif %]
+[% if 'elixir' in package.language_profiles %]
+  ["mix-format-[[ package.slug ]]"] = new Step {
+    glob = List("[[ package.path ]]/**/*.ex", "[[ package.path ]]/**/*.exs")
+    check = "cd [[ package.path ]] && mix format --check-formatted"
+    fix = "cd [[ package.path ]] && mix format"
+  }
+[% endif %]
+[% if 'nix' in package.language_profiles %]
+  ["nixfmt-[[ package.slug ]]"] = new Step {
+    glob = List("[[ package.path ]]/**/*.nix")
+    check = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt --check {{ files }}"
+    fix = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt {{ files }}"
+  }
+[% endif %]
+[% endfor %]
+[% else %]
 [% if 'python' in language_profiles %]
   ["ruff"] = Builtins.ruff
   ["ruff-format"] = Builtins.ruff_format
   ["ty"] = Builtins.ty
 [% endif %]
 [% if 'typescript' in language_profiles %]
-  ["biome"] = (Builtins.biome) {
-    glob = List("**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts")
-  }
+  ["biome"] = (Builtins.biome) { glob = List("**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts") }
 [% endif %]
 [% if 'rust' in language_profiles %]
   ["rustfmt"] = Builtins.rustfmt
 [% endif %]
 [% if 'go' in language_profiles %]
-  ["goimports"] = new Step {
-    glob = List("**/*.go")
-    check = "output=$(goimports -l {{ files }}) && test -z \"$output\""
-    fix = "goimports -w {{ files }}"
-  }
-  ["gofumpt"] = new Step {
-    depends = "goimports"
-    glob = List("**/*.go")
-    check = "output=$(gofumpt -l {{ files }}) && test -z \"$output\""
-    fix = "gofumpt -w {{ files }}"
-  }
+  ["goimports"] = new Step { glob = List("**/*.go"); check = "output=$(goimports -l {{ files }}) && test -z \"$output\""; fix = "goimports -w {{ files }}" }
+  ["gofumpt"] = new Step { depends = "goimports"; glob = List("**/*.go"); check = "output=$(gofumpt -l {{ files }}) && test -z \"$output\""; fix = "gofumpt -w {{ files }}" }
 [% endif %]
 [% if 'elixir' in language_profiles %]
-  ["mix-format"] = new Step {
-    glob = List("**/*.ex", "**/*.exs")
-    check = "mix format --check-formatted {{ files }}"
-    fix = "mix format {{ files }}"
-  }
+  ["mix-format"] = new Step { glob = List("**/*.ex", "**/*.exs"); check = "mix format --check-formatted {{ files }}"; fix = "mix format {{ files }}" }
 [% endif %]
 [% if 'nix' in language_profiles %]
-  ["nixfmt"] = new Step {
-    glob = List("**/*.nix")
-    check = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt --check {{ files }}"
-    fix = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt {{ files }}"
-  }
+  ["nixfmt"] = new Step { glob = List("**/*.nix"); check = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt --check {{ files }}"; fix = "[ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; nixfmt {{ files }}" }
+[% endif %]
 [% endif %]
   ["typos"] = Builtins.typos
 }
@@ -175,19 +199,19 @@ hooks {
   }
   ["check"] {
     steps = (linters) {
-[% if 'python' in language_profiles %]
+[% if repository_layout == 'single-package' and 'python' in language_profiles %]
       ["pytest"] = new Step {
         glob = List("tests/**/*.py")
         check = "[ ! -f pyproject.toml ] || { uv run python -c 'import pytest' || { printf '%s\\n' 'Python profile requires project-owned pytest' >&2; exit 1; }; uv run pytest; }"
       }
 [% endif %]
-[% if 'typescript' in language_profiles %]
+[% if repository_layout == 'single-package' and 'typescript' in language_profiles %]
       ["vitest"] = new Step {
         glob = List("**/*.test.ts", "**/*.test.tsx", "**/*.test.mts", "**/*.test.cts", "**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.mts", "**/*.spec.cts")
         check = "[ ! -f package.json ] || { aube exec vitest --version >/dev/null || { printf '%s\\n' 'TypeScript profile requires project-owned Vitest' >&2; exit 1; }; aube exec vitest run; }"
       }
 [% endif %]
-[% if 'rust' in language_profiles %]
+[% if repository_layout == 'single-package' and 'rust' in language_profiles %]
       ["cargo-clippy"] = new Step {
         check = "[ ! -f Cargo.toml ] || cargo clippy --all-targets --all-features -- -D warnings"
       }
@@ -195,7 +219,7 @@ hooks {
         check = "[ ! -f Cargo.toml ] || cargo test --all-targets --all-features"
       }
 [% endif %]
-[% if 'go' in language_profiles %]
+[% if repository_layout == 'single-package' and 'go' in language_profiles %]
       ["go-mod"] = new Step {
         check = "[ ! -f go.mod ] || { go mod tidy -diff && go mod verify; }"
       }
@@ -206,7 +230,7 @@ hooks {
         check = "[ ! -f go.mod ] || go test ./..."
       }
 [% endif %]
-[% if 'elixir' in language_profiles %]
+[% if repository_layout == 'single-package' and 'elixir' in language_profiles %]
       ["mix-compile"] = new Step {
         check = "[ ! -f mix.exs ] || mix compile --warnings-as-errors"
       }
@@ -218,7 +242,7 @@ hooks {
         check = "[ ! -f mix.exs ] || mix test --warnings-as-errors"
       }
 [% endif %]
-[% if 'nix' in language_profiles %]
+[% if repository_layout == 'single-package' and 'nix' in language_profiles %]
       ["nix-flake-check"] = new Step {
         check = "[ ! -f flake.nix ] || { [ \"$(uname -s)/$(uname -m)\" != Darwin/x86_64 ] || { printf '%s\\n' 'Nix profile does not support macOS x64' >&2; exit 1; }; command -v nix >/dev/null || { printf '%s\\n' 'Nix profile requires system nix for flake checks' >&2; exit 1; }; nix flake check; }"
       }
@@ -228,7 +252,7 @@ hooks {
   ["fix"] {
     fix = true
     steps = (linters) {
-[% if 'go' in language_profiles %]
+[% if repository_layout == 'single-package' and 'go' in language_profiles %]
       ["go-mod"] = new Step {
         depends = "gofumpt"
         check = "[ ! -f go.mod ] || go mod tidy -diff"
