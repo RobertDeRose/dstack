@@ -1567,6 +1567,98 @@ def test_tooling_provisioner_completes_with_hostile_global_only_tool(
     assert not Path(config_dirs[0]).exists()
 
 
+@pytest.mark.integration
+def test_sfero_shaped_setup_recovers_from_hostile_global_config(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "SFERO"
+    (project / "docs").mkdir(parents=True)
+    (project / "docs/book.toml").write_text('[book]\ntitle = "SFERO"\n', encoding="utf-8")
+    (project / "hk.pkl").write_text("// existing hook policy\n", encoding="utf-8")
+    (project / "mise.toml").write_text(
+        '[tools]\nerlang = "28"\nelixir = "1.18"\n\n[tasks."docs:build"]\nrun = "mdbook build docs"\n',
+        encoding="utf-8",
+    )
+    (project / "scripts").mkdir()
+    shutil.copy2(repository_root / "scripts/setup-tooling.py", project / "scripts/setup-tooling.py")
+    initialize_git(project, "legacy SFERO fixture")
+
+    fake_home = tmp_path / "home"
+    global_config = fake_home / ".config/mise/config.toml"
+    global_config.parent.mkdir(parents=True)
+    global_config.write_text('[tools]\n"github:max-sixty/worktrunk" = "latest"\n', encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    config_log = tmp_path / "setup-config-dirs.log"
+    hook_log = tmp_path / "checkpoint-hook.log"
+    fake_mise = bin_dir / "mise"
+    fake_mise.write_text(
+        "#!/bin/sh\n"
+        'test -z "$MISE_GLOBAL_CONFIG_FILE" || exit 21\n'
+        'test -z "$MISE_GLOBAL_CONFIG_ROOT" || exit 22\n'
+        'test -d "$MISE_CONFIG_DIR" || exit 23\n'
+        f'printf "%s\\n" "$MISE_CONFIG_DIR" >> "{config_log}"\n'
+        'case "$1" in\n'
+        "  lock) printf '[tools.elixir]\\nversion = \"1.18\"\\n' > mise.lock ;;\n"
+        "  install) if grep -q worktrunk mise.lock; then exit 24; fi ;;\n"
+        f"  x) printf '#!/bin/sh\\necho ran >> {hook_log}\\nexit 0\\n' > .git/hooks/pre-commit; "
+        "chmod +x .git/hooks/pre-commit ;;\n"
+        "  *) exit 25 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_mise.chmod(0o755)
+    environment = {
+        **os.environ,
+        "HOME": str(fake_home),
+        "XDG_CONFIG_HOME": str(fake_home / ".config"),
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "MISE_CONFIG_DIR": str(global_config.parent),
+        "MISE_GLOBAL_CONFIG_FILE": str(global_config),
+        "MISE_GLOBAL_CONFIG_ROOT": str(global_config.parent),
+    }
+    setup_command = [sys.executable, "scripts/setup-tooling.py", "--json"]
+
+    first = run_command(setup_command, cwd=project, env=environment)
+    first_payload = json.loads(first.stdout)
+    first_lock = (project / "mise.lock").read_bytes()
+    first_config_dirs = config_log.read_text(encoding="utf-8").splitlines()
+    assert len(first_config_dirs) == 3
+    assert len(set(first_config_dirs)) == 1
+    assert not any(Path(path).exists() for path in first_config_dirs)
+
+    second = run_command(setup_command, cwd=project, env=environment)
+    second_payload = json.loads(second.stdout)
+
+    assert first_payload == second_payload
+    assert first_payload["status"] == "succeeded"
+    assert first_payload["lock"]["status"] == "succeeded"
+    assert first_payload["install"]["status"] == "succeeded"
+    assert first_payload["hooks"]["status"] == "succeeded"
+    assert first_payload["recovery"] == []
+    assert (project / "mise.lock").read_bytes() == first_lock
+    assert b"worktrunk" not in first_lock
+    config_dirs = config_log.read_text(encoding="utf-8").splitlines()
+    assert len(config_dirs) == 6
+    assert len(set(config_dirs[3:])) == 1
+    assert not any(Path(path).exists() for path in config_dirs)
+
+    run_command(["git", "add", "mise.lock"], cwd=project)
+    run_command(["git", "commit", "-m", "chore: record tooling checkpoint"], cwd=project, env=environment)
+    assert hook_log.read_text(encoding="utf-8").splitlines() == ["ran"]
+    assert run_command(["git", "status", "--porcelain"], cwd=project).stdout == ""
+    migration_reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(
+        encoding="utf-8"
+    )
+    normalized_reference = " ".join(migration_reference.split())
+    assert (
+        "reports only `python3 scripts/setup-tooling.py --json` as recovery. On failure, enter "
+        "**tooling provisioning blocked**: preserve the reconciled worktree, fix the reported stage, and rerun that "
+        "exact command." in normalized_reference
+    )
+
+
 def test_tooling_provisioner_omits_only_nixfmt_macos_x64_lock_entry(
     repository_root: Path,
     tmp_path: Path,
