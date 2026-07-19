@@ -1058,6 +1058,114 @@ def test_baseline_hk_inventory_excludes_builtin_test_fixtures(tmp_path: Path) ->
 
 
 @pytest.mark.integration
+def test_baseline_records_and_reruns_named_validation_partitions(tmp_path: Path) -> None:
+    (tmp_path / "packages/client").mkdir(parents=True)
+    docs_partition = json.dumps(
+        {
+            "name": "root-docs",
+            "kind": "documentation",
+            "argv": [sys.executable, "-c", "print('docs-ok')"],
+            "working_directory": ".",
+            "provenance": "operator-override",
+        }
+    )
+    client_partition = json.dumps(
+        {
+            "name": "client-tests",
+            "kind": "tests",
+            "argv": [sys.executable, "-c", "import os; print(os.getcwd()); print('x' * 25000)"],
+            "working_directory": "packages/client",
+            "provenance": "mise.toml:monorepo.config_roots",
+        }
+    )
+
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--validation-partition",
+        docs_partition,
+        "--validation-partition",
+        client_partition,
+        "--write",
+    )
+    baseline_path = tmp_path / "migration/baseline.json"
+    report_path = tmp_path / "migration/baseline.md"
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    partitions = baseline["validation_partitions"]
+    assert [item["name"] for item in partitions] == ["root-docs", "client-tests"]
+    assert partitions[1]["argv"] == [
+        sys.executable,
+        "-c",
+        "import os; print(os.getcwd()); print('x' * 25000)",
+    ]
+    assert partitions[1]["working_directory"] == "packages/client"
+    assert partitions[1]["status"] == "passed"
+    assert partitions[1]["output_truncated"] is True
+    assert len(partitions[1]["stdout"]) <= 20_000
+    assert baseline["documentation"]["status"] == "passed"
+    assert baseline["tests"]["status"] == "passed"
+    report = report_path.read_text(encoding="utf-8")
+    assert "`client-tests` (tests): status=`passed`" in report
+    assert "cwd=`packages/client`" in report
+    assert "Return code: `0`; output truncated: `true`" in report
+    assert "- stdout:" in report
+
+    first = baseline_path.read_bytes(), report_path.read_bytes()
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--validation-partition",
+        docs_partition,
+        "--validation-partition",
+        client_partition,
+        "--write",
+    )
+    assert (baseline_path.read_bytes(), report_path.read_bytes()) == first
+
+    marker = tmp_path / "shell-was-used"
+    non_shell_partition = json.dumps(
+        {
+            "name": "non-shell",
+            "kind": "tests",
+            "argv": [f"printf safe; touch {marker}"],
+            "working_directory": ".",
+            "provenance": "operator-override",
+        }
+    )
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--validation-partition",
+        non_shell_partition,
+        "--write",
+        expected=1,
+    )
+    assert not marker.exists()
+    failed = json.loads(baseline_path.read_text(encoding="utf-8"))["validation_partitions"][0]
+    assert failed["status"] == "failed"
+    assert failed["recovery"]
+
+    validation_marker = tmp_path / "validation-ran-too-early"
+    first_partition = json.dumps(
+        {
+            "name": "must-not-run",
+            "kind": "tests",
+            "argv": [sys.executable, "-c", f"from pathlib import Path; Path({str(validation_marker)!r}).touch()"],
+        }
+    )
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--validation-partition",
+        first_partition,
+        "--validation-partition",
+        '{"name":"broken"}',
+        expected=2,
+    )
+    assert not validation_marker.exists()
+
+
+@pytest.mark.integration
 def test_baseline_inventory_discovers_monorepo_docs_go_and_elixir(tmp_path: Path) -> None:
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs/book.toml").write_text('[book]\ntitle = "Legacy docs"\n', encoding="utf-8")

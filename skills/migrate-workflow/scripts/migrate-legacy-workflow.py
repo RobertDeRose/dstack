@@ -3468,14 +3468,34 @@ def discover_repository_capabilities(root: Path) -> dict[str, Any]:
     }
 
 
-def run_baseline_command(root: Path, command: Sequence[str]) -> dict[str, Any]:
-    result = subprocess.run(
-        list(command),
-        cwd=root,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+def _bounded_baseline_output(value: str) -> str:
+    return value if len(value) <= 20_000 else value[:20_000]
+
+
+def _invalid_partition(message: str) -> None:
+    raise MigrationError(message)
+
+
+def run_baseline_command(
+    root: Path, command: Sequence[str], *, working_directory: Path | None = None
+) -> dict[str, Any]:
+    try:
+        result = subprocess.run(
+            list(command),
+            cwd=working_directory or root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        return {
+            "command": shell_command(command),
+            "status": "failed",
+            "returncode": None,
+            "stdout": "",
+            "stderr": _bounded_baseline_output(str(error)),
+            "output_truncated": len(str(error)) > 20_000,
+        }
     combined = (result.stdout or "") + "\n" + (result.stderr or "")
     no_tests = result.returncode == 5 and any(
         token in combined.casefold()
@@ -3485,9 +3505,86 @@ def run_baseline_command(root: Path, command: Sequence[str]) -> dict[str, Any]:
         "command": shell_command(command),
         "status": "no_tests" if no_tests else ("passed" if result.returncode == 0 else "failed"),
         "returncode": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
+        "stdout": _bounded_baseline_output(result.stdout),
+        "stderr": _bounded_baseline_output(result.stderr),
+        "output_truncated": len(result.stdout) > 20_000 or len(result.stderr) > 20_000,
     }
+
+
+def run_validation_partitions(
+    root: Path,
+    specifications: Sequence[str],
+    *,
+    docs_command: str | None,
+    test_command: str | None,
+) -> list[dict[str, Any]]:
+    validated: list[dict[str, Any]] = []
+    names: set[str] = set()
+    for specification in specifications:
+        try:
+            item = json.loads(specification)
+        except json.JSONDecodeError as error:
+            message = f"invalid validation partition JSON: {error}"
+            raise MigrationError(message) from error
+        if not isinstance(item, dict):
+            _invalid_partition("validation partition must be a JSON object")
+        name = item.get("name")
+        kind = item.get("kind")
+        argv = item.get("argv")
+        working_directory = item.get("working_directory", ".")
+        provenance = item.get("provenance", "operator-override")
+        if not isinstance(name, str) or not name or name in names:
+            _invalid_partition("validation partition names must be non-empty and unique")
+        if kind not in {"documentation", "tests"}:
+            _invalid_partition(f"validation partition {name!r} kind must be documentation or tests")
+        if not isinstance(argv, list) or not argv or not all(isinstance(value, str) and value for value in argv):
+            _invalid_partition(f"validation partition {name!r} argv must be a non-empty string array")
+        relative_directory = PurePosixPath(working_directory) if isinstance(working_directory, str) else None
+        if (
+            relative_directory is None
+            or working_directory != relative_directory.as_posix()
+            or relative_directory.is_absolute()
+            or any(part in {"", ".."} for part in relative_directory.parts)
+        ):
+            _invalid_partition(f"validation partition {name!r} has an unsafe working directory")
+        directory = root if working_directory == "." else root.joinpath(*PurePosixPath(working_directory).parts)
+        if not directory.is_dir() or _path_has_symlink(root, directory):
+            _invalid_partition(f"validation partition {name!r} working directory is missing or unsafe")
+        if not isinstance(provenance, str) or not provenance:
+            _invalid_partition(f"validation partition {name!r} provenance must be non-empty")
+        validated.append(
+            {
+                "name": name,
+                "kind": kind,
+                "argv": argv,
+                "working_directory": working_directory,
+                "provenance": provenance,
+                "directory": directory,
+            }
+        )
+        names.add(name)
+    if docs_command and any(item["kind"] == "documentation" for item in validated):
+        _invalid_partition("use either --docs-command or named documentation partitions, not both")
+    if test_command and any(item["kind"] == "tests" for item in validated):
+        _invalid_partition("use either --test-command or named test partitions, not both")
+
+    partitions: list[dict[str, Any]] = []
+    for item in validated:
+        outcome = run_baseline_command(root, item["argv"], working_directory=item.pop("directory"))
+        partitions.append(
+            {
+                **item,
+                "status": outcome["status"],
+                "returncode": outcome["returncode"],
+                "stdout": outcome["stdout"],
+                "stderr": outcome["stderr"],
+                "output_truncated": outcome["output_truncated"],
+                "recovery": "Rerun baseline with this unchanged partition after correcting the reported failure."
+                if outcome["status"] == "failed"
+                else None,
+            }
+        )
+    return partitions
 
 
 def render_baseline_report(result: Mapping[str, Any]) -> str:
@@ -3509,6 +3606,27 @@ def render_baseline_report(result: Mapping[str, Any]) -> str:
                 "",
             ]
         )
+    lines.extend(["## Validation partitions", ""])
+    partitions = result.get("validation_partitions", [])
+    if not partitions:
+        lines.append("- None recorded; legacy documentation/tests fields remain authoritative.")
+    for partition in partitions:
+        lines.append(
+            f"- `{partition['name']}` ({partition['kind']}): status=`{partition['status']}`; "
+            f"argv=`{shell_command(partition['argv'])}`; cwd=`{partition['working_directory']}`; "
+            f"provenance=`{partition['provenance']}`"
+        )
+        lines.append(
+            f"  - Return code: `{partition['returncode']}`; output truncated: "
+            f"`{str(partition['output_truncated']).lower()}`"
+        )
+        for stream_name in ("stdout", "stderr"):
+            lines.append(f"  - {stream_name}:")
+            output_lines = partition.get(stream_name, "").splitlines() or ["(empty)"]
+            lines.extend(f"        {line}" for line in output_lines)
+        if partition.get("recovery"):
+            lines.append(f"  - Recovery: {partition['recovery']}")
+    lines.append("")
     inventory = result.get("capability_inventory", {})
     layout = inventory.get("layout", {})
     lines.extend(
@@ -3554,13 +3672,32 @@ def baseline_repository(
     *,
     docs_command: str | None,
     test_command: str | None,
+    validation_partition_specs: Sequence[str],
     write: bool,
     baseline_json: Path,
     baseline_report: Path,
 ) -> int:
     inventory = discover_repository_capabilities(root)
+    validation_partitions = run_validation_partitions(
+        root,
+        validation_partition_specs,
+        docs_command=docs_command,
+        test_command=test_command,
+    )
     checker = root / DOCS_CHECKER_PATH
-    if docs_command:
+    documentation_partitions = [item for item in validation_partitions if item["kind"] == "documentation"]
+    test_partitions = [item for item in validation_partitions if item["kind"] == "tests"]
+    if documentation_partitions:
+        failed = any(item["status"] == "failed" for item in documentation_partitions)
+        documentation = {
+            "command": f"{len(documentation_partitions)} named partition(s)",
+            "status": "failed" if failed else "passed",
+            "returncode": 1 if failed else 0,
+            "stdout": "",
+            "stderr": "",
+            "note": "See validation_partitions for command ownership and evidence.",
+        }
+    elif docs_command:
         documentation = run_baseline_command(root, shlex.split(docs_command))
         documentation["note"] = "Explicit baseline documentation command."
     elif checker.is_file() and not _path_has_symlink(root, checker):
@@ -3586,7 +3723,18 @@ def baseline_repository(
             "note": "No documentation system, task, or checker was discovered.",
         }
 
-    if test_command:
+    if test_partitions:
+        failed = any(item["status"] == "failed" for item in test_partitions)
+        all_no_tests = all(item["status"] == "no_tests" for item in test_partitions)
+        tests = {
+            "command": f"{len(test_partitions)} named partition(s)",
+            "status": "failed" if failed else ("no_tests" if all_no_tests else "passed"),
+            "returncode": 1 if failed else 0,
+            "stdout": "",
+            "stderr": "",
+            "note": "See validation_partitions for command ownership and evidence.",
+        }
+    elif test_command:
         tests = run_baseline_command(root, shlex.split(test_command))
         tests["note"] = "Explicit baseline test command."
     elif inventory["tests"]["evidence"] or inventory["tests"]["commands"]:
@@ -3617,6 +3765,7 @@ def baseline_repository(
     result: dict[str, Any] = {
         "generated_at": utc_now(),
         "capability_inventory": inventory,
+        "validation_partitions": validation_partitions,
         **checks,
     }
     if write:
@@ -3794,6 +3943,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     baseline.add_argument("--root", type=Path, help="Repository root; defaults to git root")
     baseline.add_argument("--docs-command", help="Explicit documentation validation command")
     baseline.add_argument("--test-command", help="Explicit test command")
+    baseline.add_argument(
+        "--validation-partition",
+        action="append",
+        default=[],
+        help="Repeatable JSON object with name, kind, argv, working_directory, and provenance",
+    )
     baseline.add_argument("--write", action="store_true", help="Write baseline JSON and Markdown reports")
     baseline.add_argument("--baseline-json", type=Path, default=DEFAULT_BASELINE_JSON)
     baseline.add_argument("--baseline-report", type=Path, default=DEFAULT_BASELINE_REPORT)
@@ -3971,6 +4126,7 @@ def _main(args: argparse.Namespace) -> int:
                 root,
                 docs_command=args.docs_command,
                 test_command=args.test_command,
+                validation_partition_specs=args.validation_partition,
                 write=args.write,
                 baseline_json=args.baseline_json,
                 baseline_report=args.baseline_report,

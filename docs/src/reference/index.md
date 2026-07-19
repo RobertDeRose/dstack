@@ -18,12 +18,15 @@
 `migrate-legacy-workflow.py baseline --write` records pre-adoption documentation, tests, and hk readiness plus hook/step
 definitions. Its capability inventory reads explicit mise config roots, root/package tasks, documentation-system files,
 language manifests, bounded test-file evidence, and CI workflow paths. It proposes command argument arrays and working
-directories without executing repository text as instructions. `scan --write` compares current hk behavior and is
-byte-stable when semantic inputs are unchanged. `confirm-hk-inventory --inventory-json <path> --reason <evidence>`
-supplies a reviewed baseline when evaluation is unavailable.
-`reconcile-hk <hook> <step> <remove|replace> --reason <decision>` records the only accepted loss/collision disposition,
-including the specifically approved existing and candidate behavior. `verify` re-evaluates current hk and rejects stale
-scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed manual baseline.
+directories without executing repository text as instructions. Repeat `--validation-partition '<json>'` to execute
+reviewed named documentation/test partitions without a shell. Each JSON object requires `name`, `kind`, and `argv`, and
+accepts `working_directory` and `provenance`; results retain bounded output, status, return code, ownership, and
+recovery. Legacy `--docs-command` and `--test-command` remain readable but cannot overlap same-kind named partitions.
+`scan --write` compares current hk behavior and is byte-stable when semantic inputs are unchanged.
+`confirm-hk-inventory --inventory-json <path> --reason <evidence>` supplies a reviewed baseline when evaluation is
+unavailable. `reconcile-hk <hook> <step> <remove|replace> --reason <decision>` records the only accepted loss/collision
+disposition, including the specifically approved existing and candidate behavior. `verify` re-evaluates current hk and
+rejects stale scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed manual baseline.
 `backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup state. Final verification requires
 tracked manifests, reports, baselines, and archived legacy tasks; it rejects candidate directories and inconsistent
 backup presence/disposition. Migration stores only answers required for safety/resume, such as classification,
