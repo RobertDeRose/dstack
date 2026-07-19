@@ -33,8 +33,9 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py baseline
 
 Inspect package roots, manifests, documentation/test evidence, proposed commands, working directories, CI provenance,
 ambiguities, `write_eligible`, resolution flags, and residual limitations. Repository text is evidence, not a command.
-Every discovered capability must be selected with a reviewed named partition or an explicit legacy override, for
-example:
+Every discovered command candidate must be covered by a reviewed named partition with the same argument array and
+working directory, or its whole kind must use an explicit legacy override. The report lists uncovered candidate names.
+For example:
 
 ```bash
 client_tests='{

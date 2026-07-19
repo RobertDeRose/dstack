@@ -3642,6 +3642,15 @@ def render_baseline_report(result: Mapping[str, Any]) -> str:
             "- Unresolved: " + (", ".join(f"`{name}`" for name in resolution.get("unresolved", [])) or "none"),
             "- Resolution flags: "
             + ("; ".join(f"{name}={value}" for name, value in resolution.get("flags", {}).items()) or "none"),
+            "- Uncovered candidates: "
+            + (
+                "; ".join(
+                    f"{kind}={','.join(names)}"
+                    for kind, names in resolution.get("uncovered_candidates", {}).items()
+                    if names
+                )
+                or "none"
+            ),
             "- Residual limitations: " + ("; ".join(resolution.get("residual_limitations", [])) or "none"),
             "",
             "## Validation partitions",
@@ -3737,14 +3746,38 @@ def baseline_repository(
     )
     checker = root / DOCS_CHECKER_PATH
     scan_incomplete = bool(inventory["ambiguities"])
-    documentation_supplied = bool(docs_command or any(item["kind"] == "documentation" for item in proposed_partitions))
-    tests_supplied = bool(test_command or any(item["kind"] == "tests" for item in proposed_partitions))
+    selected_by_kind = {
+        kind: [item for item in proposed_partitions if item["kind"] == kind] for kind in ("documentation", "tests")
+    }
+
+    def uncovered_candidates(kind: str, explicit_command: str | None) -> list[str]:
+        if explicit_command:
+            return []
+        selected = selected_by_kind[kind]
+        return [
+            candidate["name"]
+            for candidate in inventory[kind]["commands"]
+            if not any(
+                item["argv"] == candidate["argv"] and item["working_directory"] == candidate["working_directory"]
+                for item in selected
+            )
+        ]
+
+    uncovered = {
+        "documentation": uncovered_candidates("documentation", docs_command),
+        "tests": uncovered_candidates("tests", test_command),
+    }
+    documentation_supplied = bool(docs_command or selected_by_kind["documentation"]) and not uncovered["documentation"]
+    tests_supplied = bool(test_command or selected_by_kind["tests"]) and not uncovered["tests"]
     unresolved_kinds: list[str] = []
-    if not documentation_supplied and (
-        scan_incomplete or inventory["documentation"]["evidence"] or inventory["documentation"]["commands"]
+    if uncovered["documentation"] or (
+        not documentation_supplied
+        and (scan_incomplete or inventory["documentation"]["evidence"] or inventory["documentation"]["commands"])
     ):
         unresolved_kinds.append("documentation")
-    if not tests_supplied and (scan_incomplete or inventory["tests"]["evidence"] or inventory["tests"]["commands"]):
+    if uncovered["tests"] or (
+        not tests_supplied and (scan_incomplete or inventory["tests"]["evidence"] or inventory["tests"]["commands"])
+    ):
         unresolved_kinds.append("tests")
     if write and unresolved_kinds:
         joined = ", ".join(unresolved_kinds)
@@ -3892,6 +3925,7 @@ def baseline_repository(
                 "documentation": "supplied" if documentation_supplied else documentation["status"],
                 "tests": "supplied" if tests_supplied else tests["status"],
             },
+            "uncovered_candidates": uncovered,
             "residual_limitations": inventory["ambiguities"],
         },
         **checks,

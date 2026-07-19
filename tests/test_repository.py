@@ -4568,6 +4568,8 @@ def test_nixstasis_shaped_baseline_recovery_and_verified_commit(repository_root:
 
     refused = baseline(partitions[:1], "--write", expected=2)
     assert "unresolved tests" in refused.stderr
+    partial = baseline(partitions[:2], "--write", expected=2)
+    assert "unresolved tests" in partial.stderr
     assert not command_log.exists()
     assert not (project / "migration").exists()
     assert run_command(["git", "diff", "--cached", "--quiet"], cwd=project).returncode == 0
