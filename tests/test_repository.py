@@ -4493,9 +4493,18 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
         )
 
     migrate("baseline", "--write")
-    baseline = json.loads((project / "migration/baseline.json").read_text(encoding="utf-8"))
+    baseline_path = project / "migration/baseline.json"
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     assert baseline["hk"]["status"] == "evaluable"
     assert "typos" in baseline["hk"]["hooks"]["pre-commit"]
+    serialized_baseline = baseline_path.read_text(encoding="utf-8")
+    serialized_hk = json.dumps(baseline["hk"], sort_keys=True)
+    assert "BEGIN " + "PRIVATE" + " KEY" not in serialized_baseline
+    assert '"tests"' not in serialized_hk
+    run_command(
+        ["hk", "util", "detect-private-key", "migration/baseline.json", "migration/baseline.md"],
+        cwd=project,
+    )
     manual_inventory = project / "manual-hk.json"
     manual_inventory.write_text('{"hooks": {}}\n', encoding="utf-8")
 

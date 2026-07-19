@@ -675,19 +675,6 @@ def add_global_dependency_findings(features: list[dict[str, Any]]) -> list[list[
     return traversal_cycles
 
 
-def _pkl_string_set(root: Path, expression: str) -> list[str]:
-    result = subprocess.run(
-        ["pkl", "eval", "hk.pkl", "--expression", expression],
-        cwd=root,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError((result.stderr or result.stdout).strip())
-    return re.findall(r'"((?:[^"\\]|\\.)*)"', result.stdout)
-
-
 def capture_hk_inventory(root: Path) -> dict[str, Any]:
     config = root / "hk.pkl"
     command = "pkl eval hk.pkl"
@@ -701,30 +688,30 @@ def capture_hk_inventory(root: Path) -> dict[str, Any]:
             "note": "pkl is unavailable; manually confirm the hook and step inventory before mutation.",
         }
     try:
-        hook_names = _pkl_string_set(root, "hooks.keys")
+        result = subprocess.run(
+            ["pkl", "eval", "-f", "json", "hk.pkl"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout).strip())
+        evaluated = json.loads(result.stdout)
         hooks: dict[str, dict[str, Any]] = {}
-        for hook in hook_names:
-            step_names = _pkl_string_set(root, f'hooks["{hook}"].steps.keys')
-            steps: dict[str, Any] = {}
-            for step in step_names:
-                expression = f'hooks["{hook}"].steps["{step}"]'
-                result = subprocess.run(
-                    ["pkl", "eval", "hk.pkl", "--expression", expression],
-                    cwd=root,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode != 0:
-                    raise RuntimeError((result.stderr or result.stdout).strip())
-                definition = " ".join(result.stdout.split())
-                steps[step] = {
+        for hook_name, hook in sorted(evaluated.get("hooks", {}).items()):
+            steps = hook.get("steps", {}) if isinstance(hook, dict) else {}
+            captured: dict[str, Any] = {}
+            for step_name, step in sorted(steps.items()):
+                semantic_step = {key: value for key, value in step.items() if key != "tests"}
+                definition = json.dumps(semantic_step, sort_keys=True, separators=(",", ":"))
+                captured[step_name] = {
                     "fingerprint": hashlib.sha256(definition.encode()).hexdigest(),
                     "definition": definition,
                 }
-            hooks[hook] = steps
+            hooks[hook_name] = captured
         return {"status": "evaluable", "command": command, "hooks": hooks, "note": "Pkl evaluation passed."}
-    except (OSError, RuntimeError) as error:
+    except (json.JSONDecodeError, OSError, RuntimeError) as error:
         return {
             "status": "manual_confirmation_required",
             "command": command,

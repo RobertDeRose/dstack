@@ -1000,6 +1000,64 @@ def test_prepare_uses_sentence_case_human_title_and_rescan_preserves_feature(tmp
 
 
 @pytest.mark.integration
+def test_baseline_hk_inventory_excludes_builtin_test_fixtures(tmp_path: Path) -> None:
+    (tmp_path / "hk.pkl").write_text("// evaluated by the fixture\n", encoding="utf-8")
+    binary_dir = tmp_path / "bin"
+    binary_dir.mkdir()
+    fixture_path = tmp_path / "pkl-result.json"
+    fixture_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "pre-commit": {
+                        "steps": {
+                            "detect_private_key": {
+                                "check": "scan",
+                                "types": ["text"],
+                                "tests": [{"input": "-----BEGIN " + "PRIVATE" + " KEY-----"}],
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    fake_pkl = binary_dir / "pkl"
+    fake_pkl.write_text(f"#!/bin/sh\ncat '{fixture_path}'\n", encoding="utf-8")
+    fake_pkl.chmod(0o755)
+    environment = {**os.environ, "PATH": f"{binary_dir}{os.pathsep}{os.environ['PATH']}"}
+
+    run_migrator(tmp_path, "baseline", "--write", env=environment)
+    baseline_path = tmp_path / "migration/baseline.json"
+    first = json.loads(baseline_path.read_text(encoding="utf-8"))["hk"]["hooks"]["pre-commit"]["detect_private_key"]
+    assert first["definition"] == '{"check":"scan","types":["text"]}'
+    assert "PRIVATE" + " KEY" not in baseline_path.read_text(encoding="utf-8")
+
+    fixture_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "pre-commit": {
+                        "steps": {
+                            "detect_private_key": {
+                                "check": "scan",
+                                "types": ["text"],
+                                "tests": [{"input": "changed machine-owned fixture"}],
+                            }
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    run_migrator(tmp_path, "baseline", "--write", env=environment)
+    second = json.loads(baseline_path.read_text(encoding="utf-8"))["hk"]["hooks"]["pre-commit"]["detect_private_key"]
+    assert second == first
+
+
+@pytest.mark.integration
 def test_baseline_inventory_discovers_monorepo_docs_go_and_elixir(tmp_path: Path) -> None:
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs/book.toml").write_text('[book]\ntitle = "Legacy docs"\n', encoding="utf-8")
