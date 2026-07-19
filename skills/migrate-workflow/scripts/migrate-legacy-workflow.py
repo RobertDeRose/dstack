@@ -54,6 +54,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import re
 import shlex
 import shutil
@@ -64,7 +65,7 @@ import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -3059,33 +3060,425 @@ def run_docs_checker(root: Path, *, migration_mode: bool) -> int:
     return subprocess.run(command, cwd=root, check=False).returncode
 
 
-def repository_test_files(root: Path) -> list[Path]:
-    ignored = {".git", ".venv", "node_modules", "build", "dist", "target", "__pycache__"}
-    return sorted(
-        path
-        for path in root.rglob("*.py")
-        if path.name.startswith("test_") or path.name.endswith("_test.py")
-        if not any(part in ignored for part in path.relative_to(root).parts)
+CAPABILITY_SCAN_LIMIT = 10_000
+CAPABILITY_IGNORED_DIRS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "_build",
+    "build",
+    "deps",
+    "dist",
+    "migration",
+    "node_modules",
+    "target",
+    "vendor",
+}
+
+
+def _path_has_symlink(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return True
+    current = root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def _bounded_files(
+    base: Path,
+    *,
+    repository_root: Path,
+    excluded: set[Path],
+    budget: list[int],
+) -> tuple[list[Path], bool]:
+    files: list[Path] = []
+    if _path_has_symlink(repository_root, base) or not base.is_dir() or budget[0] >= CAPABILITY_SCAN_LIMIT:
+        return files, _path_has_symlink(repository_root, base) or budget[0] >= CAPABILITY_SCAN_LIMIT
+    pending = [base]
+    while pending:
+        current = pending.pop()
+        entries: list[os.DirEntry[str]] = []
+        with os.scandir(current) as iterator:
+            while budget[0] < CAPABILITY_SCAN_LIMIT:
+                try:
+                    entry = next(iterator)
+                except StopIteration:
+                    break
+                budget[0] += 1
+                entries.append(entry)
+            else:
+                return files, True
+        directories: list[Path] = []
+        for entry in sorted(entries, key=lambda item: item.name):
+            path = Path(entry.path)
+            if entry.is_symlink():
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                if entry.name not in CAPABILITY_IGNORED_DIRS and path.resolve() not in excluded:
+                    directories.append(path)
+            elif entry.is_file(follow_symlinks=False):
+                files.append(path)
+        pending.extend(reversed(directories))
+    return files, False
+
+
+def _mise_data(path: Path) -> tuple[dict[str, Any], str | None]:
+    if not path.is_file():
+        return {}, None
+    try:
+        data = tomllib.loads(read_text(path))
+    except tomllib.TOMLDecodeError as exc:
+        return {}, f"Cannot parse {path.name}: {exc}"
+    return (data if isinstance(data, dict) else {}), None
+
+
+def _mise_tasks(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    data, _ = _mise_data(path)
+    tasks = data.get("tasks")
+    return {str(name) for name in tasks} if isinstance(tasks, dict) else set()
+
+
+def _config_root_name(path: str) -> str:
+    return "root" if path == "." else Path(path).name.replace("_", "-")
+
+
+def discover_repository_capabilities(root: Path) -> dict[str, Any]:
+    """Inventory bounded legacy topology and native validation command candidates."""
+    scan_budget = [0]
+    root_mise = next(
+        (
+            root / name
+            for name in ("mise.toml", ".mise.toml")
+            if (root / name).is_file() and not _path_has_symlink(root, root / name)
+        ),
+        None,
     )
+    config_roots = ["."]
+    layout_source: str | None = None
+    ambiguities: list[str] = []
+    if any(
+        _path_has_symlink(root, root / name)
+        for name in ("mise.toml", ".mise.toml")
+        if (root / name).exists() or (root / name).is_symlink()
+    ):
+        ambiguities.append("root mise config must not be a symlink")
+    if root_mise is not None:
+        mise_data, mise_error = _mise_data(root_mise)
+        if mise_error:
+            ambiguities.append(f"root mise config: {mise_error}")
+        monorepo = mise_data.get("monorepo")
+        configured = monorepo.get("config_roots") if isinstance(monorepo, dict) else None
+        if isinstance(configured, list) and configured:
+            safe_roots: list[str] = []
+            for value in configured:
+                if not isinstance(value, str):
+                    ambiguities.append("mise monorepo config_roots contains a non-string value")
+                    continue
+                path = PurePosixPath(value)
+                if value != path.as_posix() or path.is_absolute() or any(part in {"", ".."} for part in path.parts):
+                    ambiguities.append(f"unsafe mise config root: {value!r}")
+                    continue
+                target = root if value == "." else root.joinpath(*path.parts)
+                if not target.is_dir():
+                    ambiguities.append(f"mise config root does not exist: {value}")
+                    continue
+                current = root
+                escaped = False
+                for part in path.parts:
+                    current /= part
+                    if current.is_symlink():
+                        ambiguities.append(f"mise config root resolves through a symlink: {value}")
+                        escaped = True
+                        break
+                if not escaped:
+                    safe_roots.append(value)
+            if safe_roots:
+                config_roots = list(dict.fromkeys(safe_roots))
+                layout_source = root_mise.relative_to(root).as_posix()
+        elif configured is not None:
+            ambiguities.append("mise monorepo config_roots must be a nonempty string list")
+    kind = "monorepo" if layout_source is not None else "single-package"
 
+    docs_evidence: list[str] = []
+    docs_commands: list[dict[str, Any]] = []
+    readme = root / "README.md"
+    if readme.is_file() and not readme.is_symlink():
+        docs_evidence.append("README.md")
+    checker = root / DOCS_CHECKER_PATH
+    if (checker.exists() or checker.is_symlink()) and _path_has_symlink(root, checker):
+        ambiguities.append(f"documentation checker must not resolve through a symlink: {DOCS_CHECKER_PATH}")
+    if checker.is_file() and not _path_has_symlink(root, checker):
+        docs_evidence.append(DOCS_CHECKER_PATH.as_posix())
+        docs_commands.append(
+            {
+                "name": "root-docs-checker",
+                "argv": ["uv", "run", DOCS_CHECKER_PATH.as_posix()],
+                "working_directory": ".",
+                "provenance": "existing-script",
+            }
+        )
+    root_tasks = _mise_tasks(root_mise) if root_mise is not None else set()
+    for task in ("docs:check", "docs:build"):
+        if task in root_tasks:
+            docs_commands.append(
+                {
+                    "name": f"root-mise-{task.replace(':', '-')}",
+                    "argv": ["mise", "run", task],
+                    "working_directory": ".",
+                    "provenance": root_mise.relative_to(root).as_posix(),
+                }
+            )
+            break
+    docs_systems = (
+        (Path("docs/book.toml"), ["mdbook", "build", "docs"]),
+        (Path("book.toml"), ["mdbook", "build"]),
+        (Path("mkdocs.yml"), ["mkdocs", "build"]),
+        (Path("mkdocs.yaml"), ["mkdocs", "build"]),
+    )
+    for path, command in docs_systems:
+        if not (root / path).is_file() or _path_has_symlink(root, root / path):
+            continue
+        docs_evidence.append(path.as_posix())
+        if not docs_commands:
+            docs_commands.append(
+                {
+                    "name": f"root-{path.stem}-build",
+                    "argv": command,
+                    "working_directory": ".",
+                    "provenance": path.as_posix(),
+                }
+            )
 
-def discover_baseline_test_command(root: Path) -> list[str] | None:
-    if not repository_test_files(root):
-        return None
-    for name in ("mise.toml", ".mise.toml"):
-        path = root / name
-        if not path.exists():
-            continue
-        try:
-            data = tomllib.loads(read_text(path))
-        except tomllib.TOMLDecodeError:
-            continue
-        tasks = data.get("tasks")
-        if isinstance(tasks, dict) and "test" in tasks and shutil.which("mise"):
-            return ["mise", "run", "test"]
-    if (root / "pyproject.toml").exists() and shutil.which("uv"):
-        return ["uv", "run", "pytest"]
-    return [sys.executable, "-m", "pytest"]
+    test_evidence: list[str] = []
+    test_commands: list[dict[str, Any]] = []
+    packages: list[dict[str, Any]] = []
+    resolved_config_roots = {
+        (root if value == "." else root.joinpath(*PurePosixPath(value).parts)).resolve() for value in config_roots
+    }
+    if "." not in config_roots:
+        root_files, root_truncated = _bounded_files(
+            root,
+            repository_root=root,
+            excluded=resolved_config_roots,
+            budget=scan_budget,
+        )
+        if root_truncated:
+            ambiguities.append(f"root capability scan reached {CAPABILITY_SCAN_LIMIT} entries")
+        docs_evidence.extend(
+            path.relative_to(root).as_posix() for path in root_files if path.suffix.casefold() in {".md", ".markdown"}
+        )
+    for config_root in config_roots:
+        package_root = root if config_root == "." else root.joinpath(*PurePosixPath(config_root).parts)
+        package_name = _config_root_name(config_root)
+        excluded = resolved_config_roots - {package_root.resolve()}
+        package_files, truncated = _bounded_files(
+            package_root, repository_root=root, excluded=excluded, budget=scan_budget
+        )
+        if truncated:
+            ambiguities.append(f"capability scan reached {CAPABILITY_SCAN_LIMIT} entries under {config_root}")
+        docs_evidence.extend(
+            path.relative_to(root).as_posix()
+            for path in package_files
+            if path.suffix.casefold() in {".md", ".markdown"}
+        )
+        if any(
+            _path_has_symlink(root, package_root / name)
+            for name in ("mise.toml", ".mise.toml")
+            if (package_root / name).exists() or (package_root / name).is_symlink()
+        ):
+            ambiguities.append(f"{config_root}: package mise config must not resolve through a symlink")
+        package_mise = next(
+            (
+                package_root / name
+                for name in ("mise.toml", ".mise.toml")
+                if (package_root / name).is_file() and not _path_has_symlink(root, package_root / name)
+            ),
+            None,
+        )
+        if package_mise is not None:
+            _, package_mise_error = _mise_data(package_mise)
+            if package_mise_error:
+                ambiguities.append(f"{config_root}: {package_mise_error}")
+        task_names = _mise_tasks(package_mise) if package_mise is not None else set()
+        test_task = next((name for name in ("test", "tests", "check") if name in task_names), None)
+        manifest_names = ("go.mod", "mix.exs", "Cargo.toml", "package.json", "pyproject.toml")
+        for name in manifest_names:
+            if ((package_root / name).exists() or (package_root / name).is_symlink()) and _path_has_symlink(
+                root, package_root / name
+            ):
+                ambiguities.append(f"{config_root}: manifest must not resolve through a symlink: {name}")
+        manifests = [
+            name
+            for name in manifest_names
+            if (package_root / name).is_file() and not _path_has_symlink(root, package_root / name)
+        ]
+        language_commands: list[tuple[str, list[str], list[Path]]] = []
+        go_tests = [path for path in package_files if path.name.endswith("_test.go")]
+        if go_tests and "go.mod" in manifests:
+            language_commands.append(("go", ["go", "test", "./..."], go_tests))
+        elif go_tests:
+            ambiguities.append(f"{config_root}: Go test files exist but go.mod is missing")
+        elixir_tests = [path for path in package_files if path.name.endswith("_test.exs") and "test" in path.parts]
+        if elixir_tests and "mix.exs" in manifests:
+            language_commands.append(("elixir", ["mix", "test"], elixir_tests))
+        elif elixir_tests:
+            ambiguities.append(f"{config_root}: Elixir test files exist but mix.exs is missing")
+        rust_tests = [path for path in package_files if path.suffix == ".rs" and "tests" in path.parts]
+        rust_tests.extend(
+            path
+            for path in package_files
+            if path.suffix == ".rs" and path not in rust_tests and "#[test]" in read_text(path)
+        )
+        if rust_tests and "Cargo.toml" in manifests:
+            language_commands.append(("rust", ["cargo", "test"], rust_tests))
+        elif rust_tests:
+            ambiguities.append(f"{config_root}: Rust test evidence exists but Cargo.toml is missing")
+        python_tests = [
+            path
+            for path in package_files
+            if path.suffix == ".py" and (path.name.startswith("test_") or path.name.endswith("_test.py"))
+        ]
+        if python_tests and "pyproject.toml" in manifests:
+            language_commands.append(("python", ["uv", "run", "pytest"], python_tests))
+        elif python_tests:
+            ambiguities.append(f"{config_root}: Python test files exist but pyproject.toml is missing")
+        js_suffixes = (
+            ".test.js",
+            ".test.jsx",
+            ".test.ts",
+            ".test.tsx",
+            ".spec.js",
+            ".spec.jsx",
+            ".spec.ts",
+            ".spec.tsx",
+        )
+        js_tests = [path for path in package_files if path.name.endswith(js_suffixes)]
+        js_command: list[str] | None = None
+        if "package.json" in manifests:
+            try:
+                package_json = json.loads(read_text(package_root / "package.json"))
+            except (json.JSONDecodeError, OSError) as exc:
+                ambiguities.append(f"{config_root}: cannot parse package.json: {exc}")
+            else:
+                scripts = package_json.get("scripts") if isinstance(package_json, dict) else None
+                test_script = scripts.get("test") if isinstance(scripts, dict) else None
+                if isinstance(test_script, str) and test_script.strip():
+                    js_command = ["npm", "test"]
+        if js_tests and js_command:
+            language_commands.append(("javascript", js_command, js_tests))
+        elif js_tests:
+            ambiguities.append(f"{config_root}: JavaScript test files exist but package.json has no test script")
+
+        observed_tests = sorted(set(go_tests + elixir_tests + rust_tests + python_tests + js_tests))
+        package_evidence = [path.relative_to(root).as_posix() for path in observed_tests]
+        test_evidence.extend(package_evidence)
+        package_commands: list[dict[str, Any]] = []
+        if test_task is not None:
+            target = test_task if config_root == "." else f"//{config_root}:{test_task}"
+            package_commands.append(
+                {
+                    "name": f"{package_name}-mise-{test_task}",
+                    "argv": ["mise", "run", target],
+                    "working_directory": ".",
+                    "provenance": package_mise.relative_to(root).as_posix(),
+                }
+            )
+        else:
+            for language, argv, _ in language_commands:
+                package_commands.append(
+                    {
+                        "name": f"{package_name}-{language}-test",
+                        "argv": argv,
+                        "working_directory": config_root,
+                        "provenance": "manifest-and-test-evidence",
+                    }
+                )
+        test_commands.extend(package_commands)
+        packages.append(
+            {
+                "path": config_root,
+                "mise_file": package_mise.relative_to(root).as_posix() if package_mise is not None else None,
+                "manifests": manifests,
+                "test_evidence": sorted(set(package_evidence)),
+                "commands": package_commands,
+            }
+        )
+
+    workflow_root = root / ".github/workflows"
+    workflow_files, workflows_truncated = _bounded_files(
+        workflow_root, repository_root=root, excluded=set(), budget=scan_budget
+    )
+    if _path_has_symlink(root, workflow_root):
+        ambiguities.append("CI workflow directory must not resolve through a symlink")
+    elif workflows_truncated:
+        ambiguities.append(f"CI workflow scan reached {CAPABILITY_SCAN_LIMIT} entries")
+    ci_files = [path.relative_to(root).as_posix() for path in workflow_files if path.suffix in {".yml", ".yaml"}]
+    ci_commands: list[dict[str, str]] = []
+    for relative in ci_files:
+        lines = read_text(root / relative).splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            match = re.match(r"(?:-\s*)?run:\s*(.*)$", stripped)
+            if not match:
+                continue
+            value = match.group(1).strip()
+            if re.fullmatch(r"[|>][+-]?", value):
+                indentation = len(line) - len(line.lstrip())
+                block_indentation: int | None = None
+                block: list[str] = []
+                for continuation in lines[index + 1 :]:
+                    if not continuation.strip():
+                        continue
+                    continuation_indent = len(continuation) - len(continuation.lstrip())
+                    if continuation_indent <= indentation:
+                        break
+                    if block_indentation is None:
+                        block_indentation = continuation_indent
+                    if continuation_indent < block_indentation:
+                        break
+                    block.append(continuation.strip())
+                value = "\n".join(block)
+            if value:
+                step_indentation = len(line) - len(line.lstrip())
+                working_directory = "."
+                for sibling in lines[index + 1 :]:
+                    if not sibling.strip():
+                        continue
+                    sibling_indentation = len(sibling) - len(sibling.lstrip())
+                    sibling_text = sibling.strip()
+                    if sibling_indentation <= step_indentation and sibling_text.startswith("-"):
+                        break
+                    match_working_directory = re.match(r"working-directory:\s*(.+)$", sibling_text)
+                    if match_working_directory:
+                        working_directory = match_working_directory.group(1).strip()
+                        break
+                ci_commands.append(
+                    {
+                        "source": f"{relative}:{index + 1}",
+                        "command": value,
+                        "working_directory": working_directory,
+                        "provenance": "ci-evidence-only",
+                    }
+                )
+    return {
+        "layout": {"kind": kind, "config_roots": config_roots, "source": layout_source},
+        "packages": packages,
+        "documentation": {"evidence": sorted(set(docs_evidence)), "commands": docs_commands},
+        "tests": {"evidence": sorted(set(test_evidence)), "commands": test_commands},
+        "ci": {"files": ci_files, "commands": ci_commands},
+        "ambiguities": sorted(set(ambiguities)),
+    }
 
 
 def run_baseline_command(root: Path, command: Sequence[str]) -> dict[str, Any]:
@@ -3129,6 +3522,43 @@ def render_baseline_report(result: Mapping[str, Any]) -> str:
                 "",
             ]
         )
+    inventory = result.get("capability_inventory", {})
+    layout = inventory.get("layout", {})
+    lines.extend(
+        [
+            "## Capability inventory",
+            "",
+            f"- Layout: `{layout.get('kind', 'unknown')}`",
+            "- Config roots: " + ", ".join(f"`{path}`" for path in layout.get("config_roots", [])),
+            "- Documentation evidence: "
+            + ", ".join(f"`{path}`" for path in inventory.get("documentation", {}).get("evidence", [])),
+            "- Test evidence: " + ", ".join(f"`{path}`" for path in inventory.get("tests", {}).get("evidence", [])),
+            "- CI workflows: " + ", ".join(f"`{path}`" for path in inventory.get("ci", {}).get("files", [])),
+            "- Ambiguities: " + ("; ".join(inventory.get("ambiguities", [])) or "none"),
+            "",
+            "### Packages",
+            "",
+        ]
+    )
+    for package in inventory.get("packages", []):
+        lines.extend(
+            [
+                f"- `{package['path']}`",
+                "  - Manifests: " + ", ".join(f"`{name}`" for name in package.get("manifests", [])),
+                "  - Test evidence: " + ", ".join(f"`{path}`" for path in package.get("test_evidence", [])),
+            ]
+        )
+    lines.extend(["", "### Proposed commands", ""])
+    for kind in ("documentation", "tests"):
+        for item in inventory.get(kind, {}).get("commands", []):
+            lines.append(
+                f"- `{item['name']}` ({kind}): argv=`{shell_command(item['argv'])}`; "
+                f"cwd=`{item['working_directory']}`; provenance=`{item['provenance']}`"
+            )
+    lines.extend(["", "### CI command evidence", ""])
+    for item in inventory.get("ci", {}).get("commands", []):
+        lines.append(f"- `{item['source']}`: `{item['command']}` ({item['provenance']})")
+    lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -3141,14 +3571,24 @@ def baseline_repository(
     baseline_json: Path,
     baseline_report: Path,
 ) -> int:
+    inventory = discover_repository_capabilities(root)
     checker = root / DOCS_CHECKER_PATH
     if docs_command:
         documentation = run_baseline_command(root, shlex.split(docs_command))
         documentation["note"] = "Explicit baseline documentation command."
-    elif checker.exists():
-        command = ["uv", "run", str(checker)] if shutil.which("uv") else [sys.executable, str(checker)]
+    elif checker.is_file() and not _path_has_symlink(root, checker):
+        command = ["uv", "run", str(checker)]
         documentation = run_baseline_command(root, command)
         documentation["note"] = "Existing repository documentation checker."
+    elif inventory["documentation"]["evidence"] or inventory["documentation"]["commands"]:
+        documentation = {
+            "command": None,
+            "status": "unresolved",
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "note": "Documentation evidence exists; select an authoritative discovered command.",
+        }
     else:
         documentation = {
             "command": None,
@@ -3156,36 +3596,30 @@ def baseline_repository(
             "returncode": None,
             "stdout": "",
             "stderr": "",
-            "note": "scripts/check-docs.py did not exist before template adoption.",
+            "note": "No documentation system, task, or checker was discovered.",
         }
 
-    discovered_tests = repository_test_files(root)
     if test_command:
         tests = run_baseline_command(root, shlex.split(test_command))
         tests["note"] = "Explicit baseline test command."
-    elif not discovered_tests:
+    elif inventory["tests"]["evidence"] or inventory["tests"]["commands"]:
+        tests = {
+            "command": None,
+            "status": "unresolved",
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "note": "Test evidence exists; select all authoritative discovered partitions.",
+        }
+    else:
         tests = {
             "command": None,
             "status": "no_tests",
             "returncode": None,
             "stdout": "",
             "stderr": "",
-            "note": "No test_*.py or *_test.py files were found; no test command was run.",
+            "note": "No test evidence was found in the bounded repository topology scan.",
         }
-    else:
-        command = discover_baseline_test_command(root)
-        if command is None:
-            tests = {
-                "command": None,
-                "status": "unavailable",
-                "returncode": None,
-                "stdout": "",
-                "stderr": "",
-                "note": "Test files exist but no executable test command was discovered.",
-            }
-        else:
-            tests = run_baseline_command(root, command)
-            tests["note"] = f"Discovered {len(discovered_tests)} Python test file(s)."
 
     hk = capture_hk_inventory(root)
     checks: dict[str, dict[str, Any]] = {
@@ -3195,10 +3629,22 @@ def baseline_repository(
     }
     result: dict[str, Any] = {
         "generated_at": utc_now(),
+        "capability_inventory": inventory,
         **checks,
     }
     if write:
-        dump_json(root / baseline_json, result)
+        existing_path = root / baseline_json
+        if existing_path.is_file():
+            try:
+                existing = json.loads(read_text(existing_path))
+            except json.JSONDecodeError:
+                existing = None
+            if isinstance(existing, dict):
+                previous_semantics = {key: value for key, value in existing.items() if key != "generated_at"}
+                current_semantics = {key: value for key, value in result.items() if key != "generated_at"}
+                if previous_semantics == current_semantics:
+                    result["generated_at"] = existing.get("generated_at", result["generated_at"])
+        dump_json(existing_path, result)
         write_text(root / baseline_report, render_baseline_report(result))
         print(f"Wrote {baseline_json} and {baseline_report}")
     for name, item in checks.items():

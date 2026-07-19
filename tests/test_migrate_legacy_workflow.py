@@ -1000,6 +1000,222 @@ def test_prepare_uses_sentence_case_human_title_and_rescan_preserves_feature(tmp
 
 
 @pytest.mark.integration
+def test_baseline_inventory_discovers_monorepo_docs_go_and_elixir(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/book.toml").write_text('[book]\ntitle = "Legacy docs"\n', encoding="utf-8")
+    (tmp_path / "packages/client").mkdir(parents=True)
+    (tmp_path / "packages/server/test/app").mkdir(parents=True)
+    (tmp_path / "mise.toml").write_text(
+        "experimental_monorepo_root = true\n\n"
+        '[monorepo]\nconfig_roots = [".", "packages/client", "packages/server"]\n\n'
+        '[tasks."docs:build"]\nrun = "cd docs && mdbook build"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "packages/client/mise.toml").write_text(
+        '[tasks.test]\nrun = "go test ./..."\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "packages/client/go.mod").write_text("module example.test/client\n", encoding="utf-8")
+    (tmp_path / "packages/client/client_test.go").write_text("package client\n", encoding="utf-8")
+    (tmp_path / "packages/server/mix.exs").write_text("defmodule Legacy.MixProject do\nend\n", encoding="utf-8")
+    (tmp_path / "packages/server/test/app/example_test.exs").write_text(
+        "defmodule LegacyTest do\n  use ExUnit.Case\nend\n",
+        encoding="utf-8",
+    )
+
+    run_migrator(tmp_path, "baseline", "--write")
+    inventory = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
+
+    assert inventory["layout"] == {
+        "kind": "monorepo",
+        "config_roots": [".", "packages/client", "packages/server"],
+        "source": "mise.toml",
+    }
+    assert inventory["documentation"]["evidence"] == ["docs/book.toml"]
+    assert inventory["documentation"]["commands"][0]["argv"] == ["mise", "run", "docs:build"]
+    tests = {partition["name"]: partition for partition in inventory["tests"]["commands"]}
+    assert tests["client-mise-test"]["argv"] == ["mise", "run", "//packages/client:test"]
+    assert tests["client-mise-test"]["working_directory"] == "."
+    assert tests["server-elixir-test"]["argv"] == ["mix", "test"]
+    assert tests["server-elixir-test"]["working_directory"] == "packages/server"
+    assert inventory["tests"]["evidence"] == [
+        "packages/client/client_test.go",
+        "packages/server/test/app/example_test.exs",
+    ]
+    baseline = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))
+    assert baseline["documentation"]["status"] == "unresolved"
+    assert baseline["tests"]["status"] == "unresolved"
+    report = (tmp_path / "migration/baseline.md").read_text(encoding="utf-8")
+    assert "Layout: `monorepo`" in report
+    assert "`client-mise-test`" in report
+    assert "`server-elixir-test`" in report
+
+
+@pytest.mark.integration
+def test_baseline_inventory_covers_single_package_ecosystems_and_ci_evidence(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "legacy"\nversion = "0.1.0"\n', encoding="utf-8")
+    (tmp_path / "src/lib.rs").write_text("#[test]\nfn works() {}\n", encoding="utf-8")
+    (tmp_path / "src/orphan_test.go").write_text("package orphan\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "legacy"\nversion = "0.1.0"\n', encoding="utf-8")
+    (tmp_path / "tests/test_app.py").write_text("def test_app():\n    assert True\n", encoding="utf-8")
+    outside_test = tmp_path.parent / f"{tmp_path.name}-outside_test.py"
+    outside_test.write_text("def test_external():\n    assert False\n", encoding="utf-8")
+    (tmp_path / "tests/external_test.py").symlink_to(outside_test)
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"test": "vitest run"}}) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src/app.test.tsx").write_text("export {}\n", encoding="utf-8")
+    (tmp_path / ".github/workflows/validate.yml").write_text(
+        "jobs:\n"
+        "  test:\n"
+        "    steps:\n"
+        "      - run: |-\n"
+        "          cargo test\n"
+        "          uv run pytest\n"
+        "        working-directory: client\n"
+        "      - run: npm test\n",
+        encoding="utf-8",
+    )
+
+    run_migrator(tmp_path, "baseline", "--write")
+    first = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
+    commands = {item["name"]: item for item in first["tests"]["commands"]}
+    assert set(commands) == {"root-javascript-test", "root-python-test", "root-rust-test"}
+    assert commands["root-python-test"]["argv"] == ["uv", "run", "pytest"]
+    assert first["packages"][0]["manifests"] == ["Cargo.toml", "package.json", "pyproject.toml"]
+    assert "src/orphan_test.go" in first["tests"]["evidence"]
+    assert "tests/external_test.py" not in first["tests"]["evidence"]
+    assert ".: Go test files exist but go.mod is missing" in first["ambiguities"]
+    assert first["ci"]["commands"] == [
+        {
+            "source": ".github/workflows/validate.yml:4",
+            "command": "cargo test\nuv run pytest",
+            "working_directory": "client",
+            "provenance": "ci-evidence-only",
+        },
+        {
+            "source": ".github/workflows/validate.yml:8",
+            "command": "npm test",
+            "working_directory": ".",
+            "provenance": "ci-evidence-only",
+        },
+    ]
+    report_path = tmp_path / "migration/baseline.md"
+    report = report_path.read_text(encoding="utf-8")
+    assert "Manifests: `Cargo.toml`, `package.json`, `pyproject.toml`" in report
+    assert "argv=`cargo test`" in report
+    assert "`.github/workflows/validate.yml:4`" in report
+    run_migrator(tmp_path, "baseline", "--write")
+    second = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
+    assert first == second
+    assert report_path.read_text(encoding="utf-8") == report
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("ecosystem", "manifest", "test_path", "test_text", "expected"),
+    [
+        ("go", "go.mod", "app_test.go", "package app\n", "root-go-test"),
+        ("elixir", "mix.exs", "test/app_test.exs", "defmodule AppTest do\nend\n", "root-elixir-test"),
+        ("rust", "Cargo.toml", "tests/app.rs", "#[test]\nfn works() {}\n", "root-rust-test"),
+        ("python", "pyproject.toml", "tests/test_app.py", "def test_app():\n    assert True\n", "root-python-test"),
+        ("javascript", "package.json", "src/app.test.ts", "export {}\n", "root-javascript-test"),
+    ],
+)
+def test_baseline_inventory_discovers_isolated_single_package_ecosystem(
+    tmp_path: Path,
+    ecosystem: str,
+    manifest: str,
+    test_path: str,
+    test_text: str,
+    expected: str,
+) -> None:
+    manifest_text = json.dumps({"scripts": {"test": "vitest run"}}) if ecosystem == "javascript" else "# manifest\n"
+    (tmp_path / manifest).write_text(manifest_text, encoding="utf-8")
+    target = tmp_path / test_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(test_text, encoding="utf-8")
+
+    run_migrator(tmp_path, "baseline", "--write")
+    inventory = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
+
+    assert inventory["layout"]["kind"] == "single-package"
+    assert [command["name"] for command in inventory["tests"]["commands"]] == [expected]
+    assert inventory["tests"]["evidence"] == [test_path]
+
+
+@pytest.mark.integration
+def test_baseline_inventory_rejects_unsafe_or_missing_mise_roots(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside-package"
+    outside.mkdir(exist_ok=True)
+    (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
+    (tmp_path / "mise.toml").write_text(
+        '[monorepo]\nconfig_roots = [".", "../outside-package", "/tmp/absolute", "linked", "missing"]\n',
+        encoding="utf-8",
+    )
+
+    run_migrator(tmp_path, "baseline", "--write")
+    inventory = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
+
+    assert inventory["layout"]["config_roots"] == ["."]
+    assert inventory["ambiguities"] == [
+        "mise config root does not exist: missing",
+        "mise config root resolves through a symlink: linked",
+        "unsafe mise config root: '../outside-package'",
+        "unsafe mise config root: '/tmp/absolute'",
+    ]
+    assert not any(str(outside) in evidence for evidence in inventory["tests"]["evidence"])
+
+
+@pytest.mark.integration
+def test_baseline_inventory_keeps_explicit_one_package_monorepo_and_markdown(tmp_path: Path) -> None:
+    (tmp_path / "packages/api").mkdir(parents=True)
+    (tmp_path / "packages/api/CONTRIBUTING.md").write_text("# API contribution\n", encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("# Changes\n", encoding="utf-8")
+    (tmp_path / "mise.toml").write_text(
+        '[monorepo]\nconfig_roots = ["packages/api"]\n',
+        encoding="utf-8",
+    )
+
+    run_migrator(tmp_path, "baseline", "--write")
+    baseline = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))
+    inventory = baseline["capability_inventory"]
+
+    assert inventory["layout"]["kind"] == "monorepo"
+    assert inventory["layout"]["config_roots"] == ["packages/api"]
+    assert inventory["documentation"]["evidence"] == ["CHANGELOG.md", "packages/api/CONTRIBUTING.md"]
+    assert baseline["documentation"]["status"] == "unresolved"
+
+
+@pytest.mark.integration
+def test_baseline_inventory_rejects_symlinked_capability_inputs(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    (outside / "check-docs.py").write_text("raise SystemExit('must not run')\n", encoding="utf-8")
+    (outside / "go.mod").write_text("module outside.invalid\n", encoding="utf-8")
+    (outside / "workflows").mkdir()
+    (outside / "workflows/workflow.yml").write_text("steps:\n  - run: outside-command\n", encoding="utf-8")
+    (tmp_path / "scripts").symlink_to(outside, target_is_directory=True)
+    (tmp_path / "go.mod").symlink_to(outside / "go.mod")
+    (tmp_path / "app_test.go").write_text("package app\n", encoding="utf-8")
+    (tmp_path / ".github").symlink_to(outside, target_is_directory=True)
+
+    run_migrator(tmp_path, "baseline", "--write")
+    inventory = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
+
+    assert "documentation checker must not resolve through a symlink: scripts/check-docs.py" in inventory["ambiguities"]
+    assert ".: manifest must not resolve through a symlink: go.mod" in inventory["ambiguities"]
+    assert "CI workflow directory must not resolve through a symlink" in inventory["ambiguities"]
+    assert inventory["ci"]["files"] == []
+    assert inventory["tests"]["evidence"] == ["app_test.go"]
+    assert inventory["tests"]["commands"] == []
+
+
+@pytest.mark.integration
 def test_baseline_records_missing_docs_checker_and_absent_tests_without_running_pytest(tmp_path: Path) -> None:
     result = run_migrator(tmp_path, "baseline", "--write")
     assert "documentation: unavailable" in result.stdout
@@ -1011,8 +1227,8 @@ def test_baseline_records_missing_docs_checker_and_absent_tests_without_running_
     assert baseline["tests"]["status"] == "no_tests"
     assert baseline["tests"]["command"] is None
     report = (tmp_path / "migration/baseline.md").read_text(encoding="utf-8")
-    assert "scripts/check-docs.py did not exist" in report
-    assert "No test_*.py or *_test.py files were found" in report
+    assert "No documentation system, task, or checker was discovered" in report
+    assert "No test evidence was found in the bounded repository topology scan" in report
 
 
 @pytest.mark.integration
