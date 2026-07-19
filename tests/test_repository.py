@@ -1478,14 +1478,16 @@ def test_tooling_provisioner_isolates_project_lock_from_global_mise_tools(
     isolated_config = tmp_path / "isolated-config"
     isolated_config.mkdir()
     monkeypatch.setenv("MISE_CONFIG_DIR", str(tmp_path / "caller-config"))
+    monkeypatch.setenv("MISE_CONFIG_FILE", str(tmp_path / "config-file.toml"))
     monkeypatch.setenv("MISE_GLOBAL_CONFIG_FILE", os.devnull)
     monkeypatch.setenv("MISE_GLOBAL_CONFIG_ROOT", str(tmp_path / "global-root"))
+    monkeypatch.setenv("MISE_SYSTEM_CONFIG_DIR", str(tmp_path / "system"))
+    monkeypatch.setenv("MISE_SYSTEM_CONFIG_FILE", str(tmp_path / "system.toml"))
     monkeypatch.setattr(module.subprocess, "run", fake_run)
     module.run(["mise", "install"], tmp_path, config_dir=isolated_config)
 
     assert captured["env"]["MISE_CONFIG_DIR"] == str(isolated_config)
-    assert "MISE_GLOBAL_CONFIG_FILE" not in captured["env"]
-    assert "MISE_GLOBAL_CONFIG_ROOT" not in captured["env"]
+    assert all(variable not in captured["env"] for variable in module.EXTERNAL_MISE_CONFIG_VARS)
     assert module.RERUN_COMMAND == TOOLING_RERUN
 
 
@@ -1509,6 +1511,11 @@ def test_tooling_provisioner_real_mise_excludes_host_global_config(
     isolated_config.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(fake_home / ".config"))
+    monkeypatch.setenv("MISE_CONFIG_FILE", str(global_config))
+    monkeypatch.setenv("MISE_GLOBAL_CONFIG_FILE", str(global_config))
+    monkeypatch.setenv("MISE_GLOBAL_CONFIG_ROOT", str(global_config.parent))
+    monkeypatch.setenv("MISE_SYSTEM_CONFIG_DIR", str(global_config.parent))
+    monkeypatch.setenv("MISE_SYSTEM_CONFIG_FILE", str(global_config))
 
     inherited = run_command([mise_path, "config", "ls"], cwd=project, env=os.environ.copy())
     isolated = module.run(["mise", "config", "ls"], project, config_dir=isolated_config)
@@ -1538,8 +1545,11 @@ def test_tooling_provisioner_completes_with_hostile_global_only_tool(
     fake_mise = bin_dir / "mise"
     fake_mise.write_text(
         "#!/bin/sh\n"
+        'test -z "$MISE_CONFIG_FILE" || exit 20\n'
         'test -z "$MISE_GLOBAL_CONFIG_FILE" || exit 21\n'
         'test -z "$MISE_GLOBAL_CONFIG_ROOT" || exit 22\n'
+        'test -z "$MISE_SYSTEM_CONFIG_DIR" || exit 26\n'
+        'test -z "$MISE_SYSTEM_CONFIG_FILE" || exit 27\n'
         'test -d "$MISE_CONFIG_DIR" || exit 23\n'
         f'printf "%s\\n" "$MISE_CONFIG_DIR" >> "{config_log}"\n'
         'case "$1" in\n'
@@ -1554,8 +1564,11 @@ def test_tooling_provisioner_completes_with_hostile_global_only_tool(
     monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("MISE_CONFIG_DIR", str(global_config.parent))
+    monkeypatch.setenv("MISE_CONFIG_FILE", str(global_config))
     monkeypatch.setenv("MISE_GLOBAL_CONFIG_FILE", str(global_config))
     monkeypatch.setenv("MISE_GLOBAL_CONFIG_ROOT", str(global_config.parent))
+    monkeypatch.setenv("MISE_SYSTEM_CONFIG_DIR", str(global_config.parent))
+    monkeypatch.setenv("MISE_SYSTEM_CONFIG_FILE", str(global_config))
 
     result = module.provision(project)
 
@@ -1595,8 +1608,11 @@ def test_sfero_shaped_setup_recovers_from_hostile_global_config(
     fake_mise = bin_dir / "mise"
     fake_mise.write_text(
         "#!/bin/sh\n"
+        'test -z "$MISE_CONFIG_FILE" || exit 20\n'
         'test -z "$MISE_GLOBAL_CONFIG_FILE" || exit 21\n'
         'test -z "$MISE_GLOBAL_CONFIG_ROOT" || exit 22\n'
+        'test -z "$MISE_SYSTEM_CONFIG_DIR" || exit 26\n'
+        'test -z "$MISE_SYSTEM_CONFIG_FILE" || exit 27\n'
         'test -d "$MISE_CONFIG_DIR" || exit 23\n'
         f'printf "%s\\n" "$MISE_CONFIG_DIR" >> "{config_log}"\n'
         'case "$1" in\n'
@@ -1615,8 +1631,11 @@ def test_sfero_shaped_setup_recovers_from_hostile_global_config(
         "XDG_CONFIG_HOME": str(fake_home / ".config"),
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "MISE_CONFIG_DIR": str(global_config.parent),
+        "MISE_CONFIG_FILE": str(global_config),
         "MISE_GLOBAL_CONFIG_FILE": str(global_config),
         "MISE_GLOBAL_CONFIG_ROOT": str(global_config.parent),
+        "MISE_SYSTEM_CONFIG_DIR": str(global_config.parent),
+        "MISE_SYSTEM_CONFIG_FILE": str(global_config),
     }
     setup_command = [sys.executable, "scripts/setup-tooling.py", "--json"]
 

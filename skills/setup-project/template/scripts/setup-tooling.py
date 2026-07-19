@@ -24,6 +24,13 @@ MAX_ERROR_CHARS = 2_000
 NIXFMT_TOOL = "github:Mic92/nixfmt-rs"
 NIXFMT_UNSUPPORTED_PLATFORM = "macos-x64"
 NIXFMT_SUPPORTED_PLATFORMS = ("linux-x64", "linux-arm64", "macos-arm64")
+EXTERNAL_MISE_CONFIG_VARS = (
+    "MISE_CONFIG_FILE",
+    "MISE_GLOBAL_CONFIG_FILE",
+    "MISE_GLOBAL_CONFIG_ROOT",
+    "MISE_SYSTEM_CONFIG_DIR",
+    "MISE_SYSTEM_CONFIG_FILE",
+)
 
 
 def stage(status: str, *, error: str | None = None, path: str | None = None) -> dict[str, Any]:
@@ -53,8 +60,8 @@ def command_error(result: subprocess.CompletedProcess[str]) -> str:
 
 def mise_environment(config_dir: Path) -> dict[str, str]:
     environment = os.environ.copy()
-    environment.pop("MISE_GLOBAL_CONFIG_FILE", None)
-    environment.pop("MISE_GLOBAL_CONFIG_ROOT", None)
+    for variable in EXTERNAL_MISE_CONFIG_VARS:
+        environment.pop(variable, None)
     environment["MISE_CONFIG_DIR"] = str(config_dir)
     return environment
 
