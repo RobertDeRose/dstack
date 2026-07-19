@@ -495,7 +495,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     ):
         assert heading in migration_reference
     assert "baseline --write" in migration
-    assert 'git diff --cached --quiet || git commit -m "chore: record pre-migration baseline"' in migration
+    assert 'git diff --cached --quiet || git commit -m "chore: record pre-migration baseline"' not in migration
+    assert "git add migration/baseline.json migration/baseline.md" in migration_reference
+    assert 'git commit -m "chore: record pre-migration baseline"' in migration_reference
     assert 'git diff --cached --quiet || git commit -m "chore: record workflow migration plan"' in migration
     assert migration.count('test -z "$(git status --porcelain)"') >= 3
     assert "Do not run `prepare` while scan output or decisions are uncommitted" in migration

@@ -28,17 +28,20 @@ Migration-specific authority:
 
 ## Gate 1: Record a clean pre-adoption baseline
 
-Start on a dedicated migration branch or worktree. Require empty `git status --porcelain`, then run and commit:
+Use a dedicated migration branch/worktree. Stop unless `git status --porcelain` is empty. Keep these boundaries:
 
-```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py baseline --write
-git add migration/baseline.json migration/baseline.md
-git diff --cached --quiet || git commit -m "chore: record pre-migration baseline"
-test -z "$(git status --porcelain)"
-```
+1. Run `uv run <skill-dir>/scripts/migrate-legacy-workflow.py baseline` for a non-executing, non-writing inventory.
+2. Review the evidence and explicitly supply every partition; rerun preview until `write_eligible` is true.
+3. Run `baseline --write` with those exact reviewed arguments; inspect both artifacts and run
+   `HK_FIX=0 mise x -- hk run pre-commit migration/baseline.json migration/baseline.md`.
+4. After validation, stage the files, inspect `git diff --cached`, and run an ordinary verified commit separately.
 
-The baseline records hk definitions and Pkl readiness. Stop for manual confirmation when unevaluable; never claim
-candidate equivalence. See **Baseline interpretation** for commands, missing tools, zero tests, and resumability.
+Never combine write, staging, and commit or bypass the whole hook. **Baseline resolution blocked** means revise
+partitions and rerun preview. Fix failed artifacts and rerun the exact-path hook, or discard only them with
+`rm migration/baseline.json migration/baseline.md`. After staging or commit failure, preserve and unstage the files with
+`git restore --staged migration/baseline.json migration/baseline.md` before retrying.
+
+Stop when hook evaluation needs review; never claim equivalence. See **Baseline interpretation** for full procedure.
 
 ## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
