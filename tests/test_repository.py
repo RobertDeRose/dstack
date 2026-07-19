@@ -500,6 +500,13 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert 'git commit -m "chore: initialize Beads workflow state"' in migration
     assert "Design Question Loop" in migration
     assert "migration:reconciliation" in migration
+    assert "manual_merge" in migration
+    assert "jq --argjson index" in migration_reference
+    assert "'.manual_merge[$index]'" in migration_reference
+    assert "/tmp/dstack-candidate.diff" in migration_reference
+    assert "for f in $(find migration/template-adoption-candidates" not in migration_reference
+    assert "tooling provisioning blocked" in migration_reference
+    assert "temporary `MISE_CONFIG_DIR`" in migration_reference
     assert "Only migration may retain" in migration
     assert "git add migration docs/src/planned-features.md docs/src/features" in migration
     assert "Gate 5 carries those decisions into Beads" in migration

@@ -119,7 +119,8 @@ root config, so package configs contribute tasks and working directories but can
 
 Primary evidence: mise's [Monorepo Tasks](https://mise.jdx.dev/tasks/monorepo.html),
 [configuration](https://mise.jdx.dev/configuration.html), and [lockfile](https://mise.jdx.dev/dev-tools/mise-lock.html)
-documentation, reviewed 2026-07-18. Verification used mise 2026.7.5 with user-global configuration isolated:
+documentation, reviewed 2026-07-18. Verification used mise 2026.7.5 with a temporary `MISE_CONFIG_DIR`; a hostile
+user-global-only tool was excluded from project resolution:
 
 - `MISE_EXPERIMENTAL=0 mise tasks --all --name-only` discovered `//:check`, `//packages/api:check`, and
   `//packages/web:check` from the two explicit `config_roots`;
