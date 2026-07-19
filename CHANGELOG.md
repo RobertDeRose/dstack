@@ -2,6 +2,19 @@
 
 - - -
 
+## v0.5.0 — 2026-07-18
+
+### Added
+
+- **template:** Render scoped monorepo tooling (`ff44a78`)
+- **template:** Validate explicit monorepo layouts (`433db4c`)
+
+### Fixed
+
+- **template:** Harden monorepo delivery boundaries (`3da287c`)
+
+- - -
+
 ## v0.4.0 — 2026-07-17
 
 ### Added

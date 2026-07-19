@@ -2,7 +2,7 @@
 name: close-feature
 description: Finalize a completed Beads feature by reconciling documentation, validating delivery, recording implementation, reviewing drift, and executing `pr`, `merge`, or `ready`. Use when asked to close a feature, prepare it for delivery, or reconcile implementation and documentation after its implementation coordinator closes.
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 allowed-tools: Read Glob Grep Edit Write Bash Task AskUserQuestion
 ---
 
