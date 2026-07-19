@@ -21,21 +21,24 @@ language manifests, bounded test-file evidence, and CI workflow paths. It propos
 directories without executing repository text as instructions. Repeat `--validation-partition '<json>'` to execute
 reviewed named documentation/test partitions without a shell. Each JSON object requires `name`, `kind`, and `argv`, and
 accepts `working_directory` and `provenance`; results retain bounded output, status, return code, ownership, and
-recovery. Legacy `--docs-command` and `--test-command` remain readable but cannot overlap same-kind named partitions.
-`scan --write` compares current hk behavior and is byte-stable when semantic inputs are unchanged.
-`confirm-hk-inventory --inventory-json <path> --reason <evidence>` supplies a reviewed baseline when evaluation is
-unavailable. `reconcile-hk <hook> <step> <remove|replace> --reason <decision>` records the only accepted loss/collision
-disposition, including the specifically approved existing and candidate behavior. `verify` re-evaluates current hk and
-rejects stale scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed manual baseline.
-`backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup state. Final verification requires
-tracked manifests, reports, baselines, and archived legacy tasks; it rejects candidate directories and inconsistent
-backup presence/disposition. Migration stores only answers required for safety/resume, such as classification,
-dependency, collision, and artifact dispositions; question prose is not schema state. Checkpoints require successful
-`scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit. The only intermediate
-exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs; its approval, reason, equivalent result, and
-risk are durable evidence. `checkpoint-evidence --hook <hook> --status <passed|failed|exception> --command <command>`
-appends `checkpoint_evidence[]`; exceptions additionally require `--reason`, `--equivalent-result`, and
-`--residual-risk`.
+recovery. Without `--write`, baseline is an inventory-only preview: it executes no validation command and writes no
+artifact. `--write` refuses documentation or test evidence that lacks a reviewed named partition or explicit command.
+Reports expose write eligibility, per-kind resolution flags, and residual scan limitations; `no_tests` and `unavailable`
+require a complete bounded scan. Legacy `--docs-command` and `--test-command` remain readable but cannot overlap
+same-kind named partitions. `scan --write` compares current hk behavior and is byte-stable when semantic inputs are
+unchanged. `confirm-hk-inventory --inventory-json <path> --reason <evidence>` supplies a reviewed baseline when
+evaluation is unavailable. `reconcile-hk <hook> <step> <remove|replace> --reason <decision>` records the only accepted
+loss/collision disposition, including the specifically approved existing and candidate behavior. `verify` re-evaluates
+current hk and rejects stale scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed
+manual baseline. `backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup state. Final
+verification requires tracked manifests, reports, baselines, and archived legacy tasks; it rejects candidate directories
+and inconsistent backup presence/disposition. Migration stores only answers required for safety/resume, such as
+classification, dependency, collision, and artifact dispositions; question prose is not schema state. Checkpoints
+require successful `scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit.
+The only intermediate exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs; its approval, reason,
+equivalent result, and risk are durable evidence.
+`checkpoint-evidence --hook <hook> --status <passed|failed|exception> --command <command>` appends
+`checkpoint_evidence[]`; exceptions additionally require `--reason`, `--equivalent-result`, and `--residual-risk`.
 
 `import-beads` uses `bd --dolt-auto-commit=batch` and commits bounded per-feature state plus relationship phases. It is
 dry-run by default and reports `existing`, `recovered`, `pending`, `conflicting`, `completed`, `remaining`, and `total`;

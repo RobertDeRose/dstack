@@ -348,7 +348,7 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     legacy_project: Path,
     fake_bd_environment: tuple[dict[str, str], Path],
 ) -> None:
-    run_migrator(legacy_project, "baseline", "--write")
+    run_migrator(legacy_project, "baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
     run_migrator(legacy_project, "scan", "--write")
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
 
@@ -1024,11 +1024,16 @@ def test_baseline_hk_inventory_excludes_builtin_test_fixtures(tmp_path: Path) ->
         encoding="utf-8",
     )
     fake_pkl = binary_dir / "pkl"
-    fake_pkl.write_text(f"#!/bin/sh\ncat '{fixture_path}'\n", encoding="utf-8")
+    evaluation_marker = tmp_path / "pkl-evaluated"
+    fake_pkl.write_text(f"#!/bin/sh\ntouch '{evaluation_marker}'\ncat '{fixture_path}'\n", encoding="utf-8")
     fake_pkl.chmod(0o755)
     environment = {**os.environ, "PATH": f"{binary_dir}{os.pathsep}{os.environ['PATH']}"}
 
+    preview = run_migrator(tmp_path, "baseline", env=environment)
+    assert "hk: proposed" in preview.stdout
+    assert not evaluation_marker.exists()
     run_migrator(tmp_path, "baseline", "--write", env=environment)
+    assert evaluation_marker.exists()
     baseline_path = tmp_path / "migration/baseline.json"
     first = json.loads(baseline_path.read_text(encoding="utf-8"))["hk"]["hooks"]["pre-commit"]["detect_private_key"]
     assert first["definition"] == '{"check":"scan","types":["text"]}'
@@ -1069,6 +1074,21 @@ def test_baseline_records_and_reruns_named_validation_partitions(tmp_path: Path)
             "provenance": "operator-override",
         }
     )
+    preview_marker = tmp_path / "preview-executed"
+    preview_partition = json.dumps(
+        {
+            "name": "preview-tests",
+            "kind": "tests",
+            "argv": [sys.executable, "-c", f"from pathlib import Path; Path({str(preview_marker)!r}).touch()"],
+            "working_directory": ".",
+            "provenance": "operator-override",
+        }
+    )
+    preview = run_migrator(tmp_path, "baseline", "--validation-partition", preview_partition)
+    assert "tests: proposed" in preview.stdout
+    assert not preview_marker.exists()
+    assert not (tmp_path / "migration").exists()
+
     client_partition = json.dumps(
         {
             "name": "client-tests",
@@ -1189,7 +1209,15 @@ def test_baseline_inventory_discovers_monorepo_docs_go_and_elixir(tmp_path: Path
         encoding="utf-8",
     )
 
-    run_migrator(tmp_path, "baseline", "--write")
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--docs-command",
+        f"{sys.executable} -c pass",
+        "--test-command",
+        f"{sys.executable} -c pass",
+        "--write",
+    )
     inventory = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
 
     assert inventory["layout"] == {
@@ -1209,8 +1237,9 @@ def test_baseline_inventory_discovers_monorepo_docs_go_and_elixir(tmp_path: Path
         "packages/server/test/app/example_test.exs",
     ]
     baseline = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))
-    assert baseline["documentation"]["status"] == "unresolved"
-    assert baseline["tests"]["status"] == "unresolved"
+    assert baseline["documentation"]["status"] == "passed"
+    assert baseline["tests"]["status"] == "passed"
+    assert baseline["resolution"]["write_eligible"] is True
     report = (tmp_path / "migration/baseline.md").read_text(encoding="utf-8")
     assert "Layout: `monorepo`" in report
     assert "`client-mise-test`" in report
@@ -1247,7 +1276,15 @@ def test_baseline_inventory_covers_single_package_ecosystems_and_ci_evidence(tmp
         encoding="utf-8",
     )
 
-    run_migrator(tmp_path, "baseline", "--write")
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--docs-command",
+        f"{sys.executable} -c pass",
+        "--test-command",
+        f"{sys.executable} -c pass",
+        "--write",
+    )
     first = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
     commands = {item["name"]: item for item in first["tests"]["commands"]}
     assert set(commands) == {"root-javascript-test", "root-python-test", "root-rust-test"}
@@ -1275,7 +1312,15 @@ def test_baseline_inventory_covers_single_package_ecosystems_and_ci_evidence(tmp
     assert "Manifests: `Cargo.toml`, `package.json`, `pyproject.toml`" in report
     assert "argv=`cargo test`" in report
     assert "`.github/workflows/validate.yml:4`" in report
-    run_migrator(tmp_path, "baseline", "--write")
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--docs-command",
+        f"{sys.executable} -c pass",
+        "--test-command",
+        f"{sys.executable} -c pass",
+        "--write",
+    )
     second = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
     assert first == second
     assert report_path.read_text(encoding="utf-8") == report
@@ -1306,7 +1351,7 @@ def test_baseline_inventory_discovers_isolated_single_package_ecosystem(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(test_text, encoding="utf-8")
 
-    run_migrator(tmp_path, "baseline", "--write")
+    run_migrator(tmp_path, "baseline", "--test-command", f"{sys.executable} -c pass", "--write")
     inventory = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
 
     assert inventory["layout"]["kind"] == "single-package"
@@ -1324,7 +1369,15 @@ def test_baseline_inventory_rejects_unsafe_or_missing_mise_roots(tmp_path: Path)
         encoding="utf-8",
     )
 
-    run_migrator(tmp_path, "baseline", "--write")
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--docs-command",
+        f"{sys.executable} -c pass",
+        "--test-command",
+        f"{sys.executable} -c pass",
+        "--write",
+    )
     inventory = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
 
     assert inventory["layout"]["config_roots"] == ["."]
@@ -1347,14 +1400,18 @@ def test_baseline_inventory_keeps_explicit_one_package_monorepo_and_markdown(tmp
         encoding="utf-8",
     )
 
-    run_migrator(tmp_path, "baseline", "--write")
+    refused = run_migrator(tmp_path, "baseline", "--write", expected=2)
+    assert "unresolved documentation" in refused.stderr
+    assert not (tmp_path / "migration").exists()
+    run_migrator(tmp_path, "baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
     baseline = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))
     inventory = baseline["capability_inventory"]
 
     assert inventory["layout"]["kind"] == "monorepo"
     assert inventory["layout"]["config_roots"] == ["packages/api"]
     assert inventory["documentation"]["evidence"] == ["CHANGELOG.md", "packages/api/CONTRIBUTING.md"]
-    assert baseline["documentation"]["status"] == "unresolved"
+    assert baseline["documentation"]["status"] == "passed"
+    assert baseline["resolution"]["flags"]["documentation"] == "supplied"
 
 
 @pytest.mark.integration
@@ -1370,7 +1427,18 @@ def test_baseline_inventory_rejects_symlinked_capability_inputs(tmp_path: Path) 
     (tmp_path / "app_test.go").write_text("package app\n", encoding="utf-8")
     (tmp_path / ".github").symlink_to(outside, target_is_directory=True)
 
-    run_migrator(tmp_path, "baseline", "--write")
+    refused = run_migrator(tmp_path, "baseline", "--write", expected=2)
+    assert "unresolved documentation, tests" in refused.stderr
+    assert not (tmp_path / "migration").exists()
+    run_migrator(
+        tmp_path,
+        "baseline",
+        "--docs-command",
+        f"{sys.executable} -c pass",
+        "--test-command",
+        f"{sys.executable} -c pass",
+        "--write",
+    )
     inventory = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))["capability_inventory"]
 
     assert "documentation checker must not resolve through a symlink: scripts/check-docs.py" in inventory["ambiguities"]
@@ -1379,6 +1447,22 @@ def test_baseline_inventory_rejects_symlinked_capability_inputs(tmp_path: Path) 
     assert inventory["ci"]["files"] == []
     assert inventory["tests"]["evidence"] == ["app_test.go"]
     assert inventory["tests"]["commands"] == []
+
+
+@pytest.mark.integration
+def test_baseline_write_requires_review_of_discovered_docs_checker(tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir()
+    marker = tmp_path / "checker-executed"
+    (tmp_path / "scripts/check-docs.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n",
+        encoding="utf-8",
+    )
+
+    refused = run_migrator(tmp_path, "baseline", "--write", expected=2)
+
+    assert "unresolved documentation" in refused.stderr
+    assert not marker.exists()
+    assert not (tmp_path / "migration").exists()
 
 
 @pytest.mark.integration

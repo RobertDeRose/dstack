@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import tomllib
 from collections import Counter
@@ -4492,7 +4493,7 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
             expected=expected,
         )
 
-    migrate("baseline", "--write")
+    migrate("baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
     baseline_path = project / "migration/baseline.json"
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     assert baseline["hk"]["status"] == "evaluable"
@@ -4543,7 +4544,20 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
     collision = tmp_path / "collision"
     create_legacy_project(collision)
     shutil.copy2(repository_root / "hk.pkl", collision / "hk.pkl")
-    run_command(["uv", "run", str(migrator), "baseline", "--write", "--root", str(collision)], cwd=collision)
+    run_command(
+        [
+            "uv",
+            "run",
+            str(migrator),
+            "baseline",
+            "--docs-command",
+            f"{sys.executable} -c pass",
+            "--write",
+            "--root",
+            str(collision),
+        ],
+        cwd=collision,
+    )
     collision_config = collision / "hk.pkl"
     collision_config.write_text(
         collision_config.read_text(encoding="utf-8").replace(
@@ -4615,7 +4629,20 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
     unevaluable = tmp_path / "unevaluable"
     create_legacy_project(unevaluable)
     (unevaluable / "hk.pkl").write_text("not valid Pkl\n", encoding="utf-8")
-    run_command(["uv", "run", str(migrator), "baseline", "--write", "--root", str(unevaluable)], cwd=unevaluable)
+    run_command(
+        [
+            "uv",
+            "run",
+            str(migrator),
+            "baseline",
+            "--docs-command",
+            f"{sys.executable} -c pass",
+            "--write",
+            "--root",
+            str(unevaluable),
+        ],
+        cwd=unevaluable,
+    )
     run_command(["uv", "run", str(migrator), "scan", "--write", "--root", str(unevaluable)], cwd=unevaluable)
     unresolved = json.loads((unevaluable / "migration/workflow-migration.json").read_text(encoding="utf-8"))
     assert unresolved["hk_reconciliation"]["issues"][0]["kind"] == "manual_inventory_required"
@@ -4675,7 +4702,7 @@ def test_migration_artifact_lifecycle(repository_root: Path, tmp_path: Path) -> 
             ["uv", "run", str(migrator), *arguments, "--root", str(project)], cwd=project, expected=expected
         )
 
-    migrate("baseline", "--write")
+    migrate("baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
     migrate("scan", "--write")
     candidates = project / "migration/template-adoption-candidates"
     backup = project / "migration/template-adoption-backup"
@@ -4950,7 +4977,7 @@ def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: 
     def migrate(*arguments: str) -> subprocess.CompletedProcess[str]:
         return run_command(["uv", "run", str(migrator), *arguments, "--root", str(project)], cwd=project)
 
-    migrate("baseline", "--write")
+    migrate("baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
     migrate("scan", "--write")
     manifest_path = project / "migration/workflow-migration.json"
     old = json.loads(manifest_path.read_text(encoding="utf-8"))

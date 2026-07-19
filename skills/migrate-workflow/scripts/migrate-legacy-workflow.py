@@ -3517,6 +3517,7 @@ def run_validation_partitions(
     *,
     docs_command: str | None,
     test_command: str | None,
+    execute: bool,
 ) -> list[dict[str, Any]]:
     validated: list[dict[str, Any]] = []
     names: set[str] = set()
@@ -3568,6 +3569,20 @@ def run_validation_partitions(
     if test_command and any(item["kind"] == "tests" for item in validated):
         _invalid_partition("use either --test-command or named test partitions, not both")
 
+    if not execute:
+        return [
+            {
+                **{key: value for key, value in item.items() if key != "directory"},
+                "status": "proposed",
+                "returncode": None,
+                "stdout": "",
+                "stderr": "",
+                "output_truncated": False,
+                "recovery": None,
+            }
+            for item in validated
+        ]
+
     partitions: list[dict[str, Any]] = []
     for item in validated:
         outcome = run_baseline_command(root, item["argv"], working_directory=item.pop("directory"))
@@ -3606,7 +3621,21 @@ def render_baseline_report(result: Mapping[str, Any]) -> str:
                 "",
             ]
         )
-    lines.extend(["## Validation partitions", ""])
+    resolution = result.get("resolution", {})
+    lines.extend(
+        [
+            "## Resolution",
+            "",
+            f"- Write eligible: `{str(resolution.get('write_eligible', False)).lower()}`",
+            "- Unresolved: " + (", ".join(f"`{name}`" for name in resolution.get("unresolved", [])) or "none"),
+            "- Resolution flags: "
+            + ("; ".join(f"{name}={value}" for name, value in resolution.get("flags", {}).items()) or "none"),
+            "- Residual limitations: " + ("; ".join(resolution.get("residual_limitations", [])) or "none"),
+            "",
+            "## Validation partitions",
+            "",
+        ]
+    )
     partitions = result.get("validation_partitions", [])
     if not partitions:
         lines.append("- None recorded; legacy documentation/tests fields remain authoritative.")
@@ -3678,33 +3707,80 @@ def baseline_repository(
     baseline_report: Path,
 ) -> int:
     inventory = discover_repository_capabilities(root)
-    validation_partitions = run_validation_partitions(
+    proposed_partitions = run_validation_partitions(
         root,
         validation_partition_specs,
         docs_command=docs_command,
         test_command=test_command,
+        execute=False,
     )
     checker = root / DOCS_CHECKER_PATH
+    scan_incomplete = bool(inventory["ambiguities"])
+    documentation_supplied = bool(docs_command or any(item["kind"] == "documentation" for item in proposed_partitions))
+    tests_supplied = bool(test_command or any(item["kind"] == "tests" for item in proposed_partitions))
+    unresolved_kinds: list[str] = []
+    if not documentation_supplied and (
+        scan_incomplete or inventory["documentation"]["evidence"] or inventory["documentation"]["commands"]
+    ):
+        unresolved_kinds.append("documentation")
+    if not tests_supplied and (scan_incomplete or inventory["tests"]["evidence"] or inventory["tests"]["commands"]):
+        unresolved_kinds.append("tests")
+    if write and unresolved_kinds:
+        joined = ", ".join(unresolved_kinds)
+        _invalid_partition(
+            f"baseline write refused: unresolved {joined}; supply reviewed named partitions or explicit commands"
+        )
+    validation_partitions = (
+        run_validation_partitions(
+            root,
+            validation_partition_specs,
+            docs_command=docs_command,
+            test_command=test_command,
+            execute=True,
+        )
+        if write
+        else proposed_partitions
+    )
     documentation_partitions = [item for item in validation_partitions if item["kind"] == "documentation"]
     test_partitions = [item for item in validation_partitions if item["kind"] == "tests"]
     if documentation_partitions:
         failed = any(item["status"] == "failed" for item in documentation_partitions)
         documentation = {
             "command": f"{len(documentation_partitions)} named partition(s)",
-            "status": "failed" if failed else "passed",
+            "status": "proposed" if not write else ("failed" if failed else "passed"),
             "returncode": 1 if failed else 0,
             "stdout": "",
             "stderr": "",
             "note": "See validation_partitions for command ownership and evidence.",
         }
     elif docs_command:
-        documentation = run_baseline_command(root, shlex.split(docs_command))
+        documentation = (
+            run_baseline_command(root, shlex.split(docs_command))
+            if write
+            else {
+                "command": docs_command,
+                "status": "proposed",
+                "returncode": None,
+                "stdout": "",
+                "stderr": "",
+            }
+        )
         documentation["note"] = "Explicit baseline documentation command."
     elif checker.is_file() and not _path_has_symlink(root, checker):
         command = ["uv", "run", str(checker)]
-        documentation = run_baseline_command(root, command)
+        documentation = (
+            run_baseline_command(root, command)
+            if write
+            else {
+                "command": shell_command(command),
+                "status": "proposed",
+                "returncode": None,
+                "stdout": "",
+                "stderr": "",
+            }
+        )
         documentation["note"] = "Existing repository documentation checker."
-    elif inventory["documentation"]["evidence"] or inventory["documentation"]["commands"]:
+    elif scan_incomplete or inventory["documentation"]["evidence"] or inventory["documentation"]["commands"]:
         documentation = {
             "command": None,
             "status": "unresolved",
@@ -3728,16 +3804,26 @@ def baseline_repository(
         all_no_tests = all(item["status"] == "no_tests" for item in test_partitions)
         tests = {
             "command": f"{len(test_partitions)} named partition(s)",
-            "status": "failed" if failed else ("no_tests" if all_no_tests else "passed"),
+            "status": "proposed" if not write else ("failed" if failed else ("no_tests" if all_no_tests else "passed")),
             "returncode": 1 if failed else 0,
             "stdout": "",
             "stderr": "",
             "note": "See validation_partitions for command ownership and evidence.",
         }
     elif test_command:
-        tests = run_baseline_command(root, shlex.split(test_command))
+        tests = (
+            run_baseline_command(root, shlex.split(test_command))
+            if write
+            else {
+                "command": test_command,
+                "status": "proposed",
+                "returncode": None,
+                "stdout": "",
+                "stderr": "",
+            }
+        )
         tests["note"] = "Explicit baseline test command."
-    elif inventory["tests"]["evidence"] or inventory["tests"]["commands"]:
+    elif scan_incomplete or inventory["tests"]["evidence"] or inventory["tests"]["commands"]:
         tests = {
             "command": None,
             "status": "unresolved",
@@ -3756,7 +3842,18 @@ def baseline_repository(
             "note": "No test evidence was found in the bounded repository topology scan.",
         }
 
-    hk = capture_hk_inventory(root)
+    hk = (
+        capture_hk_inventory(root)
+        if write
+        else {
+            "status": "proposed" if (root / "hk.pkl").is_file() else "absent",
+            "command": "pkl eval hk.pkl",
+            "hooks": {},
+            "note": "Preview does not evaluate repository hook configuration."
+            if (root / "hk.pkl").is_file()
+            else "No pre-adoption hk.pkl exists.",
+        }
+    )
     checks: dict[str, dict[str, Any]] = {
         "documentation": documentation,
         "tests": tests,
@@ -3766,6 +3863,15 @@ def baseline_repository(
         "generated_at": utc_now(),
         "capability_inventory": inventory,
         "validation_partitions": validation_partitions,
+        "resolution": {
+            "write_eligible": not unresolved_kinds,
+            "unresolved": unresolved_kinds,
+            "flags": {
+                "documentation": "supplied" if documentation_supplied else documentation["status"],
+                "tests": "supplied" if tests_supplied else tests["status"],
+            },
+            "residual_limitations": inventory["ambiguities"],
+        },
         **checks,
     }
     if write:
