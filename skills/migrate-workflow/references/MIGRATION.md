@@ -91,6 +91,48 @@ If staging or commit fails, preserve the artifacts, unstage them with
 verification or a whole hook. Because `adopt-template.py` requires a clean worktree, complete this commit before
 adoption. Do not use `--allow-dirty` merely to bypass the checkpoint.
 
+For interrupted baseline recovery, put the complete corrected partition arguments in one repeatable command. Run it
+first as preview and then as write, for example:
+
+```bash
+docs_partition='{
+  "name": "root-docs",
+  "kind": "documentation",
+  "argv": ["mise", "run", "docs:build"],
+  "working_directory": ".",
+  "provenance": "mise.toml:tasks.docs:build"
+}'
+client_partition='{
+  "name": "client-go",
+  "kind": "tests",
+  "argv": ["mise", "run", "//packages/client:test"],
+  "working_directory": ".",
+  "provenance": "packages/client/mise.toml:tasks.test"
+}'
+server_partition='{
+  "name": "server-elixir",
+  "kind": "tests",
+  "argv": ["mix", "test"],
+  "working_directory": "packages/server",
+  "provenance": "packages/server/mix.exs and test/**/*.exs"
+}'
+baseline_preview=(
+  uv run <skill-dir>/scripts/migrate-legacy-workflow.py baseline
+  --validation-partition "$docs_partition"
+  --validation-partition "$client_partition"
+  --validation-partition "$server_partition"
+)
+"${baseline_preview[@]}"
+"${baseline_preview[@]}" --write
+```
+
+A rejected preview/write preflight executes nothing and leaves no baseline or staged artifact. Correct the invalid or
+missing argument in `baseline_preview`, rerun preview, and only then rerun write. On repeated writes, unchanged
+successful partitions are reused by name, kind, argument array, working directory, and provenance; only failed or
+changed partitions run again. Do not delete successful evidence or hand-edit the baseline. A monorepo with mdBook
+configuration, Go tests, or Elixir tests remains unresolved until those capabilities are selected even when
+`scripts/check-docs.py` is absent.
+
 ## Additive hk reconciliation
 
 A scan compares the pre-adoption baseline with the current evaluated policy by hook and step key plus normalized

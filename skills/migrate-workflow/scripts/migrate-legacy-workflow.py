@@ -3518,6 +3518,7 @@ def run_validation_partitions(
     docs_command: str | None,
     test_command: str | None,
     execute: bool,
+    reusable_partitions: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     validated: list[dict[str, Any]] = []
     names: set[str] = set()
@@ -3583,9 +3584,20 @@ def run_validation_partitions(
             for item in validated
         ]
 
+    reusable = {item.get("name"): item for item in reusable_partitions if isinstance(item, Mapping)}
     partitions: list[dict[str, Any]] = []
     for item in validated:
-        outcome = run_baseline_command(root, item["argv"], working_directory=item.pop("directory"))
+        directory = item.pop("directory")
+        previous = reusable.get(item["name"])
+        identity = ("name", "kind", "argv", "working_directory", "provenance")
+        if (
+            previous
+            and previous.get("status") in {"passed", "no_tests"}
+            and all(previous.get(key) == item.get(key) for key in identity)
+        ):
+            partitions.append(dict(previous))
+            continue
+        outcome = run_baseline_command(root, item["argv"], working_directory=directory)
         partitions.append(
             {
                 **item,
@@ -3705,8 +3717,17 @@ def baseline_repository(
     write: bool,
     baseline_json: Path,
     baseline_report: Path,
+    json_output: bool,
 ) -> int:
     inventory = discover_repository_capabilities(root)
+    existing_path = root / baseline_json
+    existing: dict[str, Any] | None = None
+    if existing_path.is_file():
+        try:
+            loaded = json.loads(read_text(existing_path))
+            existing = loaded if isinstance(loaded, dict) else None
+        except json.JSONDecodeError:
+            existing = None
     proposed_partitions = run_validation_partitions(
         root,
         validation_partition_specs,
@@ -3737,6 +3758,7 @@ def baseline_repository(
             docs_command=docs_command,
             test_command=test_command,
             execute=True,
+            reusable_partitions=existing.get("validation_partitions", []) if existing else (),
         )
         if write
         else proposed_partitions
@@ -3875,22 +3897,19 @@ def baseline_repository(
         **checks,
     }
     if write:
-        existing_path = root / baseline_json
-        if existing_path.is_file():
-            try:
-                existing = json.loads(read_text(existing_path))
-            except json.JSONDecodeError:
-                existing = None
-            if isinstance(existing, dict):
-                previous_semantics = {key: value for key, value in existing.items() if key != "generated_at"}
-                current_semantics = {key: value for key, value in result.items() if key != "generated_at"}
-                if previous_semantics == current_semantics:
-                    result["generated_at"] = existing.get("generated_at", result["generated_at"])
+        if existing:
+            previous_semantics = {key: value for key, value in existing.items() if key != "generated_at"}
+            current_semantics = {key: value for key, value in result.items() if key != "generated_at"}
+            if previous_semantics == current_semantics:
+                result["generated_at"] = existing.get("generated_at", result["generated_at"])
         dump_json(existing_path, result)
         write_text(root / baseline_report, render_baseline_report(result))
         print(f"Wrote {baseline_json} and {baseline_report}")
-    for name, item in checks.items():
-        print(f"{name}: {item['status']} ({item.get('command') or item.get('note')})")
+    if json_output:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        for name, item in checks.items():
+            print(f"{name}: {item['status']} ({item.get('command') or item.get('note')})")
     return 1 if any(item["status"] == "failed" for item in checks.values()) else 0
 
 
@@ -4236,6 +4255,7 @@ def _main(args: argparse.Namespace) -> int:
                 write=args.write,
                 baseline_json=args.baseline_json,
                 baseline_report=args.baseline_report,
+                json_output=args.json,
             )
 
         if args.command == "scan":

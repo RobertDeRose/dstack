@@ -4480,6 +4480,123 @@ def test_commit_hook_requires_an_allowed_scope(repository_root: Path, tmp_path: 
     assert "scope `unknown` not allowed" in unknown_result.stderr
 
 
+def test_nixstasis_shaped_baseline_recovery_and_verified_commit(repository_root: Path, tmp_path: Path) -> None:
+    project = tmp_path / "nixstasis-shaped"
+    (project / "docs").mkdir(parents=True)
+    (project / "docs/book.toml").write_text('[book]\ntitle = "Nixstasis"\n', encoding="utf-8")
+    (project / "packages/client").mkdir(parents=True)
+    (project / "packages/server/test").mkdir(parents=True)
+    (project / "mise.toml").write_text(
+        "experimental_monorepo_root = true\n\n"
+        '[monorepo]\nconfig_roots = [".", "packages/client", "packages/server"]\n\n'
+        '[tasks."docs:build"]\nrun = "cd docs && mdbook build"\n',
+        encoding="utf-8",
+    )
+    (project / "packages/client/mise.toml").write_text('[tasks.test]\nrun = "go test ./..."\n', encoding="utf-8")
+    (project / "packages/client/go.mod").write_text("module example.test/client\n", encoding="utf-8")
+    (project / "packages/client/client_test.go").write_text("package client\n", encoding="utf-8")
+    (project / "packages/server/mix.exs").write_text("defmodule Server.MixProject do\nend\n", encoding="utf-8")
+    (project / "packages/server/test/server_test.exs").write_text("defmodule ServerTest do\nend\n", encoding="utf-8")
+    shutil.copy2(repository_root / "hk.pkl", project / "hk.pkl")
+    assert not (project / "scripts/check-docs.py").exists()
+    initialize_git(project, "legacy topology")
+
+    binary_dir = tmp_path / "fake-partition-bin"
+    binary_dir.mkdir()
+    command_log = tmp_path / "partition-commands.log"
+    for name in ("mise", "mix"):
+        binary = binary_dir / name
+        binary.write_text(f"#!/bin/sh\necho '{name} $*' >> '{command_log}'\necho {name}-ok\n", encoding="utf-8")
+        binary.chmod(0o755)
+    environment = {**os.environ, "PATH": f"{binary_dir}{os.pathsep}{os.environ['PATH']}"}
+    migrator = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
+    partitions = [
+        json.dumps(
+            {
+                "name": "root-docs",
+                "kind": "documentation",
+                "argv": ["mise", "run", "docs:build"],
+                "working_directory": ".",
+                "provenance": "mise.toml:tasks.docs:build",
+            }
+        ),
+        json.dumps(
+            {
+                "name": "client-go",
+                "kind": "tests",
+                "argv": ["mise", "run", "//packages/client:test"],
+                "working_directory": ".",
+                "provenance": "packages/client/mise.toml:tasks.test",
+            }
+        ),
+        json.dumps(
+            {
+                "name": "server-elixir",
+                "kind": "tests",
+                "argv": ["mix", "test"],
+                "working_directory": "packages/server",
+                "provenance": "mix.exs and test/**/*.exs",
+            }
+        ),
+    ]
+
+    def baseline(selected: list[str], *extra: str, expected: int = 0) -> subprocess.CompletedProcess[str]:
+        arguments = list(itertools.chain.from_iterable(("--validation-partition", partition) for partition in selected))
+        return run_command(
+            [sys.executable, str(migrator), "baseline", *arguments, *extra, "--root", str(project)],
+            cwd=project,
+            env=environment,
+            expected=expected,
+        )
+
+    preview_payload = json.loads(baseline(partitions, "--json").stdout)
+    preview = json.loads("\n".join(preview_payload["output"]))
+    assert preview["capability_inventory"]["layout"]["config_roots"] == [
+        ".",
+        "packages/client",
+        "packages/server",
+    ]
+    assert preview["capability_inventory"]["documentation"]["evidence"] == ["docs/book.toml"]
+    assert preview["capability_inventory"]["documentation"]["commands"][0]["name"] == "root-mise-docs-build"
+    assert {item["name"] for item in preview["capability_inventory"]["tests"]["commands"]} >= {
+        "client-mise-test",
+        "server-elixir-test",
+    }
+    assert preview["resolution"]["write_eligible"] is True
+    assert not command_log.exists()
+    assert not (project / "migration").exists()
+
+    refused = baseline(partitions[:1], "--write", expected=2)
+    assert "unresolved tests" in refused.stderr
+    assert not command_log.exists()
+    assert not (project / "migration").exists()
+    assert run_command(["git", "diff", "--cached", "--quiet"], cwd=project).returncode == 0
+
+    baseline(partitions, "--write")
+    baseline_path = project / "migration/baseline.json"
+    report_path = project / "migration/baseline.md"
+    first = baseline_path.read_bytes(), report_path.read_bytes()
+    evidence = json.loads(first[0])
+    assert [item["status"] for item in evidence["validation_partitions"]] == ["passed", "passed", "passed"]
+    assert evidence["hk"]["status"] == "evaluable"
+    private_key_step = evidence["hk"]["hooks"]["pre-commit"]["detect_private_key"]
+    assert '"tests"' not in private_key_step["definition"]
+    report = first[1].decode()
+    assert "Status: `unavailable`" not in report
+    assert "Status: `no_tests`" not in report
+    assert len(command_log.read_text(encoding="utf-8").splitlines()) == 3
+    run_command(["hk", "util", "detect-private-key", str(baseline_path), str(report_path)], cwd=project)
+
+    baseline(partitions, "--write")
+    assert (baseline_path.read_bytes(), report_path.read_bytes()) == first
+    assert len(command_log.read_text(encoding="utf-8").splitlines()) == 3
+
+    run_command(["hk", "install"], cwd=project, env=environment)
+    run_command(["git", "add", "migration/baseline.json", "migration/baseline.md"], cwd=project)
+    run_command(["git", "commit", "-m", "chore: record migration baseline"], cwd=project, env=environment)
+    assert run_command(["git", "status", "--porcelain"], cwd=project).stdout == ""
+
+
 def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Path) -> None:
     from tests.test_migrate_legacy_workflow import create_legacy_project
 
