@@ -2,6 +2,23 @@
 
 - - -
 
+## v0.5.1 — 2026-07-19
+
+### Fixed
+
+- **toolchain:** Exclude external tool configs (`e9d60ef`)
+- **workflow:** Bound migration recovery review (`a6b646a`)
+- **toolchain:** Isolate user tool configuration (`9132a2b`)
+- **workflow:** Require complete partition coverage (`699e94f`)
+- **workflow:** Verify production baseline recovery (`cc9fc5b`)
+- **workflow:** Separate baseline checkpoint boundaries (`f7d7c2f`)
+- **workflow:** Enforce baseline resolution (`080f0fb`)
+- **workflow:** Record named validation partitions (`8c62f0b`)
+- **workflow:** Sanitize hook baseline evidence (`13202cb`)
+- **workflow:** Inventory legacy validation topology (`4e840cf`)
+
+- - -
+
 ## v0.5.0 — 2026-07-18
 
 ### Added

@@ -2,7 +2,7 @@
 name: gh-pr-review
 description: Review and resolve GitHub Copilot comments on the pull request for the current branch. Use when asked to process Copilot PR feedback, address review threads, or run a Copilot re-review cycle.
 metadata:
-  version: "0.5.0"
+  version: "0.5.1"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 ---
 
