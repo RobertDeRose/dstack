@@ -94,11 +94,12 @@ update preservation, explicit add/remove transitions, conflicts, relocking, and 
 
 ## Large migration imports
 
-Beads mutations run with `--dolt-auto-commit=batch`. Migration commits bounded root/state work per feature and performs
-a separate relationship reconciliation commit, while the JSON manifest preserves finer recovery phases. The
-deterministic large-import fixture creates at least 300 Beads records, bounds batch-commit count, records elapsed time,
-and proves a relationship-interrupted retry mutates only its missing outgoing dependency and does not replay completed
-dependents.
+Beads mutations run with `--dolt-auto-commit=batch`. Before mutation, tests prove repository-local database authority
+and reconcile manifest IDs against actual metadata even when phases claim completion. Migration commits bounded
+root/state work per feature and performs a separate relationship reconciliation commit, while the JSON manifest
+preserves finer recovery phases. The deterministic large-import fixture creates at least 300 Beads records, bounds
+batch-commit count, records elapsed time, and proves a relationship-interrupted retry mutates only its missing outgoing
+dependency and does not replay completed dependents.
 
 ## Migration reconciliation automation
 
@@ -106,8 +107,13 @@ Before finalization, `verify` automatically runs `check-docs.py --migration-mode
 migration checker operates on reader documentation, so generated assets and legacy command directories are not broadened
 into its input, and it never rewrites project acronyms or mdBook H1 part headings. Prepare regenerates only bounded
 implemented-feature marker bodies. Delivered-record drafts include legacy tasks/design, imported Beads identity, Git
-commits, and changed paths, remain candidates, and block verification and finalization until semantic review is
-recorded.
+commits, and changed paths, remain candidates, and block verification and finalization until per-feature semantic review
+binds the actual implemented record to unique summary, path digests, and corroborating commits. Regression fixtures also
+cover renamed/unapproved/uncommitted or later-committed authority replacement, non-Git execution, formula-only/global
+Beads fallback, pinned Beads commands, dry-run byte preservation, missing and unexpected records, wrong
+statuses/labels/relationships, transactional finalization rollback, archive digest/inventory drift, CLI artifact
+collisions, unsupported create status flags, path and symlink escapes, evidence/commit association, and non-exact hook
+approval.
 
 ## Monorepo mise compatibility
 

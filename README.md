@@ -83,10 +83,13 @@ For a repository using the original `planned-features.md` plus per-feature `task
 /migrate-workflow
 ```
 
-The migration skill renders the latest tagged new-project template with Copier into an isolated directory, copies
-missing workflow files, stages conflicting project-owned files as explicit manual-merge candidates, backs up and rebases
-existing Copier state to the adopted tagged template, initializes Beads, migrates live task state, and archives legacy
-task files after verification. It does not overwrite project-specific navigation or product documentation wholesale.
+The migration skill first immutably binds the user-selected base, new migration branch/worktree, and repository; resume
+requires the exact named branch/path and explicit approval recorded separately from identity. It renders the latest
+tagged new-project template with Copier into an isolated directory, stages conflicting project-owned files as explicit
+manual-merge candidates, verifies repository-local Beads authority and the complete expected live graph, migrates real
+task state, requires feature-specific semantic evidence, and transactionally archives legacy tasks after verification.
+It does not auto-select prior migration branches, trust manifest IDs without database proof, partially archive on a
+validation failure, or overwrite project documentation wholesale.
 
 ## Feature Workflow
 

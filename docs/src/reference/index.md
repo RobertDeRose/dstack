@@ -15,6 +15,12 @@
 
 ## Migration inventory commands
 
+`authorize-session fresh --base-branch <base> --migration-branch <new-branch>` records the exact base SHA, branch,
+worktree, and Git repository before inventory. `authorize-session resume` additionally requires the exact generated
+`RESUME DSTACK MIGRATION ...` user response and an existing authority record. Git is mandatory; after baseline, all
+commands require the authority file tracked and byte-identical to both `HEAD` and its single original introduction
+commit. Existing commits/manifests cannot replace it; resume approvals use a separate audit record.
+
 `migrate-legacy-workflow.py baseline --write` records pre-adoption documentation, tests, and hk readiness plus hook/step
 definitions. Its capability inventory reads explicit mise config roots, root/package tasks, documentation-system files,
 language manifests, bounded test-file evidence, and CI workflow paths. It proposes command argument arrays and working
@@ -35,24 +41,41 @@ verification requires tracked manifests, reports, baselines, and archived legacy
 and inconsistent backup presence/disposition. Migration stores only answers required for safety/resume, such as
 classification, dependency, collision, and artifact dispositions; question prose is not schema state. Checkpoints
 require successful `scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit.
-The only intermediate exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs; its approval, reason,
-equivalent result, and risk are durable evidence.
+The only intermediate exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs. The exact response
+`APPROVE HK_SKIP_STEPS=docs`, approved step, reason, equivalent result, and risk are durable evidence.
 `checkpoint-evidence --hook <hook> --status <passed|failed|exception> --command <command>` appends
-`checkpoint_evidence[]`; exceptions additionally require `--reason`, `--equivalent-result`, and `--residual-risk`.
+`checkpoint_evidence[]`; exceptions additionally require `--reason`, `--equivalent-result`, `--residual-risk`,
+`--approved-step`, and the exact `--approval` phrase.
+
+`beads-authority --init` treats formula-only state as uninitialized, makes `bd init` failure fatal, rejects symlinks,
+and validates local metadata plus database path/name, project ID, repository root, and issue prefix.
+Global/shared/redirected fallback is never accepted. Later Beads commands carry the validated `.beads` path explicitly;
+mutations compare authority digests before and after, while dry-run/verify preserve authority bytes.
 
 `import-beads` uses `bd --dolt-auto-commit=batch` and commits bounded per-feature state plus relationship phases. It is
-dry-run by default and reports `existing`, `recovered`, `pending`, `conflicting`, `completed`, `remaining`, and `total`;
-only a separate invocation with `--apply` mutates Beads. Apply prints `APPLY STARTED` before mutation. Each feature's
-`beads.import_phase` is `root-created`, `state`, `relationships`, or `completed`. `beads_import_started_at`,
-`beads_import_completed_at`, `beads_import_progress`, imported IDs, and feature phases survive rescans. Empty explicit
-task status uses checkbox fallback: `[ ]` is `open`, `[-]` is `in_progress`, and `[x]` is `closed`. A nonempty
-recognized explicit status takes precedence.
+dry-run by default, reconciles all recorded IDs against actual migration metadata, and reports `existing`, `recovered`,
+`pending`, `conflicting`, `completed`, `remaining`, and `total`; only a separate invocation with `--apply` mutates
+Beads. Missing completed IDs are conflicts, not existing state. Verification derives the complete expected roots,
+lifecycle steps, implementation tasks, reconciliation tasks, statuses, exact migration-owned labels, parentage, and root
+relationships; missing, unexpected, malformed-metadata, and unindexable migration-labeled records are errors. Apply
+prints `APPLY STARTED` before mutation. Each feature's `beads.import_phase` is `root-created`, `state`, `relationships`,
+or `completed`. `beads_import_started_at`, `beads_import_completed_at`, `beads_import_progress`, imported IDs, and
+feature phases survive rescans. Empty explicit task status uses checkbox fallback: `[ ]` is `open`, `[-]` is
+`in_progress`, and `[x]` is `closed`. A nonempty recognized explicit status takes precedence.
 
 `prepare --apply` replaces implemented-feature marker bodies from completed features with standalone `index.md` records.
 `draft-delivered-records` previews; with `--apply` it writes candidates under
 `migration/delivered-record-candidates/<slug>/index.md` and records `delivered_record_candidates[]` with
-`reviewed: false`. `review-delivered-record <slug> --reason <evidence>` records review without copying candidate prose
-into authoritative documentation. `verify` rejects unreviewed candidates.
+`reviewed: false`. `review-delivered-record <slug>` requires `--summary`, at least one `--evidence` path, at least one
+`--commit`, and `--reason`; it digests the actual implemented record and evidence. Every evidence path must be touched
+by a supplied commit. `verify` recomputes commit paths and rejects any completed feature without review,
+substituted/duplicate summaries, reused/generated/self evidence, unrelated commits, and missing or changed evidence.
+Finalization first reconciles the complete live Beads graph, preflights every destination, journals and stages all
+moves, rolls back failed strict documentation validation, and durably saves state before deleting staged evidence.
+Manifest/report/baseline paths must be distinct safe migration files and cannot overlap reserved evidence. Finalization
+seals archive digests and parsed task identity; final verification recursively compares the exact current archive set
+plus feature, design, and legacy-task inventory rather than trusting a finalized manifest alone. Recursive archive
+sealing rejects file and directory symlink aliases before reading any candidate bytes.
 
 ## Migration repository identity
 

@@ -496,7 +496,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert 'git diff --cached --quiet || git commit -m "chore: record workflow migration plan"' in migration
     assert migration.count('test -z "$(git status --porcelain)"') >= 3
     assert "Do not run `prepare` while scan output or decisions are uncommitted" in migration
-    assert "bd init --stealth" in migration
+    assert "beads-authority --init" in migration
+    assert "authorize-session fresh" in migration
+    assert "Never infer resume" in migration
     assert 'git commit -m "chore: initialize Beads workflow state"' in migration
     assert "Design Question Loop" in migration
     assert "migration:reconciliation" in migration
@@ -4661,6 +4663,8 @@ def test_commit_hook_requires_an_allowed_scope(repository_root: Path, tmp_path: 
 
 
 def test_nixstasis_shaped_baseline_recovery_and_verified_commit(repository_root: Path, tmp_path: Path) -> None:
+    from tests.test_migrate_legacy_workflow import authorize_fresh_session
+
     project = tmp_path / "nixstasis-shaped"
     (project / "docs").mkdir(parents=True)
     (project / "docs/book.toml").write_text('[book]\ntitle = "Nixstasis"\n', encoding="utf-8")
@@ -4680,6 +4684,7 @@ def test_nixstasis_shaped_baseline_recovery_and_verified_commit(repository_root:
     shutil.copy2(repository_root / "hk.pkl", project / "hk.pkl")
     assert not (project / "scripts/check-docs.py").exists()
     initialize_git(project, "legacy topology")
+    authorize_fresh_session(project)
 
     binary_dir = tmp_path / "fake-partition-bin"
     binary_dir.mkdir()
@@ -4744,14 +4749,16 @@ def test_nixstasis_shaped_baseline_recovery_and_verified_commit(repository_root:
     }
     assert preview["resolution"]["write_eligible"] is True
     assert not command_log.exists()
-    assert not (project / "migration").exists()
+    assert not (project / "migration/baseline.json").exists()
+    assert not (project / "migration/baseline.md").exists()
 
     refused = baseline(partitions[:1], "--write", expected=2)
     assert "unresolved tests" in refused.stderr
     partial = baseline(partitions[:2], "--write", expected=2)
     assert "unresolved tests" in partial.stderr
     assert not command_log.exists()
-    assert not (project / "migration").exists()
+    assert not (project / "migration/baseline.json").exists()
+    assert not (project / "migration/baseline.md").exists()
     assert run_command(["git", "diff", "--cached", "--quiet"], cwd=project).returncode == 0
 
     baseline(partitions, "--write")
@@ -4780,12 +4787,14 @@ def test_nixstasis_shaped_baseline_recovery_and_verified_commit(repository_root:
 
 
 def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Path) -> None:
-    from tests.test_migrate_legacy_workflow import create_legacy_project
+    from tests.test_migrate_legacy_workflow import authorize_fresh_session, create_legacy_project
 
     migrator = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
     project = tmp_path / "preservation"
     create_legacy_project(project)
     shutil.copy2(repository_root / "hk.pkl", project / "hk.pkl")
+    initialize_git(project, "legacy project")
+    authorize_fresh_session(project)
 
     def migrate(*arguments: str, expected: int = 0) -> subprocess.CompletedProcess[str]:
         return run_command(
@@ -4845,6 +4854,8 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
     collision = tmp_path / "collision"
     create_legacy_project(collision)
     shutil.copy2(repository_root / "hk.pkl", collision / "hk.pkl")
+    initialize_git(collision, "legacy project")
+    authorize_fresh_session(collision)
     run_command(
         [
             "uv",
@@ -4930,6 +4941,8 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
     unevaluable = tmp_path / "unevaluable"
     create_legacy_project(unevaluable)
     (unevaluable / "hk.pkl").write_text("not valid Pkl\n", encoding="utf-8")
+    initialize_git(unevaluable, "legacy project")
+    authorize_fresh_session(unevaluable)
     run_command(
         [
             "uv",
@@ -4991,7 +5004,7 @@ def test_migration_hk_inventory_preservation(repository_root: Path, tmp_path: Pa
 
 
 def test_migration_artifact_lifecycle(repository_root: Path, tmp_path: Path) -> None:
-    from tests.test_migrate_legacy_workflow import create_legacy_project
+    from tests.test_migrate_legacy_workflow import authorize_fresh_session, create_legacy_project
 
     migrator = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
     project = tmp_path / "artifacts"
@@ -5003,7 +5016,9 @@ def test_migration_artifact_lifecycle(repository_root: Path, tmp_path: Path) -> 
             ["uv", "run", str(migrator), *arguments, "--root", str(project)], cwd=project, expected=expected
         )
 
+    authorize_fresh_session(project)
     migrate("baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
+    commit_repository(project, "record migration baseline")
     migrate("scan", "--write")
     candidates = project / "migration/template-adoption-candidates"
     backup = project / "migration/template-adoption-backup"
@@ -5075,6 +5090,7 @@ def test_migration_artifact_lifecycle(repository_root: Path, tmp_path: Path) -> 
         [
             "git",
             "add",
+            "migration/session-authority.json",
             "migration/baseline.json",
             "migration/baseline.md",
             "migration/workflow-migration.json",
@@ -5249,7 +5265,7 @@ def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Pa
 
 
 def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: Path) -> None:
-    from tests.test_migrate_legacy_workflow import create_legacy_project
+    from tests.test_migrate_legacy_workflow import authorize_fresh_session, create_legacy_project
 
     result = run_command(
         [
@@ -5273,6 +5289,8 @@ def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: 
     project = tmp_path / "old-manifest-resume"
     create_legacy_project(project)
     shutil.copy2(repository_root / "hk.pkl", project / "hk.pkl")
+    initialize_git(project, "legacy project")
+    authorize_fresh_session(project)
     migrator = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
 
     def migrate(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -5315,7 +5333,9 @@ def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: 
         expected=2,
     )
     assert incomplete_exception.returncode == 2
-    assert "require reason, equivalent result, and residual risk" in incomplete_exception.stderr
+    assert (
+        "require reason, equivalent result, residual risk, and one exact approved step" in incomplete_exception.stderr
+    )
     migrate(
         "checkpoint-evidence",
         "--hook",
@@ -5330,6 +5350,10 @@ def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: 
         "migration-mode docs passed",
         "--residual-risk",
         "strict docs deferred until archival",
+        "--approved-step",
+        "docs",
+        "--approval",
+        "APPROVE HK_SKIP_STEPS=docs",
     )
     first = manifest_path.read_bytes()
     migrate("scan", "--write")

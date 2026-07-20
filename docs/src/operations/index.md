@@ -56,6 +56,12 @@ Copier-managed conflicts continue to use Copier's configured inline or reject-fi
   every generated candidate before validation or commit.
 - `/migrate-workflow` adopts an existing legacy Markdown workflow before normal updates.
 
+Migration first asks for the exact base branch and either a fresh branch or an explicitly named branch/worktree to
+resume. It never discovers or selects a resume candidate automatically. Git is mandatory. `authorize-session` records
+the base SHA, branch, absolute worktree, and repository; after baseline, every command requires that record to be
+tracked and byte-identical to `HEAD` and its single original introduction commit. Resume additionally requires the
+user's exact generated phrase and writes a separate audit record rather than mutating identity.
+
 Migration captures the legacy hk hook/step inventory before adoption. Candidate reconciliation is additive: a removed
 step or changed same-key definition blocks verification until restored or explicitly approved with both behaviors and a
 reason. If the legacy config cannot be evaluated, migration stops for manual inventory confirmation rather than treating
@@ -66,26 +72,36 @@ decision title, why it is needed, current evidence/uncertainty, controlled behav
 default, and the consequence of deferral. After reconciliation, the rendered project provisioner must install the locked
 tools and Git hooks before an ordinary checkpoint commit. Failures stop with exact reproduction/recovery. A
 user-approved intermediate exception may skip only the strict docs step after migration-mode docs pass and the decision,
-equivalent evidence, and risk are recorded; whole-hook bypass is never allowed.
+equivalent evidence, and risk are recorded. Approval must be the exact response `APPROVE HK_SKIP_STEPS=docs`; an
+acknowledgement is insufficient, and whole-hook bypass is never allowed.
 
-Beads import dry-run is a separate nonmutating command. Apply uses bounded Dolt batch commits rather than one
-transaction per field or relationship. It begins with an explicit `APPLY STARTED` notice and reports existing,
-recovered, pending, conflicting, completed, remaining, and total features. Per-feature import phases persist in the
-manifest, so retries skip completed state rather than replaying it. A later `scan --write` preserves import start and
-completion timestamps, phase state, identities, and the last progress summary. Legacy checkbox states map `[ ]` to open,
-`[-]` to in progress, and `[x]` to closed unless a nonempty explicit status overrides the checkbox.
+Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
+database location/name, project ID, repository root, and issue prefix. A formula-only directory and global/shared
+fallback fail. Every Beads subprocess is pinned to the validated path; mutations check authority bytes before and after.
+Beads import dry-run is nonmutating and reconciles every manifest ID against actual deterministic metadata, including
+completed phases. Apply uses bounded Dolt batch commits rather than one transaction per field or relationship. It begins
+with an explicit `APPLY STARTED` notice and reports existing, recovered, pending, conflicting, completed, remaining, and
+total features. Per-feature phases persist, but retries trust them only after real-record reconciliation. Status
+transitions use `bd update --status` for Beads 1.1 compatibility.
 
 Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git common
 directory, not the migration worktree basename, and derives the default branch from `origin/HEAD` before the checked-out
 primary worktree branch. A linked migration worktree without `origin/HEAD` requires an explicit default branch. Supply
-explicit project name, slug, and default branch when evidence is missing or incorrect. After
-`bd init --stealth --skip-agents`, force-add only `.beads/formulas/dstack-feature.formula.toml`; keep the embedded
-database and local runtime configuration untracked.
+explicit project name, slug, and default branch when evidence is missing or incorrect. Run guarded
+`beads-authority --init`, then force-add only `.beads/formulas/dstack-feature.formula.toml`; keep the embedded database
+and local runtime configuration untracked.
 
 `prepare --apply` regenerates implemented-feature navigation from standalone completed records.
 `draft-delivered-records --apply` can create historical record candidates from legacy tasks, design paths, and imported
-Beads identities, but candidates do not establish truth: inspect and reconcile each one, then record semantic approval
-with `review-delivered-record <slug> --reason <evidence>`. Verification blocks every unreviewed candidate.
+Beads identities, but candidates do not establish truth. Inspect one feature at a time, reconcile its actual implemented
+record, then supply a unique feature-naming summary, non-generated corroborating path, related Git commit, and rationale
+to `review-delivered-record`. Verification and finalization block missing completed-feature reviews, reused summaries,
+unrelated commits, commits that do not touch each evidence path, and changed evidence. Bulk generic reconciliation is
+invalid. Finalization derives and verifies the exact live Beads graph, including absence of unexpected migrated records,
+rejects artifact-path collisions, preflights all archive paths, stages and journals every move, rolls back validation
+failure, seals archive digests/task identities, and persists state before deletion. A leftover journal requires explicit
+recovery rather than guessed continuation. Final verification compares the exact recursive archive and feature
+inventory; manifest booleans alone cannot authorize evidence removal.
 
 Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
 `pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents

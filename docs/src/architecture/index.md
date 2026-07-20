@@ -42,20 +42,27 @@ checks; explicit dependencies are reserved for demonstrated output ownership rat
 
 ## Migration boundary
 
-Legacy adoption is additive. The migration manifest records pre/post hook capabilities, artifact dispositions,
-contextual safety decisions, and verified checkpoint evidence; it does not replace Beads as live work authority or
-Copier as scaffold authority. Project-owned files remain authoritative through candidate reconciliation. Only the
-rendered project-local provisioner may install locked tools and hooks, and ordinary Git commits remain the checkpoint
-authority.
+Legacy adoption is additive. A committed session-authority record binds execution to the user-selected base SHA,
+migration branch, exact worktree, and Git repository; its original introduction commit is immutable, so later branches,
+manifests, and checkpoint commits cannot replace authority or authorize resume. Resume events are separate audit data.
+The migration manifest records pre/post hook capabilities, artifact dispositions, contextual safety decisions,
+feature-specific semantic evidence, and verified checkpoints; it does not replace Beads as live work authority or Copier
+as scaffold authority. Project-owned files remain authoritative through candidate reconciliation. Only the rendered
+project-local provisioner may install locked tools and hooks, and ordinary Git commits remain the checkpoint authority.
 
 ## Repository identity boundary
 
 Migration distinguishes the active worktree path from canonical repository identity. Explicit recorded answers win;
 otherwise the primary Git common directory supplies the project name and slug, and `refs/remotes/origin/HEAD` supplies
 the default branch; only a primary worktree may use its current branch as evidence. A suffixed migration-worktree
-basename is never adopted as project identity. Stealth Beads runtime state remains local; the portable project formula
-is the durable tracked policy. Large imports use bounded Dolt batch commits per feature state and relationship phase;
-the manifest remains the recovery cursor rather than relying on one opaque all-or-nothing transaction.
+basename is never adopted as project identity. Stealth Beads runtime state remains local; database path/name, project
+ID, repository root, and issue prefix must all match that repository before import or verification. The portable project
+formula is the durable tracked policy. Large imports derive and reconcile the complete deterministic
+issue/status/parent/relationship set before trusting phase state and rejects unexpected migrated records, then uses
+bounded Dolt batch commits per feature state and relationship phase. The manifest remains a recovery cursor, never
+independent proof that records exist. Finalization is a journaled staging transaction that seals archive digests and
+parsed task identity; finalized verification compares the exact recursive archive and current feature/design/task
+inventory with that sealed record.
 
 ## Safety invariants
 
