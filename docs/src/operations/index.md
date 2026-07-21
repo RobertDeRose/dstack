@@ -76,20 +76,24 @@ equivalent evidence, and risk are recorded. Approval must be the exact response 
 acknowledgement is insufficient, and whole-hook bypass is never allowed.
 
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
-database location/name, project ID, repository root, and issue prefix. A formula-only directory and global/shared
-fallback fail. Every Beads subprocess is pinned to the validated path; mutations check authority bytes before and after.
-Beads import dry-run is nonmutating and reconciles every manifest ID against actual deterministic metadata, including
-completed phases. Apply uses bounded Dolt batch commits rather than one transaction per field or relationship. It begins
-with an explicit `APPLY STARTED` notice and reports existing, recovered, pending, conflicting, completed, remaining, and
-total features. Per-feature phases persist, but retries trust them only after real-record reconciliation. Status
-transitions use `bd update --status` for Beads 1.1 compatibility.
+database location/name, project ID, repository root, and issue prefix. Initialization is non-stealth and commit-neutral:
+dstack initializes in isolated temporary Git state, moves local Dolt authority into the repository, exposes
+collaborative control files for its own checkpoint, and reconciles old stealth excludes without replacing data. A
+formula-only directory and global/shared fallback fail. Every Beads subprocess is pinned to the validated path;
+mutations check authority bytes before and after. Configure a Dolt remote and push issue history; fresh clones recover
+it with `bd bootstrap`. Beads import dry-run is nonmutating and reconciles every manifest ID against actual
+deterministic metadata, including completed phases. Apply uses bounded Dolt batch commits rather than one transaction
+per field or relationship. It begins with an explicit `APPLY STARTED` notice and reports existing, recovered, pending,
+conflicting, completed, remaining, and total features. Per-feature phases persist, but retries trust them only after
+real-record reconciliation. Status transitions use `bd update --status` for Beads 1.1 compatibility.
 
 Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git common
 directory, not the migration worktree basename, and derives the default branch from `origin/HEAD` before the checked-out
 primary worktree branch. A linked migration worktree without `origin/HEAD` requires an explicit default branch. Supply
 explicit project name, slug, and default branch when evidence is missing or incorrect. Run guarded
-`beads-authority --init`, then force-add only `.beads/formulas/dstack-feature.formula.toml`; keep the embedded database
-and local runtime configuration untracked.
+`beads-authority --init`, then force-add exactly `.beads/.gitignore`, `.beads/README.md`, `.beads/config.yaml`,
+`.beads/interactions.jsonl`, `.beads/metadata.json`, and `.beads/formulas/dstack-feature.formula.toml`. Keep embedded
+Dolt storage, credentials, locks, sockets, and other runtime state ignored.
 
 `prepare --apply` regenerates implemented-feature navigation from standalone completed records.
 `draft-delivered-records --apply` can create historical record candidates from legacy tasks, design paths, and imported

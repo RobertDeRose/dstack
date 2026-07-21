@@ -85,14 +85,15 @@ If `bd` exists, initialize and verify it through the guarded authority command, 
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
 bd formula show dstack-feature --json
 bd prime
-git add -f .beads/formulas/dstack-feature.formula.toml
+git add -f .beads/.gitignore .beads/README.md .beads/config.yaml \
+  .beads/interactions.jsonl .beads/metadata.json .beads/formulas/dstack-feature.formula.toml
 git diff --cached --quiet || git commit -m "chore: initialize Beads workflow state"
 test -z "$(git status --porcelain)"
 ```
 
-Formula-only, failed initialization, global/shared/redirected state, and mismatched database path/name, project ID,
-repository root, or issue prefix are fatal. Never continue through `/tmp`-patched tooling. Missing/incompatible `bd`
-stops before Gate 5. See **Beads authority** and **Template source and revision**.
+The guard isolates `bd` from the checkpoint commit and reconciles old stealth authority without replacing its database.
+Formula-only, failed, global/shared/redirected, mismatched, or `/tmp`-patched authority is fatal. After import,
+configure the approved Dolt remote and run `bd dolt push`; fresh clones use `bd bootstrap`. See **Beads authority**.
 
 ## Gate 3: Scan, decide, and checkpoint
 

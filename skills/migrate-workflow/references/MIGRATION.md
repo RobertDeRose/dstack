@@ -316,7 +316,8 @@ Initialize Beads only after adoption is committed:
 
 ```bash
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
-git add -f .beads/formulas/dstack-feature.formula.toml
+git add -f .beads/.gitignore .beads/README.md .beads/config.yaml \
+  .beads/interactions.jsonl .beads/metadata.json .beads/formulas/dstack-feature.formula.toml
 bd formula show dstack-feature --json
 ```
 
@@ -330,10 +331,19 @@ repository's state is fatal. Every later `bd` subprocess receives the validated 
 commands compare metadata/config digests immediately before and after execution. Dry-run and verification never
 normalize or write those files.
 
-Any nonzero `bd init` result stops the migration before discovery or mutation. Never continue because a database exists
-somewhere else, never repair by copying or patching the importer under `/tmp`, and never use an alternate `--db` path to
-make verification pass. Stealth mode keeps embedded runtime configuration untracked; commit only the durable project
-formula unless repository policy names another portable Beads file.
+Any nonzero `bd init` result stops the migration before discovery or mutation. The guard runs non-stealth initialization
+inside an isolated temporary Git repository so `bd` cannot create the migration checkpoint or trigger/bypass project
+hooks. It moves the resulting local Dolt authority into the primary repository, removes only the broad legacy stealth
+exclude, and exposes the expected control files plus formula for the workflow-owned Gate 2 commit. Stage those exact
+files with `git add -f` so a user-global stealth ignore cannot hide them; never force-add runtime or database paths.
+Publication uses a durable sibling journal and complete staged authority; an interrupted swap rolls back before retry.
+Existing initialized stealth repositories are reconciled by the same `beads-authority --init` command without recreating
+their database. Never continue because a database exists elsewhere, patch an importer under `/tmp`, or use an alternate
+`--db` to pass.
+
+The ordinary branch commit carries collaborative control files, not the embedded database. Live issue history remains
+Dolt history: configure a Dolt remote and run `bd dolt push`; fresh clones recover it with `bd bootstrap`. JSONL export
+is interchange, not authoritative backup or synchronization.
 
 ## Task parser coverage
 

@@ -407,6 +407,9 @@ def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
         "with log.open('a', encoding='utf-8') as stream:\n"
         "    stream.write(' '.join(sys.argv[1:]) + '\\n')\n"
         "args = sys.argv[1:]\n"
+        "def flag(name, default=''):\n"
+        "    try: return args[args.index(name) + 1]\n"
+        "    except (ValueError, IndexError): return default\n"
         "if args == ['--version']:\n"
         "    print('bd fake-1.0.0')\n"
         "elif args[:2] == ['info', '--json']:\n"
@@ -421,8 +424,34 @@ def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
         "elif args and args[0] == 'init':\n"
         "    beads = Path.cwd() / '.beads'\n"
         "    beads.mkdir(exist_ok=True)\n"
-        "    (beads / 'metadata.json').write_text('{}\\n', encoding='utf-8')\n"
+        "    prefix = flag('--prefix', Path.cwd().name)\n"
+        "    metadata = {'backend': 'dolt', 'dolt_mode': 'embedded',\n"
+        "                'dolt_database': prefix.replace('-', '_'), 'project_id': 'fake-project-id'}\n"
+        "    (beads / 'metadata.json').write_text(json.dumps(metadata) + '\\n', encoding='utf-8')\n"
         "    (beads / 'config.yaml').write_text('mode: fake\\n', encoding='utf-8')\n"
+        "    (beads / '.gitignore').write_text('embeddeddolt/\\n.local_version\\n', encoding='utf-8')\n"
+        "    (beads / 'README.md').write_text('# Beads\\n', encoding='utf-8')\n"
+        "    (beads / 'interactions.jsonl').write_text('', encoding='utf-8')\n"
+        "    if os.environ.get('DSTACK_BD_UNEXPECTED') == '1':\n"
+        "        (beads / 'credential.txt').write_text('must not publish', encoding='utf-8')\n"
+        "    if os.environ.get('DSTACK_BD_AUTO_COMMIT') == '1':\n"
+        "        import subprocess\n"
+        "        subprocess.run(['git', 'init', '-q'], check=True)\n"
+        "        subprocess.run(['git', 'add', '.beads'], check=True)\n"
+        "        subprocess.run(['git', '-c', 'user.name=bd test', '-c', 'user.email=bd@test',\n"
+        "                        'commit', '-m', 'chore: initialize beads'], check=True, capture_output=True)\n"
+        "elif args[:2] == ['context', '--json']:\n"
+        "    root = Path.cwd()\n"
+        "    metadata = json.loads((root / '.beads/metadata.json').read_text())\n"
+        "    repo_root = root.parent if os.environ.get('DSTACK_BD_BAD_AUTHORITY') else root\n"
+        "    print(json.dumps({'beads_dir': str(root / '.beads'), 'repo_root': str(repo_root),\n"
+        "          'database': metadata['dolt_database'], 'project_id': metadata['project_id'],\n"
+        "          'dolt_mode': 'embedded', 'is_redirected': False}))\n"
+        "elif args[:2] == ['where', '--json']:\n"
+        "    root = Path.cwd()\n"
+        "    metadata = json.loads((root / '.beads/metadata.json').read_text())\n"
+        "    print(json.dumps({'path': str(root / '.beads'), 'database_path': str(root / '.beads/embeddeddolt'),\n"
+        "          'prefix': metadata['dolt_database'].replace('_', '-')}))\n"
         "elif args and args[0] == 'list' and '--json' in args:\n"
         "    print(os.environ.get('DSTACK_BD_FEATURES', '[]'))\n"
         "elif args and args[0] == 'ready' and '--json' in args:\n"
@@ -540,7 +569,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "overwrite=False" in setup_script
     assert "unsafe=False" in setup_script
     assert "Beads initialization and verification remain outstanding" in setup_script
-    assert 'default="stealth"' in setup_script
+    assert 'default="default"' in setup_script
+    assert 'command.append("--stealth")' not in setup_script
     assert "git commit -F <file>" in setup
     assert "git merge --ff-only" in setup
     for agents_path in (
@@ -4529,7 +4559,6 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
             str(repository_root / "skills/setup-project/scripts/setup-project.py"),
             "--destination",
             str(project),
-            "--no-git-init",
             "--template-source",
             str(tagged_template_source),
             *SETUP_BRIEF_ARGS,
@@ -4539,6 +4568,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
         env=merged_environment(
             PATH=f"{fake_bin}:{os.environ['PATH']}",
             DSTACK_BD_LOG=str(bd_log),
+            DSTACK_BD_AUTO_COMMIT="1",
         ),
     )
     payload = json.loads(result.stdout)
@@ -4546,14 +4576,139 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     assert payload["post_setup_ran"] is True
     assert payload["docs_validated"] is True
     assert payload["beads_initialized"] is True
-    assert payload["tooling"]["hooks"]["status"] == "skipped-no-git"
-    assert payload["outstanding"] == [f"Tooling recovery: {TOOLING_RERUN}"]
+    assert payload["git_initialized"] is True
+    run_command(["git", "rev-parse", "--verify", "HEAD"], cwd=project, expected=128)
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "--version" in commands
-    assert "init --skip-agents --stealth --quiet" in commands
+    assert any(
+        command.startswith("init --non-interactive --skip-agents --skip-hooks --prefix ")
+        and command.endswith(" --quiet")
+        for command in commands
+    )
     assert "formula show dstack-feature --json" in commands
+    status = run_command(["git", "ls-files", "--others", "--exclude-standard"], cwd=project).stdout
+    for relative in (
+        ".beads/.gitignore",
+        ".beads/README.md",
+        ".beads/config.yaml",
+        ".beads/interactions.jsonl",
+        ".beads/metadata.json",
+        ".beads/formulas/dstack-feature.formula.toml",
+    ):
+        assert relative in status
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (project / relative).exists(), relative
+
+
+@pytest.mark.integration
+def test_setup_without_git_reports_collaborative_beads_outstanding(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "no-git-project"
+    fake_bin = tmp_path / "bin-no-git"
+    bd_log = tmp_path / "bd-no-git.log"
+    write_fake_bd(fake_bin, bd_log)
+    write_fake_mise(fake_bin)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--no-git-init",
+            "--template-source",
+            str(tagged_template_source),
+            *SETUP_BRIEF_ARGS,
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=merged_environment(PATH=f"{fake_bin}:{os.environ['PATH']}", DSTACK_BD_LOG=str(bd_log)),
+    )
+    payload = json.loads(result.stdout)
+    assert payload["git_initialized"] is False
+    assert payload["beads_initialized"] is False
+    assert "Beads initialization requires a project-local Git repository" in payload["outstanding"]
+    assert not (project / ".git").exists()
+    assert not any(line.startswith("init ") for line in bd_log.read_text(encoding="utf-8").splitlines())
+
+
+@pytest.mark.integration
+def test_setup_rejects_unexpected_bd_state_before_publication(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "unexpected-beads-project"
+    fake_bin = tmp_path / "bin-unexpected"
+    bd_log = tmp_path / "bd-unexpected.log"
+    write_fake_bd(fake_bin, bd_log)
+    write_fake_mise(fake_bin)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            *SETUP_BRIEF_ARGS,
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=merged_environment(
+            PATH=f"{fake_bin}:{os.environ['PATH']}",
+            DSTACK_BD_LOG=str(bd_log),
+            DSTACK_BD_UNEXPECTED="1",
+        ),
+        expected=1,
+    )
+    assert "unsupported Beads entries" in result.stderr
+    beads_entries = sorted(path.relative_to(project / ".beads").as_posix() for path in (project / ".beads").rglob("*"))
+    assert beads_entries == ["formulas", "formulas/dstack-feature.formula.toml"]
+
+
+@pytest.mark.integration
+def test_setup_validates_authority_before_editor_integration(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "bad-authority-project"
+    fake_bin = tmp_path / "bin-bad-authority"
+    bd_log = tmp_path / "bd-bad-authority.log"
+    write_fake_bd(fake_bin, bd_log)
+    write_fake_mise(fake_bin)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--setup",
+            "claude",
+            *SETUP_BRIEF_ARGS,
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=merged_environment(
+            PATH=f"{fake_bin}:{os.environ['PATH']}",
+            DSTACK_BD_LOG=str(bd_log),
+            DSTACK_BD_BAD_AUTHORITY="1",
+        ),
+        expected=1,
+    )
+    assert "authority validation failed" in result.stderr
+    commands = bd_log.read_text(encoding="utf-8").splitlines()
+    assert "setup claude" not in commands
+    beads_entries = sorted(path.relative_to(project / ".beads").as_posix() for path in (project / ".beads").rglob("*"))
+    assert beads_entries == ["formulas", "formulas/dstack-feature.formula.toml"]
 
 
 def test_release_commits_are_omitted_from_cocogitto_changelogs(repository_root: Path) -> None:

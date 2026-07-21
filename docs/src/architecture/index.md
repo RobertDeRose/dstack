@@ -55,14 +55,15 @@ project-local provisioner may install locked tools and hooks, and ordinary Git c
 Migration distinguishes the active worktree path from canonical repository identity. Explicit recorded answers win;
 otherwise the primary Git common directory supplies the project name and slug, and `refs/remotes/origin/HEAD` supplies
 the default branch; only a primary worktree may use its current branch as evidence. A suffixed migration-worktree
-basename is never adopted as project identity. Stealth Beads runtime state remains local; database path/name, project
-ID, repository root, and issue prefix must all match that repository before import or verification. The portable project
-formula is the durable tracked policy. Large imports derive and reconcile the complete deterministic
-issue/status/parent/relationship set before trusting phase state and rejects unexpected migrated records, then uses
-bounded Dolt batch commits per feature state and relationship phase. The manifest remains a recovery cursor, never
-independent proof that records exist. Finalization is a journaled staging transaction that seals archive digests and
-parsed task identity; finalized verification compares the exact recursive archive and current feature/design/task
-inventory with that sealed record.
+basename is never adopted as project identity. Beads initialization is collaborative and non-stealth: expected control
+files and the formula enter the workflow-owned branch commit, while the embedded database remains local Dolt storage.
+Database path/name, project ID, repository root, and issue prefix must match before import or verification. Cross-clone
+issue history uses a Dolt remote (`bd dolt push`/`bd bootstrap`), not committed database files or JSONL. Large imports
+derive and reconcile the complete deterministic issue/status/parent/relationship set before trusting phase state and
+rejects unexpected migrated records, then uses bounded Dolt batch commits per feature state and relationship phase. The
+manifest remains a recovery cursor, never independent proof that records exist. Finalization is a journaled staging
+transaction that seals archive digests and parsed task identity; finalized verification compares the exact recursive
+archive and current feature/design/task inventory with that sealed record.
 
 ## Safety invariants
 
