@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.2 — 2026-07-20
+
+### Fixed
+
+- **workflow:** Harden migration authority and recovery (`0776ff7`)
+
+- - -
+
 ## v0.5.1 — 2026-07-19
 
 ### Fixed
