@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.3 — 2026-07-21
+
+### Fixed
+
+- **workflow:** Initialize collaborative Beads state (`7d62e20`)
+
+- - -
+
 ## v0.5.2 — 2026-07-20
 
 ### Fixed

@@ -2,7 +2,7 @@
 name: implement-feature
 description: Implement or continue the next ready task in a reviewed Beads feature while keeping code, tests, documentation, evidence, and commits aligned. Use when asked to implement feature work after `start-feature` closes `spec-reconcile`.
 metadata:
-  version: "0.5.2"
+  version: "0.5.3"
 allowed-tools: Read Glob Grep Edit Write Bash Task AskUserQuestion
 ---
 
