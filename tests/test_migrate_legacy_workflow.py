@@ -306,14 +306,22 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
                 issue_id = f"bd-test{value:05d}"
                 metadata_raw = flag("--metadata", "{}")
                 labels_raw = flag("--labels")
+                parent_id = flag("--parent")
+                labels = [value for value in labels_raw.split(",") if value]
+                if os.environ.get("FAKE_BD_INHERIT_PARENT_LABELS") == "1" and parent_id in issues:
+                    labels.extend(issues[parent_id].get("labels", []))
+                fail_after = int(os.environ.get("FAKE_BD_FAIL_CREATE_AFTER", "0"))
+                if fail_after and value > fail_after:
+                    print("injected create interruption", file=sys.stderr)
+                    raise SystemExit(1)
                 issues[issue_id] = {
                     "id": issue_id,
                     "title": args[1],
                     "type": flag("--type", "task"),
                     "status": flag("--status", "open"),
-                    "parent": flag("--parent"),
+                    "parent": parent_id,
                     "dependencies": {},
-                    "labels": [value for value in labels_raw.split(",") if value],
+                    "labels": sorted(set(labels)),
                     "metadata": json.loads(metadata_raw),
                 }
                 save()
@@ -540,7 +548,7 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     assert [command for command in after_retry if is_mutation(command)] == [
         command for command in before_retry if is_mutation(command)
     ]
-    assert "already completed; skipping mutations" in retry.stdout
+    assert "bounded partition of 0 feature(s)" in retry.stdout
     assert {slug: feature["beads"] for slug, feature in features_by_slug(legacy_project).items()} == imported_identities
 
     commands = after_retry
@@ -1698,6 +1706,61 @@ def test_selective_import_does_not_mark_global_completion(
 
 
 @pytest.mark.integration
+def test_interrupted_import_recovers_native_inherited_labels_without_duplicates(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    inherited_env = {**env, "FAKE_BD_INHERIT_PARENT_LABELS": "1", "FAKE_BD_FAIL_CREATE_AFTER": "8"}
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=inherited_env, expected=2)
+    interrupted_count = len(json.loads((state_dir / "issues.json").read_text(encoding="utf-8")))
+
+    resumed = run_migrator(
+        legacy_project,
+        "import-beads",
+        "--apply",
+        "--batch-size",
+        "2",
+        env={**env, "FAKE_BD_INHERIT_PARENT_LABELS": "1"},
+    )
+
+    issues = json.loads((state_dir / "issues.json").read_text(encoding="utf-8"))
+    keys = [issue["metadata"].get("migration_key") for issue in issues.values()]
+    assert interrupted_count > 0
+    assert len([key for key in keys if key]) == len(set(key for key in keys if key))
+    assert all(feature["beads"]["import_phase"] == "completed" for feature in features_by_slug(legacy_project).values())
+    assert "remaining: 0" in resumed.stdout
+
+
+@pytest.mark.integration
+def test_default_import_apply_mutates_only_two_new_features_per_pass(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    gamma = legacy_project / "docs/src/features/gamma"
+    gamma.mkdir()
+    (gamma / "design.md").write_text("# Gamma\n", encoding="utf-8")
+    (gamma / "tasks.md").write_text("# Tasks\n\n- [ ] `T010` Implement gamma\n", encoding="utf-8")
+    roadmap = legacy_project / "docs/src/planned-features.md"
+    roadmap.write_text(
+        roadmap.read_text(encoding="utf-8") + "\n### `gamma`\n\n- Status: Planned\n- Dependencies: None\n",
+        encoding="utf-8",
+    )
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+
+    first = run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    features = features_by_slug(legacy_project)
+
+    assert sum(bool(feature["beads"].get("root_id")) for feature in features.values()) == 2
+    assert "bounded partition of 2" in first.stdout
+    assert "remaining: 1" in first.stdout
+
+
+@pytest.mark.integration
 def test_large_import_uses_bounded_batches_and_proportional_retry(
     legacy_project: Path,
     fake_bd_environment: tuple[dict[str, str], Path],
@@ -1721,7 +1784,7 @@ def test_large_import_uses_bounded_batches_and_proportional_retry(
     run_migrator(legacy_project, "scan", "--write")
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     started = time.monotonic()
-    imported = run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    imported = run_migrator(legacy_project, "import-beads", "--apply", "--batch-size", "14", env=env)
     elapsed = time.monotonic() - started
 
     issues = json.loads((state_dir / "issues.json").read_text(encoding="utf-8"))
@@ -2109,6 +2172,7 @@ def test_real_bd_initialization_is_local_collaborative_and_commit_neutral(tmp_pa
     assert context["beads_dir"] == str(tmp_path / ".beads")
     assert context["repo_root"] == str(tmp_path)
     assert context["is_redirected"] is False
+    assert (tmp_path / ".beads/README.md").read_text(encoding="utf-8").startswith("<!-- rumdl-disable -->\n\n")
     untracked = run_command(["git", "ls-files", "--others", "--exclude-standard"], cwd=tmp_path).stdout
     for relative in (
         ".beads/.gitignore",
@@ -2121,7 +2185,28 @@ def test_real_bd_initialization_is_local_collaborative_and_commit_neutral(tmp_pa
 
 
 @pytest.mark.integration
-def test_linked_worktree_uses_primary_database_and_matching_branch_controls(tmp_path: Path) -> None:
+def test_real_bd_import_recovery_accepts_native_parent_label_inheritance(tmp_path: Path) -> None:
+    if shutil.which("bd") is None:
+        pytest.skip("bd is not installed")
+    create_legacy_project(tmp_path)
+    run_migrator(tmp_path, "scan", "--write")
+    run_migrator(tmp_path, "prepare", "--apply", "--allow-dirty")
+    run_migrator(tmp_path, "beads-authority", "--init")
+    run_migrator(tmp_path, "import-beads", "--feature", "alpha", "--apply")
+    manifest_path = tmp_path / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    alpha = next(feature for feature in manifest["features"] if feature["slug"] == "alpha")
+    alpha["beads"] = {}
+    manifest["beads_import_completed_at"] = None
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    recovered = run_migrator(tmp_path, "import-beads", "--feature", "alpha")
+
+    assert "recovered: 1" in recovered.stdout
+
+
+@pytest.mark.integration
+def test_linked_worktree_tolerates_mutable_interactions_and_hides_primary_mirror(tmp_path: Path) -> None:
     if shutil.which("bd") is None:
         pytest.skip("bd is not installed")
     primary = tmp_path / "primary-project"
@@ -2157,8 +2242,29 @@ def test_linked_worktree_uses_primary_database_and_matching_branch_controls(tmp_
     assert context["beads_dir"] == str(primary / ".beads")
     assert (primary / ".beads/embeddeddolt").is_dir()
     assert not (linked / ".beads/embeddeddolt").exists()
-    for name in (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json"):
+    for name in (".gitignore", "README.md", "config.yaml", "metadata.json"):
         assert (primary / ".beads" / name).read_bytes() == (linked / ".beads" / name).read_bytes()
+    (primary / ".beads/interactions.jsonl").write_text('{"event":"native mutation"}\n', encoding="utf-8")
+    run_command(
+        [sys.executable, str(MIGRATOR), "beads-authority", "--root", str(linked)],
+        cwd=linked,
+    )
+    assert run_command(["git", "status", "--porcelain"], cwd=primary).stdout == ""
+
+    interactions = linked / ".beads/interactions.jsonl"
+    outside = tmp_path / "outside-interactions.jsonl"
+    outside.write_text("protected\n", encoding="utf-8")
+    interactions.unlink()
+    interactions.symlink_to(outside)
+    symlink_refused = run_command(
+        [sys.executable, str(MIGRATOR), "beads-authority", "--root", str(linked)],
+        cwd=linked,
+        expected=2,
+    )
+    assert "must not be a symlink" in symlink_refused.stderr
+    assert outside.read_text(encoding="utf-8") == "protected\n"
+    interactions.unlink()
+    interactions.write_text("", encoding="utf-8")
 
     (linked / ".beads/metadata.json").write_text("{}\n", encoding="utf-8")
     drift = run_command(
@@ -2167,6 +2273,15 @@ def test_linked_worktree_uses_primary_database_and_matching_branch_controls(tmp_
         expected=2,
     )
     assert "differs from primary authority" in drift.stderr
+
+
+@pytest.mark.integration
+def test_generated_migration_markdown_is_hook_safe_without_tables(legacy_project: Path) -> None:
+    run_migrator(legacy_project, "scan", "--write")
+    report = (legacy_project / "migration/workflow-migration.md").read_text(encoding="utf-8")
+    assert report.startswith("<!-- rumdl-disable MD013 -->\n\n")
+    assert "| Feature | Target |" not in report
+    assert "- **Feature:**" in report
 
 
 @pytest.mark.integration

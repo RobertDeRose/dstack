@@ -144,12 +144,12 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
 ```
 
-Dry-run and apply both prove Beads authority and reconcile every recorded manifest ID against actual deterministic
-migration metadata, including features marked completed. Missing recorded IDs are a blocking conflict; stale manifest
-phase fields never count as existing state. The importer must reuse deterministic identities, stop on true duplicates,
-validate both the blocking DAG and complete feature-root traversal graph, and refuse to treat `related` as a
-cycle-breaking relation. It creates issues first and applies status through the supported `bd update --status` command;
-never patch unsupported `bd create` flags. See **Beads import and recovery**. Commit manifest and roadmap changes.
+Apply mutates at most two incomplete features by default; repeat until `remaining: 0`. Use `--batch-size 1..14` for a
+reviewed bound or `--feature <slug>` for exact recovery. Both modes prove authority and reconcile recorded IDs,
+including completed features. Missing IDs and foreign labels are fatal; only exact native parent-label inheritance is
+accepted. Reuse deterministic identities, stop on duplicates or any complete-graph cycle, and never treat `related` as a
+cycle-breaking relation. Apply status through supported `bd update --status`, not patched `bd create` flags. See
+**Beads import and recovery**, then commit manifest and roadmap changes.
 
 ## Gate 6: Reconcile and finalize
 

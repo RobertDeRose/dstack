@@ -88,3 +88,8 @@ of legacy archives remain intentionally unsupported.
 Implementation commits span `0de2faf` through `23f0a55`, with performance evidence in `a34574c` and design expansion in
 `7affc7c`. Every bounded task received isolated review; the implementation coordinator `dstack-mol-9zl` closed after all
 children passed focused and full validation.
+
+Post-delivery hardening under `dstack-98w` corrected native Beads parent-label inheritance, bounded each default import
+pass to two incomplete features, made interrupted fresh imports resume their exact identities, separated mutable
+`interactions.jsonl` synchronization from immutable linked-worktree authority checks, hid the primary authority mirror,
+and made generated migration/Beads Markdown safe under project hooks.

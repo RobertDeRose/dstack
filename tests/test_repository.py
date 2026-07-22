@@ -4596,6 +4596,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
         ".beads/formulas/dstack-feature.formula.toml",
     ):
         assert relative in status
+    assert (project / ".beads/README.md").read_text(encoding="utf-8").startswith("<!-- rumdl-disable -->\n\n")
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (project / relative).exists(), relative
 

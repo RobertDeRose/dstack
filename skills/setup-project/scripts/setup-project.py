@@ -600,6 +600,10 @@ def initialize_beads(destination: Path, args: argparse.Namespace, *, prefix: str
             if ignored.returncode != 0:
                 raise SystemExit(f"bd init runtime entry is not ignored: .beads/{name}")
 
+        readme = generated / "README.md"
+        readme_text = readme.read_text(encoding="utf-8")
+        if not readme_text.startswith("<!-- rumdl-disable -->"):
+            readme.write_text("<!-- rumdl-disable -->\n\n" + readme_text.lstrip(), encoding="utf-8")
         staged = transaction_root / "staged-beads"
         shutil.copytree(beads_dir, staged)
         for name in sorted(generated_names):
