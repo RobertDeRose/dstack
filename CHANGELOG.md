@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.4 — 2026-07-22
+
+### Fixed
+
+- **workflow:** Resume interrupted Beads imports (`b1b7c8e`)
+
+- - -
+
 ## v0.5.3 — 2026-07-21
 
 ### Fixed
