@@ -92,4 +92,6 @@ children passed focused and full validation.
 Post-delivery hardening under `dstack-98w` corrected native Beads parent-label inheritance, bounded each default import
 pass to two incomplete features, made interrupted fresh imports resume their exact identities, separated mutable
 `interactions.jsonl` synchronization from immutable linked-worktree authority checks, hid the primary authority mirror,
-and made generated migration/Beads Markdown safe under project hooks.
+and made generated migration/Beads Markdown safe under project hooks. A follow-up correction made every native
+formula/inherited label mandatory and added a dry-run-first additive repair for exact manifest-backed damage, preventing
+ad hoc label replacement from silently removing workflow semantics.

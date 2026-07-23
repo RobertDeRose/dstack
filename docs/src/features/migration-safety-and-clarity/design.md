@@ -318,10 +318,11 @@ Strict hook enforcement may uncover legacy defects earlier and lengthen migratio
 tradeoff. Pre-adoption readiness evidence supports attribution but cannot by itself prove whether every later failure
 was pre-existing. Transaction batching must preserve per-record recovery evidence; bounded phases and durable progress
 favor recoverability over one opaque all-or-nothing import. Production hardening bounds default apply passes to two
-incomplete features and recognizes only exact native parent-label inheritance when reconstructing interrupted state.
-Linked-worktree authority treats `interactions.jsonl` as mutable synchronized state while retaining byte-exact immutable
-controls and hiding the primary mirror from base-worktree status. Drafted historical records reduce repetition but may
-contain incorrect semantic inference, so human review remains mandatory.
+incomplete features and requires complete native formula/parent-label inheritance when reconstructing interrupted state.
+A separate preview/apply repair may add proven missing labels for exact identities but cannot replace labels or tolerate
+extras. Linked-worktree authority treats `interactions.jsonl` as mutable synchronized state while retaining byte-exact
+immutable controls and hiding the primary mirror from base-worktree status. Drafted historical records reduce repetition
+but may contain incorrect semantic inference, so human review remains mandatory.
 
 ## Rejected Alternatives
 

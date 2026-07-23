@@ -87,8 +87,9 @@ bounded Dolt commits rather than one transaction per field or relationship. Repe
 `--batch-size 1` or select `--feature <slug>` for narrow recovery. It begins with an explicit `APPLY STARTED` notice and
 reports existing, recovered, pending, conflicting, completed, remaining, and total features. Per-feature phases persist,
 but retries trust them only after real-record reconciliation. A terminated fresh import resumes its persisted
-identities; it is not a migration-session resume. Status transitions use `bd update --status` for Beads 1.1
-compatibility.
+identities; it is not a migration-session resume. Missing native workflow/formula labels stop import. Preview
+`repair-beads-labels`, review every ID/label, then use `--apply` for additive-only restoration; extras block before
+mutation, and an empty repair writes nothing. Status transitions use `bd update --status` for Beads 1.1 compatibility.
 
 Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git common
 directory, not the migration worktree basename, and derives the default branch from `origin/HEAD` before the checked-out
