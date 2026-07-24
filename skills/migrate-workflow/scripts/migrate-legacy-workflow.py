@@ -1868,8 +1868,22 @@ BD_BATCH_ACTIVE = False
 BD_AUTHORITY_DB: Path | None = None
 BD_AUTHORITY_SNAPSHOT: dict[str, Any] | None = None
 BEADS_CONTROL_NAMES = (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json")
-BEADS_IMMUTABLE_CONTROL_NAMES = (".gitignore", "README.md", "config.yaml", "metadata.json")
+BEADS_IDENTITY_CONTROL_NAMES = ("config.yaml", "metadata.json")
 BEADS_MUTABLE_CONTROL_NAMES = ("interactions.jsonl",)
+
+
+def beads_control_equivalent(name: str, active: Path, authority: Path) -> bool:
+    if name == "metadata.json":
+        try:
+            return json.loads(active.read_bytes()) == json.loads(authority.read_bytes())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
+    if name == "config.yaml":
+        try:
+            return active.read_text(encoding="utf-8").splitlines() == authority.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError:
+            return False
+    return True
 
 
 def bd_mutates(command: Sequence[str]) -> bool:
@@ -2029,9 +2043,11 @@ def validate_beads_authority(root: Path) -> dict[str, Any]:
                 problems.append(f"Linked-worktree Beads control {name!r} must not be a symlink")
             elif not active_path.is_file():
                 problems.append(f"Linked-worktree Beads control {name!r} is missing")
-            elif name in BEADS_IMMUTABLE_CONTROL_NAMES and active_path.read_bytes() != authority_path.read_bytes():
+            elif name in BEADS_IDENTITY_CONTROL_NAMES and not beads_control_equivalent(
+                name, active_path, authority_path
+            ):
                 problems.append(f"Linked-worktree Beads control {name!r} differs from primary authority")
-            elif name in BEADS_IMMUTABLE_CONTROL_NAMES:
+            elif name in BEADS_IDENTITY_CONTROL_NAMES:
                 tracking_controls[str(active_path)] = hashlib.sha256(active_path.read_bytes()).hexdigest()
 
     def same_path(value: Any, expected: Path) -> bool:
@@ -3350,9 +3366,9 @@ def expose_collaborative_beads_controls(root: Path, beads_dir: Path) -> None:
     if tracking_beads_dir.resolve() != beads_dir.resolve():
         conflicts: list[Path] = [
             tracking_beads_dir / name
-            for name in BEADS_IMMUTABLE_CONTROL_NAMES
+            for name in BEADS_IDENTITY_CONTROL_NAMES
             if (tracking_beads_dir / name).exists()
-            and (tracking_beads_dir / name).read_bytes() != (beads_dir / name).read_bytes()
+            and not beads_control_equivalent(name, tracking_beads_dir / name, beads_dir / name)
         ]
         if conflicts:
             msg = "Linked-worktree Beads controls conflict with repository authority: " + ", ".join(
@@ -3362,9 +3378,8 @@ def expose_collaborative_beads_controls(root: Path, beads_dir: Path) -> None:
         tracking_beads_dir.mkdir(parents=True, exist_ok=True)
         for name in control_names:
             target = tracking_beads_dir / name
-            if name in BEADS_MUTABLE_CONTROL_NAMES and target.exists():
-                continue
-            shutil.copy2(beads_dir / name, target)
+            if not target.exists():
+                shutil.copy2(beads_dir / name, target)
 
     exclude_path = Path(git_output(root, "rev-parse", "--git-path", "info/exclude"))
     if not exclude_path.is_absolute():

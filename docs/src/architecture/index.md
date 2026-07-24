@@ -64,8 +64,9 @@ rejects unexpected migrated records, then uses bounded Dolt batch commits for at
 default. Native parent-label inheritance is verified as a complete exact formula/ancestry set rather than treated as
 optional or mistaken for foreign lifecycle state. A separate dry-run-first repair derives missing labels from immutable
 manifest/formula identity and permits additive restoration only; replacement and unexpected labels remain fatal. Mutable
-`interactions.jsonl` may diverge while an import is interrupted; immutable linked-worktree controls remain
-byte-identical, and successful passes synchronize interactions without exposing the primary authority mirror as
+`interactions.jsonl` may diverge while an import is interrupted. Linked metadata must describe the same native identity
+and linked configuration must retain the same content, but formatting and non-authoritative documentation/ignore files
+are not security boundaries. Successful passes synchronize interactions without exposing the primary authority mirror as
 untracked base-worktree content. The manifest remains a recovery cursor, never independent proof that records exist.
 Finalization is a journaled staging transaction that seals archive digests and parsed task identity; finalized
 verification compares the exact recursive archive and current feature/design/task inventory with that sealed record.

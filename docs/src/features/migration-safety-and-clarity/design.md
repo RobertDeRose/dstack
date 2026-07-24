@@ -171,9 +171,11 @@ hook rather than ambient tooling.
 If strict final documentation is intentionally premature because legacy task files remain, the only supported targeted
 exception is explicit user-approved `HK_SKIP_STEPS=docs git commit ...` after
 `uv run scripts/check-docs.py --migration-mode` passes. The durable migration note records approval, reason, equivalent
-result, and residual risk; every other configured hook step still runs. Once finalization removes legacy inputs,
-ordinary commits run strict docs without that environment variable. A hook failure stops, names the hook/step, preserves
-the worktree, and gives a reproduction and recovery command. `HK_SKIP_HOOK` and broad bypass remain prohibited.
+result, and residual risk; every other configured hook step still runs. That one approval covers the bounded Gate 2–4
+checkpoint commits while migration-mode docs remain error-free, avoiding repeated decisions about the same temporary
+condition. Once finalization removes legacy inputs, ordinary commits run strict docs without that environment variable.
+A hook failure stops, names the hook/step, preserves the worktree, and gives a reproduction and recovery command.
+`HK_SKIP_HOOK` and broad bypass remain prohibited.
 
 ### Quality Requirements
 
@@ -320,9 +322,10 @@ was pre-existing. Transaction batching must preserve per-record recovery evidenc
 favor recoverability over one opaque all-or-nothing import. Production hardening bounds default apply passes to two
 incomplete features and requires complete native formula/parent-label inheritance when reconstructing interrupted state.
 A separate preview/apply repair may add proven missing labels for exact identities but cannot replace labels or tolerate
-extras. Linked-worktree authority treats `interactions.jsonl` as mutable synchronized state while retaining byte-exact
-immutable controls and hiding the primary mirror from base-worktree status. Drafted historical records reduce repetition
-but may contain incorrect semantic inference, so human review remains mandatory.
+extras. Linked-worktree authority treats `interactions.jsonl` as mutable synchronized state, compares metadata by native
+identity rather than serialization, and does not elevate README or ignore-file formatting into authority. The primary
+mirror remains hidden from base-worktree status. Drafted historical records reduce repetition but may contain incorrect
+semantic inference, so human review remains mandatory.
 
 ## Rejected Alternatives
 

@@ -216,9 +216,9 @@ adoption checkpoint.
 
 Use an ordinary `git commit` so configured hooks are authoritative. If it fails, preserve the worktree and report the
 named hook/step, the exact commit or `mise x -- hk run <hook>` reproduction, and corrective recovery. Never bypass all
-hooks. While live legacy tasks intentionally make strict docs premature, a single docs-step exception is allowed only
-after the user explicitly approves it and `uv run scripts/check-docs.py --migration-mode` passes. Stage a durable note
-through:
+hooks. While live legacy tasks intentionally make strict docs premature, one migration-scoped docs-step exception is
+allowed only after the user explicitly approves it and `uv run scripts/check-docs.py --migration-mode` passes. Stage a
+durable note through:
 
 ```bash
 checkpoint-evidence --hook pre-commit --status exception \
@@ -230,8 +230,11 @@ Before recording the exception, ask for and receive the exact standalone respons
 `--approved-step docs --approval 'APPROVE HK_SKIP_STEPS=docs'` to `checkpoint-evidence`; "OK", approval of another
 action, or agent-authored paraphrase fails validation. As with resume, the CLI audits but cannot authenticate the
 speaker, so the controlling harness must present and receive the exact human response. This records the approval,
-equivalent result, and residual risk. Stage the updated manifest, then set `HK_SKIP_STEPS=docs` only for that commit.
-Record ordinary passed/failed hook evidence without approval fields. Final checkpoints run strict docs normally.
+equivalent result, and residual risk. The committed approval may be reused without another prompt for later Gate 2–4
+checkpoint commits when the same command still reports zero errors; record each use and its current warning result. Set
+`HK_SKIP_STEPS=docs` only for the individual commit. A different skipped step, any migration-mode error, or use after
+Gate 4 requires a new decision. Record ordinary passed/failed hook evidence without approval fields. Final checkpoints
+run strict docs normally.
 
 ## Template source and revision
 
@@ -339,11 +342,12 @@ the transaction from the active migration branch's formula-only directory; this 
 layout. A linked migration keeps a repository-local `.beads/` exclude so the primary authority mirror does not dirty the
 base worktree; the explicit `git add -f` still stages only the allowlisted branch controls. `interactions.jsonl` is
 mutable native state: authority validation requires it on both sides but permits content drift and synchronizes the
-authority copy after a successful import pass. Immutable controls must remain byte-identical. Never force-add runtime or
-database paths. Publication uses a durable sibling journal and complete staged authority; an interrupted swap rolls back
-before retry. Existing initialized stealth repositories are reconciled by the same `beads-authority --init` command
-without recreating their database. Never continue because a database exists elsewhere, patch an importer under `/tmp`,
-or use an alternate `--db` to pass.
+authority copy after a successful import pass. Collaborative metadata must remain semantically identical and
+configuration content must agree; line endings, terminal newlines, JSON formatting, and non-authoritative README or
+ignore-file differences are not authority failures. Never force-add runtime or database paths. Publication uses a
+durable sibling journal and complete staged authority; an interrupted swap rolls back before retry. Existing initialized
+stealth repositories are reconciled by the same `beads-authority --init` command without recreating their database.
+Never continue because a database exists elsewhere, patch an importer under `/tmp`, or use an alternate `--db` to pass.
 
 The ordinary branch commit carries collaborative control files, not the embedded database. Live issue history remains
 Dolt history: configure a Dolt remote and run `bd dolt push`; fresh clones recover it with `bd bootstrap`. JSONL export

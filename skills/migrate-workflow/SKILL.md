@@ -27,6 +27,10 @@ Migration-specific authority:
 - Dry-run gates establish the mutation plan. Destructive collision resolution, deletion instead of archival, semantic
   classification unsupported by repository evidence, hook exceptions, and resume all require explicit user approval.
 
+Guard dangerous outcomes, not incidental mechanics. Hard stops protect authority, ownership, data, hook consent, bounded
+mutation, and semantic graph integrity. Formatting, equivalent serialization, hook fixes, sequencing, and retries are
+agent-guided work; resolve them and continue without inventing a user decision or foreign authority.
+
 ## Gate 0: Bind the exact migration session
 
 Before inspecting or switching to any existing migration branch/worktree, ask for the exact base branch and either
@@ -50,12 +54,9 @@ baseline checkpoint. Keep these boundaries:
    `HK_FIX=0 mise x -- hk run pre-commit migration/baseline.json migration/baseline.md`.
 4. After validation, stage the files, inspect `git diff --cached`, and run an ordinary verified commit separately.
 
-Never combine write, staging, and commit or bypass the whole hook. **Baseline resolution blocked** means revise
-partitions and rerun preview. Fix failed artifacts and rerun the exact-path hook, or discard only them with
-`rm migration/baseline.json migration/baseline.md`. After staging or commit failure, preserve and unstage the files with
-`git restore --staged migration/baseline.json migration/baseline.md` before retrying.
-
-Stop when hook evaluation needs review; never claim equivalence. See **Baseline interpretation** for full procedure.
+Never combine write, staging, and commit or bypass the whole hook. Revise unresolved partitions and rerun preview. Fix
+or discard only the generated artifacts; after a staged failure, unstage those exact paths before retrying. Stop when
+hook evaluation needs review; never claim equivalence. See **Baseline interpretation** for the full procedure.
 
 ## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
@@ -70,8 +71,9 @@ provisioning, Pkl evaluation, hook routing, and pre-commit plan. See **Artifact 
 **Verified migration checkpoints**.
 
 Validate migration-mode docs, format, stage, and use an ordinary verified commit. Only the exact user response
-`APPROVE HK_SKIP_STEPS=docs` authorizes that exception; record its approved step and phrase in checkpoint evidence.
-Acknowledgement or inferred consent is invalid. Never skip a whole hook:
+`APPROVE HK_SKIP_STEPS=docs` authorizes a docs-only exception. Record it once; that approval remains valid for the Gate
+2–4 migration checkpoints while migration-mode docs continue to report zero errors. Do not ask again for the same
+bounded exception. A different step, an error, or use after Gate 4 requires a new decision. Never skip a whole hook:
 
 ```bash
 git add -A
@@ -132,8 +134,6 @@ git add -A
 git diff --cached --quiet || git commit -m "chore: normalize legacy feature paths"
 test -z "$(git status --porcelain)"
 ```
-
-See **Preparing slug-only paths** for collision and rewrite behavior.
 
 ## Gate 5: Preflight and import Beads
 
