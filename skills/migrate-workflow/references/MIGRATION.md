@@ -334,14 +334,16 @@ normalize or write those files.
 Any nonzero `bd init` result stops the migration before discovery or mutation. The guard runs non-stealth initialization
 inside an isolated temporary Git repository so `bd` cannot create the migration checkpoint or trigger/bypass project
 hooks. It moves the resulting local Dolt authority into the primary repository and exposes the expected control files
-plus formula for the workflow-owned Gate 2 commit. A linked migration keeps a repository-local `.beads/` exclude so the
-primary authority mirror does not dirty the base worktree; the explicit `git add -f` still stages only the allowlisted
-branch controls. `interactions.jsonl` is mutable native state: authority validation requires it on both sides but
-permits content drift and synchronizes the authority copy after a successful import pass. Immutable controls must remain
-byte-identical. Never force-add runtime or database paths. Publication uses a durable sibling journal and complete
-staged authority; an interrupted swap rolls back before retry. Existing initialized stealth repositories are reconciled
-by the same `beads-authority --init` command without recreating their database. Never continue because a database exists
-elsewhere, patch an importer under `/tmp`, or use an alternate `--db` to pass.
+plus formula for the workflow-owned Gate 2 commit. If the primary checkout has no `.beads/` yet, it validates and seeds
+the transaction from the active migration branch's formula-only directory; this is the normal linked-worktree adoption
+layout. A linked migration keeps a repository-local `.beads/` exclude so the primary authority mirror does not dirty the
+base worktree; the explicit `git add -f` still stages only the allowlisted branch controls. `interactions.jsonl` is
+mutable native state: authority validation requires it on both sides but permits content drift and synchronizes the
+authority copy after a successful import pass. Immutable controls must remain byte-identical. Never force-add runtime or
+database paths. Publication uses a durable sibling journal and complete staged authority; an interrupted swap rolls back
+before retry. Existing initialized stealth repositories are reconciled by the same `beads-authority --init` command
+without recreating their database. Never continue because a database exists elsewhere, patch an importer under `/tmp`,
+or use an alternate `--db` to pass.
 
 The ordinary branch commit carries collaborative control files, not the embedded database. Live issue history remains
 Dolt history: configure a Dolt remote and run `bd dolt push`; fresh clones recover it with `bd bootstrap`. JSONL export

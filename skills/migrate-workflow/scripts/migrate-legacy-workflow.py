@@ -3192,25 +3192,38 @@ def recover_beads_publication(beads_dir: Path) -> None:
         return
     record = load_json(journal)
     state = str(record.get("state", "")) if isinstance(record, dict) else ""
+    authority_existed = record.get("authority_existed") if isinstance(record, dict) else None
     if state != "committed" and backup.exists():
         if beads_dir.exists():
             shutil.rmtree(beads_dir)
         backup.replace(beads_dir)
+    elif state != "committed" and authority_existed is False:
+        shutil.rmtree(beads_dir, ignore_errors=True)
     else:
         shutil.rmtree(backup, ignore_errors=True)
     shutil.rmtree(published, ignore_errors=True)
     journal.unlink()
 
 
-def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
-    recover_beads_publication(beads_dir)
+def formula_only_beads_source(root: Path, beads_dir: Path) -> Path:
+    source = beads_dir if beads_dir.exists() or beads_dir.is_symlink() else root / ".beads"
+    formula = source / "formulas/dstack-feature.formula.toml"
     if (
-        beads_dir.is_symlink()
-        or any(path.is_symlink() for path in beads_dir.rglob("*"))
-        or any(path.name != "formulas" for path in beads_dir.iterdir())
+        not source.is_dir()
+        or source.is_symlink()
+        or any(path.is_symlink() for path in source.rglob("*"))
+        or any(path.name != "formulas" for path in source.iterdir())
+        or not formula.is_file()
     ):
         msg = "Beads initialization requires a nonsymlinked formula-only .beads directory"
         raise MigrationError(msg)
+    return source
+
+
+def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
+    recover_beads_publication(beads_dir)
+    source_beads_dir = formula_only_beads_source(root, beads_dir)
+    authority_existed = beads_dir.exists()
     prefix = canonical_project_slug(root)
     command = [
         "bd",
@@ -3266,7 +3279,7 @@ def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
                 raise MigrationError(msg)
 
         staged = transaction_root / "staged-beads"
-        shutil.copytree(beads_dir, staged)
+        shutil.copytree(source_beads_dir, staged)
         readme = generated / "README.md"
         readme_text = readme.read_text(encoding="utf-8")
         if not readme_text.startswith("<!-- rumdl-disable -->"):
@@ -3292,11 +3305,15 @@ def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
         published = beads_dir.with_name(".beads.dstack-publish")
         journal = beads_dir.with_name(".beads.dstack-transaction.json")
         shutil.copytree(staged, published)
-        dump_json(journal, {"schema_version": 1, "state": "prepared"})
-        beads_dir.replace(backup)
-        dump_json(journal, {"schema_version": 1, "state": "backed_up"})
+        journal_record = {"schema_version": 2, "state": "prepared", "authority_existed": authority_existed}
+        dump_json(journal, journal_record)
+        if authority_existed:
+            beads_dir.replace(backup)
+            journal_record["state"] = "backed_up"
+            dump_json(journal, journal_record)
         published.replace(beads_dir)
-        dump_json(journal, {"schema_version": 1, "state": "published"})
+        journal_record["state"] = "published"
+        dump_json(journal, journal_record)
         try:
             expose_collaborative_beads_controls(root, beads_dir)
             validate_beads_authority(root)
@@ -3305,7 +3322,8 @@ def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
             BD_AUTHORITY_DB = None
             BD_AUTHORITY_SNAPSHOT = None
             shutil.rmtree(beads_dir, ignore_errors=True)
-            backup.replace(beads_dir)
+            if authority_existed:
+                backup.replace(beads_dir)
             shutil.rmtree(published, ignore_errors=True)
             journal.unlink(missing_ok=True)
             for name, content in tracking_before.items():
@@ -3316,8 +3334,9 @@ def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
                     path.write_bytes(content)
             exclude_path.write_bytes(original_exclude)
             raise
-        dump_json(journal, {"schema_version": 1, "state": "committed"})
-        shutil.rmtree(backup)
+        journal_record["state"] = "committed"
+        dump_json(journal, journal_record)
+        shutil.rmtree(backup, ignore_errors=True)
         journal.unlink()
 
 
