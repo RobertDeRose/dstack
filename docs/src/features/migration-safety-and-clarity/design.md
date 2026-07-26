@@ -132,9 +132,11 @@ for incomplete or conflicting records.
 
 Dry-run never starts apply. Apply prints an unmistakable start notice and continuously reports per-feature and aggregate
 counts for existing, recovered, pending, conflicting, completed, and remaining records. Root creation, state closure,
-and dependency reconciliation are independently resumable phases. Rescans retain global import timestamps, completion
-state, imported identities, and phase progress. Performance acceptance uses a large fixture representative of at least
-300 Beads records and proves retries perform work proportional to the remaining records rather than the total history.
+and dependency reconciliation are independently resumable phases. A roadmap-only planned or deferred feature without a
+design completes after its root state and relationships are durable; planned roots retain a note requiring
+`/plan-features` before activation. Rescans retain global import timestamps, completion state, imported identities, and
+phase progress. Performance acceptance uses a large fixture representative of at least 300 Beads records and proves
+retries perform work proportional to the remaining records rather than the total history.
 
 #### Canonical repository identity and adoption
 

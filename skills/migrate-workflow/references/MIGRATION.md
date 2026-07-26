@@ -394,7 +394,8 @@ The slug is immutable identity and the human title is reader-facing. The scanner
 as migration input and normalizes them to the canonical slug-only form.
 
 Roadmap-only `planned` or `deferred` entries legitimately may have no feature directory. Missing `design.md` or
-`tasks.md` evidence for those untouched features is not a migration conflict.
+`tasks.md` evidence for those untouched features is not a migration conflict. Import creates and completes only the
+feature root; a planned root records a note to run `/plan-features` before activation.
 
 ## Semantic decisions
 

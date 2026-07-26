@@ -69,8 +69,9 @@ a plan digest, and is nonmutating when no repair remains. Apply prints `APPLY ST
 `beads.import_phase` is `root-created`, `state`, `relationships`, or `completed`. `beads_import_started_at`,
 `beads_import_completed_at`, `beads_import_progress`, imported IDs, and feature phases survive rescans. Empty explicit
 task status uses checkbox fallback: `[ ]` is `open`, `[-]` is `in_progress`, and `[x]` is `closed`. A nonempty
-recognized explicit status takes precedence. Final `verify --beads` requires a configured native Git-origin remote and
-emits `Migration state: migration complete` or
+recognized explicit status takes precedence. Roadmap-only planned or deferred entries without a design import as a
+completed root-only record; planned roots direct future activation through `/plan-features`. Final `verify --beads`
+requires a configured native Git-origin remote and emits `Migration state: migration complete` or
 `Migration state: mechanical migration complete; semantic reconciliation pending` from live findings rather than the
 manifest's finalized flag.
 

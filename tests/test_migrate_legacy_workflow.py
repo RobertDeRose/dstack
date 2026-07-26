@@ -1722,6 +1722,38 @@ def test_selective_import_does_not_mark_global_completion(
 
 
 @pytest.mark.integration
+def test_roadmap_only_planned_feature_import_completes_once(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    shutil.rmtree(legacy_project / "docs/src/features/beta")
+    roadmap = legacy_project / "docs/src/planned-features.md"
+    roadmap.write_text(
+        roadmap.read_text(encoding="utf-8").replace("Status: Partially implemented", "Status: Planned"),
+        encoding="utf-8",
+    )
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+
+    first = run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    beta = features_by_slug(legacy_project)["beta"]
+    assert beta["has_design"] is False
+    assert beta["beads"]["state_applied"] is True
+    assert beta["beads"]["import_phase"] == "completed"
+    assert beta["beads"]["lifecycle"] == {}
+    assert beta["beads"]["implementation_tasks"] == {}
+    assert "remaining: 0" in first.stdout
+
+    commands_path = state_dir / "commands.jsonl"
+    commands = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
+    note_count = sum(command[:1] == ["update"] and "--notes" in command for command in commands)
+    run_migrator(legacy_project, "import-beads", "--feature", "beta", "--apply", env=env)
+    resumed_commands = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
+    assert sum(command[:1] == ["update"] and "--notes" in command for command in resumed_commands) == note_count
+
+
+@pytest.mark.integration
 def test_interrupted_import_recovers_native_inherited_labels_without_duplicates(
     legacy_project: Path,
     fake_bd_environment: tuple[dict[str, str], Path],
