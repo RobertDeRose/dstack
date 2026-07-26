@@ -143,10 +143,10 @@ values: the primary Git worktree/repository basename for identity and `refs/remo
 the branch. A migration worktree suffix is never accepted as canonical identity without confirmation. Missing or
 conflicting evidence triggers the contextual question contract before adoption.
 
-Guarded non-stealth Beads initialization keeps the embedded database as local Dolt storage without allowing `bd` to own
-the workflow checkpoint commit. Instructions name the collaborative control files and formula for the ordinary Gate 2
-commit, remove only a broad legacy stealth exclude, and never suggest committing the embedded database. Cross-clone
-issue history uses a configured Dolt remote and bootstrap.
+Native non-stealth Beads initialization runs from the primary checkout on the migration branch. It owns collaborative
+control creation, the initial commit, embedded Dolt placement, Git-origin synchronization, and shared-worktree
+discovery. Migration inspects and amends that commit through project hooks, never commits the embedded database, pushes
+Dolt history to Git special refs, and proves fresh-clone bootstrap.
 
 #### Migration-safe validation and delivered records
 
@@ -322,10 +322,9 @@ was pre-existing. Transaction batching must preserve per-record recovery evidenc
 favor recoverability over one opaque all-or-nothing import. Production hardening bounds default apply passes to two
 incomplete features and requires complete native formula/parent-label inheritance when reconstructing interrupted state.
 A separate preview/apply repair may add proven missing labels for exact identities but cannot replace labels or tolerate
-extras. Linked-worktree authority treats `interactions.jsonl` as mutable synchronized state, compares metadata by native
-identity rather than serialization, and does not elevate README or ignore-file formatting into authority. The primary
-mirror remains hidden from base-worktree status. Drafted historical records reduce repetition but may contain incorrect
-semantic inference, so human review remains mandatory.
+extras. Native Beads owns worktree authority and synchronization; migration validates effective identity without
+mirroring controls or pinning an alternate database path. Drafted historical records reduce repetition but may contain
+incorrect semantic inference, so human review remains mandatory.
 
 ## Rejected Alternatives
 

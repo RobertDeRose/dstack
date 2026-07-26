@@ -78,11 +78,10 @@ do not render when it reports an invalid, reserved, overlapping, case-colliding,
 - Recorded update source: `gh:RobertDeRose/dstack` unless `--template-source` is explicit.
 - Recorded baseline revision: the exact resolved commit SHA; stable results also report the selected release tag.
 - Default branch: `main`.
-- Beads: run guarded non-stealth initialization in an isolated temporary Git repository, move the resulting local Dolt
-  authority into the project, expose the collaborative control files for the workflow-owned first commit, and preserve
-  the tracked formula. Force-add only those enumerated control files for the workflow-owned first commit so global
-  ignore policy cannot hide them; never force-add runtime/database paths. If `bd` is unavailable, report initialization
-  as outstanding; never substitute `--stealth`.
+- Beads: run native non-stealth initialization in the project repository. Native Beads commits collaborative controls,
+  discovers Git origin, owns Dolt placement, and configures synchronization. Verify its exact commit paths, apply the
+  machine-authored README exclusion, and amend that commit through project hooks. If `bd` is unavailable, report
+  initialization as outstanding; never substitute `--stealth` or commit runtime/database paths.
 - Tooling: after rendering and optional Git initialization, resolve `mise.lock` for Linux/macOS x64/ARM64, install with
   `mise install --locked`, then install repository-local hk hooks separately. These steps require mise and network
   access.

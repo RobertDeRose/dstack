@@ -319,39 +319,30 @@ Initialize Beads only after adoption is committed:
 
 ```bash
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
-git add -f .beads/.gitignore .beads/README.md .beads/config.yaml \
-  .beads/interactions.jsonl .beads/metadata.json .beads/formulas/dstack-feature.formula.toml
 bd formula show dstack-feature --json
+bd dolt remote list
 ```
+
+Inspect the native initialization commit, add the machine-authored Markdown exclusion to `.beads/README.md`, stage only
+that fix, and amend the commit through normal project hooks as `chore: initialize Beads workflow state`.
 
 ## Beads authority
 
-The guard does not equate `.beads/formulas/` with initialization. It rejects symlinked authority, requires
-repository-local `metadata.json` and `config.yaml`, then compares `bd context --json` and `bd where --json` with the
-primary worktree, Copier `project_slug`, database name, project ID, embedded data path, and issue prefix. The active
-database must live below that repository's `.beads`; global (`~/.beads`), shared, redirected, wrong-prefix, or another
-repository's state is fatal. Every later `bd` subprocess receives the validated `.beads` path explicitly, and mutating
-commands compare metadata/config digests immediately before and after execution. Dry-run and verification never
-normalize or write those files.
+The guard does not equate `.beads/formulas/` with initialization. It rejects symlinked authority, requires native
+repository-local `metadata.json` and `config.yaml`, and compares `bd context --json` and `bd where --json` with Copier
+`project_slug`, database name, project ID, embedded data path, and issue prefix. Global (`~/.beads`), shared,
+redirected, wrong-prefix, or another repository's state is fatal. Later commands use native Beads discovery; dstack
+compares metadata/config digests immediately before and after mutations without injecting an alternate database path.
 
-Any nonzero `bd init` result stops the migration before discovery or mutation. The guard runs non-stealth initialization
-inside an isolated temporary Git repository so `bd` cannot create the migration checkpoint or trigger/bypass project
-hooks. It moves the resulting local Dolt authority into the primary repository and exposes the expected control files
-plus formula for the workflow-owned Gate 2 commit. If the primary checkout has no `.beads/` yet, it validates and seeds
-the transaction from the active migration branch's formula-only directory; this is the normal linked-worktree adoption
-layout. A linked migration keeps a repository-local `.beads/` exclude so the primary authority mirror does not dirty the
-base worktree; the explicit `git add -f` still stages only the allowlisted branch controls. `interactions.jsonl` is
-mutable native state: authority validation requires it on both sides but permits content drift and synchronizes the
-authority copy after a successful import pass. Collaborative metadata must remain semantically identical and
-configuration content must agree; line endings, terminal newlines, JSON formatting, and non-authoritative README or
-ignore-file differences are not authority failures. Never force-add runtime or database paths. Publication uses a
-durable sibling journal and complete staged authority; an interrupted swap rolls back before retry. Existing initialized
-stealth repositories are reconciled by the same `beads-authority --init` command without recreating their database.
-Never continue because a database exists elsewhere, patch an importer under `/tmp`, or use an alternate `--db` to pass.
+Any nonzero `bd init` result stops migration. An uninitialized migration must use the primary checkout on its dedicated
+branch because native initialization cannot commit branch controls from a linked worktree. Native `bd init` owns control
+creation, database placement, Git-origin detection, Dolt remote configuration, and shared-worktree discovery. Accept its
+initial commit only after its paths are inspected and it is amended through ordinary hooks. Never force-add runtime or
+database paths, patch an importer under `/tmp`, or use an alternate `--db` to pass.
 
-The ordinary branch commit carries collaborative control files, not the embedded database. Live issue history remains
-Dolt history: configure a Dolt remote and run `bd dolt push`; fresh clones recover it with `bd bootstrap`. JSONL export
-is interchange, not authoritative backup or synchronization.
+Collaborative controls are ordinary Git history. Live issues are Dolt history in the same Git origin's special refs: run
+`bd dolt push`, then prove a disposable fresh clone plans `bd bootstrap` from `refs/dolt/data`. JSONL export is
+interchange, not authoritative backup or synchronization.
 
 ## Task parser coverage
 
@@ -639,6 +630,7 @@ Use `--delete-tasks` only when deletion is deliberate and Git history is suffici
 Run:
 
 ```bash
+bd dolt push
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py verify --beads
 uv run scripts/check-docs.py
 bd dep cycles
@@ -646,9 +638,11 @@ bd blocked --json
 bd ready --json
 ```
 
-`verify --beads` validates both the manifest relationships and the actual imported feature-root graph. Keep
-`bd dep cycles` as a blocking/readiness diagnostic, but do not use it as the sole graph-safety check because it does not
-report mixed `blocks`/`related` traversal cycles.
+`verify --beads` validates manifest relationships, the actual imported graph, and a configured native Git-origin remote.
+It emits the authoritative `Migration state:` line; quote it unchanged. Before claiming complete, push Dolt history and
+prove `bd bootstrap --dry-run --json` in a disposable fresh clone selects `refs/dolt/data`. Keep `bd dep cycles` as a
+diagnostic, but do not use it as the sole graph-safety check because it does not report mixed `blocks`/`related`
+traversal cycles.
 
 Run repository-native formatting, linting, documentation build, tests, and feature-specific checks. If no tests exist,
 record that limitation instead of treating pytest exit code 5 as a failed suite. After any fix, rerun every affected

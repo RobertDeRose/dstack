@@ -95,5 +95,6 @@ pass to two incomplete features, made interrupted fresh imports resume their exa
 and made generated migration/Beads Markdown safe under project hooks. A follow-up correction made every native
 formula/inherited label mandatory and added a dry-run-first additive repair for exact manifest-backed damage, preventing
 ad hoc label replacement from silently removing workflow semantics. Later simplification retained repository ownership
-and graph-integrity boundaries while replacing serialized control equality with semantic identity and making one
-explicit docs exception cover the bounded mechanical checkpoints.
+and graph-integrity boundaries while making one explicit docs exception cover the bounded mechanical checkpoints. A
+subsequent deletion-oriented correction removed temporary Git initialization, database publication, control mirroring,
+and database-path injection in favor of native Beads initialization, worktree discovery, Git-origin refs, and bootstrap.

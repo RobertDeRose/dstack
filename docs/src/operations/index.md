@@ -77,34 +77,27 @@ equivalent evidence, and risk are recorded. The exact response `APPROVE HK_SKIP_
 insufficient, a different exception needs a new decision, and whole-hook bypass is never allowed.
 
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
-database location/name, project ID, repository root, and issue prefix. Initialization is non-stealth and commit-neutral:
-dstack initializes in isolated temporary Git state, moves local Dolt authority into the repository, exposes
-collaborative control files for its own checkpoint, and reconciles old stealth excludes without replacing data. For a
-linked adoption whose primary checkout has no `.beads/`, the active branch's validated formula-only directory seeds the
-transaction. Formula-only state remains uninitialized, and global/shared fallback fails. Every Beads subprocess is
-pinned to the validated path; mutations preserve authority identity before and after. Linked metadata is compared as
-JSON identity and configuration as normalized text, so hook formatting is not mistaken for foreign authority. Configure
-a Dolt remote and push issue history; fresh clones recover it with `bd bootstrap`. Beads import dry-run is nonmutating
-and reconciles every manifest ID against actual deterministic metadata, including completed phases. Apply handles at
-most two incomplete features by default and uses bounded Dolt commits rather than one transaction per field or
-relationship. Repeat it until `remaining: 0`; reduce to `--batch-size 1` or select `--feature <slug>` for narrow
-recovery. It begins with an explicit `APPLY STARTED` notice and reports existing, recovered, pending, conflicting,
-completed, remaining, and total features. Per-feature phases persist, but retries trust them only after real-record
-reconciliation. A terminated fresh import resumes its persisted identities; it is not a migration-session resume.
-Missing native workflow/formula labels stop import. Preview `repair-beads-labels`, review every ID/label, then use
-`--apply` for additive-only restoration; extras block before mutation, and an empty repair writes nothing. Status
-transitions use `bd update --status` for Beads 1.1 compatibility.
+database location/name, project ID, repository root, and issue prefix. Uninitialized migrations use the primary checkout
+on the dedicated migration branch. Native `bd init` commits collaborative controls, discovers Git origin, configures
+Dolt synchronization, and establishes worktree sharing; dstack inspects that commit and amends it through project hooks.
+Formula-only state remains uninitialized, and global/shared fallback fails. Subsequent commands use native repository
+discovery while dstack checks authority identity before and after mutations. Push issue history with `bd dolt push`;
+fresh clones recover it with `bd bootstrap`. Beads import dry-run is nonmutating and reconciles every manifest ID
+against actual deterministic metadata, including completed phases. Apply handles at most two incomplete features by
+default and uses bounded Dolt commits rather than one transaction per field or relationship. Repeat it until
+`remaining: 0`; reduce to `--batch-size 1` or select `--feature <slug>` for narrow recovery. It begins with an explicit
+`APPLY STARTED` notice and reports existing, recovered, pending, conflicting, completed, remaining, and total features.
+Per-feature phases persist, but retries trust them only after real-record reconciliation. A terminated fresh import
+resumes its persisted identities; it is not a migration-session resume. Missing native workflow/formula labels stop
+import. Preview `repair-beads-labels`, review every ID/label, then use `--apply` for additive-only restoration; extras
+block before mutation, and an empty repair writes nothing. Status transitions use `bd update --status` for Beads 1.1
+compatibility.
 
-Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git common
-directory, not the migration worktree basename, and derives the default branch from `origin/HEAD` before the checked-out
-primary worktree branch. A linked migration worktree without `origin/HEAD` requires an explicit default branch. Supply
-explicit project name, slug, and default branch when evidence is missing or incorrect. Run guarded
-`beads-authority --init`, then force-add exactly `.beads/.gitignore`, `.beads/README.md`, `.beads/config.yaml`,
-`.beads/interactions.jsonl`, `.beads/metadata.json`, and `.beads/formulas/dstack-feature.formula.toml`. In linked
-worktrees, immutable controls must match the primary authority; `interactions.jsonl` is mutable and is synchronized
-after a successful import pass. The repository-local common exclude hides the untracked primary mirror while
-`git add -f` stages the branch allowlist. Keep embedded Dolt storage, credentials, locks, sockets, and other runtime
-state ignored.
+Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git checkout
+and the default branch from `origin/HEAD`. Supply explicit project name, slug, and default branch when evidence is
+missing or incorrect. Run `beads-authority --init`, inspect the native Beads commit, apply the README formatting
+exclusion, and amend it through ordinary hooks. Keep embedded Dolt storage, credentials, locks, sockets, and other
+runtime state ignored. Once initialization is committed, native Beads shares the authority with linked worktrees.
 
 `prepare --apply` regenerates implemented-feature navigation from standalone completed records.
 `draft-delivered-records --apply` can create historical record candidates from legacy tasks, design paths, and imported
@@ -116,7 +109,8 @@ invalid. Finalization derives and verifies the exact live Beads graph, including
 rejects artifact-path collisions, preflights all archive paths, stages and journals every move, rolls back validation
 failure, seals archive digests/task identities, and persists state before deletion. A leftover journal requires explicit
 recovery rather than guessed continuation. Final verification compares the exact recursive archive and feature
-inventory; manifest booleans alone cannot authorize evidence removal.
+inventory; manifest booleans alone cannot authorize evidence removal. It requires a native Git-origin remote and emits
+one authoritative state: complete or mechanically complete with semantic reconciliation pending.
 
 Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
 `pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents

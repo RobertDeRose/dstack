@@ -55,19 +55,18 @@ project-local provisioner may install locked tools and hooks, and ordinary Git c
 Migration distinguishes the active worktree path from canonical repository identity. Explicit recorded answers win;
 otherwise the primary Git common directory supplies the project name and slug, and `refs/remotes/origin/HEAD` supplies
 the default branch; only a primary worktree may use its current branch as evidence. A suffixed migration-worktree
-basename is never adopted as project identity. Beads initialization is collaborative and non-stealth: expected control
-files and the formula enter the workflow-owned branch commit, while the embedded database remains local Dolt storage.
-Database path/name, project ID, repository root, and issue prefix must match before import or verification. Cross-clone
-issue history uses a Dolt remote (`bd dolt push`/`bd bootstrap`), not committed database files or JSONL. Large imports
-derive and reconcile the complete deterministic issue/status/parent/relationship set before trusting phase state and
-rejects unexpected migrated records, then uses bounded Dolt batch commits for at most two incomplete features by
-default. Native parent-label inheritance is verified as a complete exact formula/ancestry set rather than treated as
-optional or mistaken for foreign lifecycle state. A separate dry-run-first repair derives missing labels from immutable
-manifest/formula identity and permits additive restoration only; replacement and unexpected labels remain fatal. Mutable
-`interactions.jsonl` may diverge while an import is interrupted. Linked metadata must describe the same native identity
-and linked configuration must retain the same content, but formatting and non-authoritative documentation/ignore files
-are not security boundaries. Successful passes synchronize interactions without exposing the primary authority mirror as
-untracked base-worktree content. The manifest remains a recovery cursor, never independent proof that records exist.
+basename is never adopted as project identity. An uninitialized migration runs on its dedicated branch in the primary
+checkout so native `bd init` can commit collaborative controls, discover Git origin, and establish shared-worktree Dolt
+state. The native commit is inspected and amended through project hooks. Database path/name, project ID, repository
+root, and issue prefix must match before import or verification. Cross-clone issue history uses Git special refs through
+`bd dolt push` and `bd bootstrap`, not committed database files or JSONL. Large imports derive and reconcile the
+complete deterministic issue/status/parent/relationship set before trusting phase state and rejects unexpected migrated
+records, then uses bounded Dolt batch commits for at most two incomplete features by default. Native parent-label
+inheritance is verified as a complete exact formula/ancestry set rather than treated as optional or mistaken for foreign
+lifecycle state. A separate dry-run-first repair derives missing labels from immutable manifest/formula identity and
+permits additive restoration only; replacement and unexpected labels remain fatal. Native Beads owns worktree discovery,
+control placement, and synchronization; dstack validates the effective context rather than mirroring controls or
+injecting database paths. The manifest remains a recovery cursor, never independent proof that records exist.
 Finalization is a journaled staging transaction that seals archive digests and parsed task identity; finalized
 verification compares the exact recursive archive and current feature/design/task inventory with that sealed record.
 

@@ -434,12 +434,11 @@ def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
         "    (beads / 'interactions.jsonl').write_text('', encoding='utf-8')\n"
         "    if os.environ.get('DSTACK_BD_UNEXPECTED') == '1':\n"
         "        (beads / 'credential.txt').write_text('must not publish', encoding='utf-8')\n"
-        "    if os.environ.get('DSTACK_BD_AUTO_COMMIT') == '1':\n"
-        "        import subprocess\n"
-        "        subprocess.run(['git', 'init', '-q'], check=True)\n"
-        "        subprocess.run(['git', 'add', '.beads'], check=True)\n"
-        "        subprocess.run(['git', '-c', 'user.name=bd test', '-c', 'user.email=bd@test',\n"
-        "                        'commit', '-m', 'chore: initialize beads'], check=True, capture_output=True)\n"
+        "    import subprocess\n"
+        "    subprocess.run(['git', 'add', '.beads'], check=True)\n"
+        "    subprocess.run(['git', '-c', 'user.name=bd test', '-c', 'user.email=bd@test',\n"
+        "                    'commit', '-m', 'bd init: initialize beads issue tracking'], check=True,\n"
+        "                   capture_output=True)\n"
         "elif args[:2] == ['context', '--json']:\n"
         "    root = Path.cwd()\n"
         "    metadata = json.loads((root / '.beads/metadata.json').read_text())\n"
@@ -528,7 +527,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "beads-authority --init" in migration
     assert "authorize-session fresh" in migration
     assert "Never infer resume" in migration
-    assert 'git commit -m "chore: initialize Beads workflow state"' in migration
+    assert "amend through ordinary" in migration
+    assert "`chore: initialize Beads workflow state`" in migration
+    assert "Native `bd init`" in migration_reference
     assert "Design Question Loop" in migration
     assert "migration:reconciliation" in migration
     assert "manual_merge" in migration
@@ -4577,7 +4578,10 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     assert payload["docs_validated"] is True
     assert payload["beads_initialized"] is True
     assert payload["git_initialized"] is True
-    run_command(["git", "rev-parse", "--verify", "HEAD"], cwd=project, expected=128)
+    run_command(["git", "rev-parse", "--verify", "HEAD"], cwd=project)
+    assert run_command(["git", "log", "-1", "--format=%s"], cwd=project).stdout.strip() == (
+        "chore: initialize Beads workflow state"
+    )
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "--version" in commands
     assert any(
@@ -4586,7 +4590,6 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
         for command in commands
     )
     assert "formula show dstack-feature --json" in commands
-    status = run_command(["git", "ls-files", "--others", "--exclude-standard"], cwd=project).stdout
     for relative in (
         ".beads/.gitignore",
         ".beads/README.md",
@@ -4595,7 +4598,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
         ".beads/metadata.json",
         ".beads/formulas/dstack-feature.formula.toml",
     ):
-        assert relative in status
+        run_command(["git", "ls-files", "--error-unmatch", relative], cwd=project)
     assert (project / ".beads/README.md").read_text(encoding="utf-8").startswith("<!-- rumdl-disable -->\n\n")
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (project / relative).exists(), relative
@@ -4637,7 +4640,7 @@ def test_setup_without_git_reports_collaborative_beads_outstanding(
 
 
 @pytest.mark.integration
-def test_setup_rejects_unexpected_bd_state_before_publication(
+def test_setup_rejects_unexpected_native_bd_commit_paths(
     repository_root: Path,
     tagged_template_source: Path,
     tmp_path: Path,
@@ -4667,9 +4670,8 @@ def test_setup_rejects_unexpected_bd_state_before_publication(
         ),
         expected=1,
     )
-    assert "unsupported Beads entries" in result.stderr
-    beads_entries = sorted(path.relative_to(project / ".beads").as_posix() for path in (project / ".beads").rglob("*"))
-    assert beads_entries == ["formulas", "formulas/dstack-feature.formula.toml"]
+    assert "Native bd init committed unexpected project paths" in result.stderr
+    assert (project / ".beads/credential.txt").is_file()
 
 
 @pytest.mark.integration
@@ -4708,8 +4710,8 @@ def test_setup_validates_authority_before_editor_integration(
     assert "authority validation failed" in result.stderr
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "setup claude" not in commands
-    beads_entries = sorted(path.relative_to(project / ".beads").as_posix() for path in (project / ".beads").rglob("*"))
-    assert beads_entries == ["formulas", "formulas/dstack-feature.formula.toml"]
+    assert (project / ".beads/metadata.json").is_file()
+    assert (project / ".beads/formulas/dstack-feature.formula.toml").is_file()
 
 
 def test_release_commits_are_omitted_from_cocogitto_changelogs(repository_root: Path) -> None:
