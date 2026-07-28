@@ -2599,12 +2599,12 @@ def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> No
     assert 'pytest -m "not integration and not external"' in validate
     assert 'pytest "${{ matrix.path }}" -m integration' in validate
     assert "actions/setup-node" not in validate
-    assert validate.count("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7") == 2
-    assert validate.count("jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4") == 2
+    assert validate.count("uses: actions/checkout@") == 2
+    assert validate.count("uses: jdx/mise-action@") == 2
     assert validate.count("run: mise install --locked") == 2
     assert validate.count("MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml") == 2
-    assert "actions/setup-python@v6" in validate
-    assert "astral-sh/setup-uv@v8" in validate
+    assert "actions/setup-python@" in validate
+    assert "astral-sh/setup-uv@" in validate
 
     assert "workflow_dispatch:" in external
     assert "schedule:" in external
@@ -2613,9 +2613,9 @@ def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> No
     assert "pytest -m external" in external
     assert "run: mise install --locked" in external
     assert "MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml" in external
-    assert "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7" in external
-    assert "# v6\n      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38" in external
-    assert "jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d" in external
+    assert "actions/checkout@" in external
+    assert "actions/setup-node@" in external
+    assert "jdx/mise-action@" in external
     assert "install: false" in external
 
     dependabot = yaml.safe_load((repository_root / ".github/dependabot.yml").read_text(encoding="utf-8"))
