@@ -2,7 +2,7 @@
 name: dstack-core
 description: Shared dstack workflow contracts and conventions. Installed as support for the other dstack skills; use directly when reviewing workflow authority, trust boundaries, or naming conventions.
 metadata:
-  version: "0.5.3"
+  version: "0.5.4"
 allowed-tools: Read Bash
 ---
 
