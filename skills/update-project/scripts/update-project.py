@@ -213,19 +213,20 @@ def canonical_language_profiles(values: Any) -> list[str]:
     if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
         message = "language_profiles must be a list of supported profile names"
         raise SystemExit(message)
-    unknown = sorted(set(values) - set(LANGUAGE_PROFILES))
+    profiles = [value for value in values if isinstance(value, str)]
+    unknown = sorted(set(profiles) - set(LANGUAGE_PROFILES))
     if unknown:
         raise SystemExit("Unknown language profile: " + ", ".join(unknown))
-    if len(values) != len(set(values)):
+    if len(profiles) != len(set(profiles)):
         message = "language_profiles must not contain duplicates"
         raise SystemExit(message)
-    if not values:
+    if not profiles:
         message = "language_profiles must not be empty; use other for the universal baseline"
         raise SystemExit(message)
-    if "other" in values and len(values) > 1:
+    if "other" in profiles and len(profiles) > 1:
         message = "The other language profile cannot be combined with recognized profiles"
         raise SystemExit(message)
-    return [profile for profile in LANGUAGE_PROFILES if profile in values]
+    return [profile for profile in LANGUAGE_PROFILES if profile in profiles]
 
 
 def updated_language_profiles(current: Any, additions: Sequence[str], removals: Sequence[str]) -> list[str]:
