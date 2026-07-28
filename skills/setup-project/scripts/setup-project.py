@@ -553,8 +553,20 @@ def initialize_beads(destination: Path, args: argparse.Namespace, *, prefix: str
         quiet=quiet,
     )
     run_checked(["git", "add", ".beads/README.md"], cwd=destination, quiet=True)
+    identity = subprocess.run(
+        ["git", "log", "-1", "--format=%an%x00%ae"],
+        cwd=destination,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    identity_args: list[str] = []
+    if identity.returncode == 0:
+        name, separator, email = identity.stdout.strip().partition("\0")
+        if separator and name and email:
+            identity_args = ["-c", f"user.name={name}", "-c", f"user.email={email}"]
     run_checked(
-        ["git", "commit", "--amend", "-m", "chore: initialize Beads workflow state"],
+        ["git", *identity_args, "commit", "--amend", "-m", "chore: initialize Beads workflow state"],
         cwd=destination,
         quiet=quiet,
     )
