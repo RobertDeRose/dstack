@@ -78,18 +78,20 @@ acknowledgement is insufficient, and whole-hook bypass is never allowed.
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
 database location/name, project ID, repository root, and issue prefix. Initialization is non-stealth and commit-neutral:
 dstack initializes in isolated temporary Git state, moves local Dolt authority into the repository, exposes
-collaborative control files for its own checkpoint, and reconciles old stealth excludes without replacing data. A
-formula-only directory and global/shared fallback fail. Every Beads subprocess is pinned to the validated path;
-mutations check authority bytes before and after. Configure a Dolt remote and push issue history; fresh clones recover
-it with `bd bootstrap`. Beads import dry-run is nonmutating and reconciles every manifest ID against actual
-deterministic metadata, including completed phases. Apply handles at most two incomplete features by default and uses
-bounded Dolt commits rather than one transaction per field or relationship. Repeat it until `remaining: 0`; reduce to
-`--batch-size 1` or select `--feature <slug>` for narrow recovery. It begins with an explicit `APPLY STARTED` notice and
-reports existing, recovered, pending, conflicting, completed, remaining, and total features. Per-feature phases persist,
-but retries trust them only after real-record reconciliation. A terminated fresh import resumes its persisted
-identities; it is not a migration-session resume. Missing native workflow/formula labels stop import. Preview
-`repair-beads-labels`, review every ID/label, then use `--apply` for additive-only restoration; extras block before
-mutation, and an empty repair writes nothing. Status transitions use `bd update --status` for Beads 1.1 compatibility.
+collaborative control files for its own checkpoint, and reconciles old stealth excludes without replacing data. For a
+linked adoption whose primary checkout has no `.beads/`, the active branch's validated formula-only directory seeds the
+transaction. Formula-only state remains uninitialized, and global/shared fallback fails. Every Beads subprocess is
+pinned to the validated path; mutations check authority bytes before and after. Configure a Dolt remote and push issue
+history; fresh clones recover it with `bd bootstrap`. Beads import dry-run is nonmutating and reconciles every manifest
+ID against actual deterministic metadata, including completed phases. Apply handles at most two incomplete features by
+default and uses bounded Dolt commits rather than one transaction per field or relationship. Repeat it until
+`remaining: 0`; reduce to `--batch-size 1` or select `--feature <slug>` for narrow recovery. It begins with an explicit
+`APPLY STARTED` notice and reports existing, recovered, pending, conflicting, completed, remaining, and total features.
+Per-feature phases persist, but retries trust them only after real-record reconciliation. A terminated fresh import
+resumes its persisted identities; it is not a migration-session resume. Missing native workflow/formula labels stop
+import. Preview `repair-beads-labels`, review every ID/label, then use `--apply` for additive-only restoration; extras
+block before mutation, and an empty repair writes nothing. Status transitions use `bd update --status` for Beads 1.1
+compatibility.
 
 Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git common
 directory, not the migration worktree basename, and derives the default branch from `origin/HEAD` before the checked-out

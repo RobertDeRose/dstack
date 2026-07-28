@@ -2217,6 +2217,101 @@ def test_real_bd_import_recovery_accepts_native_parent_label_inheritance(tmp_pat
 
 
 @pytest.mark.integration
+def test_linked_worktree_initializes_when_formula_exists_only_on_migration_branch(tmp_path: Path) -> None:
+    if shutil.which("bd") is None:
+        pytest.skip("bd is not installed")
+    primary = tmp_path / "primary-project"
+    linked = tmp_path / "primary-project.migration"
+    create_legacy_project(primary)
+    shutil.rmtree(primary / ".beads")
+    initialize_git(primary, "legacy project without Beads")
+    run_command(["git", "worktree", "add", "-b", "chore/migrate-dstack-workflow", str(linked), "main"], cwd=primary)
+    run_command(
+        [
+            sys.executable,
+            str(MIGRATOR),
+            "authorize-session",
+            "fresh",
+            "--base-branch",
+            "main",
+            "--migration-branch",
+            "chore/migrate-dstack-workflow",
+            "--root",
+            str(linked),
+        ],
+        cwd=linked,
+    )
+    run_command(["git", "add", "migration/session-authority.json"], cwd=linked)
+    run_command(["git", "commit", "-m", "chore: authorize migration fixture"], cwd=linked)
+    (linked / ".beads/formulas").mkdir(parents=True)
+    shutil.copyfile(FORMULA, linked / ".beads/formulas/dstack-feature.formula.toml")
+    run_command(["git", "add", ".beads/formulas/dstack-feature.formula.toml"], cwd=linked)
+    run_command(["git", "commit", "-m", "chore: adopt migration fixture"], cwd=linked)
+    before = run_command(["git", "rev-parse", "HEAD"], cwd=linked).stdout.strip()
+
+    run_command(
+        [sys.executable, str(MIGRATOR), "beads-authority", "--init", "--root", str(linked)],
+        cwd=linked,
+    )
+
+    assert run_command(["git", "rev-parse", "HEAD"], cwd=linked).stdout.strip() == before
+    assert (primary / ".beads/embeddeddolt").is_dir()
+    assert (primary / ".beads/formulas/dstack-feature.formula.toml").read_bytes() == FORMULA.read_bytes()
+    assert not (linked / ".beads/embeddeddolt").exists()
+    for name in (".gitignore", "README.md", "config.yaml", "metadata.json"):
+        assert (primary / ".beads" / name).read_bytes() == (linked / ".beads" / name).read_bytes()
+    assert run_command(["git", "status", "--porcelain"], cwd=primary).stdout == ""
+
+
+@pytest.mark.integration
+def test_linked_worktree_recovers_new_authority_publication_before_retry(tmp_path: Path) -> None:
+    if shutil.which("bd") is None:
+        pytest.skip("bd is not installed")
+    primary = tmp_path / "primary-project"
+    linked = tmp_path / "primary-project.migration"
+    create_legacy_project(primary)
+    shutil.rmtree(primary / ".beads")
+    initialize_git(primary, "legacy project without Beads")
+    run_command(["git", "worktree", "add", "-b", "chore/migrate-dstack-workflow", str(linked), "main"], cwd=primary)
+    run_command(
+        [
+            sys.executable,
+            str(MIGRATOR),
+            "authorize-session",
+            "fresh",
+            "--base-branch",
+            "main",
+            "--migration-branch",
+            "chore/migrate-dstack-workflow",
+            "--root",
+            str(linked),
+        ],
+        cwd=linked,
+    )
+    run_command(["git", "add", "migration/session-authority.json"], cwd=linked)
+    run_command(["git", "commit", "-m", "chore: authorize migration fixture"], cwd=linked)
+    (linked / ".beads/formulas").mkdir(parents=True)
+    shutil.copyfile(FORMULA, linked / ".beads/formulas/dstack-feature.formula.toml")
+    run_command(["git", "add", ".beads/formulas/dstack-feature.formula.toml"], cwd=linked)
+    run_command(["git", "commit", "-m", "chore: adopt migration fixture"], cwd=linked)
+    (primary / ".beads").mkdir()
+    (primary / ".beads/interrupted-publication").write_text("unvalidated\n", encoding="utf-8")
+    (primary / ".beads.dstack-transaction.json").write_text(
+        json.dumps({"schema_version": 2, "state": "published", "authority_existed": False}) + "\n",
+        encoding="utf-8",
+    )
+
+    run_command(
+        [sys.executable, str(MIGRATOR), "beads-authority", "--init", "--root", str(linked)],
+        cwd=linked,
+    )
+
+    assert not (primary / ".beads/interrupted-publication").exists()
+    assert (primary / ".beads/metadata.json").is_file()
+    assert not (primary / ".beads.dstack-transaction.json").exists()
+
+
+@pytest.mark.integration
 def test_linked_worktree_tolerates_mutable_interactions_and_hides_primary_mirror(tmp_path: Path) -> None:
     if shutil.which("bd") is None:
         pytest.skip("bd is not installed")

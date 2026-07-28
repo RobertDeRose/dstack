@@ -48,16 +48,18 @@ The only intermediate exception is user-approved `HK_SKIP_STEPS=docs` after migr
 `--approved-step`, and the exact `--approval` phrase.
 
 `beads-authority --init` treats formula-only state as uninitialized, runs non-stealth `bd init` in an isolated temporary
-Git repository, and moves the authority into the primary repository without accepting `bd`'s automatic Git commit. It
-removes a broad legacy stealth exclude in a primary worktree, or retains a repository-local `.beads/` mirror exclusion
-for linked migration isolation. It exposes `.beads/.gitignore`, `README.md`, `config.yaml`, `interactions.jsonl`,
-`metadata.json`, and the formula for the workflow-owned commit, makes initialization failure fatal, rejects symlinks,
-and validates database path/name, project ID, repository root, and issue prefix. Generated Beads README content carries
-an exact machine-authored Markdown exclusion rather than requiring repository formatters to rewrite authority controls.
-Global/shared/redirected fallback is never accepted. Later Beads commands carry the validated `.beads` path explicitly;
-mutations compare authority digests before and after, while dry-run/verify preserve authority bytes. Embedded database
-history is synchronized through a configured Dolt remote and `bd dolt push`; fresh clones use `bd bootstrap` rather than
-reconstructing live authority from ordinary branch files or JSONL.
+Git repository, and moves the authority into the primary repository without accepting `bd`'s automatic Git commit. If
+the primary checkout does not yet contain `.beads/`, a linked migration seeds publication from its validated
+formula-only branch state. It removes a broad legacy stealth exclude in a primary worktree, or retains a
+repository-local `.beads/` mirror exclusion for linked migration isolation. It exposes `.beads/.gitignore`, `README.md`,
+`config.yaml`, `interactions.jsonl`, `metadata.json`, and the formula for the workflow-owned commit, makes
+initialization failure fatal, rejects symlinks, and validates database path/name, project ID, repository root, and issue
+prefix. Generated Beads README content carries an exact machine-authored Markdown exclusion rather than requiring
+repository formatters to rewrite authority controls. Global/shared/redirected fallback is never accepted. Later Beads
+commands carry the validated `.beads` path explicitly; mutations compare authority digests before and after, while
+dry-run/verify preserve authority bytes. Embedded database history is synchronized through a configured Dolt remote and
+`bd dolt push`; fresh clones use `bd bootstrap` rather than reconstructing live authority from ordinary branch files or
+JSONL.
 
 `import-beads` uses `bd --dolt-auto-commit=batch` and commits bounded per-feature state plus relationship phases. Apply
 selects at most two incomplete features by default; `--batch-size 1..14` changes that bound and repeatable
