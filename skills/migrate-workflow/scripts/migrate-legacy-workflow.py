@@ -3506,11 +3506,14 @@ def import_beads(
             beads["import_phase"] = "root-created"
             save_manifest_and_report(root, manifest_path, report_path, manifest)
             flush_bd_batch(root, f"migrate-workflow: create {feature['slug']} root")
-        if feature["classification"] == "deferred" and not feature.get("has_design"):
-            beads["state_applied"] = True
-            continue
         if not feature.get("has_design"):
-            bd_note(root, root_id, "No legacy design.md exists. Use /plan-features before starting this feature.")
+            if feature["classification"] != "deferred":
+                bd_note(root, root_id, "No legacy design.md exists. Use /plan-features before starting this feature.")
+            beads["state_applied"] = True
+            beads["import_phase"] = "relationships"
+            save_manifest_and_report(root, manifest_path, report_path, manifest)
+            flush_bd_batch(root, f"migrate-workflow: apply {feature['slug']} state")
+            print(f"[{feature['slug']}] roadmap-only root applied; relationships pending.")
             continue
         lifecycle = create_lifecycle_steps(
             root,
