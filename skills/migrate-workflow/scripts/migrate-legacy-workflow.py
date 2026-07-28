@@ -1047,6 +1047,8 @@ def render_report(manifest: Mapping[str, Any]) -> str:
         task_count += len(feature.get("tasks", []))
 
     lines = [
+        "<!-- rumdl-disable MD013 -->",
+        "",
         "# Legacy Workflow Migration Report",
         "",
         f"Generated: `{manifest.get('generated_at', '')}`",
@@ -1103,30 +1105,23 @@ def render_report(manifest: Mapping[str, Any]) -> str:
         )
     if not manifest.get("checkpoint_evidence"):
         lines.append("- No checkpoint evidence recorded.")
-    lines.extend(
-        [
-            "",
-            "## Feature Mapping",
-            "",
-            "| Feature | Target | Classification | Roadmap | Design | Index | Findings |",
-            "|---|---|---|---|---|---:|---:|",
-        ]
-    )
+    lines.extend(["", "## Feature Mapping", ""])
     for feature in features:
         design_status = str(feature.get("design_status", "")).replace("|", "\\|")
         roadmap_status = str(feature.get("roadmap_status", "")).replace("|", "\\|")
         classification = str(feature["classification"])
         if feature.get("classification_override"):
             classification += " (override)"
-        lines.append(
-            ("| `{slug}` | `{slug}` | `{classification}` | {roadmap} | {design} | {index} | {findings} |").format(
-                slug=feature["slug"],
-                classification=classification,
-                roadmap=roadmap_status or "—",
-                design=design_status or "—",
-                index="yes" if feature.get("has_index") else "no",
-                findings=len(feature.get("conflicts", [])),
-            )
+        lines.extend(
+            [
+                f"- **Feature:** `{feature['slug']}`",
+                f"  - Target: `{feature['slug']}`",
+                f"  - Classification: `{classification}`",
+                f"  - Roadmap: {roadmap_status or '—'}",
+                f"  - Design: {design_status or '—'}",
+                f"  - Index: {'yes' if feature.get('has_index') else 'no'}",
+                f"  - Findings: {len(feature.get('conflicts', []))}",
+            ]
         )
 
     lines.extend(["", "## Reconciliation Findings", ""])
@@ -1872,6 +1867,9 @@ def shell_command(command: Sequence[str]) -> str:
 BD_BATCH_ACTIVE = False
 BD_AUTHORITY_DB: Path | None = None
 BD_AUTHORITY_SNAPSHOT: dict[str, Any] | None = None
+BEADS_CONTROL_NAMES = (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json")
+BEADS_IMMUTABLE_CONTROL_NAMES = (".gitignore", "README.md", "config.yaml", "metadata.json")
+BEADS_MUTABLE_CONTROL_NAMES = ("interactions.jsonl",)
 
 
 def bd_mutates(command: Sequence[str]) -> bool:
@@ -2019,16 +2017,21 @@ def validate_beads_authority(root: Path) -> dict[str, Any]:
     expected_database = project_slug.replace("-", "_")
     expected_prefix = project_slug
     problems: list[str] = []
-    control_names = (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json")
     tracking_controls: dict[str, str] = {}
     if root.resolve() != expected_root:
         active_beads = root / ".beads"
-        for name in control_names:
+        if active_beads.is_symlink() or _path_has_symlink(root, active_beads):
+            problems.append("Linked-worktree Beads controls must not traverse a symlink")
+        for name in BEADS_CONTROL_NAMES:
             authority_path = expected_beads / name
             active_path = active_beads / name
-            if not active_path.is_file() or active_path.read_bytes() != authority_path.read_bytes():
+            if active_path.is_symlink() or _path_has_symlink(active_beads, active_path):
+                problems.append(f"Linked-worktree Beads control {name!r} must not be a symlink")
+            elif not active_path.is_file():
+                problems.append(f"Linked-worktree Beads control {name!r} is missing")
+            elif name in BEADS_IMMUTABLE_CONTROL_NAMES and active_path.read_bytes() != authority_path.read_bytes():
                 problems.append(f"Linked-worktree Beads control {name!r} differs from primary authority")
-            else:
+            elif name in BEADS_IMMUTABLE_CONTROL_NAMES:
                 tracking_controls[str(active_path)] = hashlib.sha256(active_path.read_bytes()).hexdigest()
 
     def same_path(value: Any, expected: Path) -> bool:
@@ -2208,7 +2211,7 @@ def validate_expected_issue(
     issue: Mapping[str, Any] | None,
     issue_id: str,
     description: str,
-    expected_status: str,
+    expected_status: str | None,
     expected_parent: str = "",
     required_labels: Iterable[str] = (),
     expected_owned_labels: Iterable[str] = (),
@@ -2221,7 +2224,7 @@ def validate_expected_issue(
     if expected_type and actual_type != expected_type:
         problems.append(f"{description} {issue_id} has type {actual_type!r}; expected {expected_type!r}")
     actual_status = str(issue.get("status") or "")
-    if actual_status != expected_status:
+    if expected_status is not None and actual_status != expected_status:
         problems.append(f"{description} {issue_id} has status {actual_status!r}; expected status {expected_status!r}")
     if expected_parent and str(issue.get("parent") or "") != expected_parent:
         problems.append(f"{description} {issue_id} is not parented by {expected_parent}")
@@ -2234,11 +2237,12 @@ def validate_expected_issue(
         for label in labels
         if label == "workflow:feature" or label.startswith(("migration:", "formula-step:", "legacy-task:"))
     }
-    expected_owned = set(expected_owned_labels)
-    if expected_owned and owned_labels != expected_owned:
+    allowed_owned = set(expected_owned_labels)
+    unexpected_owned = owned_labels - allowed_owned
+    if allowed_owned and unexpected_owned:
         problems.append(
             f"{description} {issue_id} has unexpected migration-owned labels: "
-            f"expected {sorted(expected_owned)}, found {sorted(owned_labels)}"
+            f"allowed {sorted(allowed_owned)}, found {sorted(owned_labels)}"
         )
     metadata = issue_metadata(issue)
     for key, value in (required_metadata or {}).items():
@@ -2254,7 +2258,8 @@ def reconcile_existing_beads_state(
     allow_recovery: bool = True,
 ) -> int:
     root_issues = discover_migrated_issues(root, "migration:legacy-markdown", issue_type="epic")
-    lifecycle_issues = discover_migrated_issues(root, "migration:legacy-workflow")
+    inherited_lifecycle_issues = discover_migrated_issues(root, "migration:legacy-workflow")
+    lifecycle_issues = [issue for issue in inherited_lifecycle_issues if issue_metadata(issue).get("formula_step_id")]
     implementation_issues = discover_migrated_issues(root, "migration:legacy-task")
     reconciliation_issues = discover_migrated_issues(root, "migration:reconciliation")
     roots = index_discovered_issues(root_issues)
@@ -2265,7 +2270,7 @@ def reconcile_existing_beads_state(
         discriminator="migration_role",
         default_discriminator="status-reconciliation",
     )
-    all_discovered = (*root_issues, *lifecycle_issues, *implementation_issues, *reconciliation_issues)
+    all_discovered = (*root_issues, *inherited_lifecycle_issues, *implementation_issues, *reconciliation_issues)
     discovered_by_id = {str(issue.get("id")): issue for issue in all_discovered if issue.get("id")}
     discovered_metadata = {issue_id: issue_metadata(issue) for issue_id, issue in discovered_by_id.items()}
 
@@ -2290,6 +2295,13 @@ def reconcile_existing_beads_state(
         for slug, feature in features_by_slug.items()
         if feature.get("has_design") and feature.get("classification") == "needs_review"
     }
+    for issue in inherited_lifecycle_issues:
+        metadata = issue_metadata(issue)
+        if not metadata.get("formula_step_id") and not metadata.get("legacy_task_id"):
+            problems.append(
+                f"Unindexable migration-owned lifecycle record {issue.get('id', '<unknown>')}: "
+                "metadata is malformed or formula_step_id is missing"
+            )
     discovery_contracts = (
         (root_issues, None, {slug for slug in features_by_slug}, "root"),
         (lifecycle_issues, "formula_step_id", expected_lifecycle_keys, "lifecycle"),
@@ -2405,18 +2417,20 @@ def reconcile_existing_beads_state(
         root_id = str(beads.get("root_id") or "")
         root_issue = discovered_by_id.get(root_id)
         root_status, lifecycle_statuses, task_statuses = expected_migrated_statuses(feature)
+        state_complete = bool(beads.get("state_applied"))
+        root_owned_labels = (
+            "workflow:feature",
+            "migration:legacy-markdown",
+            *(("migration:needs-reconciliation",) if feature.get("classification") == "needs_review" else ()),
+        )
         validate_expected_issue(
             problems=problems,
             issue=root_issue,
             issue_id=root_id,
             description=f"{slug} recorded root",
-            expected_status=root_status,
-            required_labels=("workflow:feature", "migration:legacy-markdown"),
-            expected_owned_labels=(
-                "workflow:feature",
-                "migration:legacy-markdown",
-                *(("migration:needs-reconciliation",) if feature.get("classification") == "needs_review" else ()),
-            ),
+            expected_status=root_status if state_complete else None,
+            required_labels=root_owned_labels,
+            expected_owned_labels=root_owned_labels,
             required_metadata={
                 "migration_source": "legacy-markdown-workflow",
                 "migration_key": f"legacy-feature:{slug}",
@@ -2435,10 +2449,14 @@ def reconcile_existing_beads_state(
                 issue=discovered_by_id.get(issue_id),
                 issue_id=issue_id,
                 description=f"{slug} lifecycle step {step_id!r}",
-                expected_status=lifecycle_statuses[step_id],
+                expected_status=lifecycle_statuses[step_id] if state_complete else None,
                 expected_parent=root_id,
                 required_labels=("migration:legacy-workflow", f"formula-step:{step_id}"),
-                expected_owned_labels=("migration:legacy-workflow", f"formula-step:{step_id}"),
+                expected_owned_labels=(
+                    *root_owned_labels,
+                    "migration:legacy-workflow",
+                    f"formula-step:{step_id}",
+                ),
                 required_metadata={
                     "migration_source": "legacy-markdown-workflow",
                     "migration_key": f"legacy-feature:{slug}:lifecycle:{step_id}",
@@ -2459,10 +2477,16 @@ def reconcile_existing_beads_state(
                 issue=discovered_by_id.get(issue_id),
                 issue_id=issue_id,
                 description=f"{slug} legacy task {label}",
-                expected_status=task_statuses[label],
+                expected_status=task_statuses[label] if state_complete else None,
                 expected_parent=implementation_parent,
                 required_labels=("migration:legacy-task", f"legacy-task:{label.casefold()}"),
-                expected_owned_labels=("migration:legacy-task", f"legacy-task:{label.casefold()}"),
+                expected_owned_labels=(
+                    *root_owned_labels,
+                    "migration:legacy-workflow",
+                    "formula-step:implementation",
+                    "migration:legacy-task",
+                    f"legacy-task:{label.casefold()}",
+                ),
                 required_metadata={
                     "migration_source": "legacy-markdown-workflow",
                     "migration_key": f"legacy-feature:{slug}:task:{label}",
@@ -2482,7 +2506,7 @@ def reconcile_existing_beads_state(
                 expected_status="open",
                 expected_parent=root_id,
                 required_labels=("migration:reconciliation", "review:drift"),
-                expected_owned_labels=("migration:reconciliation",),
+                expected_owned_labels=(*root_owned_labels, "migration:reconciliation"),
                 required_metadata={
                     "migration_source": "legacy-markdown-workflow",
                     "migration_key": f"legacy-feature:{slug}:reconciliation",
@@ -3134,7 +3158,7 @@ def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
         "--prefix",
         prefix,
     ]
-    control_names = (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json")
+    control_names = BEADS_CONTROL_NAMES
     allowed_generated = {
         *control_names,
         ".local_version",
@@ -3180,6 +3204,10 @@ def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
 
         staged = transaction_root / "staged-beads"
         shutil.copytree(beads_dir, staged)
+        readme = generated / "README.md"
+        readme_text = readme.read_text(encoding="utf-8")
+        if not readme_text.startswith("<!-- rumdl-disable -->"):
+            readme.write_text("<!-- rumdl-disable -->\n\n" + readme_text.lstrip(), encoding="utf-8")
         for name in sorted(generated_names):
             source = generated / name
             target = staged / name
@@ -3231,7 +3259,7 @@ def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
 
 
 def expose_collaborative_beads_controls(root: Path, beads_dir: Path) -> None:
-    control_names = (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json")
+    control_names = BEADS_CONTROL_NAMES
     missing = [name for name in control_names if not (beads_dir / name).is_file()]
     if missing:
         msg = "Repository-local Beads authority lacks collaborative control files: " + ", ".join(missing)
@@ -3240,7 +3268,7 @@ def expose_collaborative_beads_controls(root: Path, beads_dir: Path) -> None:
     if tracking_beads_dir.resolve() != beads_dir.resolve():
         conflicts: list[Path] = [
             tracking_beads_dir / name
-            for name in control_names
+            for name in BEADS_IMMUTABLE_CONTROL_NAMES
             if (tracking_beads_dir / name).exists()
             and (tracking_beads_dir / name).read_bytes() != (beads_dir / name).read_bytes()
         ]
@@ -3251,15 +3279,32 @@ def expose_collaborative_beads_controls(root: Path, beads_dir: Path) -> None:
             raise MigrationError(msg)
         tracking_beads_dir.mkdir(parents=True, exist_ok=True)
         for name in control_names:
-            shutil.copy2(beads_dir / name, tracking_beads_dir / name)
+            target = tracking_beads_dir / name
+            if name in BEADS_MUTABLE_CONTROL_NAMES and target.exists():
+                continue
+            shutil.copy2(beads_dir / name, target)
 
     exclude_path = Path(git_output(root, "rev-parse", "--git-path", "info/exclude"))
     if not exclude_path.is_absolute():
         exclude_path = root / exclude_path
     original = exclude_path.read_text(encoding="utf-8", errors="surrogateescape") if exclude_path.exists() else ""
     filtered = [line for line in original.splitlines(keepends=True) if line.strip() not in {".beads", ".beads/"}]
+    if tracking_beads_dir.resolve() != beads_dir.resolve():
+        filtered.append(".beads/\n")
     exclude_path.parent.mkdir(parents=True, exist_ok=True)
     exclude_path.write_text("".join(filtered), encoding="utf-8", errors="surrogateescape")
+
+
+def sync_mutable_beads_controls(root: Path) -> None:
+    beads_dir = primary_worktree(root) / ".beads"
+    tracking_beads_dir = root / ".beads"
+    if tracking_beads_dir.resolve() == beads_dir.resolve():
+        return
+    for name in BEADS_MUTABLE_CONTROL_NAMES:
+        source = beads_dir / name
+        target = tracking_beads_dir / name
+        if source.is_file() and (not target.is_file() or target.read_bytes() != source.read_bytes()):
+            shutil.copy2(source, target)
 
 
 def ensure_bd_available(root: Path, *, init_beads: bool) -> None:
@@ -3277,7 +3322,7 @@ def ensure_bd_available(root: Path, *, init_beads: bool) -> None:
             raise MigrationError(msg)
         initialize_collaborative_beads(root, beads_dir)
     elif init_beads:
-        control_names = (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json")
+        control_names = BEADS_CONTROL_NAMES
         tracking_beads_dir = root / ".beads"
         tracking_before = {
             name: (tracking_beads_dir / name).read_bytes() if (tracking_beads_dir / name).is_file() else None
@@ -3551,11 +3596,15 @@ def import_beads(
     apply: bool,
     init_beads: bool,
     requested: Sequence[str],
+    batch_size: int,
 ) -> None:
-    features = selected_features(manifest, requested)
+    requested_features = selected_features(manifest, requested)
     all_features = manifest["features"]
-    initially_completed = {str(feature["slug"]) for feature in all_features if feature_import_completed(feature)}
-    changed_slugs = {str(feature["slug"]) for feature in features} - initially_completed
+    features = requested_features
+    if apply:
+        incomplete = [feature for feature in requested_features if not feature_import_completed(feature)]
+        incomplete.sort(key=lambda feature: bool(feature.get("beads", {}).get("state_applied")))
+        features = incomplete[:batch_size]
     formula = load_formula(root)
     preflight_import(manifest, formula)
     ensure_bd_available(root, init_beads=init_beads if apply else False)
@@ -3569,7 +3618,10 @@ def import_beads(
 
     global BD_BATCH_ACTIVE
     BD_BATCH_ACTIVE = True
-    print(f"APPLY STARTED: importing {len(features)} selected feature(s) into Beads with bounded batch commits.")
+    print(
+        f"APPLY STARTED: importing a bounded partition of {len(features)} feature(s) "
+        "into Beads with durable batch commits."
+    )
     print_import_progress(import_progress(all_features))
     recovered_issues = reconcile_existing_beads_state(root, all_features, canonicalize=True)
     if recovered_issues:
@@ -3638,11 +3690,6 @@ def import_beads(
         related_slugs = set(feature.get("dependencies", [])) | set(feature.get("related_dependencies", []))
         parent_slug = feature.get("parent_feature")
         referenced_slugs = related_slugs | ({parent_slug} if parent_slug else set())
-        feature_slug = str(feature["slug"])
-        if feature_import_completed(feature) and feature_slug not in changed_slugs:
-            continue
-        if feature_slug not in changed_slugs and not referenced_slugs & changed_slugs:
-            continue
         root_id = feature.get("beads", {}).get("root_id")
         if not root_id:
             continue
@@ -3650,14 +3697,14 @@ def import_beads(
         for dependency_slug in feature.get("dependencies", []):
             dependency_id = roots_by_slug.get(dependency_slug)
             if dependency_id:
-                bd_dep(root, root_id, dependency_id)
+                reconcile_bd_relation(root, issue_id=root_id, depends_on=dependency_id, relation="blocks")
         for dependency_slug in feature.get("related_dependencies", []):
             dependency_id = roots_by_slug.get(dependency_slug)
             if dependency_id:
-                bd_dep(root, root_id, dependency_id, "related")
+                reconcile_bd_relation(root, issue_id=root_id, depends_on=dependency_id, relation="related")
         parent_id = roots_by_slug.get(parent_slug) if parent_slug else None
         if parent_id:
-            bd_dep(root, root_id, parent_id, "related")
+            reconcile_bd_relation(root, issue_id=root_id, depends_on=parent_id, relation="related")
         if feature.get("beads", {}).get("state_applied") and relationships_complete:
             feature["beads"]["import_phase"] = "completed"
     flush_bd_batch(root, "migrate-workflow: reconcile feature relationships")
@@ -3667,6 +3714,7 @@ def import_beads(
     if progress["remaining"] == 0:
         manifest["beads_import_completed_at"] = manifest.get("beads_import_completed_at") or utc_now()
     save_manifest_and_report(root, manifest_path, report_path, manifest)
+    sync_mutable_beads_controls(root)
     print_import_progress(progress)
     print(f"Import pass complete for {len(features)} selected feature(s).")
 
@@ -5548,6 +5596,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     import_parser.add_argument("--apply", action="store_true")
     import_parser.add_argument("--init-beads", action="store_true")
     import_parser.add_argument("--feature", action="append", default=[], help="Import only a slug")
+    import_parser.add_argument(
+        "--batch-size",
+        type=int,
+        choices=range(1, 15),
+        default=2,
+        metavar="1..14",
+        help="Maximum incomplete features to mutate in one apply pass (default: 2)",
+    )
 
     draft_records = subparsers.add_parser(
         "draft-delivered-records", help="Draft historical delivered records for required human review"
@@ -5925,6 +5981,7 @@ def _main(args: argparse.Namespace) -> int:
                 apply=args.apply,
                 init_beads=args.init_beads,
                 requested=args.feature,
+                batch_size=args.batch_size,
             )
             return 0
 

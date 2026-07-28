@@ -333,13 +333,15 @@ normalize or write those files.
 
 Any nonzero `bd init` result stops the migration before discovery or mutation. The guard runs non-stealth initialization
 inside an isolated temporary Git repository so `bd` cannot create the migration checkpoint or trigger/bypass project
-hooks. It moves the resulting local Dolt authority into the primary repository, removes only the broad legacy stealth
-exclude, and exposes the expected control files plus formula for the workflow-owned Gate 2 commit. Stage those exact
-files with `git add -f` so a user-global stealth ignore cannot hide them; never force-add runtime or database paths.
-Publication uses a durable sibling journal and complete staged authority; an interrupted swap rolls back before retry.
-Existing initialized stealth repositories are reconciled by the same `beads-authority --init` command without recreating
-their database. Never continue because a database exists elsewhere, patch an importer under `/tmp`, or use an alternate
-`--db` to pass.
+hooks. It moves the resulting local Dolt authority into the primary repository and exposes the expected control files
+plus formula for the workflow-owned Gate 2 commit. A linked migration keeps a repository-local `.beads/` exclude so the
+primary authority mirror does not dirty the base worktree; the explicit `git add -f` still stages only the allowlisted
+branch controls. `interactions.jsonl` is mutable native state: authority validation requires it on both sides but
+permits content drift and synchronizes the authority copy after a successful import pass. Immutable controls must remain
+byte-identical. Never force-add runtime or database paths. Publication uses a durable sibling journal and complete
+staged authority; an interrupted swap rolls back before retry. Existing initialized stealth repositories are reconciled
+by the same `beads-authority --init` command without recreating their database. Never continue because a database exists
+elsewhere, patch an importer under `/tmp`, or use an alternate `--db` to pass.
 
 The ordinary branch commit carries collaborative control files, not the embedded database. Live issue history remains
 Dolt history: configure a Dolt remote and run `bd dolt push`; fresh clones recover it with `bd bootstrap`. JSONL export
@@ -510,10 +512,18 @@ Apply only after preflight succeeds:
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
 ```
 
+An apply pass mutates at most two incomplete features by default. Repeat it until `remaining: 0`. `--batch-size 1..14`
+sets an explicit reviewed bound; `--feature <slug>` narrows recovery to named features. The importer prioritizes
+features whose state is not yet applied, persists every created identity, commits each feature phase to Dolt, and then
+reconciles all relationships whose roots are available. A process interruption therefore resumes the same fresh import
+rather than starting a new migration or duplicating records.
+
 Dry-run and apply first validate repository-local Beads authority. They search existing records by deterministic
 migration metadata and reconcile every recorded ID, including `import_phase: completed`, before trusting progress.
 Manifest IDs without matching records are conflicts rather than `existing`; existing records without manifest IDs are
-recoverable. Repeated import must be idempotent. Beads 1.1 compatibility creates a record without `--status`, then uses
+recoverable. Native Beads may propagate parent migration labels to children; recovery accepts only labels inherited from
+the exact expected root/lifecycle ancestry and still rejects foreign or malformed migration-owned records. Repeated
+import must be idempotent. Beads 1.1 compatibility creates a record without `--status`, then uses
 `bd update <id> --status <state>`.
 
 When a partial import exists:
