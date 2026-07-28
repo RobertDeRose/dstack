@@ -80,12 +80,7 @@ SETUP_BRIEF = {
 }
 PUNCTUATED_PROJECT_NAME = 'A "quoted" \\ café 😀 [project]'
 
-ISOLATED_MISE_RECOVERY = (
-    'env -u MISE_GLOBAL_CONFIG_FILE MISE_IGNORED_CONFIG_PATHS="'
-    "${MISE_IGNORED_CONFIG_PATHS:+$MISE_IGNORED_CONFIG_PATHS:}"
-    "${XDG_CONFIG_HOME:-$HOME/.config}/mise/config.toml"
-    '${MISE_GLOBAL_CONFIG_FILE:+:$MISE_GLOBAL_CONFIG_FILE}" '
-)
+TOOLING_RERUN = "python3 scripts/setup-tooling.py --json"
 
 SETUP_BRIEF_ARGS = [
     "--purpose",
@@ -1325,8 +1320,12 @@ def test_tooling_provisioner_reports_independent_stage_outcomes(
 
     monkeypatch.setattr(module.shutil, "which", lambda _command: None if failure == "missing" else "/bin/mise")
 
-    def fake_run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    config_dirs: list[Path] = []
+
+    def fake_run(command: list[str], cwd: Path, *, config_dir: Path) -> subprocess.CompletedProcess[str]:
         assert cwd == project
+        assert config_dir.is_dir()
+        config_dirs.append(config_dir)
         commands.append(command)
         stage_name = "hooks" if command[1] == "x" else command[1]
         if stage_name == "lock" and failure != "lock":
@@ -1344,6 +1343,9 @@ def test_tooling_provisioner_reports_independent_stage_outcomes(
     ) == expected
     assert result["platforms"] == ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64"]
     assert all(isinstance(command, str) and command for command in result["recovery"])
+    if commands:
+        assert len(set(config_dirs)) == 1
+        assert not config_dirs[0].exists()
     if failure is None and has_git:
         assert commands == [module.LOCK_COMMAND, module.INSTALL_COMMAND, module.HOOK_COMMAND]
         assert result["recovery"] == []
@@ -1433,7 +1435,8 @@ def test_mise_monorepo_compatibility_contract(
     (root / ".git").mkdir()
     commands: list[list[str]] = []
 
-    def fake_run(command: list[str], project_root: Path) -> subprocess.CompletedProcess[str]:
+    def fake_run(command: list[str], project_root: Path, *, config_dir: Path) -> subprocess.CompletedProcess[str]:
+        assert config_dir.is_dir()
         commands.append(command)
         if command == module.LOCK_COMMAND:
             (project_root / "mise.lock").write_text(
@@ -1465,22 +1468,96 @@ def test_tooling_provisioner_isolates_project_lock_from_global_mise_tools(
         captured.update(kwargs)
         return subprocess.CompletedProcess([], 0, "", "")
 
-    config_home = tmp_path / "config"
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
-    existing_ignored = str(tmp_path / "already-ignored.toml")
+    isolated_config = tmp_path / "isolated-config"
+    isolated_config.mkdir()
+    monkeypatch.setenv("MISE_CONFIG_DIR", str(tmp_path / "caller-config"))
     monkeypatch.setenv("MISE_GLOBAL_CONFIG_FILE", os.devnull)
-    monkeypatch.setenv("MISE_IGNORED_CONFIG_PATHS", existing_ignored)
+    monkeypatch.setenv("MISE_GLOBAL_CONFIG_ROOT", str(tmp_path / "global-root"))
     monkeypatch.setattr(module.subprocess, "run", fake_run)
-    module.run(["mise", "install"], tmp_path)
+    module.run(["mise", "install"], tmp_path, config_dir=isolated_config)
 
+    assert captured["env"]["MISE_CONFIG_DIR"] == str(isolated_config)
     assert "MISE_GLOBAL_CONFIG_FILE" not in captured["env"]
-    assert captured["env"]["MISE_IGNORED_CONFIG_PATHS"].split(os.pathsep) == [
-        existing_ignored,
-        str(config_home / "mise/config.toml"),
-        os.devnull,
-    ]
-    assert module.ISOLATED_MISE.startswith("env -u MISE_GLOBAL_CONFIG_FILE ")
-    assert "${MISE_IGNORED_CONFIG_PATHS:+$MISE_IGNORED_CONFIG_PATHS:}" in module.ISOLATED_MISE
+    assert "MISE_GLOBAL_CONFIG_ROOT" not in captured["env"]
+    assert module.RERUN_COMMAND == TOOLING_RERUN
+
+
+def test_tooling_provisioner_real_mise_excludes_host_global_config(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mise_path = shutil.which("mise")
+    if mise_path is None:
+        pytest.skip("mise is required for the real isolation contract")
+    assert mise_path is not None
+    module = load_tooling_module(repository_root)
+    fake_home = tmp_path / "home"
+    global_config = fake_home / ".config/mise/config.toml"
+    global_config.parent.mkdir(parents=True)
+    global_config.write_text('[tools]\n"github:max-sixty/worktrunk" = "latest"\n', encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    isolated_config = tmp_path / "isolated"
+    isolated_config.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(fake_home / ".config"))
+
+    inherited = run_command([mise_path, "config", "ls"], cwd=project, env=os.environ.copy())
+    isolated = module.run(["mise", "config", "ls"], project, config_dir=isolated_config)
+
+    assert inherited.returncode == 0
+    assert "worktrunk" in inherited.stdout
+    assert isolated.returncode == 0
+    assert "worktrunk" not in isolated.stdout
+
+
+def test_tooling_provisioner_completes_with_hostile_global_only_tool(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_tooling_module(repository_root)
+    project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    (project / "mise.toml").write_text('[tools]\nnode = "24"\n', encoding="utf-8")
+    fake_home = tmp_path / "home"
+    global_config = fake_home / ".config/mise/config.toml"
+    global_config.parent.mkdir(parents=True)
+    global_config.write_text('[tools]\n"github:max-sixty/worktrunk" = "latest"\n', encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    config_log = tmp_path / "config-dirs.log"
+    fake_mise = bin_dir / "mise"
+    fake_mise.write_text(
+        "#!/bin/sh\n"
+        'test -z "$MISE_GLOBAL_CONFIG_FILE" || exit 21\n'
+        'test -z "$MISE_GLOBAL_CONFIG_ROOT" || exit 22\n'
+        'test -d "$MISE_CONFIG_DIR" || exit 23\n'
+        f'printf "%s\\n" "$MISE_CONFIG_DIR" >> "{config_log}"\n'
+        'case "$1" in\n'
+        "  lock) printf '[tools.node]\\nversion = \"24\"\\n' > mise.lock ;;\n"
+        "  install) if grep -q worktrunk mise.lock; then exit 24; fi ;;\n"
+        "  x) : ;;\n"
+        "  *) exit 25 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_mise.chmod(0o755)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("MISE_CONFIG_DIR", str(global_config.parent))
+    monkeypatch.setenv("MISE_GLOBAL_CONFIG_FILE", str(global_config))
+    monkeypatch.setenv("MISE_GLOBAL_CONFIG_ROOT", str(global_config.parent))
+
+    result = module.provision(project)
+
+    assert result["status"] == "succeeded"
+    assert "worktrunk" not in (project / "mise.lock").read_text(encoding="utf-8")
+    config_dirs = config_log.read_text(encoding="utf-8").splitlines()
+    assert len(config_dirs) == 3
+    assert len(set(config_dirs)) == 1
+    assert not Path(config_dirs[0]).exists()
 
 
 def test_tooling_provisioner_omits_only_nixfmt_macos_x64_lock_entry(
@@ -2711,34 +2788,19 @@ def test_setup_project_provisions_tooling_and_reports_no_git_separately(
         "macos-x64",
         "macos-arm64",
     ]
-    assert payload["outstanding"] == (
-        [f"Tooling recovery: {ISOLATED_MISE_RECOVERY}mise x -- hk install --mise"] if no_git else []
-    ) + ["Beads initialization and verification"]
+    assert payload["outstanding"] == ([f"Tooling recovery: {TOOLING_RERUN}"] if no_git else []) + [
+        "Beads initialization and verification"
+    ]
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
     ("failure", "expected_stages", "recovery"),
     [
-        ("missing", ("unavailable", "skipped", "skipped", "skipped"), ["python3 scripts/setup-tooling.py --json"]),
-        (
-            "lock",
-            ("available", "failed", "skipped", "skipped"),
-            [
-                ISOLATED_MISE_RECOVERY + "mise lock --yes --platform linux-x64,linux-arm64,macos-x64,macos-arm64",
-                "python3 scripts/setup-tooling.py --json",
-            ],
-        ),
-        (
-            "install",
-            ("available", "succeeded", "failed", "skipped"),
-            [ISOLATED_MISE_RECOVERY + "mise install --locked", "python3 scripts/setup-tooling.py --json"],
-        ),
-        (
-            "hooks",
-            ("available", "succeeded", "succeeded", "failed"),
-            [ISOLATED_MISE_RECOVERY + "mise x -- hk install --mise"],
-        ),
+        ("missing", ("unavailable", "skipped", "skipped", "skipped"), [TOOLING_RERUN]),
+        ("lock", ("available", "failed", "skipped", "skipped"), [TOOLING_RERUN]),
+        ("install", ("available", "succeeded", "failed", "skipped"), [TOOLING_RERUN]),
+        ("hooks", ("available", "succeeded", "succeeded", "failed"), [TOOLING_RERUN]),
     ],
 )
 def test_setup_project_preserves_scaffold_and_reports_tooling_failures(
@@ -4365,7 +4427,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     assert payload["docs_validated"] is True
     assert payload["beads_initialized"] is True
     assert payload["tooling"]["hooks"]["status"] == "skipped-no-git"
-    assert payload["outstanding"] == [f"Tooling recovery: {ISOLATED_MISE_RECOVERY}mise x -- hk install --mise"]
+    assert payload["outstanding"] == [f"Tooling recovery: {TOOLING_RERUN}"]
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "--version" in commands
     assert "init --skip-agents --stealth --quiet" in commands

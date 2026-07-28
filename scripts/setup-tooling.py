@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -19,12 +20,6 @@ LOCK_COMMAND = ["mise", "lock", "--yes", "--platform", ",".join(PLATFORMS)]
 INSTALL_COMMAND = ["mise", "install", "--locked"]
 HOOK_COMMAND = ["mise", "x", "--", "hk", "install", "--mise"]
 RERUN_COMMAND = "python3 scripts/setup-tooling.py --json"
-ISOLATED_MISE = (
-    'env -u MISE_GLOBAL_CONFIG_FILE MISE_IGNORED_CONFIG_PATHS="'
-    "${MISE_IGNORED_CONFIG_PATHS:+$MISE_IGNORED_CONFIG_PATHS:}"
-    "${XDG_CONFIG_HOME:-$HOME/.config}/mise/config.toml"
-    '${MISE_GLOBAL_CONFIG_FILE:+:$MISE_GLOBAL_CONFIG_FILE}" '
-)
 MAX_ERROR_CHARS = 2_000
 NIXFMT_TOOL = "github:Mic92/nixfmt-rs"
 NIXFMT_UNSUPPORTED_PLATFORM = "macos-x64"
@@ -56,23 +51,20 @@ def command_error(result: subprocess.CompletedProcess[str]) -> str:
     return text[-MAX_ERROR_CHARS:]
 
 
-def mise_environment() -> dict[str, str]:
+def mise_environment(config_dir: Path) -> dict[str, str]:
     environment = os.environ.copy()
-    config_home = Path(environment.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    default_global = str(config_home / "mise/config.toml")
-    legacy_global = environment.pop("MISE_GLOBAL_CONFIG_FILE", None)
-    ignored = [value for value in environment.get("MISE_IGNORED_CONFIG_PATHS", "").split(os.pathsep) if value]
-    ignored.extend(value for value in (default_global, legacy_global) if value and value not in ignored)
-    environment["MISE_IGNORED_CONFIG_PATHS"] = os.pathsep.join(ignored)
+    environment.pop("MISE_GLOBAL_CONFIG_FILE", None)
+    environment.pop("MISE_GLOBAL_CONFIG_ROOT", None)
+    environment["MISE_CONFIG_DIR"] = str(config_dir)
     return environment
 
 
-def run(command: Sequence[str], project_root: Path) -> subprocess.CompletedProcess[str]:
+def run(command: Sequence[str], project_root: Path, *, config_dir: Path) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             list(command),
             cwd=project_root,
-            env=mise_environment(),
+            env=mise_environment(config_dir),
             check=False,
             capture_output=True,
             text=True,
@@ -112,6 +104,11 @@ def normalize_nixfmt_lock(project_root: Path, lock_path: Path) -> str | None:
 
 
 def provision(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="dstack-mise-config-") as directory:
+        return _provision(project_root, Path(directory))
+
+
+def _provision(project_root: Path, config_dir: Path) -> dict[str, Any]:
     result = skipped_result()
     result["status"] = "degraded"
     result["mise"] = "available" if shutil.which("mise") else "unavailable"
@@ -119,36 +116,36 @@ def provision(project_root: Path) -> dict[str, Any]:
         result["recovery"] = [RERUN_COMMAND]
         return result
 
-    lock = run(LOCK_COMMAND, project_root)
+    lock = run(LOCK_COMMAND, project_root, config_dir=config_dir)
     lock_path = project_root / "mise.lock"
     if lock.returncode or not lock_path.is_file() or lock_path.stat().st_size == 0:
         error = command_error(lock) if lock.returncode else "mise lock did not create a nonempty mise.lock"
         result["lock"] = stage("failed", path="mise.lock", error=error)
-        result["recovery"] = [ISOLATED_MISE + " ".join(LOCK_COMMAND), RERUN_COMMAND]
+        result["recovery"] = [RERUN_COMMAND]
         return result
     normalization_error = normalize_nixfmt_lock(project_root, lock_path)
     if normalization_error:
         result["lock"] = stage("failed", path="mise.lock", error=normalization_error)
-        result["recovery"] = [ISOLATED_MISE + " ".join(LOCK_COMMAND), RERUN_COMMAND]
+        result["recovery"] = [RERUN_COMMAND]
         return result
     result["lock"] = stage("succeeded", path="mise.lock")
 
-    install = run(INSTALL_COMMAND, project_root)
+    install = run(INSTALL_COMMAND, project_root, config_dir=config_dir)
     if install.returncode:
         result["install"] = stage("failed", error=command_error(install))
-        result["recovery"] = [ISOLATED_MISE + " ".join(INSTALL_COMMAND), RERUN_COMMAND]
+        result["recovery"] = [RERUN_COMMAND]
         return result
     result["install"] = stage("succeeded")
 
     if not (project_root / ".git").exists():
         result["hooks"] = stage("skipped-no-git")
-        result["recovery"] = [ISOLATED_MISE + " ".join(HOOK_COMMAND)]
+        result["recovery"] = [RERUN_COMMAND]
         return result
 
-    hooks = run(HOOK_COMMAND, project_root)
+    hooks = run(HOOK_COMMAND, project_root, config_dir=config_dir)
     if hooks.returncode:
         result["hooks"] = stage("failed", error=command_error(hooks))
-        result["recovery"] = [ISOLATED_MISE + " ".join(HOOK_COMMAND)]
+        result["recovery"] = [RERUN_COMMAND]
         return result
 
     result["hooks"] = stage("succeeded")
