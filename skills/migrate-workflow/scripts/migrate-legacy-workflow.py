@@ -3171,14 +3171,17 @@ def require_formula_only_beads(root: Path) -> None:
 
 
 def ensure_bd_available(root: Path, *, init_beads: bool) -> None:
+    local_controls_exist = (root / ".beads/metadata.json").is_file() and (root / ".beads/config.yaml").is_file()
     if shutil.which("bd") is None:
+        if not local_controls_exist and not init_beads:
+            msg = "Beads is not repository-locally initialized; run beads-authority --init from the primary checkout."
+            raise MigrationError(msg)
         msg = "The 'bd' command is not installed"
         raise MigrationError(msg)
     try:
         validate_beads_authority(root)
         return
     except MigrationError as authority_error:
-        local_controls_exist = (root / ".beads/metadata.json").is_file() and (root / ".beads/config.yaml").is_file()
         if local_controls_exist:
             raise authority_error
         if not init_beads:
