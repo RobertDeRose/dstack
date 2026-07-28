@@ -97,8 +97,10 @@ or degraded setup, run:
 python3 scripts/setup-tooling.py --json
 ```
 
-The command preserves the scaffold when resolution, installation, or hook setup fails and reports the failed stage and
-recovery commands. A repository created without Git can install hooks after Git initialization with:
+The command gives lock, install, and hook stages one temporary `MISE_CONFIG_DIR`, removes inherited global config
+overrides, and deletes the temporary directory on exit. It preserves the scaffold on failure, reports the failed stage,
+and uses the same command above for recovery. A repository created without Git can install hooks after Git initialization
+with:
 
 ```bash
 python3 scripts/setup-tooling.py --json

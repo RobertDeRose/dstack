@@ -102,8 +102,9 @@ lockfile = true
 Package configs declare package tasks without `[tools]`. Root `mise.toml` declares the profile-tool union and aggregate
 tasks with absolute task targets such as `//packages/api:check`. `mise tasks --all` discovers package tasks;
 `mise run check` invokes every declared package check. Exactly one root `mise.lock` and the existing root
-`scripts/setup-tooling.py` own lock, locked install, Nix host normalization, and hk installation. No experimental mise
-setting is required.
+`scripts/setup-tooling.py` own lock, locked install, Nix host normalization, and hk installation. Provisioning uses one
+temporary `MISE_CONFIG_DIR` for all stages and never resolves user-global tools. No experimental mise setting is
+required.
 
 ## Setup project brief
 

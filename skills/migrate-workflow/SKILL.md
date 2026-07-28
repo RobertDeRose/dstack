@@ -57,15 +57,15 @@ differs from the rendered new-project structure, it preserves the project file a
 migration/template-adoption-candidates/<same-relative-path>
 ```
 
-Inspect every path in `manual_merge`. Preserve every baseline hk step by default; after reconciliation, `scan --write`
-blocks lost or changed steps. Restore them or use the explicit user-approved procedure in
+Review each exact `manual_merge` path with the bounded **Template source and revision** procedure. Preserve baseline
+hook steps; `scan --write` blocks loss or changes. Restore them or use the explicit user-approved procedure in
 **Additive hk reconciliation**. Never assert equivalence for an unevaluable baseline. Merge only the workflow structure
 the existing project needs into the current file; do not replace project-specific navigation, architecture, operations,
 or reference content wholesale. Remove temporary candidates, and explicitly retain or remove conditional backups using
-**Artifact lifecycle**; unresolved state blocks verification. After conflicts are clean, use only the rendered
-`scripts/setup-tooling.py --json` provisioner and require lock/install/hook success. Verify `pkl eval hk.pkl`, installed
-hook routing, and `mise x -- hk run pre-commit -a -P`; stop with provisioner or hook reproduction/recovery on failure.
-See **Verified migration checkpoints**.
+**Artifact lifecycle**; unresolved state blocks verification. Require rendered `python3 scripts/setup-tooling.py --json`
+to succeed. Failure enters **tooling provisioning blocked**; retry that exact command. Then verify `pkl eval hk.pkl`,
+hook routing, and `mise x -- hk run pre-commit -a -P`; stop with hook recovery on failure. See
+**Verified migration checkpoints**.
 
 Validate migration-mode docs, apply project-native formatting, stage, and use an ordinary verified commit. Only explicit
 user approval may set `HK_SKIP_STEPS=docs` for that commit after migration-mode docs pass and `checkpoint-evidence` is

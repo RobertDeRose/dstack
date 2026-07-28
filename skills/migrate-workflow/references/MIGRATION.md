@@ -181,9 +181,12 @@ design, roadmap, and Beads. Do not copy conversational prompt prose into the man
 ## Verified migration checkpoints
 
 After baseline capture and conflict-free candidate reconciliation, run the rendered
-`python3 scripts/setup-tooling.py --json`. Require `status: succeeded`; on failure stop with its reported stage and
-recovery commands. Do not introduce a second installer. Verify `pkl eval hk.pkl`, repository-local Git hook routing, and
-`mise x -- hk run pre-commit -a -P` before staging the adoption checkpoint.
+`python3 scripts/setup-tooling.py --json`. Require `status: succeeded`. The script gives lock, install, and hook stages
+one shared temporary `MISE_CONFIG_DIR`, excludes caller global overrides, removes that directory on exit, and reports
+only `python3 scripts/setup-tooling.py --json` as recovery. On failure, enter **tooling provisioning blocked**: preserve
+the reconciled worktree, fix the reported stage, and rerun that exact command. Do not introduce a second installer.
+Verify `pkl eval hk.pkl`, repository-local Git hook routing, and `mise x -- hk run pre-commit -a -P` before staging the
+adoption checkpoint.
 
 Use an ordinary `git commit` so configured hooks are authoritative. If it fails, preserve the worktree and report the
 named hook/step, the exact commit or `mise x -- hk run <hook>` reproduction, and corrective recovery. Never bypass all
@@ -250,9 +253,27 @@ project scaffold files are copied. Existing project-owned files are preserved; t
 under `migration/template-adoption-candidates/` for explicit manual reconciliation. Replaced dstack framework files are
 backed up under `migration/template-adoption-backup/`.
 
-For every `manual_merge` path, compare the current file with the candidate and merge only the needed documentation
-structure, links, markers, or conventions. Preserve project-specific content. Remove the candidate directory before the
-adoption checkpoint:
+Treat the adoption command's JSON `manual_merge[]` as the complete candidate inventory; do not rediscover candidates
+with a repository-wide scan. Save the JSON outside the repository and select one indexed path per review command:
+
+Choose one numeric index per review invocation; the command writes one selected path rather than printing the inventory:
+
+```bash
+index=0
+jq --argjson index "$index" -er '.manual_merge[$index]' \
+  /tmp/dstack-adoption.json > /tmp/dstack-candidate.path
+IFS= read -r target < /tmp/dstack-candidate.path
+candidate="migration/template-adoption-candidates/$target"
+wc -c -- "$target" "$candidate"
+git diff --no-index --stat -- "$target" "$candidate" || true
+git diff --no-index -- "$target" "$candidate" > /tmp/dstack-candidate.diff || true
+wc -c /tmp/dstack-candidate.diff
+```
+
+Inspect the bounded diff file in chunks, reconcile that path, then increment `index` and repeat. If one path or output
+exceeds the current review budget, stop and narrow only that comparison. Continue until `jq '.manual_merge | length'`
+confirms every index was reviewed. Merge only the needed documentation structure, links, markers, or conventions,
+preserve project-specific content, and remove the candidate directory before the adoption checkpoint:
 
 ```bash
 uv run scripts/check-docs.py --migration-mode
