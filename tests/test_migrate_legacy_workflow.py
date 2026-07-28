@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
@@ -143,6 +144,40 @@ def run_migrator(
     env: Mapping[str, str] | None = None,
     expected: int = 0,
 ):
+    inside_git = (
+        run_command(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=root,
+            expected=0 if (root / ".git").exists() else 128,
+        ).returncode
+        == 0
+    )
+    if not inside_git and arguments[:1] != ("authorize-session",):
+        run_command(["git", "init", "-b", "main"], cwd=root)
+        run_command(["git", "config", "user.email", "test@example.com"], cwd=root)
+        run_command(["git", "config", "user.name", "dstack Test"], cwd=root)
+        run_command(["git", "config", "commit.gpgSign", "false"], cwd=root)
+        run_command(["git", "config", "tag.gpgSign", "false"], cwd=root)
+        run_command(["git", "add", "."], cwd=root)
+        run_command(["git", "commit", "--allow-empty", "-m", "legacy fixture"], cwd=root)
+        run_command(["git", "switch", "-c", "chore/migrate-dstack-workflow"], cwd=root)
+        run_command(
+            [
+                sys.executable,
+                str(MIGRATOR),
+                "authorize-session",
+                "fresh",
+                "--base-branch",
+                "main",
+                "--migration-branch",
+                "chore/migrate-dstack-workflow",
+                "--root",
+                str(root),
+            ],
+            cwd=root,
+        )
+        run_command(["git", "add", "migration/session-authority.json"], cwd=root)
+        run_command(["git", "commit", "-m", "chore: authorize migration fixture"], cwd=root)
     return run_command(
         [sys.executable, str(MIGRATOR), *arguments, "--root", str(root)],
         cwd=root,
@@ -180,11 +215,20 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
 
             state = Path(os.environ["FAKE_BD_STATE"])
             state.mkdir(parents=True, exist_ok=True)
-            args = sys.argv[1:]
-            if args[:1] == ["--dolt-auto-commit=batch"]:
-                batch_count = state / "batch-count"
-                batch_count.write_text(str(int(batch_count.read_text()) + 1 if batch_count.exists() else 1))
-                args = args[1:]
+            raw_args = sys.argv[1:]
+            with (state / "raw-commands.jsonl").open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(raw_args) + "\\n")
+            args = list(raw_args)
+            while args:
+                if args[0] == "--dolt-auto-commit=batch":
+                    batch_count = state / "batch-count"
+                    batch_count.write_text(str(int(batch_count.read_text()) + 1 if batch_count.exists() else 1))
+                    args = args[1:]
+                    continue
+                if args[0] == "--db" and len(args) > 1:
+                    args = args[2:]
+                    continue
+                break
             commands = state / "commands.jsonl"
             issues_path = state / "issues.json"
             issues = json.loads(issues_path.read_text()) if issues_path.exists() else {}
@@ -201,7 +245,44 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
             with commands.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(args) + "\\n")
 
-            if args and args[0] == "create":
+            if args and args[0] == "context":
+                root = Path(os.environ["FAKE_BD_ROOT"])
+                slug = root.name.replace("-", "_")
+                print(json.dumps({
+                    "backend": "dolt",
+                    "beads_dir": str(root / ".beads"),
+                    "cwd_repo_root": str(root),
+                    "database": slug,
+                    "dolt_mode": "embedded",
+                    "is_redirected": False,
+                    "project_id": "fake-project-id",
+                    "repo_root": str(root),
+                    "schema_version": 1,
+                }))
+            elif args and args[0] == "where":
+                root = Path(os.environ["FAKE_BD_ROOT"])
+                print(json.dumps({
+                    "database_path": str(root / ".beads/embeddeddolt"),
+                    "path": str(root / ".beads"),
+                    "prefix": root.name,
+                    "schema_version": 1,
+                }))
+            elif args and args[0] == "init":
+                if os.environ.get("FAKE_BD_INIT_FAIL") == "1":
+                    print("injected init failure", file=sys.stderr)
+                    raise SystemExit(1)
+                root = Path(os.environ["FAKE_BD_ROOT"])
+                beads = root / ".beads"
+                beads.mkdir(exist_ok=True)
+                (beads / "metadata.json").write_text(json.dumps({
+                    "backend": "dolt",
+                    "dolt_database": root.name.replace("-", "_"),
+                    "dolt_mode": "embedded",
+                    "project_id": "fake-project-id",
+                }) + "\\n")
+                (beads / "config.yaml").write_text(f"issue-prefix: {root.name}\\n")
+                print("initialized")
+            elif args and args[0] == "create":
                 counter = state / "counter"
                 value = int(counter.read_text()) + 1 if counter.exists() else 1
                 counter.write_text(str(value))
@@ -299,11 +380,43 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
         encoding="utf-8",
     )
     script.chmod(0o755)
+    (legacy_project / ".beads/metadata.json").write_text(
+        json.dumps(
+            {
+                "backend": "dolt",
+                "dolt_database": legacy_project.name.replace("-", "_"),
+                "dolt_mode": "embedded",
+                "project_id": "fake-project-id",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (legacy_project / ".beads/config.yaml").write_text(
+        f"issue-prefix: {legacy_project.name}\n",
+        encoding="utf-8",
+    )
     env = merged_environment(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
+        FAKE_BD_ROOT=str(legacy_project),
         FAKE_BD_STATE=str(state_dir),
     )
     return env, state_dir
+
+
+def authorize_fresh_session(root: Path, *, branch: str = "chore/migrate-dstack-workflow") -> None:
+    run_command(["git", "switch", "-c", branch], cwd=root)
+    run_migrator(
+        root,
+        "authorize-session",
+        "fresh",
+        "--base-branch",
+        "main",
+        "--migration-branch",
+        branch,
+    )
+    run_command(["git", "add", "migration/session-authority.json"], cwd=root)
+    run_command(["git", "commit", "-m", "chore: authorize migration fixture"], cwd=root)
 
 
 def features_by_slug(root: Path) -> dict[str, dict[str, Any]]:
@@ -350,6 +463,14 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
 ) -> None:
     run_migrator(legacy_project, "baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
     run_migrator(legacy_project, "scan", "--write")
+    run_migrator(
+        legacy_project,
+        "classify",
+        "alpha",
+        "needs_review",
+        "--reason",
+        "This mechanics fixture intentionally leaves semantic delivery review unresolved.",
+    )
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
 
     assert (legacy_project / "docs/src/features/alpha/design.md").is_file()
@@ -386,9 +507,18 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     before_retry = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
     retry = run_migrator(legacy_project, "import-beads", "--apply", env=env)
     after_retry = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
-    mutation_verbs = {"create", "update", "close", "dep", "note"}
-    assert [command for command in after_retry if command and command[0] in mutation_verbs] == [
-        command for command in before_retry if command and command[0] in mutation_verbs
+
+    def is_mutation(command: list[str]) -> bool:
+        return bool(
+            command
+            and (
+                command[0] in {"create", "update", "close", "note"}
+                or (command[:2] in (["dep", "add"], ["dep", "remove"]))
+            )
+        )
+
+    assert [command for command in after_retry if is_mutation(command)] == [
+        command for command in before_retry if is_mutation(command)
     ]
     assert "already completed; skipping mutations" in retry.stdout
     assert {slug: feature["beads"] for slug, feature in features_by_slug(legacy_project).items()} == imported_identities
@@ -406,7 +536,7 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
         f"implementation_id={alpha['beads']['lifecycle']['implementation']}" in command for command in metadata_updates
     )
 
-    result = run_migrator(legacy_project, "finalize", expected=2)
+    result = run_migrator(legacy_project, "finalize", env=env, expected=2)
     assert "still referenced" in result.stderr
 
     existing_archive = legacy_project / "migration/legacy-tasks/existing.md"
@@ -416,15 +546,23 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
         "# Alpha\n\n## Delivery Summary\n\nStandalone migrated record.\n",
         encoding="utf-8",
     )
-    run_migrator(legacy_project, "finalize", "--apply")
+    run_migrator(legacy_project, "finalize", "--apply", env=env)
     assert not (legacy_project / "docs/src/features/alpha/tasks.md").exists()
     assert (legacy_project / "migration/legacy-tasks/alpha.md").is_file()
     assert (legacy_project / "migration/legacy-tasks/beta.md").is_file()
     assert existing_archive.read_text(encoding="utf-8") == "# Existing archive\n"
     finalized = (legacy_project / "migration/workflow-migration.json").read_bytes()
-    run_migrator(legacy_project, "finalize", "--apply")
+    run_migrator(legacy_project, "finalize", "--apply", env=env)
     assert (legacy_project / "migration/workflow-migration.json").read_bytes() == finalized
+    commit_repository(legacy_project, "finalize migration fixture")
     run_migrator(legacy_project, "verify")
+
+    (legacy_project / "migration/legacy-tasks/alpha.md").write_text("substituted archive\n", encoding="utf-8")
+    (legacy_project / "migration/legacy-tasks/unrecorded.md").write_text("unrecorded archive\n", encoding="utf-8")
+    commit_repository(legacy_project, "tamper with finalized archives")
+    tampered = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)
+    assert "archive digest changed" in tampered.stderr.casefold()
+    assert "unrecorded archive files" in tampered.stderr.casefold()
 
 
 @pytest.mark.integration
@@ -470,6 +608,7 @@ def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -
         encoding="utf-8",
     )
     initialize_git(legacy_project, "legacy delivered feature")
+    authorize_fresh_session(legacy_project)
     run_migrator(legacy_project, "scan", "--write")
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     summary_path = legacy_project / "docs/src/SUMMARY.md"
@@ -489,7 +628,7 @@ def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -
     blocked = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)
     assert "Delivered-record candidates require semantic review" in blocked.stderr
     finalize = run_migrator(legacy_project, "finalize", "--apply", expected=2)
-    assert "require semantic review before finalization" in finalize.stderr
+    assert "not repository-locally initialized" in finalize.stderr
     for candidate in candidates:
         run_migrator(
             legacy_project,
@@ -497,6 +636,12 @@ def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -
             candidate["slug"],
             "--reason",
             "Maintainer reconciled the candidate with legacy and Git evidence",
+            "--summary",
+            f"Feature {candidate['slug']} delivery is corroborated by repository documentation and Git history.",
+            "--evidence",
+            "docs/src/architecture/api.md",
+            "--commit",
+            "HEAD^",
         )
     reviewed = json.loads(manifest_path.read_text(encoding="utf-8"))["delivered_record_candidates"]
     assert all(candidate["reviewed"] for candidate in reviewed)
@@ -510,6 +655,12 @@ def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -
         reviewed[0]["slug"],
         "--reason",
         "Attempt review after tampering",
+        "--summary",
+        f"Feature {reviewed[0]['slug']} delivery is corroborated by repository documentation and Git history.",
+        "--evidence",
+        "docs/src/architecture/api.md",
+        "--commit",
+        "HEAD^",
         expected=2,
     )
     assert "changed after drafting" in rejected_review.stderr
@@ -822,7 +973,7 @@ def test_verify_beads_detects_actual_mixed_relationship_cycle(
     assert "-[related]->" in result.stderr
     assert "-[blocks]->" in result.stderr
     verify_commands = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
-    assert not any(command and command[0] == "list" for command in verify_commands)
+    assert any(command and command[0] == "list" for command in verify_commands)
     assert any(command[:2] == ["dep", "list"] for command in verify_commands)
 
 
@@ -1087,7 +1238,8 @@ def test_baseline_records_and_reruns_named_validation_partitions(tmp_path: Path)
     preview = run_migrator(tmp_path, "baseline", "--validation-partition", preview_partition)
     assert "tests: proposed" in preview.stdout
     assert not preview_marker.exists()
-    assert not (tmp_path / "migration").exists()
+    assert not (tmp_path / "migration/baseline.json").exists()
+    assert not (tmp_path / "migration/baseline.md").exists()
 
     client_partition = json.dumps(
         {
@@ -1402,7 +1554,8 @@ def test_baseline_inventory_keeps_explicit_one_package_monorepo_and_markdown(tmp
 
     refused = run_migrator(tmp_path, "baseline", "--write", expected=2)
     assert "unresolved documentation" in refused.stderr
-    assert not (tmp_path / "migration").exists()
+    assert not (tmp_path / "migration/baseline.json").exists()
+    assert not (tmp_path / "migration/baseline.md").exists()
     run_migrator(tmp_path, "baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
     baseline = json.loads((tmp_path / "migration/baseline.json").read_text(encoding="utf-8"))
     inventory = baseline["capability_inventory"]
@@ -1429,7 +1582,8 @@ def test_baseline_inventory_rejects_symlinked_capability_inputs(tmp_path: Path) 
 
     refused = run_migrator(tmp_path, "baseline", "--write", expected=2)
     assert "unresolved documentation, tests" in refused.stderr
-    assert not (tmp_path / "migration").exists()
+    assert not (tmp_path / "migration/baseline.json").exists()
+    assert not (tmp_path / "migration/baseline.md").exists()
     run_migrator(
         tmp_path,
         "baseline",
@@ -1462,7 +1616,8 @@ def test_baseline_write_requires_review_of_discovered_docs_checker(tmp_path: Pat
 
     assert "unresolved documentation" in refused.stderr
     assert not marker.exists()
-    assert not (tmp_path / "migration").exists()
+    assert not (tmp_path / "migration/baseline.json").exists()
+    assert not (tmp_path / "migration/baseline.md").exists()
 
 
 @pytest.mark.integration
@@ -1578,7 +1733,8 @@ def test_large_import_uses_bounded_batches_and_proportional_retry(
     retry_mutations = [
         command
         for command in after_retry[len(before_retry) :]
-        if command and command[0] in {"create", "update", "close", "dep", "note"}
+        if command
+        and (command[0] in {"create", "update", "close", "note"} or command[:2] in (["dep", "add"], ["dep", "remove"]))
     ]
     assert retry_mutations == [["dep", "add", source, target, "--type", "blocks"]]
     assert "remaining: 1" in resumed.stdout
@@ -1673,3 +1829,594 @@ def test_import_recovers_existing_beads_ids_and_does_not_duplicate_issues(
     assert recovered["alpha"]["beads"]["lifecycle"]["implementation"]
     assert recovered["alpha"]["beads"]["implementation_tasks"]["T010"]
     assert recovered["alpha"]["beads"]["migration_reconciliation_id"]
+
+
+@pytest.mark.integration
+def test_session_authority_rejects_renamed_or_auto_selected_branch(tmp_path: Path) -> None:
+    create_legacy_project(tmp_path)
+    initialize_git(tmp_path, "legacy project")
+    authorize_fresh_session(tmp_path)
+    authority = json.loads((tmp_path / "migration/session-authority.json").read_text(encoding="utf-8"))
+    assert authority["base_branch"] == "main"
+    assert authority["migration_branch"] == "chore/migrate-dstack-workflow"
+
+    run_command(["git", "branch", "-m", "fucked-by-agent"], cwd=tmp_path)
+    refused = run_migrator(tmp_path, "scan", expected=2)
+    assert "authorized migration branch" in refused.stderr
+    assert not (tmp_path / "migration/workflow-migration.json").exists()
+
+
+@pytest.mark.integration
+def test_non_git_repository_cannot_bypass_session_authority(tmp_path: Path) -> None:
+    create_legacy_project(tmp_path)
+    refused = run_command(
+        [sys.executable, str(MIGRATOR), "scan", "--root", str(tmp_path)],
+        cwd=tmp_path,
+        expected=2,
+    )
+    assert "requires a Git worktree" in refused.stderr
+    assert not (tmp_path / "migration/workflow-migration.json").exists()
+
+
+@pytest.mark.integration
+def test_uncommitted_or_tampered_session_authority_is_rejected(tmp_path: Path) -> None:
+    create_legacy_project(tmp_path)
+    initialize_git(tmp_path, "legacy project")
+    run_command(["git", "switch", "-c", "chore/migrate-dstack-workflow"], cwd=tmp_path)
+    run_migrator(
+        tmp_path,
+        "authorize-session",
+        "fresh",
+        "--base-branch",
+        "main",
+        "--migration-branch",
+        "chore/migrate-dstack-workflow",
+    )
+    uncommitted = run_migrator(tmp_path, "scan", expected=2)
+    assert "must be committed" in uncommitted.stderr
+
+    run_command(["git", "add", "migration/session-authority.json"], cwd=tmp_path)
+    run_command(["git", "commit", "-m", "chore: authorize migration fixture"], cwd=tmp_path)
+    authority_path = tmp_path / "migration/session-authority.json"
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["base_branch"] = "forged"
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+    tampered = run_migrator(tmp_path, "scan", expected=2)
+    assert "differs from the committed checkpoint" in tampered.stderr
+
+    commit_repository(tmp_path, "forge later migration authority")
+    committed_tamper = run_migrator(tmp_path, "scan", expected=2)
+    assert "differs from its original authorization commit" in committed_tamper.stderr
+
+
+@pytest.mark.integration
+def test_existing_checkpoint_branch_cannot_authorize_its_own_resume(tmp_path: Path) -> None:
+    create_legacy_project(tmp_path)
+    initialize_git(tmp_path, "legacy project")
+    run_command(["git", "switch", "-c", "fucked-by-agent"], cwd=tmp_path)
+    (tmp_path / "stale-checkpoint").write_text("untrusted\n", encoding="utf-8")
+    commit_repository(tmp_path, "untrusted migration checkpoint")
+
+    refused = run_migrator(tmp_path, "scan", expected=2)
+    assert "checkpoint commits or a manifest are not authority" in refused.stderr
+    assert not (tmp_path / "migration/workflow-migration.json").exists()
+
+
+@pytest.mark.integration
+def test_formula_only_beads_directory_does_not_bypass_failed_initialization(tmp_path: Path) -> None:
+    create_legacy_project(tmp_path)
+    run_migrator(tmp_path, "scan", "--write")
+    state = tmp_path / "fake-state"
+    binary = tmp_path / "fake-bin/bd"
+    binary.parent.mkdir()
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "state = Path(os.environ['FAKE_BD_STATE']); state.mkdir(exist_ok=True)\n"
+        "with (state / 'commands.jsonl').open('a') as stream: stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "if sys.argv[1:2] == ['init']:\n"
+        " print('Found existing unrelated Dolt database', file=sys.stderr); raise SystemExit(1)\n"
+        "print('unexpected command', file=sys.stderr); raise SystemExit(3)\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o755)
+    env = merged_environment(
+        PATH=f"{binary.parent}:{os.environ['PATH']}",
+        FAKE_BD_ROOT=str(tmp_path),
+        FAKE_BD_STATE=str(state),
+    )
+
+    refused = run_migrator(tmp_path, "import-beads", "--apply", "--init-beads", env=env, expected=2)
+    commands = [json.loads(line) for line in (state / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert commands == [["init", "--stealth", "--skip-agents"]]
+    assert "Found existing unrelated Dolt database" in refused.stderr
+
+
+@pytest.mark.integration
+def test_completed_manifest_ids_missing_from_beads_block_dry_run(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    (state_dir / "issues.json").write_text("{}\n", encoding="utf-8")
+
+    refused = run_migrator(legacy_project, "import-beads", env=env, expected=2)
+    assert "no matching Beads issue was found" in refused.stderr
+    assert "existing: 2" not in refused.stdout
+
+
+@pytest.mark.integration
+def test_repository_local_beads_authority_rejects_global_fallback(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+    tmp_path: Path,
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    hostile_root = tmp_path / "global-beads-owner"
+    hostile_root.mkdir()
+    hostile_env = {**env, "FAKE_BD_ROOT": str(hostile_root)}
+
+    refused = run_migrator(legacy_project, "import-beads", env=hostile_env, expected=2)
+    assert "refusing global/shared fallback" in refused.stderr
+    commands = [json.loads(line) for line in (state_dir / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert not any(command[:1] == ["create"] for command in commands)
+
+
+@pytest.mark.integration
+def test_beads_create_uses_supported_status_update(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(
+        legacy_project,
+        "classify",
+        "alpha",
+        "deferred",
+        "--reason",
+        "Repository evidence confirms deferral.",
+    )
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+
+    commands = [json.loads(line) for line in (state_dir / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
+    creates = [command for command in commands if command[:1] == ["create"]]
+    assert creates
+    assert all("--status" not in command for command in creates)
+    alpha_root = features_by_slug(legacy_project)["alpha"]["beads"]["root_id"]
+    assert any(command[:3] == ["update", alpha_root, "--status"] for command in commands)
+
+
+@pytest.mark.integration
+def test_checkpoint_exception_requires_exact_step_approval(legacy_project: Path) -> None:
+    run_migrator(legacy_project, "scan", "--write")
+    refused = run_migrator(
+        legacy_project,
+        "checkpoint-evidence",
+        "--hook",
+        "pre-commit",
+        "--status",
+        "exception",
+        "--command",
+        "HK_SKIP_STEPS=docs git commit",
+        "--reason",
+        "Legacy task links remain.",
+        "--equivalent-result",
+        "Migration-mode documentation passed.",
+        "--residual-risk",
+        "Strict documentation remains deferred.",
+        "--approved-step",
+        "docs",
+        "--approval",
+        "OK",
+        expected=2,
+    )
+    assert "APPROVE HK_SKIP_STEPS=docs" in refused.stderr
+
+
+@pytest.mark.integration
+def test_semantic_review_rejects_substituted_bulk_summary_templates(legacy_project: Path) -> None:
+    (legacy_project / "docs/src/features/beta/index.md").write_text(
+        "# Beta\n\n## Delivery summary\n\nDelivered behavior.\n",
+        encoding="utf-8",
+    )
+    (legacy_project / "alpha.py").write_text("ALPHA = True\n", encoding="utf-8")
+    (legacy_project / "beta.py").write_text("BETA = True\n", encoding="utf-8")
+    initialize_git(legacy_project, "legacy delivered features")
+    authorize_fresh_session(legacy_project)
+    run_migrator(legacy_project, "scan", "--write")
+    for slug in ("alpha", "beta"):
+        run_migrator(
+            legacy_project,
+            "classify",
+            slug,
+            "completed",
+            "--reason",
+            f"Code, tests, documentation, and history confirm {slug} delivery.",
+        )
+    run_migrator(legacy_project, "draft-delivered-records", "--apply")
+    for slug in ("alpha", "beta"):
+        run_migrator(
+            legacy_project,
+            "review-delivered-record",
+            slug,
+            "--reason",
+            f"Reviewed {slug} against repository evidence.",
+            "--summary",
+            f"Feature {slug} delivery was reconciled against its implementation and validation evidence.",
+            "--evidence",
+            f"{slug}.py",
+            "--commit",
+            "HEAD^",
+        )
+
+    refused = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)
+    assert "semantic reconciliation template is reused" in refused.stderr.casefold()
+
+
+@pytest.mark.integration
+def test_completed_features_require_feature_specific_semantic_evidence(legacy_project: Path) -> None:
+    initialize_git(legacy_project, "legacy delivered feature")
+    authorize_fresh_session(legacy_project)
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(
+        legacy_project,
+        "classify",
+        "alpha",
+        "completed",
+        "--reason",
+        "Code, tests, documentation, and delivery history confirm completion.",
+    )
+
+    missing = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)
+    assert "missing reviewed semantic reconciliation" in missing.stderr
+
+    run_migrator(legacy_project, "draft-delivered-records", "--apply")
+    refused = run_migrator(
+        legacy_project,
+        "review-delivered-record",
+        "alpha",
+        "--reason",
+        "Reviewed everything.",
+        expected=2,
+    )
+    assert "feature-specific --summary, --evidence, and --commit" in refused.stderr
+
+
+@pytest.mark.integration
+def test_cli_artifact_paths_cannot_escape_or_collide_with_evidence(tmp_path: Path) -> None:
+    create_legacy_project(tmp_path)
+    escaped = run_migrator(tmp_path, "scan", "--write", "--manifest", "../../outside.json", expected=2)
+    assert "unsafe migration path" in escaped.stderr.casefold()
+    assert not (tmp_path.parent.parent / "outside.json").exists()
+
+    collision = run_migrator(
+        tmp_path,
+        "scan",
+        "--write",
+        "--report",
+        "migration/legacy-tasks/alpha.md",
+        expected=2,
+    )
+    assert "reserved migration evidence" in collision.stderr.casefold()
+    assert not (tmp_path / "migration/legacy-tasks/alpha.md").exists()
+
+
+@pytest.mark.integration
+def test_manifest_paths_cannot_escape_repository(tmp_path: Path) -> None:
+    create_legacy_project(tmp_path)
+    run_migrator(tmp_path, "scan", "--write")
+    victim = tmp_path.parent / "victim.txt"
+    victim.write_text("preserve\n", encoding="utf-8")
+    manifest_path = tmp_path / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["features"][0]["legacy_tasks_path"] = "../../victim.txt"
+    manifest["features"][0]["source_dir"] = "../../outside-feature"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    prepare = run_migrator(tmp_path, "prepare", "--apply", "--allow-dirty", expected=2)
+    finalize = run_migrator(tmp_path, "finalize", "--apply", "--delete-tasks", expected=2)
+    assert "unsafe migration path" in (prepare.stderr + finalize.stderr).casefold()
+    assert victim.read_text(encoding="utf-8") == "preserve\n"
+
+
+@pytest.mark.integration
+def test_verify_beads_rejects_missing_and_unrelated_roots(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    manifest_path = legacy_project / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    alpha, beta = manifest["features"]
+    alpha_root = alpha["beads"].pop("root_id")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    missing = run_migrator(legacy_project, "verify", "--beads", "--skip-docs-check", env=env, expected=1)
+    assert "manifest has no recorded beads root" in missing.stderr.casefold()
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["features"][0]["beads"]["root_id"] = beta["beads"]["root_id"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    unrelated = run_migrator(legacy_project, "verify", "--beads", "--skip-docs-check", env=env, expected=1)
+    assert alpha_root not in unrelated.stdout
+    assert "records beads roots" in unrelated.stderr.casefold()
+
+
+@pytest.mark.integration
+def test_verify_beads_requires_complete_children_and_expected_status(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+
+    manifest_path = legacy_project / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    alpha = next(feature for feature in manifest["features"] if feature["slug"] == "alpha")
+    design_id = alpha["beads"]["lifecycle"].pop("design")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    issues_path = state_dir / "issues.json"
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    issues.pop(design_id)
+    issues_path.write_text(json.dumps(issues), encoding="utf-8")
+
+    missing = run_migrator(
+        legacy_project,
+        "verify",
+        "--beads",
+        "--skip-docs-check",
+        env=env,
+        expected=1,
+    )
+    assert "missing required lifecycle step 'design'" in missing.stderr.casefold()
+
+    run_migrator(legacy_project, "import-beads", "--apply", env=env, expected=2)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    beta = next(feature for feature in manifest["features"] if feature["slug"] == "beta")
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    issues[beta["beads"]["root_id"]]["status"] = "closed"
+    issues_path.write_text(json.dumps(issues), encoding="utf-8")
+    wrong_status = run_migrator(
+        legacy_project,
+        "verify",
+        "--beads",
+        "--skip-docs-check",
+        env=env,
+        expected=1,
+    )
+    assert "expected status" in wrong_status.stderr.casefold()
+
+
+@pytest.mark.integration
+def test_verify_beads_rejects_unexpected_migrated_records_and_owned_labels(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+
+    manifest = load_manifest(legacy_project)
+    features = cast(list[dict[str, Any]], manifest["features"])
+    alpha = next(feature for feature in features if feature["slug"] == "alpha")
+    issues_path = state_dir / "issues.json"
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    root = issues[alpha["beads"]["root_id"]]
+    root["labels"].append("migration:foreign-authority")
+    unexpected = copy.deepcopy(issues[alpha["beads"]["lifecycle"]["design"]])
+    unexpected["id"] = "bd-unexpected-step"
+    unexpected["metadata"]["formula_step_id"] = "unexpected-step"
+    unexpected["metadata"]["migration_key"] = "legacy-feature:alpha:lifecycle:unexpected-step"
+    unexpected["labels"] = ["migration:legacy-workflow", "formula-step:unexpected-step"]
+    issues[unexpected["id"]] = unexpected
+    malformed = copy.deepcopy(unexpected)
+    malformed["id"] = "bd-malformed-migration-record"
+    malformed["labels"] = ["migration:legacy-workflow"]
+    malformed["metadata"] = "not-an-object"
+    issues[malformed["id"]] = malformed
+    issues_path.write_text(json.dumps(issues), encoding="utf-8")
+
+    refused = run_migrator(
+        legacy_project,
+        "verify",
+        "--beads",
+        "--skip-docs-check",
+        env=env,
+        expected=1,
+    )
+    assert "unexpected migrated lifecycle record" in refused.stderr.casefold()
+    assert "unindexable migration-owned lifecycle record" in refused.stderr.casefold()
+    assert "unexpected migration-owned labels" in refused.stderr.casefold()
+
+
+@pytest.mark.integration
+def test_beads_dry_run_and_verify_preserve_authority_bytes(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    metadata = legacy_project / ".beads/metadata.json"
+    config = legacy_project / ".beads/config.yaml"
+    metadata.write_bytes(metadata.read_bytes().rstrip(b"\n"))
+    config.write_bytes(config.read_bytes().rstrip(b"\n"))
+    before = (metadata.read_bytes(), config.read_bytes())
+
+    run_migrator(legacy_project, "import-beads", env=env)
+    run_migrator(legacy_project, "verify", "--beads", "--skip-docs-check", env=env)
+    assert (metadata.read_bytes(), config.read_bytes()) == before
+
+
+@pytest.mark.integration
+def test_finalize_preflights_all_archives_and_rolls_back_docs_failure(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(
+        legacy_project,
+        "classify",
+        "alpha",
+        "needs_review",
+        "--reason",
+        "Finalization transaction fixture keeps semantic reconciliation open.",
+    )
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    (legacy_project / "docs/src/features/alpha/index.md").write_text(
+        "# Alpha\n\nStandalone migration record.\n",
+        encoding="utf-8",
+    )
+    alpha_tasks = legacy_project / "docs/src/features/alpha/tasks.md"
+    beta_tasks = legacy_project / "docs/src/features/beta/tasks.md"
+    archive_dir = legacy_project / "migration/legacy-tasks"
+    archive_dir.mkdir(parents=True)
+    (archive_dir / "beta.md").write_text("collision\n", encoding="utf-8")
+
+    collision = run_migrator(legacy_project, "finalize", "--apply", env=env, expected=2)
+    assert "archive already exists" in collision.stderr.casefold()
+    assert alpha_tasks.is_file()
+    assert beta_tasks.is_file()
+    assert not (archive_dir / "alpha.md").exists()
+
+    (archive_dir / "beta.md").unlink()
+    outside = legacy_project.parent / "outside-archive.md"
+    outside.write_text("outside evidence\n", encoding="utf-8")
+    nested = archive_dir / "nested"
+    nested.mkdir()
+    (nested / "aliased.md").symlink_to(outside)
+    unsafe_archive = run_migrator(legacy_project, "finalize", "--apply", env=env, expected=2)
+    assert "unsafe migration path" in unsafe_archive.stderr.casefold()
+    assert alpha_tasks.is_file()
+    assert beta_tasks.is_file()
+    assert not (legacy_project / "migration/finalization-journal.json").exists()
+    (nested / "aliased.md").unlink()
+    nested.rmdir()
+
+    checker = legacy_project / "scripts/check-docs.py"
+    checker.parent.mkdir()
+    checker.write_text("raise SystemExit(9)\n", encoding="utf-8")
+    failed_check = run_migrator(legacy_project, "finalize", "--apply", env=env, expected=2)
+    assert "command failed" in failed_check.stderr.casefold()
+    assert alpha_tasks.is_file()
+    assert beta_tasks.is_file()
+    assert not (archive_dir / "alpha.md").exists()
+    assert not (archive_dir / "beta.md").exists()
+    assert not (legacy_project / "migration/finalization-journal.json").exists()
+
+
+@pytest.mark.integration
+def test_finalized_manifest_is_reconciled_with_current_feature_inventory(tmp_path: Path) -> None:
+    alpha = tmp_path / "docs/src/features/alpha"
+    alpha.mkdir(parents=True)
+    (tmp_path / "docs/src/planned-features.md").write_text(
+        "# Planned Features\n\n### `alpha`\n\n- Status: Planned\n- Dependencies: None\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "docs/src/SUMMARY.md").write_text("# Summary\n", encoding="utf-8")
+    (alpha / "design.md").write_text("# Alpha\n", encoding="utf-8")
+    run_migrator(tmp_path, "scan", "--write")
+    manifest_path = tmp_path / "migration/workflow-migration.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["migration_finalized"] = True
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    beta = tmp_path / "docs/src/features/beta"
+    beta.mkdir()
+    (beta / "design.md").write_text("# Beta\n", encoding="utf-8")
+    verification = run_migrator(tmp_path, "verify", "--skip-docs-check", expected=1)
+    assert "beta" in verification.stderr.casefold()
+    assert "unrecorded features" in verification.stderr.casefold()
+
+
+@pytest.mark.integration
+def test_finalize_requires_live_beads_records_before_archival(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    (legacy_project / "docs/src/features/alpha/index.md").write_text(
+        "# Alpha\n\n## Delivery summary\n\nUnresolved migration.\n",
+        encoding="utf-8",
+    )
+    (state_dir / "issues.json").write_text("{}\n", encoding="utf-8")
+
+    refused = run_migrator(legacy_project, "finalize", "--apply", env=env, expected=2)
+    assert "no matching Beads issue was found" in refused.stderr
+    assert (legacy_project / "docs/src/features/alpha/tasks.md").is_file()
+    assert not (legacy_project / "migration/legacy-tasks/alpha.md").exists()
+
+
+@pytest.mark.integration
+def test_every_beads_command_is_pinned_to_validated_database(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+
+    raw_commands = [
+        json.loads(line) for line in (state_dir / "raw-commands.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    expected_db = str(legacy_project / ".beads")
+    non_init = [command for command in raw_commands if "init" not in command]
+    assert non_init
+    assert all("--db" in command and command[command.index("--db") + 1] == expected_db for command in non_init)
+
+
+@pytest.mark.integration
+def test_semantic_commit_must_touch_corroborating_evidence(legacy_project: Path) -> None:
+    (legacy_project / "alpha.py").write_text("ALPHA = True\n", encoding="utf-8")
+    initialize_git(legacy_project, "legacy delivered feature")
+    authorize_fresh_session(legacy_project)
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(
+        legacy_project,
+        "classify",
+        "alpha",
+        "completed",
+        "--reason",
+        "Code, tests, docs, and history confirm alpha delivery.",
+    )
+    run_migrator(legacy_project, "draft-delivered-records", "--apply")
+    (legacy_project / "docs/src/features/alpha/index.md").write_text(
+        "# Alpha\n\n## Delivery summary\n\nChanged record only.\n",
+        encoding="utf-8",
+    )
+    commit_repository(legacy_project, "change alpha record only")
+
+    refused = run_migrator(
+        legacy_project,
+        "review-delivered-record",
+        "alpha",
+        "--reason",
+        "Reviewed alpha against repository evidence.",
+        "--summary",
+        "Alpha delivery is supported by implementation and validation evidence.",
+        "--evidence",
+        "alpha.py",
+        "--commit",
+        "HEAD",
+        expected=2,
+    )
+    assert "does not touch corroborating evidence" in refused.stderr

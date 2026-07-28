@@ -22,6 +22,32 @@ Mechanical conversion includes legacy-number removal, path rewriting, task parsi
 reconciliation determines what was actually delivered and must use code, tests, current docs, commits, or operational
 evidence.
 
+## Migration session authority
+
+Existing branches, worktrees, manifests, checkpoint commits, and migration reports never authorize resume. Before
+inspecting candidate migration state, obtain the user's exact base branch and either `fresh` or
+`resume <exact-branch> <exact-absolute-worktree>`. Fresh is the safe default only after the user selects it; it creates
+a new branch that points exactly at the selected base HEAD. Never switch to an existing branch as a fallback.
+
+`authorize-session fresh` writes `migration/session-authority.json` with base branch/SHA, migration branch, absolute
+worktree, and Git common-directory identity. Git is mandatory. Baseline preview/write may use the new untracked record;
+every later command requires it to be tracked, byte-identical to `HEAD`, and byte-identical to the file's single
+original introduction commit. A later checkpoint cannot replace the selected authority. Commands reject branch renames,
+another worktree/repository, detached HEAD, base-history replacement, authority deletion/reintroduction, and non-Git
+execution. Resume approvals append to the separate `migration/session-resume-approvals.json` audit rather than mutating
+the immutable identity record.
+
+Resume is never automatic. It requires the existing authority record and the user's exact response:
+
+```text
+RESUME DSTACK MIGRATION <exact-branch> IN <exact-absolute-worktree>
+```
+
+An agent-discovered path, an acknowledgement, or recognizable checkpoint subjects do not qualify. The local CLI can
+validate and audit the exact phrase but cannot authenticate who typed it; human approval remains a procedural
+orchestrator boundary, and an agent must never self-supply it. If authority is missing or mismatched, preserve the
+repository and ask for fresh-versus-resume intent; do not attempt recovery first.
+
 ## Baseline interpretation
 
 Record the pre-adoption baseline while the repository still reflects the legacy workflow. First run the non-executing,
@@ -200,9 +226,12 @@ checkpoint-evidence --hook pre-commit --status exception \
   --equivalent-result '<migration-mode result>' --residual-risk '<risk>'
 ```
 
-This records the equivalent result and residual risk. Stage the updated manifest, then set `HK_SKIP_STEPS=docs` only for
-that commit. Record ordinary passed/failed hook evidence with the same command. Final checkpoints run strict docs
-normally.
+Before recording the exception, ask for and receive the exact standalone response `APPROVE HK_SKIP_STEPS=docs`. Pass
+`--approved-step docs --approval 'APPROVE HK_SKIP_STEPS=docs'` to `checkpoint-evidence`; "OK", approval of another
+action, or agent-authored paraphrase fails validation. As with resume, the CLI audits but cannot authenticate the
+speaker, so the controlling harness must present and receive the exact human response. This records the approval,
+equivalent result, and residual risk. Stage the updated manifest, then set `HK_SKIP_STEPS=docs` only for that commit.
+Record ordinary passed/failed hook evidence without approval fields. Final checkpoints run strict docs normally.
 
 ## Template source and revision
 
@@ -286,13 +315,25 @@ numbered feature paths, task files, and missing implemented-feature markers as w
 Initialize Beads only after adoption is committed:
 
 ```bash
-bd init --stealth --skip-agents
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
 git add -f .beads/formulas/dstack-feature.formula.toml
 bd formula show dstack-feature --json
 ```
 
-Stealth mode keeps the embedded database and local `.beads` runtime configuration untracked. Commit only the durable
-project formula above unless repository policy explicitly names another portable Beads file.
+## Beads authority
+
+The guard does not equate `.beads/formulas/` with initialization. It rejects symlinked authority, requires
+repository-local `metadata.json` and `config.yaml`, then compares `bd context --json` and `bd where --json` with the
+primary worktree, Copier `project_slug`, database name, project ID, embedded data path, and issue prefix. The active
+database must live below that repository's `.beads`; global (`~/.beads`), shared, redirected, wrong-prefix, or another
+repository's state is fatal. Every later `bd` subprocess receives the validated `.beads` path explicitly, and mutating
+commands compare metadata/config digests immediately before and after execution. Dry-run and verification never
+normalize or write those files.
+
+Any nonzero `bd init` result stops the migration before discovery or mutation. Never continue because a database exists
+somewhere else, never repair by copying or patching the importer under `/tmp`, and never use an alternate `--db` path to
+make verification pass. Stealth mode keeps embedded runtime configuration untracked; commit only the durable project
+formula unless repository policy names another portable Beads file.
 
 ## Task parser coverage
 
@@ -416,6 +457,10 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py prepare
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py prepare --apply
 ```
 
+Before preparation, all manifest and CLI artifact paths must be normalized relative paths below their fixed
+repository-owned roots. Absolute paths, `..`, backslashes/drives, repository escapes, and symlink components are fatal
+and are rechecked immediately before mutations.
+
 Preparation:
 
 - renames feature directories;
@@ -455,9 +500,11 @@ Apply only after preflight succeeds:
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
 ```
 
-The importer searches existing Beads records by deterministic migration metadata before creating anything. It restores
-manifest IDs for roots, lifecycle steps, implementation tasks, and reconciliation tasks. Repeated import must be
-idempotent.
+Dry-run and apply first validate repository-local Beads authority. They search existing records by deterministic
+migration metadata and reconcile every recorded ID, including `import_phase: completed`, before trusting progress.
+Manifest IDs without matching records are conflicts rather than `existing`; existing records without manifest IDs are
+recoverable. Repeated import must be idempotent. Beads 1.1 compatibility creates a record without `--status`, then uses
+`bd update <id> --status <state>`.
 
 When a partial import exists:
 
@@ -478,6 +525,21 @@ related dependencies, evidence notes, and reconciliation work. Legacy `T000` and
 than ordinary implementation tasks.
 
 ## Semantic reconciliation
+
+Mechanical drafting is not semantic evidence. Do not generate or reconcile multiple feature records with a bulk script,
+shared summary, or generic rationale. Work on one slug per invocation. For every completed feature:
+
+1. inspect its code, tests, current reader documentation, Git history, and operational evidence as applicable;
+2. reconcile the actual `implemented_path` into a standalone reader-usable delivery/audit record;
+3. provide a summary that names the feature and describes its delivered behavior/boundaries;
+4. provide at least one existing non-generated corroborating repository path outside its design, implemented record,
+   archived tasks, and `migration/`; and
+5. provide at least one commit that directly touches every corroborating evidence path (it may also touch the feature
+   tree).
+
+`review-delivered-record` records digests for the actual implemented record and evidence, resolves full commit SHAs, and
+rejects unrelated commits. Verification rejects missing completed-feature reviews, duplicate summaries, or changed and
+missing evidence. There is intentionally no bulk approval mode.
 
 For each active design:
 
@@ -507,7 +569,22 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py finalize
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py finalize --apply
 ```
 
-The script refuses archival while a reader-facing Markdown page includes or links to `tasks.md`.
+The script refuses archival while a reader-facing Markdown page includes or links to `tasks.md`. Before preview or
+apply, it revalidates repository-local Beads authority, the complete deterministic issue/status/metadata/label/parent/
+relationship set, exact migration-owned labels, absence of unexpected or malformed/unindexable migration-labeled
+records, and completed import phase rather than trusting manifest IDs or booleans. CLI artifact paths must be distinct
+safe migration files and cannot collide with reserved evidence. Finalization preflights every source and destination
+before mutation, records `migration/finalization-journal.json`, stages all files under
+`migration/.finalization-staging`, and rolls back a failed strict documentation check. It seals each archive's digest
+and parsed task identity, saves the manifest before removing staged deletion evidence, and later compares the exact
+recursive archive inventory rather than accepting unrecorded files. Recursive sealing rejects symlinked files or
+directory components before reading candidate bytes.
+
+If interruption leaves the journal, stop. Inspect its state and exact source/staging/destination triples. For `staging`,
+restore each existing staging or destination file to its source and confirm every source is byte-correct. For
+`committed`, verify the sealed manifest/digests and finish only the recorded cleanup; do not roll back committed
+deletion state. A state/manifest disagreement requires manual evidence reconciliation. Remove only the reviewed empty
+staging directory and journal, and do not rerun finalization until recovery is complete.
 
 Default archive location:
 

@@ -75,6 +75,10 @@ DEFAULT_REPORT = Path("migration/workflow-migration.md")
 DEFAULT_TASK_ARCHIVE = Path("migration/legacy-tasks")
 DEFAULT_BASELINE_JSON = Path("migration/baseline.json")
 DEFAULT_BASELINE_REPORT = Path("migration/baseline.md")
+SESSION_AUTHORITY_PATH = Path("migration/session-authority.json")
+SESSION_RESUME_LOG_PATH = Path("migration/session-resume-approvals.json")
+FINALIZATION_JOURNAL_PATH = Path("migration/finalization-journal.json")
+FINALIZATION_STAGING_DIR = Path("migration/.finalization-staging")
 TEMPLATE_CANDIDATE_DIR = Path("migration/template-adoption-candidates")
 TEMPLATE_BACKUP_DIR = Path("migration/template-adoption-backup")
 DELIVERED_CANDIDATE_DIR = Path("migration/delivered-record-candidates")
@@ -205,14 +209,6 @@ def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     normalized = content.rstrip() + "\n"
     path.write_text(normalized, encoding="utf-8", newline="\n")
-
-
-def ensure_trailing_newline(path: Path) -> None:
-    if not path.is_file():
-        return
-    content = path.read_bytes()
-    if content and not content.endswith(b"\n"):
-        path.write_bytes(content + b"\n")
 
 
 def load_json(path: Path) -> dict[str, Any] | None:
@@ -1429,6 +1425,316 @@ def ensure_feature_lifecycle_link(text: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
+def git_output(root: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        message = f"Git command failed: git {shell_command(arguments)}\n{result.stderr.strip()}"
+        raise MigrationError(message)
+    return result.stdout.strip()
+
+
+def git_repository(root: Path) -> bool:
+    result = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def session_resume_approval(branch: str, root: Path) -> str:
+    return f"RESUME DSTACK MIGRATION {branch} IN {root.resolve()}"
+
+
+def authorize_session(
+    root: Path,
+    *,
+    mode: str,
+    base_branch: str,
+    migration_branch: str,
+    approval: str,
+) -> None:
+    if not git_repository(root):
+        msg = "Migration session authority requires a Git repository"
+        raise MigrationError(msg)
+    current_branch = git_output(root, "branch", "--show-current")
+    if not current_branch:
+        msg = "Migration must run on a named branch, not detached HEAD"
+        raise MigrationError(msg)
+    if current_branch != migration_branch:
+        msg = f"Current branch {current_branch!r} is not the explicitly selected migration branch {migration_branch!r}"
+        raise MigrationError(msg)
+    if migration_branch == base_branch:
+        msg = "The migration branch must differ from the explicitly selected base branch"
+        raise MigrationError(msg)
+    root_path = root.resolve()
+    common_dir = Path(git_output(root, "rev-parse", "--git-common-dir"))
+    if not common_dir.is_absolute():
+        common_dir = (root / common_dir).resolve()
+    authority_path = root / SESSION_AUTHORITY_PATH
+    base_sha = git_output(root, "rev-parse", f"{base_branch}^{{commit}}")
+    head_sha = git_output(root, "rev-parse", "HEAD")
+
+    if mode == "fresh":
+        if authority_path.exists():
+            msg = "Migration session authority already exists; fresh mode cannot adopt or overwrite resumable state"
+            raise MigrationError(msg)
+        if head_sha != base_sha:
+            msg = "Fresh migration branch must point exactly at the selected base-branch HEAD before any checkpoint"
+            raise MigrationError(msg)
+        if git_output(root, "status", "--porcelain"):
+            msg = "Fresh migration authority requires a clean worktree"
+            raise MigrationError(msg)
+        authority: dict[str, Any] = {
+            "schema_version": 1,
+            "mode": "fresh",
+            "base_branch": base_branch,
+            "base_sha": base_sha,
+            "migration_branch": migration_branch,
+            "worktree_path": str(root_path),
+            "git_common_dir": str(common_dir),
+            "created_at": utc_now(),
+        }
+    else:
+        authority = load_json(authority_path) or {}
+        if not authority:
+            msg = (
+                "Resume requires existing session authority from a previously authorized fresh migration; "
+                "checkpoint commits or a manifest are not authority"
+            )
+            raise MigrationError(msg)
+        expected = session_resume_approval(migration_branch, root)
+        if approval.strip() != expected:
+            msg = f"Resume requires the user's exact approval phrase: {expected}"
+            raise MigrationError(msg)
+        require_session_authority(root, authority=authority)
+        if authority.get("base_branch") != base_branch:
+            msg = "Resume base branch does not match the recorded migration authority"
+            raise MigrationError(msg)
+        resume_log_path = root / SESSION_RESUME_LOG_PATH
+        resume_log = load_json(resume_log_path) or {"schema_version": 1, "approvals": []}
+        approvals = resume_log.setdefault("approvals", [])
+        if not isinstance(approvals, list):
+            msg = "Migration resume approval audit has an invalid approvals collection"
+            raise MigrationError(msg)
+        approvals.append(
+            {
+                "approved_at": utc_now(),
+                "approval": expected,
+                "head_sha": head_sha,
+                "worktree_path": str(root_path),
+            }
+        )
+        dump_json(resume_log_path, resume_log)
+    if mode == "fresh":
+        dump_json(authority_path, authority)
+    print(f"Authorized {mode} migration session on {migration_branch} from {base_branch}.")
+
+
+def require_session_authority(
+    root: Path,
+    *,
+    authority: Mapping[str, Any] | None = None,
+    require_committed: bool = True,
+) -> None:
+    if not git_repository(root):
+        msg = "Workflow migration requires a Git worktree; non-Git execution has no branch or checkpoint authority"
+        raise MigrationError(msg)
+    authority_path = root / SESSION_AUTHORITY_PATH
+    state = dict(authority or load_json(authority_path) or {})
+    if not state:
+        msg = (
+            "Migration session authority is missing. Do not inspect or auto-resume existing migration branches; "
+            "checkpoint commits or a manifest are not authority. Obtain explicit base/branch intent and run "
+            "authorize-session first."
+        )
+        raise MigrationError(msg)
+    current_branch = git_output(root, "branch", "--show-current")
+    expected_branch = str(state.get("migration_branch", ""))
+    if not current_branch or current_branch != expected_branch:
+        msg = f"Current branch {current_branch!r} is not the authorized migration branch {expected_branch!r}"
+        raise MigrationError(msg)
+    if str(root.resolve()) != str(state.get("worktree_path", "")):
+        msg = "Current worktree path does not match the authorized migration worktree"
+        raise MigrationError(msg)
+    common_dir = Path(git_output(root, "rev-parse", "--git-common-dir"))
+    if not common_dir.is_absolute():
+        common_dir = (root / common_dir).resolve()
+    if str(common_dir) != str(state.get("git_common_dir", "")):
+        msg = "Current Git repository does not match the authorized migration repository"
+        raise MigrationError(msg)
+    base_sha = str(state.get("base_sha", ""))
+    if not base_sha:
+        msg = "Migration authority does not record the selected base SHA"
+        raise MigrationError(msg)
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base_sha, "HEAD"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if ancestor.returncode != 0:
+        msg = "Authorized base SHA is not an ancestor of the current migration branch"
+        raise MigrationError(msg)
+    if require_committed:
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", str(SESSION_AUTHORITY_PATH)],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        committed = subprocess.run(
+            ["git", "show", f"HEAD:{SESSION_AUTHORITY_PATH.as_posix()}"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+        )
+        if tracked.returncode != 0 or committed.returncode != 0:
+            msg = "Migration session authority must be committed before leaving the baseline gate"
+            raise MigrationError(msg)
+        authority_bytes = authority_path.read_bytes()
+        if committed.stdout != authority_bytes:
+            msg = "Working migration session authority differs from the committed checkpoint"
+            raise MigrationError(msg)
+        introduction = subprocess.run(
+            [
+                "git",
+                "log",
+                "--diff-filter=A",
+                "--format=%H",
+                "--reverse",
+                "--",
+                SESSION_AUTHORITY_PATH.as_posix(),
+            ],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        introduction_commits = [line for line in introduction.stdout.splitlines() if line]
+        if introduction.returncode != 0 or len(introduction_commits) != 1:
+            msg = "Migration session authority must have exactly one immutable introduction commit"
+            raise MigrationError(msg)
+        original = subprocess.run(
+            ["git", "show", f"{introduction_commits[0]}:{SESSION_AUTHORITY_PATH.as_posix()}"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+        )
+        if original.returncode != 0 or original.stdout != authority_bytes:
+            msg = "Migration session authority differs from its original authorization commit"
+            raise MigrationError(msg)
+
+
+def safe_repository_path(
+    root: Path,
+    value: Any,
+    *,
+    description: str,
+    required_prefix: PurePosixPath,
+) -> Path:
+    rendered = str(value)
+    pure = PurePosixPath(rendered)
+    if (
+        not rendered
+        or pure.is_absolute()
+        or any(part in {"", ".", ".."} for part in pure.parts)
+        or "\\" in rendered
+        or re.match(r"^[A-Za-z]:", rendered)
+        or not pure.is_relative_to(required_prefix)
+    ):
+        msg = f"Unsafe migration path for {description}: {rendered!r}"
+        raise MigrationError(msg)
+    candidate = root.joinpath(*pure.parts)
+    resolved_root = root.resolve()
+    if _path_has_symlink(resolved_root, candidate) or not candidate.resolve().is_relative_to(resolved_root):
+        msg = f"Unsafe migration path for {description}: {rendered!r} resolves through or beyond repository authority"
+        raise MigrationError(msg)
+    return candidate
+
+
+def validate_manifest_paths(root: Path, manifest: Mapping[str, Any]) -> None:
+    feature_prefix = PurePosixPath(FEATURES_PATH.as_posix())
+    archive_prefix = PurePosixPath(DEFAULT_TASK_ARCHIVE.as_posix())
+    candidate_prefix = PurePosixPath(DELIVERED_CANDIDATE_DIR.as_posix())
+    for feature in manifest.get("features", []):
+        if not isinstance(feature, dict):
+            continue
+        slug = str(feature.get("slug", "unknown"))
+        for key in (
+            "source_dir",
+            "target_dir",
+            "design_path",
+            "implemented_path",
+            "legacy_tasks_path",
+        ):
+            safe_repository_path(
+                root,
+                feature.get(key, ""),
+                description=f"{slug}.{key}",
+                required_prefix=feature_prefix,
+            )
+        optional = feature.get("legacy_open_questions_path")
+        if optional:
+            safe_repository_path(
+                root,
+                optional,
+                description=f"{slug}.legacy_open_questions_path",
+                required_prefix=feature_prefix,
+            )
+        for index, source in enumerate(feature.get("legacy_source_dirs", [])):
+            safe_repository_path(
+                root,
+                source,
+                description=f"{slug}.legacy_source_dirs[{index}]",
+                required_prefix=feature_prefix,
+            )
+        archive = feature.get("legacy_tasks_archive")
+        if archive and not str(archive).startswith("deleted;"):
+            safe_repository_path(
+                root,
+                archive,
+                description=f"{slug}.legacy_tasks_archive",
+                required_prefix=archive_prefix,
+            )
+    for candidate in manifest.get("delivered_record_candidates", []):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_slug = str(candidate.get("slug", "unknown"))
+        if candidate.get("path"):
+            safe_repository_path(
+                root,
+                candidate["path"],
+                description=f"{candidate_slug}.delivered_candidate",
+                required_prefix=candidate_prefix,
+            )
+        if candidate.get("record_path"):
+            safe_repository_path(
+                root,
+                candidate["record_path"],
+                description=f"{candidate_slug}.record_path",
+                required_prefix=feature_prefix,
+            )
+        for index, evidence in enumerate(candidate.get("semantic_evidence", [])):
+            if isinstance(evidence, dict):
+                safe_repository_path(
+                    root,
+                    evidence.get("path", ""),
+                    description=f"{candidate_slug}.semantic_evidence[{index}]",
+                    required_prefix=PurePosixPath("."),
+                )
+
+
 def assert_clean_worktree(root: Path, *, allow_dirty: bool) -> None:
     if allow_dirty or not (root / ".git").exists():
         return
@@ -1555,6 +1861,36 @@ def shell_command(command: Sequence[str]) -> str:
 
 
 BD_BATCH_ACTIVE = False
+BD_AUTHORITY_DB: Path | None = None
+BD_AUTHORITY_SNAPSHOT: dict[str, Any] | None = None
+
+
+def bd_mutates(command: Sequence[str]) -> bool:
+    if not command or command[0] != "bd" or len(command) < 2:
+        return False
+    verb = command[1]
+    if verb in {"create", "update", "close", "note"}:
+        return True
+    if verb == "dep":
+        return len(command) > 2 and command[2] in {"add", "remove"}
+    return verb == "dolt" and len(command) > 2 and command[2] == "commit"
+
+
+def assert_beads_snapshot() -> None:
+    if BD_AUTHORITY_SNAPSHOT is None:
+        return
+    beads_dir = Path(BD_AUTHORITY_SNAPSHOT["beads_dir"])
+    if _path_has_symlink(beads_dir.parent, beads_dir):
+        msg = "Repository-local Beads authority changed to a symlink after validation"
+        raise MigrationError(msg)
+    for key in ("metadata", "config"):
+        path = Path(BD_AUTHORITY_SNAPSHOT[f"{key}_path"])
+        if (
+            not path.is_file()
+            or hashlib.sha256(path.read_bytes()).hexdigest() != BD_AUTHORITY_SNAPSHOT[f"{key}_sha256"]
+        ):
+            msg = f"Repository-local Beads {key} changed after authority validation"
+            raise MigrationError(msg)
 
 
 def run_command(
@@ -1565,8 +1901,13 @@ def run_command(
     allow_existing: bool = False,
 ) -> str:
     actual_command = list(command)
-    if BD_BATCH_ACTIVE and actual_command[0] == "bd" and actual_command[1:2] != ["dolt"]:
-        actual_command.insert(1, "--dolt-auto-commit=batch")
+    if actual_command[0] == "bd":
+        if bd_mutates(command):
+            assert_beads_snapshot()
+        if BD_BATCH_ACTIVE and actual_command[1:2] != ["dolt"]:
+            actual_command.insert(1, "--dolt-auto-commit=batch")
+        if BD_AUTHORITY_DB is not None and "--db" not in actual_command:
+            actual_command[1:1] = ["--db", str(BD_AUTHORITY_DB)]
     result = subprocess.run(
         actual_command,
         cwd=cwd,
@@ -1580,8 +1921,10 @@ def run_command(
             token in combined for token in ("already exists", "duplicate", "already closed", "dependency exists")
         ):
             return (result.stdout or "").strip()
-        msg = f"Command failed ({result.returncode}): {shell_command(actual_command)}\n{result.stderr.strip()}"
+        msg = f"Command failed ({result.returncode}): {shell_command(actual_command)}\n{(result.stderr or '').strip()}"
         raise MigrationError(msg)
+    if bd_mutates(command):
+        assert_beads_snapshot()
     return (result.stdout or "").strip()
 
 
@@ -1599,6 +1942,108 @@ def parse_bd_issue_list(output: str, *, command: str = "bd list --json") -> list
         message = f"{command} returned an unexpected payload"
         raise MigrationError(message)
     return [item for item in value if isinstance(item, dict)]
+
+
+def parse_json_object(output: str, *, command: str) -> dict[str, Any]:
+    try:
+        value = json.loads(output)
+    except json.JSONDecodeError as exc:
+        msg = f"{command} returned invalid JSON: {exc}"
+        raise MigrationError(msg) from exc
+    if not isinstance(value, dict):
+        msg = f"{command} returned an unexpected payload"
+        raise MigrationError(msg)
+    return value
+
+
+def primary_worktree(root: Path) -> Path:
+    if not git_repository(root):
+        return root.resolve()
+    output = git_output(root, "worktree", "list", "--porcelain")
+    first = next((line.removeprefix("worktree ") for line in output.splitlines() if line.startswith("worktree ")), "")
+    if not first:
+        msg = "Cannot determine the primary Git worktree for Beads authority"
+        raise MigrationError(msg)
+    return Path(first).resolve()
+
+
+def canonical_project_slug(root: Path) -> str:
+    for candidate in (root / ".copier-answers.yml", primary_worktree(root) / ".copier-answers.yml"):
+        if not candidate.is_file():
+            continue
+        match = re.search(r"^project_slug:\s*['\"]?([^'\"\s]+)", read_text(candidate), re.MULTILINE)
+        if match:
+            return match.group(1)
+    return primary_worktree(root).name
+
+
+def validate_beads_authority(root: Path) -> dict[str, Any]:
+    global BD_AUTHORITY_DB, BD_AUTHORITY_SNAPSHOT
+    expected_root = primary_worktree(root)
+    unresolved_beads = expected_root / ".beads"
+    if unresolved_beads.is_symlink() or _path_has_symlink(expected_root, unresolved_beads):
+        msg = "Repository-local .beads authority must not be a symlink"
+        raise MigrationError(msg)
+    expected_beads = unresolved_beads.resolve()
+    metadata_path = expected_beads / "metadata.json"
+    config_path = expected_beads / "config.yaml"
+    if not metadata_path.is_file() or not config_path.is_file():
+        msg = (
+            f"Repository-local Beads authority is incomplete at {expected_beads}; both metadata.json and config.yaml "
+            "are required. A formula-only .beads directory is not initialized."
+        )
+        raise MigrationError(msg)
+    metadata = load_json(metadata_path)
+    if not isinstance(metadata, dict):
+        msg = f"Invalid repository-local Beads metadata: {metadata_path}"
+        raise MigrationError(msg)
+    BD_AUTHORITY_DB = expected_beads
+    BD_AUTHORITY_SNAPSHOT = None
+    context = parse_json_object(run_command(["bd", "context", "--json"], cwd=root), command="bd context --json")
+    location = parse_json_object(run_command(["bd", "where", "--json"], cwd=root), command="bd where --json")
+    project_slug = canonical_project_slug(root)
+    expected_database = project_slug.replace("-", "_")
+    expected_prefix = project_slug
+    problems: list[str] = []
+
+    def same_path(value: Any, expected: Path) -> bool:
+        try:
+            return Path(str(value)).expanduser().resolve() == expected
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    if not same_path(context.get("beads_dir"), expected_beads):
+        problems.append(f"bd context beads_dir is {context.get('beads_dir')!r}, expected {str(expected_beads)!r}")
+    if not same_path(context.get("repo_root"), expected_root):
+        problems.append(f"bd context repo_root is {context.get('repo_root')!r}, expected {str(expected_root)!r}")
+    if not same_path(location.get("path"), expected_beads):
+        problems.append(f"bd where path is {location.get('path')!r}, expected {str(expected_beads)!r}")
+    database_path = Path(str(location.get("database_path", ""))).expanduser().resolve()
+    if not database_path.is_relative_to(expected_beads):
+        problems.append("bd where database_path is outside the repository-local .beads directory")
+    if context.get("database") != expected_database or metadata.get("dolt_database") != expected_database:
+        problems.append(
+            f"Beads database identity must be {expected_database!r}; context={context.get('database')!r}, "
+            f"metadata={metadata.get('dolt_database')!r}"
+        )
+    if location.get("prefix") != expected_prefix:
+        problems.append(f"Beads issue prefix is {location.get('prefix')!r}, expected {expected_prefix!r}")
+    if not metadata.get("project_id") or context.get("project_id") != metadata.get("project_id"):
+        problems.append("Beads project_id is missing or disagrees with repository-local metadata")
+    if context.get("dolt_mode") != "embedded" or context.get("is_redirected") is True:
+        problems.append("Migration requires a non-redirected repository-local embedded Dolt database")
+    if problems:
+        message = "Beads authority mismatch; refusing global/shared fallback:\n  - " + "\n  - ".join(problems)
+        raise MigrationError(message)
+    BD_AUTHORITY_SNAPSHOT = {
+        "beads_dir": str(expected_beads),
+        "metadata_path": str(metadata_path),
+        "metadata_sha256": hashlib.sha256(metadata_path.read_bytes()).hexdigest(),
+        "config_path": str(config_path),
+        "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+        "project_id": str(metadata["project_id"]),
+    }
+    return {"context": context, "location": location, "metadata": metadata}
 
 
 def issue_metadata(issue: Mapping[str, Any]) -> dict[str, Any]:
@@ -1625,11 +2070,7 @@ def discover_migrated_issues(
         command.extend(("--type", issue_type))
     command.extend(("--json", "--limit", "0"))
     output = run_command(command, cwd=root)
-    return [
-        issue
-        for issue in parse_bd_issue_list(output)
-        if issue_metadata(issue).get("migration_source") == "legacy-markdown-workflow"
-    ]
+    return parse_bd_issue_list(output)
 
 
 def metadata_feature_key(metadata: Mapping[str, Any]) -> str | None:
@@ -1690,30 +2131,171 @@ def reconcile_recorded_issue(
     return recorded, False, None
 
 
+def expected_migrated_statuses(feature: Mapping[str, Any]) -> tuple[str, dict[str, str], dict[str, str]]:
+    classification = str(feature.get("classification", "planned"))
+    root_status = "open"
+    lifecycle = {step_id: "open" for step_id in LIFECYCLE_METADATA_KEYS}
+    tasks: dict[str, str] = {}
+    for task in feature.get("tasks", []):
+        label = str(task.get("label", ""))
+        if not label or label in {"T000", "T999"}:
+            continue
+        status = str(task.get("status", "open"))
+        tasks[label] = "closed" if status in {"closed", "skipped"} else status
+        if tasks[label] not in {"open", "closed", "in_progress", "blocked", "deferred"}:
+            tasks[label] = "open"
+    if classification == "completed":
+        root_status = "closed"
+        lifecycle = dict.fromkeys(lifecycle, "closed")
+    elif classification == "needs_review":
+        root_status = "in_progress"
+        for step_id in (
+            "design",
+            "review-architecture",
+            "review-simplicity",
+            "review-documentation",
+            "review-execution",
+            "spec-reconcile",
+        ):
+            lifecycle[step_id] = "closed"
+        imported_tasks = [
+            task for task in feature.get("tasks", []) if str(task.get("label", "")) not in {"T000", "T999"}
+        ]
+        if all(str(task.get("status", "")) == "closed" for task in imported_tasks):
+            lifecycle["implementation"] = "closed"
+    elif classification == "in_progress":
+        root_status = "in_progress"
+        lifecycle["design"] = "closed" if feature.get("evidence", {}).get("t000_closed") else "in_progress"
+    elif classification == "designing":
+        root_status = "in_progress"
+        lifecycle["design"] = "in_progress"
+    elif classification == "deferred":
+        root_status = "deferred"
+        lifecycle = dict.fromkeys(lifecycle, "deferred")
+        tasks = dict.fromkeys(tasks, "deferred")
+    return root_status, lifecycle, tasks
+
+
+def validate_expected_issue(
+    *,
+    problems: list[str],
+    issue: Mapping[str, Any] | None,
+    issue_id: str,
+    description: str,
+    expected_status: str,
+    expected_parent: str = "",
+    required_labels: Iterable[str] = (),
+    expected_owned_labels: Iterable[str] = (),
+    required_metadata: Mapping[str, str] | None = None,
+    expected_type: str | None = None,
+) -> None:
+    if issue is None:
+        return
+    actual_type = str(issue.get("issue_type") or issue.get("type") or "")
+    if expected_type and actual_type != expected_type:
+        problems.append(f"{description} {issue_id} has type {actual_type!r}; expected {expected_type!r}")
+    actual_status = str(issue.get("status") or "")
+    if actual_status != expected_status:
+        problems.append(f"{description} {issue_id} has status {actual_status!r}; expected status {expected_status!r}")
+    if expected_parent and str(issue.get("parent") or "") != expected_parent:
+        problems.append(f"{description} {issue_id} is not parented by {expected_parent}")
+    labels = {str(label) for label in issue.get("labels", [])}
+    missing_labels = sorted(set(required_labels) - labels)
+    if missing_labels:
+        problems.append(f"{description} {issue_id} is missing required labels: {', '.join(missing_labels)}")
+    owned_labels = {
+        label
+        for label in labels
+        if label == "workflow:feature" or label.startswith(("migration:", "formula-step:", "legacy-task:"))
+    }
+    expected_owned = set(expected_owned_labels)
+    if expected_owned and owned_labels != expected_owned:
+        problems.append(
+            f"{description} {issue_id} has unexpected migration-owned labels: "
+            f"expected {sorted(expected_owned)}, found {sorted(owned_labels)}"
+        )
+    metadata = issue_metadata(issue)
+    for key, value in (required_metadata or {}).items():
+        if str(metadata.get(key, "")) != value:
+            problems.append(f"{description} {issue_id} has invalid metadata {key!r}; expected {value!r}")
+
+
 def reconcile_existing_beads_state(
     root: Path,
     features: Sequence[dict[str, Any]],
+    *,
+    canonicalize: bool,
+    allow_recovery: bool = True,
 ) -> int:
-    roots = index_discovered_issues(discover_migrated_issues(root, "workflow:feature", issue_type="epic"))
-    lifecycle = index_discovered_issues(
-        discover_migrated_issues(root, "migration:legacy-workflow"),
-        discriminator="formula_step_id",
-    )
-    implementation_tasks = index_discovered_issues(
-        discover_migrated_issues(root, "migration:legacy-task"),
-        discriminator="legacy_task_id",
-    )
+    root_issues = discover_migrated_issues(root, "migration:legacy-markdown", issue_type="epic")
+    lifecycle_issues = discover_migrated_issues(root, "migration:legacy-workflow")
+    implementation_issues = discover_migrated_issues(root, "migration:legacy-task")
+    reconciliation_issues = discover_migrated_issues(root, "migration:reconciliation")
+    roots = index_discovered_issues(root_issues)
+    lifecycle = index_discovered_issues(lifecycle_issues, discriminator="formula_step_id")
+    implementation_tasks = index_discovered_issues(implementation_issues, discriminator="legacy_task_id")
     reconciliation = index_discovered_issues(
-        discover_migrated_issues(root, "migration:reconciliation"),
+        reconciliation_issues,
         discriminator="migration_role",
         default_discriminator="status-reconciliation",
     )
+    all_discovered = (*root_issues, *lifecycle_issues, *implementation_issues, *reconciliation_issues)
+    discovered_by_id = {str(issue.get("id")): issue for issue in all_discovered if issue.get("id")}
+    discovered_metadata = {issue_id: issue_metadata(issue) for issue_id, issue in discovered_by_id.items()}
 
     recovered_features: set[str] = set()
     problems: list[str] = []
+    features_by_slug = {str(feature["slug"]): feature for feature in features}
+    expected_lifecycle_keys = {
+        (slug, step_id)
+        for slug, feature in features_by_slug.items()
+        if feature.get("has_design")
+        for step_id in LIFECYCLE_METADATA_KEYS
+    }
+    expected_task_keys = {
+        (slug, str(task.get("label")))
+        for slug, feature in features_by_slug.items()
+        if feature.get("has_design")
+        for task in feature.get("tasks", [])
+        if task.get("label") not in {"T000", "T999"}
+    }
+    expected_reconciliation_keys = {
+        (slug, "status-reconciliation")
+        for slug, feature in features_by_slug.items()
+        if feature.get("has_design") and feature.get("classification") == "needs_review"
+    }
+    discovery_contracts = (
+        (root_issues, None, {slug for slug in features_by_slug}, "root"),
+        (lifecycle_issues, "formula_step_id", expected_lifecycle_keys, "lifecycle"),
+        (implementation_issues, "legacy_task_id", expected_task_keys, "legacy task"),
+        (reconciliation_issues, "migration_role", expected_reconciliation_keys, "reconciliation"),
+    )
+    for issues, discriminator, expected_keys, description in discovery_contracts:
+        for issue in issues:
+            metadata = issue_metadata(issue)
+            slug = metadata_feature_key(metadata)
+            discriminator_value = (
+                None
+                if discriminator is None
+                else str(
+                    metadata.get(discriminator, "status-reconciliation" if discriminator == "migration_role" else "")
+                )
+            )
+            key: Any = slug if discriminator is None else (slug, discriminator_value)
+            if metadata.get("migration_source") != "legacy-markdown-workflow":
+                problems.append(
+                    f"Unindexable migration-owned {description} record {issue.get('id', '<unknown>')}: "
+                    "metadata is malformed or migration_source is missing/wrong"
+                )
+            elif not slug or key not in expected_keys:
+                problems.append(
+                    f"Unexpected migrated {description} record {issue.get('id', '<unknown>')} with identity {key!r}"
+                )
     for feature in features:
         slug = str(feature["slug"])
         beads = feature.setdefault("beads", {})
+        import_complete = beads.get("import_phase") == "completed" or bool(beads.get("state_applied"))
+        require_complete = not allow_recovery or import_complete
 
         root_id, did_recover, problem = reconcile_recorded_issue(
             feature=feature,
@@ -1723,9 +2305,13 @@ def reconcile_existing_beads_state(
         )
         if problem:
             problems.append(problem)
+        elif did_recover and not allow_recovery:
+            problems.append(f"{slug} manifest has no recorded Beads root; recovery is not verification")
         elif did_recover:
             beads["root_id"] = root_id
             recovered_features.add(slug)
+        elif require_complete and not root_id:
+            problems.append(f"{slug} is missing required Beads root")
 
         lifecycle_state = beads.setdefault("lifecycle", {})
         for step_id in LIFECYCLE_METADATA_KEYS:
@@ -1737,9 +2323,13 @@ def reconcile_existing_beads_state(
             )
             if problem:
                 problems.append(problem)
+            elif did_recover and not allow_recovery:
+                problems.append(f"{slug} manifest has no recorded lifecycle step {step_id!r}")
             elif did_recover:
                 lifecycle_state[step_id] = issue_id
                 recovered_features.add(slug)
+            elif require_complete and feature.get("has_design") and not issue_id:
+                problems.append(f"{slug} is missing required lifecycle step {step_id!r}")
 
         task_state = beads.setdefault("implementation_tasks", {})
         for task in feature.get("tasks", []):
@@ -1754,9 +2344,13 @@ def reconcile_existing_beads_state(
             )
             if problem:
                 problems.append(problem)
+            elif did_recover and not allow_recovery:
+                problems.append(f"{slug} manifest has no recorded legacy task {label}")
             elif did_recover:
                 task_state[label] = issue_id
                 recovered_features.add(slug)
+            elif require_complete and feature.get("has_design") and not issue_id:
+                problems.append(f"{slug} is missing required legacy task {label}")
 
         reconciliation_id, did_recover, problem = reconcile_recorded_issue(
             feature=feature,
@@ -1766,24 +2360,164 @@ def reconcile_existing_beads_state(
         )
         if problem:
             problems.append(problem)
+        elif did_recover and not allow_recovery:
+            problems.append(f"{slug} manifest has no recorded migration reconciliation task")
         elif did_recover:
             beads["migration_reconciliation_id"] = reconciliation_id
             recovered_features.add(slug)
+        elif (
+            require_complete
+            and feature.get("has_design")
+            and feature.get("classification") == "needs_review"
+            and not reconciliation_id
+        ):
+            problems.append(f"{slug} is missing required migration reconciliation task")
+
+    for feature in features:
+        slug = str(feature["slug"])
+        beads = feature.get("beads", {})
+        root_id = str(beads.get("root_id") or "")
+        root_issue = discovered_by_id.get(root_id)
+        root_status, lifecycle_statuses, task_statuses = expected_migrated_statuses(feature)
+        validate_expected_issue(
+            problems=problems,
+            issue=root_issue,
+            issue_id=root_id,
+            description=f"{slug} recorded root",
+            expected_status=root_status,
+            required_labels=("workflow:feature", "migration:legacy-markdown"),
+            expected_owned_labels=(
+                "workflow:feature",
+                "migration:legacy-markdown",
+                *(("migration:needs-reconciliation",) if feature.get("classification") == "needs_review" else ()),
+            ),
+            required_metadata={
+                "migration_source": "legacy-markdown-workflow",
+                "migration_key": f"legacy-feature:{slug}",
+                "feature_slug": slug,
+            },
+            expected_type="epic",
+        )
+        expected_lifecycle = set(LIFECYCLE_METADATA_KEYS) if feature.get("has_design") else set()
+        unexpected_lifecycle = sorted(set(beads.get("lifecycle", {})) - expected_lifecycle)
+        if unexpected_lifecycle:
+            problems.append(f"{slug} records unexpected lifecycle steps: {', '.join(unexpected_lifecycle)}")
+        for step_id in sorted(expected_lifecycle):
+            issue_id = str(beads.get("lifecycle", {}).get(step_id) or "")
+            validate_expected_issue(
+                problems=problems,
+                issue=discovered_by_id.get(issue_id),
+                issue_id=issue_id,
+                description=f"{slug} lifecycle step {step_id!r}",
+                expected_status=lifecycle_statuses[step_id],
+                expected_parent=root_id,
+                required_labels=("migration:legacy-workflow", f"formula-step:{step_id}"),
+                expected_owned_labels=("migration:legacy-workflow", f"formula-step:{step_id}"),
+                required_metadata={
+                    "migration_source": "legacy-markdown-workflow",
+                    "migration_key": f"legacy-feature:{slug}:lifecycle:{step_id}",
+                    "formula_step_id": step_id,
+                    "feature_slug": slug,
+                },
+                expected_type="task",
+            )
+        implementation_parent = str(beads.get("lifecycle", {}).get("implementation") or "")
+        expected_task_labels = set(task_statuses)
+        unexpected_tasks = sorted(set(beads.get("implementation_tasks", {})) - expected_task_labels)
+        if unexpected_tasks:
+            problems.append(f"{slug} records unexpected legacy tasks: {', '.join(unexpected_tasks)}")
+        for label in sorted(expected_task_labels):
+            issue_id = str(beads.get("implementation_tasks", {}).get(label) or "")
+            validate_expected_issue(
+                problems=problems,
+                issue=discovered_by_id.get(issue_id),
+                issue_id=issue_id,
+                description=f"{slug} legacy task {label}",
+                expected_status=task_statuses[label],
+                expected_parent=implementation_parent,
+                required_labels=("migration:legacy-task", f"legacy-task:{label.casefold()}"),
+                expected_owned_labels=("migration:legacy-task", f"legacy-task:{label.casefold()}"),
+                required_metadata={
+                    "migration_source": "legacy-markdown-workflow",
+                    "migration_key": f"legacy-feature:{slug}:task:{label}",
+                    "legacy_task_id": label,
+                    "feature_slug": slug,
+                },
+                expected_type="task",
+            )
+        reconciliation_id = str(beads.get("migration_reconciliation_id") or "")
+        reconciliation_issue = discovered_by_id.get(reconciliation_id)
+        if reconciliation_id:
+            validate_expected_issue(
+                problems=problems,
+                issue=reconciliation_issue,
+                issue_id=reconciliation_id,
+                description=f"{slug} migration reconciliation task",
+                expected_status="open",
+                expected_parent=root_id,
+                required_labels=("migration:reconciliation", "review:drift"),
+                expected_owned_labels=("migration:reconciliation",),
+                required_metadata={
+                    "migration_source": "legacy-markdown-workflow",
+                    "migration_key": f"legacy-feature:{slug}:reconciliation",
+                    "migration_role": "status-reconciliation",
+                    "feature_slug": slug,
+                },
+                expected_type="task",
+            )
+        if root_id and root_issue is not None:
+            roots_by_slug = {
+                str(candidate["slug"]): str(candidate.get("beads", {}).get("root_id") or "") for candidate in features
+            }
+            expected_relationships = {
+                roots_by_slug[dependency]: "blocks"
+                for dependency in feature.get("dependencies", [])
+                if roots_by_slug.get(str(dependency))
+            }
+            expected_relationships.update(
+                {
+                    roots_by_slug[dependency]: "related"
+                    for dependency in feature.get("related_dependencies", [])
+                    if roots_by_slug.get(str(dependency))
+                }
+            )
+            parent_slug = feature.get("parent_feature")
+            if parent_slug and roots_by_slug.get(str(parent_slug)):
+                expected_relationships[roots_by_slug[str(parent_slug)]] = "related"
+            actual_relationships = bd_dependency_types(root, root_id)
+            relationship_complete = not allow_recovery or beads.get("import_phase") == "completed"
+            has_conflicting_relationship = any(
+                expected_relationships.get(issue_id) != relationship
+                for issue_id, relationship in actual_relationships.items()
+            )
+            if (
+                relationship_complete and actual_relationships != expected_relationships
+            ) or has_conflicting_relationship:
+                problems.append(
+                    f"{slug} root relationships differ from the deterministic manifest: "
+                    f"expected {expected_relationships}, found {actual_relationships}"
+                )
 
     if problems:
         raise MigrationError(
             "Existing migrated Beads state must be reconciled before import:\n  - " + "\n  - ".join(problems)
         )
     # Old interrupted imports used number-bearing metadata. Recovery is keyed
-    # by the slug fallback above, then immediately canonicalized.
-    for feature in features:
-        beads = feature.get("beads", {})
-        issue_ids = [beads.get("root_id"), beads.get("migration_reconciliation_id")]
-        issue_ids.extend(beads.get("lifecycle", {}).values())
-        issue_ids.extend(beads.get("implementation_tasks", {}).values())
-        for issue_id in {str(value) for value in issue_ids if value}:
-            bd_set_metadata(root, issue_id, {"feature_slug": feature["slug"], "feature_name": feature["title"]})
-            bd_unset_metadata(root, issue_id, "feature_number")
+    # by the slug fallback above. Canonicalization is a separate apply-only
+    # mutation; dry-run and verification never update Beads.
+    if canonicalize:
+        for feature in features:
+            beads = feature.get("beads", {})
+            issue_ids = [beads.get("root_id"), beads.get("migration_reconciliation_id")]
+            issue_ids.extend(beads.get("lifecycle", {}).values())
+            issue_ids.extend(beads.get("implementation_tasks", {}).values())
+            for issue_id in {str(value) for value in issue_ids if value}:
+                metadata = discovered_metadata.get(issue_id, {})
+                expected = {"feature_slug": feature["slug"], "feature_name": feature["title"]}
+                if any(metadata.get(key) != value for key, value in expected.items()):
+                    bd_set_metadata(root, issue_id, expected)
+                if "feature_number" in metadata:
+                    bd_unset_metadata(root, issue_id, "feature_number")
     return len(recovered_features)
 
 
@@ -1815,13 +2549,15 @@ def bd_create(
         command.extend(("--acceptance", acceptance))
     if spec_id:
         command.extend(("--spec-id", spec_id))
-    if status:
-        command.extend(("--status", status))
     output = run_command(command, cwd=root)
     issue_id = output.splitlines()[-1].strip() if output else ""
     if not issue_id or any(character.isspace() for character in issue_id):
         msg = f"Could not parse Beads issue ID from: {output!r}"
         raise MigrationError(msg)
+    if status:
+        # Beads 1.1 does not support `bd create --status`. Creation and state
+        # transition are intentionally separate supported operations.
+        bd_update_status(root, issue_id, status)
     return issue_id
 
 
@@ -2288,6 +3024,7 @@ def apply_imported_states(
                     "migration_key": (f"legacy-feature:{feature['slug']}:reconciliation"),
                     "migration_role": "status-reconciliation",
                     "feature_slug": feature["slug"],
+                    "feature_name": feature["title"],
                 },
                 description="Resolve contradictory legacy roadmap, design, task, and implemented-record evidence.\n\n"
                 + conflict_text,
@@ -2335,14 +3072,20 @@ def ensure_bd_available(root: Path, *, init_beads: bool) -> None:
     if shutil.which("bd") is None:
         msg = "The 'bd' command is not installed"
         raise MigrationError(msg)
-    beads_dir = root / ".beads"
-    if not beads_dir.exists():
+    beads_dir = primary_worktree(root) / ".beads"
+    initialized = (beads_dir / "metadata.json").is_file() and (beads_dir / "config.yaml").is_file()
+    if not initialized:
         if not init_beads:
-            msg = "Beads is not initialized. Run bd init --stealth --skip-agents or pass --init-beads."
+            msg = (
+                "Beads is not repository-locally initialized. A formula-only .beads directory is insufficient. "
+                "Run the guarded beads-authority --init command."
+            )
             raise MigrationError(msg)
-        run_command(["bd", "init", "--stealth", "--skip-agents"], cwd=root, capture=False)
-    ensure_trailing_newline(root / ".beads/metadata.json")
-    ensure_trailing_newline(root / ".beads/config.yaml")
+        run_command(["bd", "init", "--stealth", "--skip-agents"], cwd=root)
+    if not (beads_dir / "metadata.json").is_file() or not (beads_dir / "config.yaml").is_file():
+        msg_0 = "bd init returned without creating complete repository-local Beads authority"
+        raise MigrationError(msg_0)
+    validate_beads_authority(root)
 
 
 def selected_features(manifest: Mapping[str, Any], requested: Sequence[str]) -> list[dict[str, Any]]:
@@ -2597,9 +3340,12 @@ def import_beads(
     changed_slugs = {str(feature["slug"]) for feature in features} - initially_completed
     formula = load_formula(root)
     preflight_import(manifest, formula)
+    ensure_bd_available(root, init_beads=init_beads if apply else False)
     if not apply:
+        preview_features = copy.deepcopy(all_features)
+        recovered_issues = reconcile_existing_beads_state(root, preview_features, canonicalize=False)
         print("Beads import dry-run (no mutations):")
-        print_import_progress(import_progress(all_features))
+        print_import_progress(import_progress(preview_features, recovered=recovered_issues))
         print("  - run a separate command with --apply to execute")
         return
 
@@ -2607,13 +3353,7 @@ def import_beads(
     BD_BATCH_ACTIVE = True
     print(f"APPLY STARTED: importing {len(features)} selected feature(s) into Beads with bounded batch commits.")
     print_import_progress(import_progress(all_features))
-    ensure_bd_available(root, init_beads=init_beads)
-    incomplete_features = [
-        feature
-        for feature in features
-        if not feature_import_completed(feature) and feature.get("beads", {}).get("import_phase") != "relationships"
-    ]
-    recovered_issues = reconcile_existing_beads_state(root, incomplete_features)
+    recovered_issues = reconcile_existing_beads_state(root, all_features, canonicalize=True)
     if recovered_issues:
         save_manifest_and_report(root, manifest_path, report_path, manifest)
         print(f"Recovered migration identities for {recovered_issues} feature(s).")
@@ -2708,8 +3448,6 @@ def import_beads(
     manifest["beads_import_progress"] = progress
     if progress["remaining"] == 0:
         manifest["beads_import_completed_at"] = manifest.get("beads_import_completed_at") or utc_now()
-    ensure_trailing_newline(root / ".beads/metadata.json")
-    ensure_trailing_newline(root / ".beads/config.yaml")
     save_manifest_and_report(root, manifest_path, report_path, manifest)
     print_import_progress(progress)
     print(f"Import pass complete for {len(features)} selected feature(s).")
@@ -2757,7 +3495,15 @@ def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool
             "evidence_digest": digest,
             "reviewed": bool(prior.get("reviewed")) and prior.get("evidence_digest") == digest,
         }
-        for key in ("review_reason", "reviewed_at"):
+        for key in (
+            "review_reason",
+            "reviewed_at",
+            "semantic_summary",
+            "semantic_evidence",
+            "semantic_commits",
+            "record_path",
+            "record_digest",
+        ):
             if key in prior:
                 candidate[key] = prior[key]
         candidates.append(candidate)
@@ -2767,26 +3513,130 @@ def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool
     print(f"{'Drafted' if apply else 'Would draft'} {len(candidates)} delivered-record candidate(s).")
 
 
-def review_delivered_record(root: Path, manifest: dict[str, Any], slug: str, reason: str) -> None:
-    if not reason.strip():
-        message = "--reason is required for delivered-record semantic review"
+def review_delivered_record(
+    root: Path,
+    manifest: dict[str, Any],
+    slug: str,
+    reason: str,
+    *,
+    summary: str,
+    evidence_paths: Sequence[str],
+    commits: Sequence[str],
+) -> None:
+    if not reason.strip() or len(summary.strip()) < 40 or not evidence_paths or not commits:
+        message = "Delivered-record review requires a reason plus feature-specific --summary, --evidence, and --commit"
         raise MigrationError(message)
+    feature = next((item for item in manifest.get("features", []) if item.get("slug") == slug), None)
+    if not isinstance(feature, dict):
+        msg = f"Unknown feature for delivered-record review: {slug}"
+        raise MigrationError(msg)
+    identity_terms = {slug.casefold(), str(feature.get("title", "")).casefold()}
+    normalized_summary = " ".join(summary.split())
+    if not any(term and term in normalized_summary.casefold() for term in identity_terms):
+        msg = "Semantic summary must name the reviewed feature title or slug"
+        raise MigrationError(msg)
+
+    excluded = {
+        str(feature.get("design_path", "")),
+        str(feature.get("implemented_path", "")),
+        str(feature.get("legacy_tasks_path", "")),
+        str(feature.get("legacy_tasks_archive", "")),
+    }
+    evidence: list[dict[str, str]] = []
+    evidence_relatives: set[str] = set()
+    for raw_path in evidence_paths:
+        candidate_path = (root / raw_path).resolve()
+        try:
+            relative = candidate_path.relative_to(root.resolve())
+        except ValueError as exc:
+            msg = f"Semantic evidence escapes the repository: {raw_path}"
+            raise MigrationError(msg) from exc
+        rendered = relative.as_posix()
+        if (
+            not candidate_path.is_file()
+            or _path_has_symlink(root.resolve(), candidate_path)
+            or relative.parts[:1] == ("migration",)
+            or rendered in excluded
+        ):
+            msg = f"Semantic evidence must be an existing non-generated corroborating repository file: {raw_path}"
+            raise MigrationError(msg)
+        evidence_relatives.add(rendered)
+        evidence.append({"path": rendered, "sha256": hashlib.sha256(candidate_path.read_bytes()).hexdigest()})
+
+    commit_evidence: list[dict[str, Any]] = []
+    corroborated_paths: set[str] = set()
+    feature_prefixes = {
+        str(feature.get("target_dir", "")).rstrip("/") + "/",
+        str(feature.get("source_dir", "")).rstrip("/") + "/",
+    }
+    for requested in commits:
+        resolved = git_output(root, "rev-parse", f"{requested}^{{commit}}")
+        changed = {
+            line for line in git_output(root, "show", "--format=", "--name-only", resolved).splitlines() if line.strip()
+        }
+        corroborated_paths.update(changed & evidence_relatives)
+        relevant = sorted(
+            path
+            for path in changed
+            if path in evidence_relatives
+            or any(prefix != "/" and path.startswith(prefix) for prefix in feature_prefixes)
+        )
+        if not relevant:
+            msg = f"Commit {requested} does not corroborate feature {slug}"
+            raise MigrationError(msg)
+        commit_evidence.append({"sha": resolved, "paths": relevant})
+    missing_corroboration = sorted(evidence_relatives - corroborated_paths)
+    if missing_corroboration:
+        msg = "Selected commit evidence does not touch corroborating evidence: " + ", ".join(missing_corroboration)
+        raise MigrationError(msg)
+
     for candidate in manifest.get("delivered_record_candidates", []):
-        if candidate.get("slug") == slug:
-            path = root / str(candidate.get("path", ""))
-            if not path.is_file():
-                message = f"Delivered-record candidate is missing: {path.relative_to(root)}"
-                raise MigrationError(message)
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            if digest != candidate.get("evidence_digest"):
-                message = f"Delivered-record candidate changed after drafting: {slug}"
-                raise MigrationError(message)
-            candidate["reviewed"] = True
-            candidate["review_reason"] = reason.strip()
-            candidate["reviewed_at"] = utc_now()
-            return
+        if candidate.get("slug") != slug:
+            continue
+        path = root / str(candidate.get("path", ""))
+        if not path.is_file():
+            message = f"Delivered-record candidate is missing: {path.relative_to(root)}"
+            raise MigrationError(message)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != candidate.get("evidence_digest"):
+            message = f"Delivered-record candidate changed after drafting: {slug}"
+            raise MigrationError(message)
+        record_path = root / str(feature.get("implemented_path", ""))
+        if not record_path.is_file():
+            msg = f"Implemented feature record is missing: {feature.get('implemented_path')}"
+            raise MigrationError(msg)
+        candidate["reviewed"] = True
+        candidate["review_reason"] = reason.strip()
+        candidate["reviewed_at"] = utc_now()
+        candidate["semantic_summary"] = normalized_summary
+        candidate["semantic_evidence"] = evidence
+        candidate["semantic_commits"] = commit_evidence
+        candidate["record_path"] = str(feature["implemented_path"])
+        candidate["record_digest"] = hashlib.sha256(record_path.read_bytes()).hexdigest()
+        return
     message = f"No delivered-record candidate exists for {slug}"
     raise MigrationError(message)
+
+
+def archived_task_identity(path: Path) -> list[dict[str, Any]]:
+    return [{"label": task.label, "status": task.status, "depends_on": task.depends_on} for task in parse_tasks(path)]
+
+
+def seal_preexisting_archives(root: Path, destination_paths: set[Path]) -> dict[str, str]:
+    archive_root = root / DEFAULT_TASK_ARCHIVE
+    if not archive_root.exists():
+        return {}
+    archives: dict[str, str] = {}
+    for candidate in sorted(archive_root.rglob("*")):
+        safe_candidate = safe_repository_path(
+            root,
+            candidate.relative_to(root),
+            description="preexisting legacy task archive",
+            required_prefix=PurePosixPath(DEFAULT_TASK_ARCHIVE.as_posix()),
+        )
+        if safe_candidate.is_file() and safe_candidate not in destination_paths:
+            archives[str(safe_candidate.relative_to(root))] = hashlib.sha256(safe_candidate.read_bytes()).hexdigest()
+    return archives
 
 
 def task_references(root: Path) -> list[str]:
@@ -2812,15 +3662,41 @@ def finalize_migration(
     root: Path,
     manifest: dict[str, Any],
     *,
+    manifest_path: Path,
+    report_path: Path,
     apply: bool,
     delete_tasks: bool,
     archive_dir: Path,
 ) -> None:
-    unreviewed = [
-        str(candidate.get("slug"))
-        for candidate in manifest.get("delivered_record_candidates", [])
-        if not candidate.get("reviewed")
+    safe_repository_path(
+        root,
+        archive_dir,
+        description="archive_dir",
+        required_prefix=PurePosixPath(DEFAULT_TASK_ARCHIVE.as_posix()),
+    )
+    ensure_bd_available(root, init_beads=False)
+    live_features = copy.deepcopy([feature for feature in manifest.get("features", []) if isinstance(feature, dict)])
+    reconcile_existing_beads_state(root, live_features, canonicalize=False, allow_recovery=False)
+    incomplete_phases = [
+        str(feature["slug"])
+        for feature in live_features
+        if (root / str(feature.get("legacy_tasks_path", ""))).exists()
+        and feature.get("beads", {}).get("import_phase") != "completed"
     ]
+    if incomplete_phases:
+        msg = "Legacy tasks cannot be archived before completed live Beads import: " + ", ".join(incomplete_phases)
+        raise MigrationError(msg)
+    candidate_by_slug = {
+        str(candidate.get("slug")): candidate
+        for candidate in manifest.get("delivered_record_candidates", [])
+        if isinstance(candidate, dict)
+    }
+    completed_slugs = {
+        str(feature.get("slug"))
+        for feature in manifest.get("features", [])
+        if isinstance(feature, dict) and feature.get("classification") == "completed"
+    }
+    unreviewed = sorted(slug for slug in completed_slugs if not candidate_by_slug.get(slug, {}).get("reviewed"))
     if unreviewed:
         message = "Delivered-record candidates require semantic review before finalization: " + ", ".join(
             sorted(unreviewed)
@@ -2853,69 +3729,287 @@ def finalize_migration(
             "Legacy task files cannot be archived until Beads import is complete and recorded:\n" + details
         )
 
-    operations: list[str] = []
+    journal_path = safe_repository_path(
+        root,
+        FINALIZATION_JOURNAL_PATH,
+        description="finalization journal",
+        required_prefix=PurePosixPath("migration"),
+    )
+    staging_dir = safe_repository_path(
+        root,
+        FINALIZATION_STAGING_DIR,
+        description="finalization staging directory",
+        required_prefix=PurePosixPath("migration"),
+    )
+    if journal_path.exists() or staging_dir.exists():
+        msg = (
+            "An interrupted finalization journal or staging directory exists. Recover the listed task files before "
+            "retrying; finalization will not guess whether to archive or restore them."
+        )
+        raise MigrationError(msg)
+
+    operation_records: list[dict[str, Any]] = []
     for feature in manifest.get("features", []):
-        tasks_path = root / feature["legacy_tasks_path"]
+        tasks_path = safe_repository_path(
+            root,
+            feature["legacy_tasks_path"],
+            description=f"{feature['slug']}.legacy_tasks_path before archival",
+            required_prefix=PurePosixPath(FEATURES_PATH.as_posix()),
+        )
         if not tasks_path.exists():
             continue
-        if delete_tasks:
-            operations.append(f"delete {tasks_path.relative_to(root)}")
-            if apply:
-                tasks_path.unlink()
-                feature["legacy_tasks_archive"] = "deleted; retained in Git history"
-        else:
-            archive_path = root / archive_dir / f"{feature['slug']}.md"
-            operations.append(f"archive {tasks_path.relative_to(root)} -> {archive_path.relative_to(root)}")
-            if apply:
-                archive_path.parent.mkdir(parents=True, exist_ok=True)
-                if archive_path.exists():
-                    msg = f"Legacy task archive already exists: {archive_path.relative_to(root)}"
-                    raise MigrationError(msg)
-                tasks_path.rename(archive_path)
-                feature["legacy_tasks_archive"] = str(archive_path.relative_to(root))
-        feature["has_tasks"] = False
+        archive_path = safe_repository_path(
+            root,
+            archive_dir / f"{feature['slug']}.md",
+            description=f"{feature['slug']}.archive_path",
+            required_prefix=PurePosixPath(DEFAULT_TASK_ARCHIVE.as_posix()),
+        )
+        if not delete_tasks and archive_path.exists():
+            msg = f"Legacy task archive already exists: {archive_path.relative_to(root)}"
+            raise MigrationError(msg)
+        staging_path = staging_dir / f"{feature['slug']}.md"
+        operation_records.append(
+            {
+                "feature": feature,
+                "source": tasks_path,
+                "staging": staging_path,
+                "destination": None if delete_tasks else archive_path,
+                "description": (
+                    f"delete {tasks_path.relative_to(root)}"
+                    if delete_tasks
+                    else f"archive {tasks_path.relative_to(root)} -> {archive_path.relative_to(root)}"
+                ),
+                "archive_digest": hashlib.sha256(tasks_path.read_bytes()).hexdigest(),
+                "archive_identity": archived_task_identity(tasks_path),
+                "previous_archive": feature.get("legacy_tasks_archive"),
+                "previous_archive_digest": feature.get("legacy_tasks_archive_digest"),
+                "previous_archive_identity": feature.get("legacy_tasks_archive_identity"),
+                "previous_has_tasks": feature.get("has_tasks"),
+            }
+        )
 
     if not apply:
         print("Finalization dry-run:")
-        for operation in operations:
-            print("  -", operation)
-        if not operations:
+        for operation in operation_records:
+            print("  -", operation["description"])
+        if not operation_records:
             print("  - no legacy tasks.md files remain")
         return
-    if manifest.get("migration_finalized") and not operations:
+    if manifest.get("migration_finalized") and not operation_records:
         print("Migration finalization already complete; no changes required.")
         return
-    manifest["migration_finalized"] = True
-    manifest["finalized_at"] = utc_now()
-    checker = root / "scripts/check-docs.py"
-    if checker.exists():
-        run_command(["uv", "run", str(checker)], cwd=root)
-    print(f"Finalized {len(operations)} legacy task files and passed strict documentation validation.")
+
+    destination_paths = {
+        operation["destination"] for operation in operation_records if operation["destination"] is not None
+    }
+    preexisting_archives = seal_preexisting_archives(root, destination_paths)
+    original_preexisting_archives = manifest.get("preexisting_legacy_task_archives")
+    original_manifest = (root / manifest_path).read_bytes() if (root / manifest_path).exists() else None
+    original_report = (root / report_path).read_bytes() if (root / report_path).exists() else None
+    original_finalized = manifest.get("migration_finalized")
+    original_finalized_at = manifest.get("finalized_at")
+    staging_dir.mkdir(parents=True)
+    journal = {
+        "schema_version": 1,
+        "state": "staging",
+        "mode": "delete" if delete_tasks else "archive",
+        "operations": [
+            {
+                "source": str(operation["source"].relative_to(root)),
+                "staging": str(operation["staging"].relative_to(root)),
+                "destination": (str(operation["destination"].relative_to(root)) if operation["destination"] else None),
+            }
+            for operation in operation_records
+        ],
+    }
+    dump_json(journal_path, journal)
+    manifest_saved = False
+    try:
+        for operation in operation_records:
+            operation["staging"].parent.mkdir(parents=True, exist_ok=True)
+            operation["source"].replace(operation["staging"])
+            feature = operation["feature"]
+            feature["has_tasks"] = False
+            feature["legacy_tasks_archive"] = (
+                "deleted; retained in Git history" if delete_tasks else str(operation["destination"].relative_to(root))
+            )
+            feature["legacy_tasks_archive_digest"] = operation["archive_digest"]
+            feature["legacy_tasks_archive_identity"] = operation["archive_identity"]
+        checker = root / "scripts/check-docs.py"
+        if checker.exists():
+            run_command(["uv", "run", str(checker)], cwd=root)
+        if not delete_tasks:
+            for operation in operation_records:
+                destination = operation["destination"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                operation["staging"].replace(destination)
+        manifest["preexisting_legacy_task_archives"] = preexisting_archives
+        manifest["migration_finalized"] = True
+        manifest["finalized_at"] = utc_now()
+        save_manifest_and_report(root, manifest_path, report_path, manifest)
+        journal["state"] = "committed"
+        dump_json(journal_path, journal)
+        manifest_saved = True
+        if delete_tasks:
+            shutil.rmtree(staging_dir)
+        else:
+            staging_dir.rmdir()
+        journal_path.unlink()
+    except Exception as exc:
+        if manifest_saved:
+            msg = (
+                "Finalization state was committed but cleanup was interrupted. Preserve the committed journal and "
+                "staging directory; verify their digests and finish only the recorded cleanup."
+            )
+            raise MigrationError(msg) from exc
+        for operation in reversed(operation_records):
+            source = operation["source"]
+            staged = operation["staging"]
+            destination = operation["destination"]
+            if destination is not None and destination.exists():
+                destination.replace(source)
+            elif staged.exists():
+                staged.replace(source)
+            feature = operation["feature"]
+            feature["legacy_tasks_archive"] = operation["previous_archive"]
+            feature["legacy_tasks_archive_digest"] = operation["previous_archive_digest"]
+            feature["legacy_tasks_archive_identity"] = operation["previous_archive_identity"]
+            feature["has_tasks"] = operation["previous_has_tasks"]
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        journal_path.unlink(missing_ok=True)
+        manifest["migration_finalized"] = original_finalized
+        if original_preexisting_archives is None:
+            manifest.pop("preexisting_legacy_task_archives", None)
+        else:
+            manifest["preexisting_legacy_task_archives"] = original_preexisting_archives
+        if original_finalized_at is None:
+            manifest.pop("finalized_at", None)
+        else:
+            manifest["finalized_at"] = original_finalized_at
+        if original_manifest is None:
+            (root / manifest_path).unlink(missing_ok=True)
+        else:
+            (root / manifest_path).write_bytes(original_manifest)
+        if original_report is None:
+            (root / report_path).unlink(missing_ok=True)
+        else:
+            (root / report_path).write_bytes(original_report)
+        raise
+    print(f"Finalized {len(operation_records)} legacy task files and passed strict documentation validation.")
 
 
 def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: bool) -> tuple[list[str], list[str]]:
-    errors: list[str] = []
-    unreviewed_candidates = [
-        str(candidate.get("slug"))
+    errors = finalized_inventory_errors(root, manifest) if manifest.get("migration_finalized") else []
+    features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
+    if verify_beads:
+        try:
+            reconcile_existing_beads_state(
+                root,
+                copy.deepcopy(features),
+                canonicalize=False,
+                allow_recovery=False,
+            )
+        except MigrationError as exc:
+            errors.append(f"Cannot verify imported Beads ownership: {exc}")
+    candidate_by_slug = {
+        str(candidate.get("slug")): candidate
         for candidate in manifest.get("delivered_record_candidates", [])
-        if not candidate.get("reviewed")
-    ]
+        if isinstance(candidate, dict)
+    }
+    completed_slugs = {str(feature["slug"]) for feature in features if feature.get("classification") == "completed"}
+    unreviewed_candidates = sorted(
+        slug for slug in completed_slugs if not candidate_by_slug.get(slug, {}).get("reviewed")
+    )
     if unreviewed_candidates:
         errors.append(
-            "Delivered-record candidates require semantic review: " + ", ".join(sorted(unreviewed_candidates))
+            "Delivered-record candidates require semantic review; completed features are missing reviewed semantic "
+            "reconciliation: " + ", ".join(unreviewed_candidates)
         )
+    summary_owners: dict[str, str] = {}
+    summary_template_owners: dict[str, str] = {}
+    evidence_owners: dict[tuple[str, ...], str] = {}
+    feature_by_slug = {str(feature["slug"]): feature for feature in features}
     for candidate in manifest.get("delivered_record_candidates", []):
         if not candidate.get("reviewed"):
             continue
+        slug = str(candidate.get("slug", ""))
         path = root / str(candidate.get("path", ""))
         if not path.is_file():
-            errors.append(f"Reviewed delivered-record candidate is missing: {candidate.get('slug')}")
+            errors.append(f"Reviewed delivered-record candidate is missing: {slug}")
             continue
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if digest != candidate.get("evidence_digest"):
-            errors.append(f"Reviewed delivered-record candidate changed after approval: {candidate.get('slug')}")
+            errors.append(f"Reviewed delivered-record candidate changed after approval: {slug}")
+        summary = " ".join(str(candidate.get("semantic_summary", "")).split()).casefold()
+        if not summary or not candidate.get("semantic_evidence") or not candidate.get("semantic_commits"):
+            errors.append(f"Reviewed semantic reconciliation lacks feature-specific evidence: {slug}")
+        elif summary in summary_owners and summary_owners[summary] != slug:
+            errors.append(f"Semantic reconciliation summary is reused by {summary_owners[summary]} and {slug}")
+        else:
+            summary_owners[summary] = slug
+            feature = feature_by_slug.get(slug, {})
+            summary_template = summary
+            identities: set[str] = {slug.casefold(), str(feature.get("title", "")).casefold()}
+            for identity in sorted(identities, key=lambda value: len(value), reverse=True):
+                if identity:
+                    summary_template = re.sub(re.escape(identity), "<feature>", summary_template, flags=re.IGNORECASE)
+            previous = summary_template_owners.get(summary_template)
+            if previous and previous != slug:
+                errors.append(f"Semantic reconciliation template is reused by {previous} and {slug}")
+            else:
+                summary_template_owners[summary_template] = slug
+        evidence_key = tuple(sorted(str(item.get("path", "")) for item in candidate.get("semantic_evidence", [])))
+        previous_evidence_owner = evidence_owners.get(evidence_key)
+        if evidence_key and previous_evidence_owner and previous_evidence_owner != slug:
+            errors.append(f"Semantic evidence set is reused by {previous_evidence_owner} and {slug}")
+        elif evidence_key:
+            evidence_owners[evidence_key] = slug
+        record_path = root / str(candidate.get("record_path", ""))
+        if not record_path.is_file() or hashlib.sha256(record_path.read_bytes()).hexdigest() != candidate.get(
+            "record_digest"
+        ):
+            errors.append(f"Reviewed implemented-feature record is missing or changed: {slug}")
+        for evidence in candidate.get("semantic_evidence", []):
+            evidence_path = root / str(evidence.get("path", ""))
+            if not evidence_path.is_file() or hashlib.sha256(evidence_path.read_bytes()).hexdigest() != evidence.get(
+                "sha256"
+            ):
+                errors.append(f"Semantic evidence is missing or changed for {slug}: {evidence.get('path')}")
+        evidence_paths = {str(item.get("path", "")) for item in candidate.get("semantic_evidence", [])}
+        corroborated_paths: set[str] = set()
+        feature = feature_by_slug.get(slug, {})
+        feature_prefixes = {
+            str(feature.get("target_dir", "")).rstrip("/") + "/",
+            str(feature.get("source_dir", "")).rstrip("/") + "/",
+        }
+        for commit in candidate.get("semantic_commits", []):
+            commit_sha = str(commit.get("sha", ""))
+            result = subprocess.run(
+                ["git", "show", "--format=", "--name-only", commit_sha],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                errors.append(f"Semantic Git evidence is missing for {slug}: {commit_sha}")
+                continue
+            changed = {line for line in result.stdout.splitlines() if line.strip()}
+            corroborated_paths.update(changed & evidence_paths)
+            relevant = sorted(
+                path
+                for path in changed
+                if path in evidence_paths
+                or any(prefix != "/" and path.startswith(prefix) for prefix in feature_prefixes)
+            )
+            if relevant != sorted(str(path) for path in commit.get("paths", [])):
+                errors.append(f"Semantic Git evidence paths changed or were fabricated for {slug}: {commit_sha}")
+        missing_corroboration = sorted(evidence_paths - corroborated_paths)
+        if missing_corroboration:
+            errors.append(
+                f"Semantic commits do not touch corroborating evidence for {slug}: " + ", ".join(missing_corroboration)
+            )
     warnings: list[str] = []
-    features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
     mapping = {Path(feature["source_dir"]).name: feature["slug"] for feature in features}
     stored_hk = manifest.get("hk_reconciliation", {})
     refreshed_hk = hk_reconciliation_state(
@@ -2950,6 +4044,8 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
             DEFAULT_BASELINE_JSON,
             DEFAULT_BASELINE_REPORT,
         }
+        if git_repository(root):
+            durable_paths.add(SESSION_AUTHORITY_PATH)
         durable_paths.update(
             Path(str(feature["legacy_tasks_archive"]))
             for feature in features
@@ -2997,20 +4093,8 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
                 )
         if feature.get("conflicts"):
             warnings.append(f"{feature['slug']} has {len(feature['conflicts'])} reconciliation findings")
-        if verify_beads:
-            root_id = feature.get("beads", {}).get("root_id")
-            if not root_id:
-                warnings.append(f"{feature['slug']} has no Beads root ID")
-            else:
-                result = subprocess.run(
-                    ["bd", "show", root_id, "--json"],
-                    cwd=root,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode != 0:
-                    errors.append(f"Cannot resolve Beads root {root_id} for {feature['slug']}")
+        if verify_beads and not feature.get("beads", {}).get("root_id"):
+            errors.append(f"{feature['slug']} manifest has no recorded Beads root")
 
     if verify_beads:
         try:
@@ -3217,7 +4301,7 @@ def discover_repository_capabilities(root: Path) -> dict[str, Any]:
         )
     root_tasks = _mise_tasks(root_mise) if root_mise is not None else set()
     for task in ("docs:check", "docs:build"):
-        if task in root_tasks:
+        if task in root_tasks and root_mise is not None:
             docs_commands.append(
                 {
                     "name": f"root-mise-{task.replace(':', '-')}",
@@ -3371,7 +4455,7 @@ def discover_repository_capabilities(root: Path) -> dict[str, Any]:
         package_evidence = [path.relative_to(root).as_posix() for path in observed_tests]
         test_evidence.extend(package_evidence)
         package_commands: list[dict[str, Any]] = []
-        if test_task is not None:
+        if test_task is not None and package_mise is not None:
             target = test_task if config_root == "." else f"//{config_root}:{test_task}"
             package_commands.append(
                 {
@@ -3959,10 +5043,25 @@ def record_checkpoint_evidence(
     reason: str,
     equivalent_result: str,
     residual_risk: str,
+    approved_step: str,
+    approval: str,
 ) -> None:
-    if status == "exception" and not all(value.strip() for value in (reason, equivalent_result, residual_risk)):
-        message = "Checkpoint exceptions require reason, equivalent result, and residual risk"
-        raise MigrationError(message)
+    if status == "exception":
+        if not all(value.strip() for value in (reason, equivalent_result, residual_risk, approved_step)):
+            message = (
+                "Checkpoint exceptions require reason, equivalent result, residual risk, and one exact approved step"
+            )
+            raise MigrationError(message)
+        expected_approval = f"APPROVE HK_SKIP_STEPS={approved_step.strip()}"
+        if approval.strip() != expected_approval:
+            msg = f"Checkpoint exception requires the user's exact approval phrase: {expected_approval}"
+            raise MigrationError(msg)
+        if f"HK_SKIP_STEPS={approved_step.strip()}" not in command:
+            msg = "Checkpoint exception command does not match the explicitly approved hk step"
+            raise MigrationError(msg)
+    elif approved_step.strip() or approval.strip():
+        msg = "Approval fields are valid only for checkpoint exceptions"
+        raise MigrationError(msg)
     evidence = {
         "hook": hook,
         "status": status,
@@ -3970,6 +5069,8 @@ def record_checkpoint_evidence(
         "reason": reason.strip(),
         "equivalent_result": equivalent_result.strip(),
         "residual_risk": residual_risk.strip(),
+        "approved_step": approved_step.strip() or None,
+        "approval": approval.strip() or None,
         "recorded_at": utc_now(),
     }
     manifest.setdefault("checkpoint_evidence", []).append(evidence)
@@ -4098,6 +5199,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    authority = subparsers.add_parser(
+        "authorize-session",
+        help="Bind migration execution to an explicitly selected base branch, branch, worktree, and repository",
+    )
+    authority.add_argument("mode", choices=("fresh", "resume"))
+    authority.add_argument("--root", type=Path, help="Repository root; defaults to git root")
+    authority.add_argument("--base-branch", required=True)
+    authority.add_argument("--migration-branch", required=True)
+    authority.add_argument("--approval", default="")
+    authority.add_argument("--json", action="store_true", help="Print a machine-readable result")
+
+    beads_authority = subparsers.add_parser(
+        "beads-authority",
+        help="Initialize if explicitly requested and verify repository-local Beads authority",
+    )
+    beads_authority.add_argument("--root", type=Path, help="Repository root; defaults to git root")
+    beads_authority.add_argument("--init", action="store_true")
+    beads_authority.add_argument("--json", action="store_true", help="Print a machine-readable result")
+
     baseline = subparsers.add_parser("baseline", help="Record pre-adoption documentation and test capabilities")
     baseline.add_argument("--root", type=Path, help="Repository root; defaults to git root")
     baseline.add_argument("--docs-command", help="Explicit documentation validation command")
@@ -4128,6 +5248,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     checkpoint.add_argument("--reason", default="")
     checkpoint.add_argument("--equivalent-result", default="")
     checkpoint.add_argument("--residual-risk", default="")
+    checkpoint.add_argument("--approved-step", default="")
+    checkpoint.add_argument("--approval", default="")
 
     backup_disposition = subparsers.add_parser(
         "backup-disposition",
@@ -4220,6 +5342,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     add_common_arguments(review_record)
     review_record.add_argument("feature")
     review_record.add_argument("--reason", required=True)
+    review_record.add_argument("--summary", default="")
+    review_record.add_argument("--evidence", action="append", default=[])
+    review_record.add_argument("--commit", action="append", default=[])
 
     finalize = subparsers.add_parser("finalize", help="Archive legacy task files after semantic reconciliation")
     add_common_arguments(finalize)
@@ -4260,13 +5385,148 @@ def normalize_manifest_identity(manifest: dict[str, Any]) -> dict[str, Any]:
     return manifest
 
 
+def finalized_inventory_errors(root: Path, manifest: Mapping[str, Any]) -> list[str]:
+    roadmap_entries, _ = parse_roadmap(root / ROADMAP_PATH)
+    directories = existing_feature_dirs(root / FEATURES_PATH)
+    stored = {
+        str(feature.get("slug")): feature
+        for feature in manifest.get("features", [])
+        if isinstance(feature, dict) and feature.get("slug")
+    }
+    current_slugs = {entry.slug for entry in roadmap_entries} | set(directories)
+    errors: list[str] = []
+    added = sorted(current_slugs - set(stored))
+    omitted = sorted(set(stored) - current_slugs)
+    if added:
+        errors.append("Finalized migration inventory has unrecorded features: " + ", ".join(added))
+    if omitted:
+        errors.append("Finalized migration inventory no longer contains recorded features: " + ", ".join(omitted))
+    authorized_archives: dict[str, str] = {}
+    for slug, feature in stored.items():
+        tasks_path = safe_repository_path(
+            root,
+            feature.get("legacy_tasks_path", ""),
+            description=f"{slug}.legacy_tasks_path after finalization",
+            required_prefix=PurePosixPath(FEATURES_PATH.as_posix()),
+        )
+        if tasks_path.exists():
+            errors.append(f"Finalized migration has a reappearing legacy task file: {tasks_path.relative_to(root)}")
+        if feature.get("has_design"):
+            design_path = safe_repository_path(
+                root,
+                feature.get("design_path", ""),
+                description=f"{slug}.design_path after finalization",
+                required_prefix=PurePosixPath(FEATURES_PATH.as_posix()),
+            )
+            if not design_path.is_file():
+                errors.append(f"Finalized migration design evidence is missing: {design_path.relative_to(root)}")
+        archive = feature.get("legacy_tasks_archive")
+        expected_digest = str(feature.get("legacy_tasks_archive_digest") or "")
+        expected_identity = feature.get("legacy_tasks_archive_identity")
+        if archive == "deleted; retained in Git history":
+            if not expected_digest or not isinstance(expected_identity, list):
+                errors.append(f"Finalized deleted task evidence lacks a sealed digest and identity: {slug}")
+            continue
+        if isinstance(archive, str) and archive:
+            archive_path = safe_repository_path(
+                root,
+                archive,
+                description=f"{slug}.legacy_tasks_archive after finalization",
+                required_prefix=PurePosixPath(DEFAULT_TASK_ARCHIVE.as_posix()),
+            )
+            authorized_archives[archive] = expected_digest
+            if not archive_path.is_file():
+                errors.append(f"Finalized migration archive is missing: {archive_path.relative_to(root)}")
+            elif not expected_digest:
+                errors.append(f"Finalized migration archive lacks a sealed digest: {archive}")
+            else:
+                actual_digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+                if actual_digest != expected_digest:
+                    errors.append(f"Finalized migration archive digest changed: {archive}")
+                if archived_task_identity(archive_path) != expected_identity:
+                    errors.append(f"Finalized migration archive task identity changed: {archive}")
+    for raw_path, raw_digest in manifest.get("preexisting_legacy_task_archives", {}).items():
+        archive_path = safe_repository_path(
+            root,
+            raw_path,
+            description="preexisting legacy task archive",
+            required_prefix=PurePosixPath(DEFAULT_TASK_ARCHIVE.as_posix()),
+        )
+        authorized_archives[str(raw_path)] = str(raw_digest)
+        if not archive_path.is_file() or hashlib.sha256(archive_path.read_bytes()).hexdigest() != raw_digest:
+            errors.append(f"Preexisting legacy task archive is missing or changed: {raw_path}")
+    archive_root = root / DEFAULT_TASK_ARCHIVE
+    current_archives = (
+        {str(path.relative_to(root)) for path in archive_root.rglob("*") if path.is_file()}
+        if archive_root.exists()
+        else set()
+    )
+    unexpected_archives = sorted(current_archives - set(authorized_archives))
+    missing_archives = sorted(set(authorized_archives) - current_archives)
+    if unexpected_archives:
+        errors.append("Finalized migration has unrecorded archive files: " + ", ".join(unexpected_archives))
+    if missing_archives:
+        errors.append("Finalized migration has missing authorized archive files: " + ", ".join(missing_archives))
+    return errors
+
+
 def load_or_scan(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_json(root / args.manifest)
     if manifest is not None:
         normalize_manifest_identity(manifest)
+        validate_manifest_paths(root, manifest)
         if manifest.get("migration_finalized"):
             return manifest
-    return build_manifest(root, manifest_path=args.manifest)
+    result = build_manifest(root, manifest_path=args.manifest)
+    validate_manifest_paths(root, result)
+    return result
+
+
+def validate_cli_artifact_paths(root: Path, args: argparse.Namespace) -> None:
+    migration_prefix = PurePosixPath("migration")
+    expected_suffixes = {
+        "manifest": ".json",
+        "report": ".md",
+        "baseline_json": ".json",
+        "baseline_report": ".md",
+    }
+    paths: dict[str, Path] = {}
+    reserved_directories = (
+        DEFAULT_TASK_ARCHIVE,
+        FINALIZATION_STAGING_DIR,
+        TEMPLATE_CANDIDATE_DIR,
+        TEMPLATE_BACKUP_DIR,
+        DELIVERED_CANDIDATE_DIR,
+    )
+    for attribute, suffix in expected_suffixes.items():
+        value = getattr(args, attribute, None)
+        if value is None:
+            continue
+        path = safe_repository_path(
+            root,
+            value,
+            description=f"command.{attribute}",
+            required_prefix=migration_prefix,
+        )
+        relative = path.relative_to(root)
+        if path.suffix != suffix:
+            msg = f"Migration {attribute} must use a {suffix} file: {relative}"
+            raise MigrationError(msg)
+        if relative in {SESSION_AUTHORITY_PATH, SESSION_RESUME_LOG_PATH, FINALIZATION_JOURNAL_PATH} or any(
+            relative.is_relative_to(directory) for directory in reserved_directories
+        ):
+            msg = f"Migration {attribute} collides with reserved migration evidence: {relative}"
+            raise MigrationError(msg)
+        paths[attribute] = path
+    by_path: dict[Path, list[str]] = {}
+    for attribute, path in paths.items():
+        by_path.setdefault(path, []).append(attribute)
+    collisions = [names for names in by_path.values() if len(names) > 1]
+    if collisions:
+        msg = "Migration artifact paths must be pairwise distinct: " + "; ".join(
+            ", ".join(names) for names in collisions
+        )
+        raise MigrationError(msg)
 
 
 def require_hk_reconciliation(manifest: Mapping[str, Any]) -> None:
@@ -4280,6 +5540,24 @@ def require_hk_reconciliation(manifest: Mapping[str, Any]) -> None:
 def _main(args: argparse.Namespace) -> int:
     root = repository_root(args.root)
     try:
+        if args.command == "authorize-session":
+            authorize_session(
+                root,
+                mode=args.mode,
+                base_branch=args.base_branch,
+                migration_branch=args.migration_branch,
+                approval=args.approval,
+            )
+            return 0
+
+        require_session_authority(root, require_committed=args.command != "baseline")
+        validate_cli_artifact_paths(root, args)
+
+        if args.command == "beads-authority":
+            ensure_bd_available(root, init_beads=args.init)
+            print("Repository-local Beads authority verified.")
+            return 0
+
         if args.command == "baseline":
             return baseline_repository(
                 root,
@@ -4320,6 +5598,8 @@ def _main(args: argparse.Namespace) -> int:
                 reason=args.reason,
                 equivalent_result=args.equivalent_result,
                 residual_risk=args.residual_risk,
+                approved_step=args.approved_step,
+                approval=args.approval,
             )
             return 0
 
@@ -4436,7 +5716,15 @@ def _main(args: argparse.Namespace) -> int:
             return 0
 
         if args.command == "review-delivered-record":
-            review_delivered_record(root, manifest, args.feature, args.reason)
+            review_delivered_record(
+                root,
+                manifest,
+                args.feature,
+                args.reason,
+                summary=args.summary,
+                evidence_paths=args.evidence,
+                commits=args.commit,
+            )
             save_manifest_and_report(root, args.manifest, args.report, manifest)
             return 0
 
@@ -4444,6 +5732,8 @@ def _main(args: argparse.Namespace) -> int:
             finalize_migration(
                 root,
                 manifest,
+                manifest_path=args.manifest,
+                report_path=args.report,
                 apply=args.apply,
                 delete_tasks=args.delete_tasks,
                 archive_dir=args.archive_dir,
