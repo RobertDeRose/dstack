@@ -34,8 +34,11 @@ bd prime
 bd ready --type epic --label workflow:feature --json --limit 0
 ```
 
-If setup reported Beads as outstanding, initialize it once with `bd init --stealth --skip-agents`, then rerun the commands
-above.
+If setup reported Beads as outstanding, install `bd` and rerun dstack's guarded collaborative Beads initialization
+before the first project commit. Do not use `bd init --stealth`: it makes Beads personal and excludes its control files
+from repository tracking. The first project commit must force-add only `.beads/.gitignore`, `.beads/README.md`,
+`.beads/config.yaml`, `.beads/interactions.jsonl`, `.beads/metadata.json`, and the dstack formula; embedded/runtime paths
+remain ignored.
 
 Use the installed lifecycle skills:
 

@@ -271,16 +271,33 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
                 if os.environ.get("FAKE_BD_INIT_FAIL") == "1":
                     print("injected init failure", file=sys.stderr)
                     raise SystemExit(1)
-                root = Path(os.environ["FAKE_BD_ROOT"])
+                root = Path.cwd()
+                prefix = flag("--prefix", root.name)
                 beads = root / ".beads"
                 beads.mkdir(exist_ok=True)
                 (beads / "metadata.json").write_text(json.dumps({
                     "backend": "dolt",
-                    "dolt_database": root.name.replace("-", "_"),
+                    "dolt_database": prefix.replace("-", "_"),
                     "dolt_mode": "embedded",
                     "project_id": "fake-project-id",
                 }) + "\\n")
-                (beads / "config.yaml").write_text(f"issue-prefix: {root.name}\\n")
+                (beads / "config.yaml").write_text(f"issue-prefix: {prefix}\\n")
+                (beads / ".gitignore").write_text("embeddeddolt/\\n.local_version\\n")
+                (beads / "README.md").write_text("# Beads\\n")
+                (beads / "interactions.jsonl").write_text("")
+                if os.environ.get("FAKE_BD_UNEXPECTED") == "1":
+                    (beads / "credential.txt").write_text("must not publish")
+                if os.environ.get("FAKE_BD_AUTO_COMMIT") == "1":
+                    import subprocess
+                    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+                    subprocess.run(["git", "add", ".beads"], cwd=root, check=True)
+                    subprocess.run(
+                        ["git", "-c", "user.name=bd test", "-c", "user.email=bd@test", "commit", "-m",
+                         "chore: initialize beads"],
+                        cwd=root,
+                        check=True,
+                        capture_output=True,
+                    )
                 print("initialized")
             elif args and args[0] == "create":
                 counter = state / "counter"
@@ -396,6 +413,9 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
         f"issue-prefix: {legacy_project.name}\n",
         encoding="utf-8",
     )
+    (legacy_project / ".beads/.gitignore").write_text("embeddeddolt/\n.local_version\n", encoding="utf-8")
+    (legacy_project / ".beads/README.md").write_text("# Beads\n", encoding="utf-8")
+    (legacy_project / ".beads/interactions.jsonl").write_text("", encoding="utf-8")
     env = merged_environment(
         PATH=f"{bin_dir}:{os.environ['PATH']}",
         FAKE_BD_ROOT=str(legacy_project),
@@ -1929,8 +1949,224 @@ def test_formula_only_beads_directory_does_not_bypass_failed_initialization(tmp_
 
     refused = run_migrator(tmp_path, "import-beads", "--apply", "--init-beads", env=env, expected=2)
     commands = [json.loads(line) for line in (state / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert commands == [["init", "--stealth", "--skip-agents"]]
+    assert len(commands) == 1
+    assert commands[0][:4] == ["init", "--non-interactive", "--skip-agents", "--skip-hooks"]
+    assert commands[0][4:5] == ["--prefix"]
     assert "Found existing unrelated Dolt database" in refused.stderr
+
+
+@pytest.mark.integration
+def test_beads_initialization_does_not_create_migration_commit(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    for name in (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json"):
+        (legacy_project / ".beads" / name).unlink()
+    commit_repository(legacy_project, "remove collaborative controls for initialization fixture")
+    before = run_command(["git", "rev-parse", "HEAD"], cwd=legacy_project).stdout.strip()
+
+    run_migrator(
+        legacy_project,
+        "beads-authority",
+        "--init",
+        env={**env, "FAKE_BD_AUTO_COMMIT": "1"},
+    )
+
+    assert run_command(["git", "rev-parse", "HEAD"], cwd=legacy_project).stdout.strip() == before
+    status = run_command(["git", "ls-files", "--others", "--exclude-standard"], cwd=legacy_project).stdout
+    for relative in (".beads/.gitignore", ".beads/README.md", ".beads/interactions.jsonl"):
+        assert relative in status
+    for relative in (".beads/config.yaml", ".beads/metadata.json"):
+        assert (legacy_project / relative).is_file()
+        run_command(["git", "check-ignore", "-q", relative], cwd=legacy_project, expected=1)
+
+
+@pytest.mark.integration
+def test_interrupted_beads_publication_is_rolled_back_before_retry(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    for name in (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json"):
+        (legacy_project / ".beads" / name).unlink()
+    commit_repository(legacy_project, "remove controls for recovery fixture")
+    beads = legacy_project / ".beads"
+    backup = legacy_project / ".beads.dstack-backup"
+    published = legacy_project / ".beads.dstack-publish"
+    beads.replace(backup)
+    shutil.copytree(backup, published)
+    (legacy_project / ".beads.dstack-transaction.json").write_text(
+        json.dumps({"schema_version": 1, "state": "backed_up"}) + "\n",
+        encoding="utf-8",
+    )
+
+    run_migrator(legacy_project, "beads-authority", "--init", env=env)
+
+    assert (beads / "metadata.json").is_file()
+    assert not backup.exists()
+    assert not published.exists()
+    assert not (legacy_project / ".beads.dstack-transaction.json").exists()
+
+
+@pytest.mark.integration
+def test_unexpected_bd_output_is_rejected_before_authority_publication(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, _ = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    controls = (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json")
+    for name in controls:
+        (legacy_project / ".beads" / name).unlink()
+    commit_repository(legacy_project, "remove controls for unexpected output fixture")
+    before = run_command(["git", "rev-parse", "HEAD"], cwd=legacy_project).stdout.strip()
+
+    refused = run_migrator(
+        legacy_project,
+        "beads-authority",
+        "--init",
+        env={**env, "FAKE_BD_UNEXPECTED": "1"},
+        expected=2,
+    )
+
+    assert "unsupported Beads entries" in refused.stderr
+    assert run_command(["git", "rev-parse", "HEAD"], cwd=legacy_project).stdout.strip() == before
+    assert sorted(
+        path.relative_to(legacy_project / ".beads").as_posix() for path in (legacy_project / ".beads").rglob("*")
+    ) == [
+        "formulas",
+        "formulas/dstack-feature.formula.toml",
+    ]
+
+
+@pytest.mark.integration
+def test_existing_stealth_authority_is_exposed_without_reinitialization(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    for name, content in (
+        (".gitignore", "embeddeddolt/\n.local_version\n"),
+        ("README.md", "# Beads\n"),
+        ("interactions.jsonl", ""),
+    ):
+        (legacy_project / ".beads" / name).write_text(content, encoding="utf-8")
+    run_migrator(legacy_project, "scan", "--write")
+    controls = [
+        ".beads/.gitignore",
+        ".beads/README.md",
+        ".beads/config.yaml",
+        ".beads/interactions.jsonl",
+        ".beads/metadata.json",
+    ]
+    run_command(["git", "rm", "--cached", *controls], cwd=legacy_project)
+    run_command(["git", "commit", "-m", "chore: simulate existing stealth authority"], cwd=legacy_project)
+    exclude = Path(run_command(["git", "rev-parse", "--git-path", "info/exclude"], cwd=legacy_project).stdout.strip())
+    if not exclude.is_absolute():
+        exclude = legacy_project / exclude
+    exclude.write_text(exclude.read_text(encoding="utf-8") + ".beads/\n", encoding="utf-8")
+    global_ignore = legacy_project / "stealth-global-ignore"
+    global_ignore.write_text(".beads/**\n", encoding="utf-8")
+    run_command(["git", "config", "core.excludesFile", str(global_ignore)], cwd=legacy_project)
+
+    run_migrator(legacy_project, "beads-authority", "--init", env=env)
+
+    assert ".beads/" not in {line.strip() for line in exclude.read_text(encoding="utf-8").splitlines()}
+    run_command(["git", "check-ignore", "-q", ".beads/metadata.json"], cwd=legacy_project)
+    run_command(
+        [
+            "git",
+            "add",
+            "-f",
+            ".beads/.gitignore",
+            ".beads/README.md",
+            ".beads/config.yaml",
+            ".beads/interactions.jsonl",
+            ".beads/metadata.json",
+        ],
+        cwd=legacy_project,
+    )
+    assert ".beads/metadata.json" in run_command(["git", "diff", "--cached", "--name-only"], cwd=legacy_project).stdout
+    commands = [json.loads(line) for line in (state_dir / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert not any(command[:1] == ["init"] for command in commands)
+
+
+@pytest.mark.integration
+def test_real_bd_initialization_is_local_collaborative_and_commit_neutral(tmp_path: Path) -> None:
+    if shutil.which("bd") is None:
+        pytest.skip("bd is not installed")
+    create_legacy_project(tmp_path)
+    run_migrator(tmp_path, "scan", "--write")
+    before = run_command(["git", "rev-parse", "HEAD"], cwd=tmp_path).stdout.strip()
+
+    run_migrator(tmp_path, "beads-authority", "--init")
+
+    assert run_command(["git", "rev-parse", "HEAD"], cwd=tmp_path).stdout.strip() == before
+    context = json.loads(run_command(["bd", "context", "--json"], cwd=tmp_path).stdout)
+    assert context["beads_dir"] == str(tmp_path / ".beads")
+    assert context["repo_root"] == str(tmp_path)
+    assert context["is_redirected"] is False
+    untracked = run_command(["git", "ls-files", "--others", "--exclude-standard"], cwd=tmp_path).stdout
+    for relative in (
+        ".beads/.gitignore",
+        ".beads/README.md",
+        ".beads/config.yaml",
+        ".beads/interactions.jsonl",
+        ".beads/metadata.json",
+    ):
+        assert relative in untracked
+
+
+@pytest.mark.integration
+def test_linked_worktree_uses_primary_database_and_matching_branch_controls(tmp_path: Path) -> None:
+    if shutil.which("bd") is None:
+        pytest.skip("bd is not installed")
+    primary = tmp_path / "primary-project"
+    linked = tmp_path / "primary-project.migration"
+    create_legacy_project(primary)
+    initialize_git(primary, "legacy project")
+    run_command(["git", "worktree", "add", "-b", "chore/migrate-dstack-workflow", str(linked), "main"], cwd=primary)
+    run_command(
+        [
+            sys.executable,
+            str(MIGRATOR),
+            "authorize-session",
+            "fresh",
+            "--base-branch",
+            "main",
+            "--migration-branch",
+            "chore/migrate-dstack-workflow",
+            "--root",
+            str(linked),
+        ],
+        cwd=linked,
+    )
+    commit_repository(linked, "authorize linked migration fixture")
+    before = run_command(["git", "rev-parse", "HEAD"], cwd=linked).stdout.strip()
+
+    run_command(
+        [sys.executable, str(MIGRATOR), "beads-authority", "--init", "--root", str(linked)],
+        cwd=linked,
+    )
+
+    assert run_command(["git", "rev-parse", "HEAD"], cwd=linked).stdout.strip() == before
+    context = json.loads(run_command(["bd", "context", "--json"], cwd=linked).stdout)
+    assert context["beads_dir"] == str(primary / ".beads")
+    assert (primary / ".beads/embeddeddolt").is_dir()
+    assert not (linked / ".beads/embeddeddolt").exists()
+    for name in (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json"):
+        assert (primary / ".beads" / name).read_bytes() == (linked / ".beads" / name).read_bytes()
+
+    (linked / ".beads/metadata.json").write_text("{}\n", encoding="utf-8")
+    drift = run_command(
+        [sys.executable, str(MIGRATOR), "beads-authority", "--root", str(linked)],
+        cwd=linked,
+        expected=2,
+    )
+    assert "differs from primary authority" in drift.stderr
 
 
 @pytest.mark.integration

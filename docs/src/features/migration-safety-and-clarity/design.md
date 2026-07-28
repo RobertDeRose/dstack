@@ -143,9 +143,10 @@ values: the primary Git worktree/repository basename for identity and `refs/remo
 the branch. A migration worktree suffix is never accepted as canonical identity without confirmation. Missing or
 conflicting evidence triggers the contextual question contract before adoption.
 
-Stealth Beads initialization keeps the embedded database local. Instructions name the exact durable `.beads` files to
-track, including the project formula, and use explicit force-add only where Git ignore policy requires it; they never
-suggest committing the embedded database.
+Guarded non-stealth Beads initialization keeps the embedded database as local Dolt storage without allowing `bd` to own
+the workflow checkpoint commit. Instructions name the collaborative control files and formula for the ordinary Gate 2
+commit, remove only a broad legacy stealth exclude, and never suggest committing the embedded database. Cross-clone
+issue history uses a configured Dolt remote and bootstrap.
 
 #### Migration-safe validation and delivered records
 

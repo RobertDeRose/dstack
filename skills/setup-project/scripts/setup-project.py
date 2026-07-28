@@ -455,26 +455,197 @@ def ensure_trailing_newline(path: Path) -> None:
         path.write_bytes(content + b"\n")
 
 
-def initialize_beads(destination: Path, args: argparse.Namespace, *, quiet: bool) -> None:
-    command = ["bd", "init", "--skip-agents"]
-    if args.beads_mode == "stealth":
-        command.append("--stealth")
-    elif args.beads_mode == "contributor":
-        command.append("--contributor")
-    elif args.beads_mode == "server":
-        command.append("--server")
+def recover_beads_publication(beads_dir: Path) -> None:
+    backup = beads_dir.with_name(".beads.dstack-backup")
+    published = beads_dir.with_name(".beads.dstack-publish")
+    journal = beads_dir.with_name(".beads.dstack-transaction.json")
+    if not journal.exists():
+        if backup.exists() or published.exists():
+            message = "Beads publication staging exists without its recovery journal"
+            raise SystemExit(message)
+        return
+    state = json.loads(journal.read_text(encoding="utf-8")).get("state")
+    if state != "committed" and backup.exists():
+        if beads_dir.exists():
+            shutil.rmtree(beads_dir)
+        backup.replace(beads_dir)
+    else:
+        shutil.rmtree(backup, ignore_errors=True)
+    shutil.rmtree(published, ignore_errors=True)
+    journal.unlink()
+
+
+BEADS_CONTROL_PATHS = {
+    ".beads/.gitignore",
+    ".beads/README.md",
+    ".beads/config.yaml",
+    ".beads/interactions.jsonl",
+    ".beads/metadata.json",
+    ".beads/formulas/dstack-feature.formula.toml",
+}
+
+
+def validate_setup_beads_authority(destination: Path, prefix: str) -> None:
+    context = json.loads(run_checked(["bd", "context", "--json"], cwd=destination, quiet=True).stdout)
+    location = json.loads(run_checked(["bd", "where", "--json"], cwd=destination, quiet=True).stdout)
+    metadata = json.loads((destination / ".beads/metadata.json").read_text(encoding="utf-8"))
+    expected_beads = (destination / ".beads").resolve()
+    expected_database = prefix.replace("-", "_")
+    problems: list[str] = []
+    for value, expected, description in (
+        (context.get("beads_dir"), expected_beads, "context beads_dir"),
+        (context.get("repo_root"), destination.resolve(), "context repo_root"),
+        (location.get("path"), expected_beads, "where path"),
+    ):
+        try:
+            matches = Path(str(value)).resolve() == expected
+        except (OSError, RuntimeError, ValueError):
+            matches = False
+        if not matches:
+            problems.append(description)
+    try:
+        database_path = Path(str(location.get("database_path", ""))).resolve()
+        if not database_path.is_relative_to(expected_beads):
+            problems.append("where database_path")
+    except (OSError, RuntimeError, ValueError):
+        problems.append("where database_path")
+    if context.get("database") != expected_database or metadata.get("dolt_database") != expected_database:
+        problems.append("database identity")
+    if location.get("prefix") != prefix:
+        problems.append("issue prefix")
+    if not metadata.get("project_id") or context.get("project_id") != metadata.get("project_id"):
+        problems.append("project_id")
+    if context.get("dolt_mode") != "embedded" or context.get("is_redirected") is True:
+        problems.append("embedded non-redirected mode")
+    if problems:
+        message = "Collaborative Beads authority validation failed: " + ", ".join(problems)
+        raise SystemExit(message)
+
+
+def initialize_beads(destination: Path, args: argparse.Namespace, *, prefix: str, quiet: bool) -> None:
+    git_root = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=destination, check=False, capture_output=True, text=True
+    )
+    if git_root.returncode != 0 or Path(git_root.stdout.strip()).resolve() != destination.resolve():
+        message = "Collaborative Beads initialization requires the destination to be its own Git repository"
+        raise SystemExit(message)
+    beads_dir = destination / ".beads"
+    recover_beads_publication(beads_dir)
+    if (
+        beads_dir.is_symlink()
+        or any(path.is_symlink() for path in beads_dir.rglob("*"))
+        or any(path.name != "formulas" for path in beads_dir.iterdir())
+    ):
+        message = "Beads initialization requires a nonsymlinked formula-only .beads directory"
+        raise SystemExit(message)
+    command = [
+        "bd",
+        "init",
+        "--non-interactive",
+        "--skip-agents",
+        "--skip-hooks",
+        "--prefix",
+        prefix,
+    ]
     if quiet:
         command.append("--quiet")
-    run_checked(command, cwd=destination, quiet=quiet)
+
+    exclude_path = Path(
+        run_checked(["git", "rev-parse", "--git-path", "info/exclude"], cwd=destination, quiet=True).stdout.strip()
+    )
+    if not exclude_path.is_absolute():
+        exclude_path = destination / exclude_path
+    original_exclude = exclude_path.read_bytes() if exclude_path.exists() else b""
+    allowed_generated = {
+        ".gitignore",
+        ".local_version",
+        "README.md",
+        "config.yaml",
+        "dolt",
+        "embeddeddolt",
+        "interactions.jsonl",
+        "metadata.json",
+        "proxieddb",
+    }
+    runtime_entries = allowed_generated - {
+        ".gitignore",
+        "README.md",
+        "config.yaml",
+        "interactions.jsonl",
+        "metadata.json",
+    }
+    with (
+        tempfile.TemporaryDirectory(prefix="dstack-beads-init-") as initialization,
+        tempfile.TemporaryDirectory(prefix="dstack-beads-transaction-", dir=destination.parent) as transaction,
+    ):
+        init_root = Path(initialization)
+        transaction_root = Path(transaction)
+        run_checked(["git", "init", "-q", "-b", "main"], cwd=init_root, quiet=True)
+        isolated_root = run_checked(["git", "rev-parse", "--show-toplevel"], cwd=init_root, quiet=True).stdout.strip()
+        if Path(isolated_root).resolve() != init_root.resolve():
+            message = "Temporary Beads initialization is not isolated from the project Git repository"
+            raise SystemExit(message)
+        run_checked(command, cwd=init_root, quiet=quiet)
+        generated = init_root / ".beads"
+        generated_names = {path.name for path in generated.iterdir() if path.name != "formulas"}
+        unexpected = sorted(generated_names - allowed_generated)
+        if unexpected:
+            raise SystemExit("bd init generated unsupported Beads entries: " + ", ".join(unexpected))
+        required = BEADS_CONTROL_PATHS - {".beads/formulas/dstack-feature.formula.toml"}
+        if any(not (init_root / path).is_file() for path in required):
+            message = "bd init did not generate the required collaborative control files"
+            raise SystemExit(message)
+        for name in sorted(generated_names & runtime_entries):
+            ignored = subprocess.run(["git", "check-ignore", "-q", f".beads/{name}"], cwd=init_root, check=False)
+            if ignored.returncode != 0:
+                raise SystemExit(f"bd init runtime entry is not ignored: .beads/{name}")
+
+        staged = transaction_root / "staged-beads"
+        shutil.copytree(beads_dir, staged)
+        for name in sorted(generated_names):
+            source = generated / name
+            target = staged / name
+            if source.is_dir():
+                shutil.copytree(source, target)
+            else:
+                shutil.copy2(source, target)
+        if not (staged / "formulas/dstack-feature.formula.toml").is_file():
+            message = "Collaborative Beads staging lost the tracked dstack formula"
+            raise SystemExit(message)
+
+        backup = beads_dir.with_name(".beads.dstack-backup")
+        published = beads_dir.with_name(".beads.dstack-publish")
+        journal = beads_dir.with_name(".beads.dstack-transaction.json")
+        shutil.copytree(staged, published)
+        journal.write_text(json.dumps({"schema_version": 1, "state": "prepared"}) + "\n", encoding="utf-8")
+        beads_dir.replace(backup)
+        journal.write_text(json.dumps({"schema_version": 1, "state": "backed_up"}) + "\n", encoding="utf-8")
+        published.replace(beads_dir)
+        journal.write_text(json.dumps({"schema_version": 1, "state": "published"}) + "\n", encoding="utf-8")
+        try:
+            filtered = [
+                line
+                for line in original_exclude.decode(errors="surrogateescape").splitlines(keepends=True)
+                if line.strip() not in {".beads", ".beads/"}
+            ]
+            exclude_path.parent.mkdir(parents=True, exist_ok=True)
+            exclude_path.write_text("".join(filtered), encoding="utf-8", errors="surrogateescape")
+            validate_setup_beads_authority(destination, prefix)
+            run_checked(["bd", "formula", "show", "dstack-feature", "--json"], cwd=destination, quiet=True)
+            ensure_trailing_newline(destination / ".beads/metadata.json")
+            ensure_trailing_newline(destination / ".beads/config.yaml")
+        except BaseException:
+            shutil.rmtree(beads_dir, ignore_errors=True)
+            backup.replace(beads_dir)
+            shutil.rmtree(published, ignore_errors=True)
+            journal.unlink(missing_ok=True)
+            exclude_path.write_bytes(original_exclude)
+            raise
+        journal.write_text(json.dumps({"schema_version": 1, "state": "committed"}) + "\n", encoding="utf-8")
+        shutil.rmtree(backup)
+        journal.unlink()
     for integration in args.setup:
         run_checked(["bd", "setup", integration], cwd=destination, quiet=quiet)
-    run_checked(
-        ["bd", "formula", "show", "dstack-feature", "--json"],
-        cwd=destination,
-        quiet=True,
-    )
-    ensure_trailing_newline(destination / ".beads/metadata.json")
-    ensure_trailing_newline(destination / ".beads/config.yaml")
 
 
 def verify_scaffold(destination: Path) -> None:
@@ -582,6 +753,13 @@ def provision_tooling(destination: Path) -> dict[str, Any]:
     }
 
 
+def own_git_repository(destination: Path) -> bool:
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=destination, check=False, capture_output=True, text=True
+    )
+    return result.returncode == 0 and Path(result.stdout.strip()).resolve() == destination.resolve()
+
+
 def initialize_git(destination: Path, branch: str, *, quiet: bool) -> bool:
     probe = subprocess.run(
         ["git", "-C", str(destination), "rev-parse", "--show-toplevel"],
@@ -680,8 +858,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--skip-beads", action="store_true")
     parser.add_argument(
         "--beads-mode",
-        choices=("default", "stealth", "contributor", "server"),
-        default="stealth",
+        choices=("default",),
+        default="default",
     )
     parser.add_argument(
         "--setup",
@@ -811,9 +989,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         verify_scaffold(destination)
         if args.skip_beads:
             outstanding.append("Beads initialization and verification")
-        elif beads_is_available:
-            initialize_beads(destination, args, quiet=args.quiet or args.json)
+        elif beads_is_available and own_git_repository(destination):
+            initialize_beads(destination, args, prefix=project_slug, quiet=args.quiet or args.json)
             beads_initialized = True
+        elif beads_is_available:
+            outstanding.append("Beads initialization requires a project-local Git repository")
         else:
             outstanding.append("Beads initialization and verification")
         validate_docs(destination, quiet=args.quiet or args.json)
@@ -868,7 +1048,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Beads initialization and verification remain outstanding because --skip-beads was supplied.")
         elif not beads_is_available:
             print("warning: bd is unavailable; Beads initialization and verification remain outstanding")
-            print("Install Beads, run 'bd init --stealth --skip-agents', then verify the dstack-feature formula.")
+            print("Install Beads, then rerun guarded collaborative initialization before the first commit.")
         if docs_validated:
             print("Documentation scaffold validation passed.")
         print(f"Tooling provisioning: {tooling['status']}")

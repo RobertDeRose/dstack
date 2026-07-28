@@ -88,8 +88,10 @@ requires the exact named branch/path and explicit approval recorded separately f
 tagged new-project template with Copier into an isolated directory, stages conflicting project-owned files as explicit
 manual-merge candidates, verifies repository-local Beads authority and the complete expected live graph, migrates real
 task state, requires feature-specific semantic evidence, and transactionally archives legacy tasks after verification.
-It does not auto-select prior migration branches, trust manifest IDs without database proof, partially archive on a
-validation failure, or overwrite project documentation wholesale.
+Beads initialization is non-stealth and commit-neutral: dstack exposes collaborative control files for its own
+checkpoint while Dolt remotes carry live issue history across clones. It does not auto-select prior migration branches,
+trust manifest IDs without database proof, partially archive on a validation failure, or overwrite project
+documentation.
 
 ## Feature Workflow
 

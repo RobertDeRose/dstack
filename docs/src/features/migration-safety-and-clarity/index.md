@@ -31,7 +31,8 @@ strictly transitional; finalization restores the ordinary strict contract.
 
 Operators receive actionable recovery for provisioning, hook, relationship, and documentation failures. Manifests retain
 hook inventories, artifact dispositions, contextual decisions, import phases, progress, checkpoint evidence, canonical
-identity, and delivered-record review state. Stealth Beads initialization tracks only the portable project formula.
+identity, and delivered-record review state. Collaborative Beads initialization exposes control files and the formula
+for the workflow-owned commit while keeping database contents in synchronized Dolt history.
 
 ## Reference and Contracts
 

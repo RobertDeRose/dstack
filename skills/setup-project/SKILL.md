@@ -78,8 +78,11 @@ do not render when it reports an invalid, reserved, overlapping, case-colliding,
 - Recorded update source: `gh:RobertDeRose/dstack` unless `--template-source` is explicit.
 - Recorded baseline revision: the exact resolved commit SHA; stable results also report the selected release tag.
 - Default branch: `main`.
-- Beads: initialize with `bd init --stealth --skip-agents` when `bd` is available; otherwise complete documentation
-  setup and report Beads initialization as outstanding.
+- Beads: run guarded non-stealth initialization in an isolated temporary Git repository, move the resulting local Dolt
+  authority into the project, expose the collaborative control files for the workflow-owned first commit, and preserve
+  the tracked formula. Force-add only those enumerated control files for the workflow-owned first commit so global
+  ignore policy cannot hide them; never force-add runtime/database paths. If `bd` is unavailable, report initialization
+  as outstanding; never substitute `--stealth`.
 - Tooling: after rendering and optional Git initialization, resolve `mise.lock` for Linux/macOS x64/ARM64, install with
   `mise install --locked`, then install repository-local hk hooks separately. These steps require mise and network
   access.
@@ -117,8 +120,9 @@ uv run <skill-dir>/scripts/setup-project.py "Reader Control Plane" \
 
 The setup helper performs post-render initialization itself. It does not generate `scripts/bootstrap.py`,
 `scripts/migrate-legacy-workflow.py`, or a migration guide in the new project. Use `--skip-post-setup` to skip tooling,
-Beads, and documentation setup while preserving exact recovery commands. `--no-git-init` still resolves and installs
-tools but reports hook installation as `skipped-no-git`.
+Beads, and documentation setup while preserving exact recovery commands. `--no-git-init` still resolves tools but
+reports hooks and collaborative Beads initialization as outstanding unless the destination is already its own Git
+repository.
 
 ## Verification
 
