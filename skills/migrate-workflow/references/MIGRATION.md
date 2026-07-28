@@ -535,6 +535,20 @@ When a partial import exists:
 When duplicates are reported, do not delete issues blindly. Compare migration identity, parent/root, notes, and history;
 retain the manifest-backed canonical record, record the decision, and remove only a proven duplicate.
 
+If verification reports labels stripped from exact manifest/formula identities, stop normal import and preview the only
+supported repair:
+
+```bash
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py repair-beads-labels
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py repair-beads-labels --apply
+```
+
+The preview derives complete root, formula, implementation, reconciliation, and inherited label sets. Apply is strictly
+additive, rejects every unexpected label or malformed/missing identity before mutation, journals the full reviewed plan,
+writes one bounded Dolt commit, records exact IDs/labels and its digest in `beads_label_repairs[]`, and verifies the
+complete graph afterward. An empty repair is nonmutating. Never use an ad hoc `--set-labels` script: replacement
+discards native workflow semantics.
+
 When an imported feature relationship must be corrected, rerun the same `dependency` command with an evidence-backed
 reason. After import has started, the helper reconciles the Beads edge and migration manifest together. Do not run
 `bd dep remove` and then hand-edit `migration/workflow-migration.json`; that can leave the durable audit state and Beads

@@ -66,11 +66,13 @@ metadata, and reports `existing`, `recovered`, `pending`, `conflicting`, `comple
 separate invocation with `--apply` mutates Beads. Missing completed IDs are conflicts, not existing state. Verification
 derives the complete expected roots, lifecycle steps, implementation tasks, reconciliation tasks, statuses, exact
 migration-owned labels, parentage, and root relationships; missing, unexpected, malformed-metadata, and unindexable
-migration-labeled records are errors. Apply prints `APPLY STARTED` before mutation. Each feature's `beads.import_phase`
-is `root-created`, `state`, `relationships`, or `completed`. `beads_import_started_at`, `beads_import_completed_at`,
-`beads_import_progress`, imported IDs, and feature phases survive rescans. Empty explicit task status uses checkbox
-fallback: `[ ]` is `open`, `[-]` is `in_progress`, and `[x]` is `closed`. A nonempty recognized explicit status takes
-precedence.
+migration-labeled records are errors. `repair-beads-labels` previews missing labels for exact manifest/formula records;
+`--apply` adds only those labels, rejects extras before mutation, stores `beads_label_repairs[]` with exact records and
+a plan digest, and is nonmutating when no repair remains. Apply prints `APPLY STARTED` before mutation. Each feature's
+`beads.import_phase` is `root-created`, `state`, `relationships`, or `completed`. `beads_import_started_at`,
+`beads_import_completed_at`, `beads_import_progress`, imported IDs, and feature phases survive rescans. Empty explicit
+task status uses checkbox fallback: `[ ]` is `open`, `[-]` is `in_progress`, and `[x]` is `closed`. A nonempty
+recognized explicit status takes precedence.
 
 `prepare --apply` replaces implemented-feature marker bodies from completed features with standalone `index.md` records.
 `draft-delivered-records` previews; with `--apply` it writes candidates under

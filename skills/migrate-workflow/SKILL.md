@@ -146,10 +146,10 @@ uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
 
 Apply mutates at most two incomplete features by default; repeat until `remaining: 0`. Use `--batch-size 1..14` for a
 reviewed bound or `--feature <slug>` for exact recovery. Both modes prove authority and reconcile recorded IDs,
-including completed features. Missing IDs and foreign labels are fatal; only exact native parent-label inheritance is
-accepted. Reuse deterministic identities, stop on duplicates or any complete-graph cycle, and never treat `related` as a
-cycle-breaking relation. Apply status through supported `bd update --status`, not patched `bd create` flags. See
-**Beads import and recovery**, then commit manifest and roadmap changes.
+including completed features. Missing, stripped, or foreign labels are fatal; only exact native inheritance is accepted.
+Preview `repair-beads-labels` and use its `--apply` only for reviewed additive repair. Reuse deterministic identities,
+stop on duplicates or complete-graph cycles, and never treat `related` as cycle-breaking. Apply status through supported
+`bd update --status`, not patched `bd create` flags. See **Beads import and recovery**, then commit manifest/roadmap.
 
 ## Gate 6: Reconcile and finalize
 

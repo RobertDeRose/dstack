@@ -2215,6 +2215,8 @@ def validate_expected_issue(
     expected_parent: str = "",
     required_labels: Iterable[str] = (),
     expected_owned_labels: Iterable[str] = (),
+    expected_labels: Iterable[str] = (),
+    allow_missing_labels: bool = False,
     required_metadata: Mapping[str, str] | None = None,
     expected_type: str | None = None,
 ) -> None:
@@ -2229,9 +2231,13 @@ def validate_expected_issue(
     if expected_parent and str(issue.get("parent") or "") != expected_parent:
         problems.append(f"{description} {issue_id} is not parented by {expected_parent}")
     labels = {str(label) for label in issue.get("labels", [])}
-    missing_labels = sorted(set(required_labels) - labels)
-    if missing_labels:
+    complete_expected_labels = set(expected_labels)
+    missing_labels = sorted((complete_expected_labels or set(required_labels)) - labels)
+    if missing_labels and not allow_missing_labels:
         problems.append(f"{description} {issue_id} is missing required labels: {', '.join(missing_labels)}")
+    unexpected_labels = sorted(labels - complete_expected_labels) if complete_expected_labels else []
+    if unexpected_labels:
+        problems.append(f"{description} {issue_id} has unexpected labels: {', '.join(unexpected_labels)}")
     owned_labels = {
         label
         for label in labels
@@ -2250,12 +2256,55 @@ def validate_expected_issue(
             problems.append(f"{description} {issue_id} has invalid metadata {key!r}; expected {value!r}")
 
 
+def root_migration_labels(feature: Mapping[str, Any]) -> set[str]:
+    labels = {"workflow:feature", "migration:legacy-markdown"}
+    if feature.get("classification") == "needs_review":
+        labels.add("migration:needs-reconciliation")
+    return labels
+
+
+def expected_beads_labels(
+    feature: Mapping[str, Any],
+    formula_steps: Mapping[str, Mapping[str, Any]],
+) -> dict[str, set[str]]:
+    beads = feature.get("beads", {})
+    root_labels = root_migration_labels(feature)
+    expected: dict[str, set[str]] = {}
+    root_id = str(beads.get("root_id") or "")
+    if root_id:
+        expected[root_id] = set(root_labels)
+    lifecycle_labels: dict[str, set[str]] = {}
+    for step_id, issue_id_value in beads.get("lifecycle", {}).items():
+        issue_id = str(issue_id_value or "")
+        step = formula_steps.get(str(step_id), {})
+        labels = root_labels | {str(label) for label in step.get("labels", [])}
+        labels.update(("migration:legacy-workflow", f"formula-step:{step_id}"))
+        if step.get("type") == "human":
+            labels.add("requires-human")
+        lifecycle_labels[str(step_id)] = labels
+        if issue_id:
+            expected[issue_id] = labels
+    implementation_ancestry = lifecycle_labels.get("implementation", root_labels)
+    for task_label, issue_id_value in beads.get("implementation_tasks", {}).items():
+        issue_id = str(issue_id_value or "")
+        if issue_id:
+            expected[issue_id] = implementation_ancestry | {
+                "migration:legacy-task",
+                f"legacy-task:{str(task_label).casefold()}",
+            }
+    reconciliation_id = str(beads.get("migration_reconciliation_id") or "")
+    if reconciliation_id:
+        expected[reconciliation_id] = root_labels | {"migration:reconciliation", "review:drift"}
+    return expected
+
+
 def reconcile_existing_beads_state(
     root: Path,
     features: Sequence[dict[str, Any]],
     *,
     canonicalize: bool,
     allow_recovery: bool = True,
+    allow_missing_labels: bool = False,
 ) -> int:
     root_issues = discover_migrated_issues(root, "migration:legacy-markdown", issue_type="epic")
     inherited_lifecycle_issues = discover_migrated_issues(root, "migration:legacy-workflow")
@@ -2274,6 +2323,11 @@ def reconcile_existing_beads_state(
     discovered_by_id = {str(issue.get("id")): issue for issue in all_discovered if issue.get("id")}
     discovered_metadata = {issue_id: issue_metadata(issue) for issue_id, issue in discovered_by_id.items()}
 
+    formula_steps = {
+        str(step["id"]): step
+        for step in load_formula(root).get("steps", [])
+        if isinstance(step, dict) and step.get("id")
+    }
     recovered_features: set[str] = set()
     problems: list[str] = []
     features_by_slug = {str(feature["slug"]): feature for feature in features}
@@ -2418,6 +2472,7 @@ def reconcile_existing_beads_state(
         root_issue = discovered_by_id.get(root_id)
         root_status, lifecycle_statuses, task_statuses = expected_migrated_statuses(feature)
         state_complete = bool(beads.get("state_applied"))
+        complete_labels = expected_beads_labels(feature, formula_steps)
         root_owned_labels = (
             "workflow:feature",
             "migration:legacy-markdown",
@@ -2431,6 +2486,8 @@ def reconcile_existing_beads_state(
             expected_status=root_status if state_complete else None,
             required_labels=root_owned_labels,
             expected_owned_labels=root_owned_labels,
+            expected_labels=complete_labels.get(root_id, ()),
+            allow_missing_labels=allow_missing_labels,
             required_metadata={
                 "migration_source": "legacy-markdown-workflow",
                 "migration_key": f"legacy-feature:{slug}",
@@ -2457,6 +2514,8 @@ def reconcile_existing_beads_state(
                     "migration:legacy-workflow",
                     f"formula-step:{step_id}",
                 ),
+                expected_labels=complete_labels.get(issue_id, ()),
+                allow_missing_labels=allow_missing_labels,
                 required_metadata={
                     "migration_source": "legacy-markdown-workflow",
                     "migration_key": f"legacy-feature:{slug}:lifecycle:{step_id}",
@@ -2487,6 +2546,8 @@ def reconcile_existing_beads_state(
                     "migration:legacy-task",
                     f"legacy-task:{label.casefold()}",
                 ),
+                expected_labels=complete_labels.get(issue_id, ()),
+                allow_missing_labels=allow_missing_labels,
                 required_metadata={
                     "migration_source": "legacy-markdown-workflow",
                     "migration_key": f"legacy-feature:{slug}:task:{label}",
@@ -2507,6 +2568,8 @@ def reconcile_existing_beads_state(
                 expected_parent=root_id,
                 required_labels=("migration:reconciliation", "review:drift"),
                 expected_owned_labels=(*root_owned_labels, "migration:reconciliation"),
+                expected_labels=complete_labels.get(reconciliation_id, ()),
+                allow_missing_labels=allow_missing_labels,
                 required_metadata={
                     "migration_source": "legacy-markdown-workflow",
                     "migration_key": f"legacy-feature:{slug}:reconciliation",
@@ -3717,6 +3780,111 @@ def import_beads(
     sync_mutable_beads_controls(root)
     print_import_progress(progress)
     print(f"Import pass complete for {len(features)} selected feature(s).")
+
+
+def repair_beads_labels(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    manifest_path: Path,
+    report_path: Path,
+    apply: bool,
+) -> None:
+    ensure_bd_available(root, init_beads=False)
+    working_manifest = copy.deepcopy(manifest)
+    features = [feature for feature in working_manifest.get("features", []) if isinstance(feature, dict)]
+    reconcile_existing_beads_state(root, features, canonicalize=False, allow_missing_labels=True)
+    formula_steps = {
+        str(step["id"]): step
+        for step in load_formula(root).get("steps", [])
+        if isinstance(step, dict) and step.get("id")
+    }
+    all_issues = parse_bd_issue_list(run_command(["bd", "list", "--all", "--limit", "0", "--json"], cwd=root))
+    issues_by_id = {str(issue.get("id")): issue for issue in all_issues if issue.get("id")}
+    plan: list[dict[str, Any]] = []
+    for feature in features:
+        for issue_id, expected in expected_beads_labels(feature, formula_steps).items():
+            issue = issues_by_id.get(issue_id)
+            if issue is None:
+                msg = f"Cannot repair labels for missing manifest-backed Beads record {issue_id}"
+                raise MigrationError(msg)
+            actual = {str(label) for label in issue.get("labels", [])}
+            unexpected = sorted(actual - expected)
+            if unexpected:
+                msg = f"Refusing additive label repair for {issue_id}; unexpected labels: {', '.join(unexpected)}"
+                raise MigrationError(msg)
+            missing = sorted(expected - actual)
+            if missing:
+                plan.append({"issue_id": issue_id, "labels": missing})
+    journal = working_manifest.get("beads_label_repair_journal")
+    if journal is not None and not isinstance(journal, dict):
+        msg = "Beads label repair journal is malformed"
+        raise MigrationError(msg)
+    full_plan = plan
+    if isinstance(journal, dict):
+        journal_records = journal.get("records")
+        if not isinstance(journal_records, list):
+            msg = "Beads label repair journal has no valid records"
+            raise MigrationError(msg)
+        full_plan = [dict(item) for item in journal_records if isinstance(item, dict)]
+        allowed = {str(item.get("issue_id")): set(item.get("labels", [])) for item in full_plan}
+        for item in plan:
+            issue_id = str(item["issue_id"])
+            if issue_id not in allowed or not set(item["labels"]).issubset(allowed[issue_id]):
+                msg = f"Current missing labels for {issue_id} exceed the committed repair journal"
+                raise MigrationError(msg)
+    remaining_label_count = sum(len(item["labels"]) for item in plan)
+    full_label_count = sum(len(item.get("labels", [])) for item in full_plan)
+    print(f"Beads label repair plan: {len(plan)} record(s), {remaining_label_count} missing label(s).")
+    for item in plan:
+        print(f"  - {item['issue_id']}: {', '.join(item['labels'])}")
+    if not apply:
+        print("Dry-run complete; no mutations were made. Rerun with --apply after reviewing the exact additive plan.")
+        return
+    if not full_plan:
+        print("Deterministic Beads labels are already complete; no mutations were made.")
+        return
+    plan_digest = hashlib.sha256(json.dumps(full_plan, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if journal is None:
+        journal = {
+            "created_at": utc_now(),
+            "label_count": full_label_count,
+            "plan_sha256": plan_digest,
+            "record_count": len(full_plan),
+            "records": full_plan,
+        }
+        working_manifest["beads_label_repair_journal"] = journal
+        manifest.clear()
+        manifest.update(working_manifest)
+        save_manifest_and_report(root, manifest_path, report_path, manifest)
+    global BD_BATCH_ACTIVE
+    if plan:
+        BD_BATCH_ACTIVE = True
+        try:
+            for item in plan:
+                command = ["bd", "update", str(item["issue_id"])]
+                for label in item["labels"]:
+                    command.extend(("--add-label", str(label)))
+                run_command(command, cwd=root)
+            flush_bd_batch(root, "migrate-workflow: restore deterministic native labels")
+        finally:
+            BD_BATCH_ACTIVE = False
+    manifest.clear()
+    manifest.update(working_manifest)
+    manifest.pop("beads_label_repair_journal", None)
+    manifest.setdefault("beads_label_repairs", []).append(
+        {
+            "applied_at": utc_now(),
+            "label_count": full_label_count,
+            "plan_sha256": plan_digest,
+            "record_count": len(full_plan),
+            "records": full_plan,
+        }
+    )
+    reconcile_existing_beads_state(root, manifest["features"], canonicalize=False)
+    save_manifest_and_report(root, manifest_path, report_path, manifest)
+    sync_mutable_beads_controls(root)
+    print(f"Repaired {len(full_plan)} record(s) with {full_label_count} additive label(s).")
 
 
 def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool) -> None:
@@ -5605,6 +5773,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Maximum incomplete features to mutate in one apply pass (default: 2)",
     )
 
+    repair_labels = subparsers.add_parser(
+        "repair-beads-labels",
+        help="Preview or add deterministic labels missing from exact migrated records",
+    )
+    add_common_arguments(repair_labels)
+    repair_labels.add_argument("--apply", action="store_true")
+
     draft_records = subparsers.add_parser(
         "draft-delivered-records", help="Draft historical delivered records for required human review"
     )
@@ -5982,6 +6157,16 @@ def _main(args: argparse.Namespace) -> int:
                 init_beads=args.init_beads,
                 requested=args.feature,
                 batch_size=args.batch_size,
+            )
+            return 0
+
+        if args.command == "repair-beads-labels":
+            repair_beads_labels(
+                root,
+                manifest,
+                manifest_path=args.manifest,
+                report_path=args.report,
+                apply=args.apply,
             )
             return 0
 

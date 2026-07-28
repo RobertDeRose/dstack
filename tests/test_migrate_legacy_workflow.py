@@ -308,7 +308,7 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
                 labels_raw = flag("--labels")
                 parent_id = flag("--parent")
                 labels = [value for value in labels_raw.split(",") if value]
-                if os.environ.get("FAKE_BD_INHERIT_PARENT_LABELS") == "1" and parent_id in issues:
+                if parent_id in issues:
                     labels.extend(issues[parent_id].get("labels", []))
                 fail_after = int(os.environ.get("FAKE_BD_FAIL_CREATE_AFTER", "0"))
                 if fail_after and value > fail_after:
@@ -341,8 +341,19 @@ def fake_bd_environment(legacy_project: Path) -> tuple[dict[str, str], Path]:
             elif args and args[0] == "update":
                 issue = issues.get(args[1])
                 if issue is not None:
+                    if "--add-label" in args and os.environ.get("FAKE_BD_FAIL_LABEL_UPDATE_AFTER"):
+                        marker = state / "label-update-count"
+                        count = int(marker.read_text()) + 1 if marker.exists() else 1
+                        marker.write_text(str(count))
+                        if count > int(os.environ["FAKE_BD_FAIL_LABEL_UPDATE_AFTER"]):
+                            print("injected label repair interruption", file=sys.stderr)
+                            raise SystemExit(1)
                     if "--status" in args:
                         issue["status"] = flag("--status")
+                    for index, argument in enumerate(args):
+                        if argument == "--add-label" and index + 1 < len(args):
+                            issue.setdefault("labels", []).append(args[index + 1])
+                    issue["labels"] = sorted(set(issue.get("labels", [])))
                     index = 0
                     while index < len(args):
                         if args[index] == "--set-metadata" and index + 1 < len(args):
@@ -2547,6 +2558,121 @@ def test_verify_beads_requires_complete_children_and_expected_status(
         expected=1,
     )
     assert "expected status" in wrong_status.stderr.casefold()
+
+
+@pytest.mark.integration
+def test_repair_beads_labels_restores_only_proven_native_labels(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    alpha = features_by_slug(legacy_project)["alpha"]
+    issues_path = state_dir / "issues.json"
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    damaged_ids = (
+        alpha["beads"]["lifecycle"]["design"],
+        alpha["beads"]["implementation_tasks"]["T010"],
+        alpha["beads"]["migration_reconciliation_id"],
+    )
+    issues[damaged_ids[0]]["labels"] = ["formula-step:design", "migration:legacy-workflow"]
+    issues[damaged_ids[1]]["labels"] = ["legacy-task:t010", "migration:legacy-task"]
+    issues[damaged_ids[2]]["labels"] = ["migration:reconciliation", "review:drift"]
+    issues_path.write_text(json.dumps(issues, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    refused = run_migrator(legacy_project, "verify", "--beads", "--skip-docs-check", env=env, expected=1)
+    assert "missing required labels" in refused.stderr
+    before = issues_path.read_bytes()
+    preview = run_migrator(legacy_project, "repair-beads-labels", env=env)
+    assert "3 record(s)" in preview.stdout
+    assert "no mutations" in preview.stdout
+    assert issues_path.read_bytes() == before
+
+    repaired = run_migrator(legacy_project, "repair-beads-labels", "--apply", env=env)
+    assert "Repaired 3 record(s)" in repaired.stdout
+    run_migrator(legacy_project, "verify", "--beads", "--skip-docs-check", env=env)
+    commands = [json.loads(line) for line in (state_dir / "commands.jsonl").read_text(encoding="utf-8").splitlines()]
+    repair_updates = [command for command in commands if command[:2] == ["update", damaged_ids[0]]]
+    assert repair_updates
+    assert all("--add-label" in command for command in repair_updates)
+    assert all("--remove-label" not in command and "--set-labels" not in command for command in repair_updates)
+    manifest = load_manifest(legacy_project)
+    repairs = cast(list[dict[str, Any]], manifest["beads_label_repairs"])
+    assert repairs[-1]["record_count"] == 3
+    manifest_before = (legacy_project / "migration/workflow-migration.json").read_bytes()
+    issues_before = issues_path.read_bytes()
+    second = run_migrator(legacy_project, "repair-beads-labels", "--apply", env=env)
+    assert "already complete" in second.stdout
+    assert (legacy_project / "migration/workflow-migration.json").read_bytes() == manifest_before
+    assert issues_path.read_bytes() == issues_before
+
+
+@pytest.mark.integration
+def test_interrupted_label_repair_resumes_from_durable_full_plan(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    alpha = features_by_slug(legacy_project)["alpha"]
+    issues_path = state_dir / "issues.json"
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    damaged_ids = (
+        alpha["beads"]["lifecycle"]["design"],
+        alpha["beads"]["implementation_tasks"]["T010"],
+        alpha["beads"]["migration_reconciliation_id"],
+    )
+    issues[damaged_ids[0]]["labels"] = ["formula-step:design", "migration:legacy-workflow"]
+    issues[damaged_ids[1]]["labels"] = ["legacy-task:t010", "migration:legacy-task"]
+    issues[damaged_ids[2]]["labels"] = ["migration:reconciliation", "review:drift"]
+    issues_path.write_text(json.dumps(issues, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    run_migrator(
+        legacy_project,
+        "repair-beads-labels",
+        "--apply",
+        env={**env, "FAKE_BD_FAIL_LABEL_UPDATE_AFTER": "1"},
+        expected=2,
+    )
+    interrupted = load_manifest(legacy_project)
+    journal = cast(dict[str, Any], interrupted["beads_label_repair_journal"])
+    assert journal["record_count"] == 3
+
+    resumed = run_migrator(legacy_project, "repair-beads-labels", "--apply", env=env)
+
+    assert "Repaired 3 record(s)" in resumed.stdout
+    completed = load_manifest(legacy_project)
+    assert "beads_label_repair_journal" not in completed
+    repairs = cast(list[dict[str, Any]], completed["beads_label_repairs"])
+    assert repairs[-1]["record_count"] == 3
+    run_migrator(legacy_project, "verify", "--beads", "--skip-docs-check", env=env)
+
+
+@pytest.mark.integration
+def test_repair_beads_labels_rejects_unexpected_labels_without_mutation(
+    legacy_project: Path,
+    fake_bd_environment: tuple[dict[str, str], Path],
+) -> None:
+    env, state_dir = fake_bd_environment
+    run_migrator(legacy_project, "scan", "--write")
+    run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
+    run_migrator(legacy_project, "import-beads", "--apply", env=env)
+    alpha = features_by_slug(legacy_project)["alpha"]
+    issues_path = state_dir / "issues.json"
+    issues = json.loads(issues_path.read_text(encoding="utf-8"))
+    root_id = alpha["beads"]["root_id"]
+    issues[root_id]["labels"].append("migration:foreign-authority")
+    issues_path.write_text(json.dumps(issues, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    before = issues_path.read_bytes()
+
+    refused = run_migrator(legacy_project, "repair-beads-labels", env=env, expected=2)
+
+    assert "unexpected labels" in refused.stderr
+    assert issues_path.read_bytes() == before
 
 
 @pytest.mark.integration
