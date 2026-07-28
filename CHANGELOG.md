@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.7 — 2026-07-24
+
+### Fixed
+
+- **workflow:** Guard semantic migration outcomes (`dbfc560`)
+
+- - -
+
 ## v0.5.6 — 2026-07-24
 
 ### Fixed
