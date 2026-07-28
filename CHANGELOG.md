@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.8 — 2026-07-26
+
+### Fixed
+
+- **workflow:** Use native Beads VCS integration (`2ac2898`)
+
+- - -
+
 ## v0.5.7 — 2026-07-24
 
 ### Fixed
