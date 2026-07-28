@@ -301,6 +301,11 @@ def assert_commit_message_policy(project: Path, messages: Path) -> None:
     run_message("valid", valid)
     run_message("valid-footer", valid_footer)
     run_message("valid-release", "release: v1.0.0\n")
+    run_message(
+        "valid-harper-technical-token",
+        "fix(github): allow commitlint\n",
+        step="harper_commit_message",
+    )
 
     harper_cases = {
         "repetition": ("fix(workflow): the the policy\n", "RepeatedWords"),
@@ -4785,7 +4790,10 @@ def test_commit_hook_requires_an_allowed_scope(repository_root: Path, tmp_path: 
     missing = tmp_path / "missing.txt"
     unknown = tmp_path / "unknown.txt"
     release = tmp_path / "release.txt"
-    good.write_text("fix(workflow): valid scope\n\nBeads: dstack-scp\n", encoding="utf-8")
+    good.write_text(
+        "fix(github): allow commitlint\n\nBeads: dstack-scp\n",
+        encoding="utf-8",
+    )
     missing.write_text("fix: missing scope\n\nBeads: dstack-scp\n", encoding="utf-8")
     unknown.write_text("fix(unknown): invalid scope\n\nBeads: dstack-scp\n", encoding="utf-8")
     release.write_text("release: v1.0.0\n", encoding="utf-8")

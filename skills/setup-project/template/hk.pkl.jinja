@@ -76,14 +76,26 @@ local commit_message_scope = new Step {
 local harper_commit_message = (Builtins.harper_commit_message) {
   check =
     #"""
+    output=$(mktemp)
+    trap 'rm -f "$output"' EXIT
     awk '
       /^# ------------------------ >8 ------------------------/ { exit }
       /^diff --git / { exit }
       /^#/ { next }
-      NR == 1 && /^release: v[0-9]+\.[0-9]+\.[0-9]+$/ { next }
       /^Beads: [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*(, [a-z][a-z0-9-]*-[a-z0-9][a-z0-9.-]*)*$/ { next }
-      { print }
-    ' {{commit_msg_file}} | harper-cli lint --quiet --no-color
+      {
+        line = $0
+        if (!seen_subject && NF) {
+          seen_subject = 1
+          if (line ~ /^release: v[0-9]+\.[0-9]+\.[0-9]+$/) { next }
+          sub(/^[a-z]+(\([^)]+\))?!?: /, "", line)
+        }
+        print line
+      }
+    ' {{commit_msg_file}} | harper-cli lint --quiet --no-color --user-dict-path .config/harper-dictionary.txt 2>"$output"
+    status=$?
+    awk '!/^Note: Using user dictionary at /' "$output" >&2
+    exit "$status"
     """#
 }
 
