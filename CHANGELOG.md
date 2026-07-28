@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.9 — 2026-07-26
+
+### Fixed
+
+- **workflow:** Complete planned imports without designs (`60384d8`)
+
+- - -
+
 ## v0.5.8 — 2026-07-26
 
 ### Fixed
