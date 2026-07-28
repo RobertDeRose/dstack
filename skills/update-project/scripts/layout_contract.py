@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 
 LANGUAGE_PROFILES = ("python", "typescript", "rust", "go", "elixir", "nix", "other")
@@ -19,17 +19,18 @@ SAFE_PATH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]
 def _profiles(value: Any, *, package: str) -> list[str]:
     if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
         raise ValueError(f"{package}.language_profiles must be a nonempty list")
-    unknown = sorted(set(value) - set(LANGUAGE_PROFILES))
+    profiles = [item for item in value if isinstance(item, str)]
+    unknown = sorted(set(profiles) - set(LANGUAGE_PROFILES))
     if unknown:
         raise ValueError(f"{package}.language_profiles contains unknown profiles: {', '.join(unknown)}")
-    if len(value) != len(set(value)):
+    if len(profiles) != len(set(profiles)):
         raise ValueError(f"{package}.language_profiles must not contain duplicates")
-    canonical = [profile for profile in LANGUAGE_PROFILES if profile in value]
-    if value != canonical:
+    canonical = [profile for profile in LANGUAGE_PROFILES if profile in profiles]
+    if profiles != canonical:
         raise ValueError(f"{package}.language_profiles must use canonical order: {', '.join(canonical)}")
-    if "other" in value and len(value) > 1:
+    if "other" in profiles and len(profiles) > 1:
         raise ValueError(f"{package}.language_profiles cannot combine other with recognized profiles")
-    return value
+    return profiles
 
 
 def _path(value: Any, *, package: str, root: Path) -> PurePosixPath:
@@ -78,21 +79,22 @@ def validate_layout(layout: Any, packages: Any, root: Path) -> dict[str, Any]:
         label = f"monorepo_packages[{index - 1}]"
         if not isinstance(value, dict) or set(value) != PACKAGE_KEYS:
             raise ValueError(f"{label} must contain exactly: {', '.join(sorted(PACKAGE_KEYS))}")
-        display_name = value["display_name"]
+        package_data = cast(dict[str, Any], value)
+        display_name = package_data["display_name"]
         if (
             not isinstance(display_name, str)
             or not display_name.strip()
             or any(character in display_name for character in "\r\n\0")
         ):
             raise ValueError(f"{label}.display_name must be nonempty single-line text")
-        slug = value["slug"]
+        slug = package_data["slug"]
         if not isinstance(slug, str) or not SLUG.fullmatch(slug):
             raise ValueError(f"{label}.slug must match [a-z0-9]+(?:-[a-z0-9]+)*")
         folded_slug = slug.casefold()
         if folded_slug in slugs:
             raise ValueError(f"Package slug is not case-fold unique: {slug}")
         slugs.add(folded_slug)
-        path = _path(value["path"], package=label, root=root)
+        path = _path(package_data["path"], package=label, root=root)
         folded_path = path.as_posix().casefold()
         if folded_path in folded_paths:
             raise ValueError(f"Package path is not case-fold unique: {path}")
@@ -111,7 +113,7 @@ def validate_layout(layout: Any, packages: Any, root: Path) -> dict[str, Any]:
                 "display_name": display_name,
                 "slug": slug,
                 "path": path.as_posix(),
-                "language_profiles": _profiles(value["language_profiles"], package=label),
+                "language_profiles": _profiles(package_data["language_profiles"], package=label),
                 "destination": str(destination),
                 "occupied": destination.exists() or destination.is_symlink(),
             }
