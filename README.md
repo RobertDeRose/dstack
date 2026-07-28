@@ -89,10 +89,10 @@ tagged new-project template with Copier into an isolated directory, stages confl
 manual-merge candidates, verifies repository-local Beads authority and the complete expected live graph, migrates real
 task state in bounded resumable partitions, requires feature-specific semantic evidence, and transactionally archives
 legacy tasks after verification. Interrupted fresh imports recover deterministic native Beads identities without
-becoming migration-session resumes. Beads initialization is non-stealth and commit-neutral: dstack exposes collaborative
-control files for its own checkpoint while Dolt remotes carry live issue history across clones. It does not auto-select
-prior migration branches, trust manifest IDs without database proof, partially archive on a validation failure, or
-overwrite project documentation.
+becoming migration-session resumes. Native Beads initialization commits collaborative controls, discovers the project
+Git origin, shares one database across worktrees, and carries Dolt history through Git special refs for fresh-clone
+bootstrap. It does not auto-select prior migration branches, trust manifest IDs without database proof, partially
+archive on a validation failure, or overwrite project documentation.
 
 ## Feature Workflow
 

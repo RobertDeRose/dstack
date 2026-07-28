@@ -48,20 +48,13 @@ prompt. `checkpoint-evidence --hook <hook> --status <passed|failed|exception> --
 `checkpoint_evidence[]`; exceptions additionally require `--reason`, `--equivalent-result`, `--residual-risk`,
 `--approved-step`, and the exact `--approval` phrase.
 
-`beads-authority --init` treats formula-only state as uninitialized, runs non-stealth `bd init` in an isolated temporary
-Git repository, and moves the authority into the primary repository without accepting `bd`'s automatic Git commit. If
-the primary checkout does not yet contain `.beads/`, a linked migration seeds publication from its validated
-formula-only branch state. It removes a broad legacy stealth exclude in a primary worktree, or retains a
-repository-local `.beads/` mirror exclusion for linked migration isolation. It exposes `.beads/.gitignore`, `README.md`,
-`config.yaml`, `interactions.jsonl`, `metadata.json`, and the formula for the workflow-owned commit, makes
-initialization failure fatal, rejects symlinks, and validates database path/name, project ID, repository root, and issue
-prefix. Generated Beads README content carries an exact machine-authored Markdown exclusion rather than requiring
-repository formatters to rewrite authority controls. Global/shared/redirected fallback is never accepted. Later Beads
-commands carry the validated `.beads` path explicitly; mutations compare authority digests before and after, while
-dry-run/verify preserve authority bytes. Linked `metadata.json` uses semantic JSON comparison and `config.yaml` ignores
-line-ending and terminal-newline differences. README and ignore-file formatting are not authority identity. Embedded
-database history is synchronized through a configured Dolt remote and `bd dolt push`; fresh clones use `bd bootstrap`
-rather than reconstructing live authority from ordinary branch files or JSONL.
+`beads-authority --init` treats formula-only state as uninitialized and requires the primary checkout on the dedicated
+migration branch. It runs native non-stealth `bd init`, which commits `.beads/.gitignore`, `README.md`, `config.yaml`,
+`interactions.jsonl`, `metadata.json`, the formula, and any required root ignore update. Inspect that exact commit, add
+the machine-authored README exclusion, and amend it through project hooks. Initialization failure is fatal; symlinked,
+global, shared, redirected, wrong-prefix, or foreign authority is rejected. Later commands rely on native repository and
+worktree discovery while mutation guards compare effective authority digests. `bd dolt push` stores Dolt history in the
+project Git origin's special refs; fresh clones use `bd bootstrap` instead of ordinary branch files or JSONL.
 
 `import-beads` uses `bd --dolt-auto-commit=batch` and commits bounded per-feature state plus relationship phases. Apply
 selects at most two incomplete features by default; `--batch-size 1..14` changes that bound and repeatable
@@ -76,7 +69,10 @@ a plan digest, and is nonmutating when no repair remains. Apply prints `APPLY ST
 `beads.import_phase` is `root-created`, `state`, `relationships`, or `completed`. `beads_import_started_at`,
 `beads_import_completed_at`, `beads_import_progress`, imported IDs, and feature phases survive rescans. Empty explicit
 task status uses checkbox fallback: `[ ]` is `open`, `[-]` is `in_progress`, and `[x]` is `closed`. A nonempty
-recognized explicit status takes precedence.
+recognized explicit status takes precedence. Final `verify --beads` requires a configured native Git-origin remote and
+emits `Migration state: migration complete` or
+`Migration state: mechanical migration complete; semantic reconciliation pending` from live findings rather than the
+manifest's finalized flag.
 
 `prepare --apply` replaces implemented-feature marker bodies from completed features with standalone `index.md` records.
 `draft-delivered-records` previews; with `--apply` it writes candidates under

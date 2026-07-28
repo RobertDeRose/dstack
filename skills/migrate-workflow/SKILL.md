@@ -35,8 +35,10 @@ agent-guided work; resolve them and continue without inventing a user decision o
 
 Before inspecting or switching to any existing migration branch/worktree, ask for the exact base branch and either
 `fresh` or `resume <exact-branch> <exact-absolute-worktree>`. Never infer resume from artifacts, commits, prior
-attempts, acknowledgements, or agent-discovered names. Fresh must create a nonexistent branch with
-`wt switch --create ... --base ... --format json`, then run `authorize-session fresh` with that JSON branch/path.
+attempts, acknowledgements, or agent-discovered names. When Beads is uninitialized, switch the clean primary checkout to
+the exact base, create the migration branch, then run `authorize-session fresh`; native initialization cannot publish
+branch controls from a linked worktree. An initialized repository may use
+`wt switch --create ... --base ... --format json` and native shared-worktree discovery.
 
 Resume requires existing committed session authority, exact branch/path/base agreement, and the user's exact generated
 `RESUME DSTACK MIGRATION ...` response passed to `authorize-session resume --approval`. Missing authority cannot be
@@ -81,21 +83,20 @@ git diff --cached --quiet || git commit -m "chore: adopt dstack workflow"
 test -z "$(git status --porcelain)"
 ```
 
-If `bd` exists, initialize and verify it through the guarded authority command, then verify the formula:
+If `bd` exists, initialize and verify it natively from the primary migration checkout:
 
 ```bash
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
 bd formula show dstack-feature --json
+bd dolt remote list
 bd prime
-git add -f .beads/.gitignore .beads/README.md .beads/config.yaml \
-  .beads/interactions.jsonl .beads/metadata.json .beads/formulas/dstack-feature.formula.toml
-git diff --cached --quiet || git commit -m "chore: initialize Beads workflow state"
-test -z "$(git status --porcelain)"
 ```
 
-The guard isolates `bd` from the checkpoint commit and reconciles old stealth authority without replacing its database.
-Formula-only, failed, global/shared/redirected, mismatched, or `/tmp`-patched authority is fatal. After import,
-configure the approved Dolt remote and run `bd dolt push`; fresh clones use `bd bootstrap`. See **Beads authority**.
+Inspect the exact commit created by `bd init`. Add the machine-authored Markdown exclusion to `.beads/README.md`, run
+the exact-path pre-commit hook over `.gitignore` and the six controls, stage only the fix, and amend through ordinary
+hooks as `chore: initialize Beads workflow state`. Formula-only, failed, global/shared/redirected, mismatched, or
+`/tmp`-patched authority is fatal. Native Beads owns database placement, worktree discovery, Git-origin synchronization,
+and bootstrap. After import, run `bd dolt push`; fresh clones use `bd bootstrap`. See **Beads authority**.
 
 ## Gate 3: Scan, decide, and checkpoint
 
@@ -178,6 +179,7 @@ inventory.
 ## Gate 7: Verify final state
 
 ```bash
+bd dolt push
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py verify --beads
 uv run scripts/check-docs.py
 bd dep cycles
@@ -189,11 +191,8 @@ The verifier checks the manifest graph and, with `--beads`, imported root relati
 blocking cycles. Run repository-native formatting, linting, docs, tests, and feature checks; no tests is an explicit
 limitation, not a failed suite. See **Verification and completion**.
 
-Migration requires stable slugs/roots, clean parser and graph checks, idempotent import, Beads authority, reconciled
-repository evidence, archived tasks, passing validation, committed boundaries, and a clean final worktree.
-
 ## Return
 
-Report authority, template revision, evidence, decisions, checkpoints, Beads/archive validation, limitations, and one
-state: `migration complete`, `mechanical migration complete; semantic reconciliation pending`, or
-`blocked by migration conflict`.
+Report authority, template revision, evidence, decisions, checkpoints, Beads/archive validation, and limitations. Quote
+the exact `Migration state:` line from final verification without reinterpretation. If verification fails, report
+`blocked by migration conflict` and its errors.

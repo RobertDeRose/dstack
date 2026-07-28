@@ -60,7 +60,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import tomllib
 from collections.abc import Iterable, Mapping, Sequence
@@ -1865,25 +1864,7 @@ def shell_command(command: Sequence[str]) -> str:
 
 
 BD_BATCH_ACTIVE = False
-BD_AUTHORITY_DB: Path | None = None
 BD_AUTHORITY_SNAPSHOT: dict[str, Any] | None = None
-BEADS_CONTROL_NAMES = (".gitignore", "README.md", "config.yaml", "interactions.jsonl", "metadata.json")
-BEADS_IDENTITY_CONTROL_NAMES = ("config.yaml", "metadata.json")
-BEADS_MUTABLE_CONTROL_NAMES = ("interactions.jsonl",)
-
-
-def beads_control_equivalent(name: str, active: Path, authority: Path) -> bool:
-    if name == "metadata.json":
-        try:
-            return json.loads(active.read_bytes()) == json.loads(authority.read_bytes())
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return False
-    if name == "config.yaml":
-        try:
-            return active.read_text(encoding="utf-8").splitlines() == authority.read_text(encoding="utf-8").splitlines()
-        except UnicodeDecodeError:
-            return False
-    return True
 
 
 def bd_mutates(command: Sequence[str]) -> bool:
@@ -1912,11 +1893,6 @@ def assert_beads_snapshot() -> None:
         ):
             msg = f"Repository-local Beads {key} changed after authority validation"
             raise MigrationError(msg)
-    for raw_path, digest in BD_AUTHORITY_SNAPSHOT.get("tracking_controls", {}).items():
-        path = Path(raw_path)
-        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-            msg = f"Linked-worktree Beads control changed after authority validation: {path}"
-            raise MigrationError(msg)
 
 
 def run_command(
@@ -1932,8 +1908,6 @@ def run_command(
             assert_beads_snapshot()
         if BD_BATCH_ACTIVE and actual_command[1:2] != ["dolt"]:
             actual_command.insert(1, "--dolt-auto-commit=batch")
-        if BD_AUTHORITY_DB is not None and "--db" not in actual_command:
-            actual_command[1:1] = ["--db", str(BD_AUTHORITY_DB)]
     result = subprocess.run(
         actual_command,
         cwd=cwd,
@@ -1982,73 +1956,33 @@ def parse_json_object(output: str, *, command: str) -> dict[str, Any]:
     return value
 
 
-def primary_worktree(root: Path) -> Path:
-    if not git_repository(root):
-        return root.resolve()
-    output = git_output(root, "worktree", "list", "--porcelain")
-    first = next((line.removeprefix("worktree ") for line in output.splitlines() if line.startswith("worktree ")), "")
-    if not first:
-        msg = "Cannot determine the primary Git worktree for Beads authority"
-        raise MigrationError(msg)
-    return Path(first).resolve()
-
-
-def canonical_project_slug(root: Path) -> str:
-    for candidate in (root / ".copier-answers.yml", primary_worktree(root) / ".copier-answers.yml"):
+def canonical_project_slug(root: Path, repository_root: Path | None = None) -> str:
+    candidates = [root / ".copier-answers.yml"]
+    if repository_root is not None and repository_root.resolve() != root.resolve():
+        candidates.append(repository_root / ".copier-answers.yml")
+    for candidate in candidates:
         if not candidate.is_file():
             continue
         match = re.search(r"^project_slug:\s*['\"]?([^'\"\s]+)", read_text(candidate), re.MULTILINE)
         if match:
             return match.group(1)
-    return primary_worktree(root).name
+    return (repository_root or root).name
 
 
 def validate_beads_authority(root: Path) -> dict[str, Any]:
-    global BD_AUTHORITY_DB, BD_AUTHORITY_SNAPSHOT
-    expected_root = primary_worktree(root)
-    unresolved_beads = expected_root / ".beads"
-    if unresolved_beads.is_symlink() or _path_has_symlink(expected_root, unresolved_beads):
-        msg = "Repository-local .beads authority must not be a symlink"
-        raise MigrationError(msg)
-    expected_beads = unresolved_beads.resolve()
-    metadata_path = expected_beads / "metadata.json"
-    config_path = expected_beads / "config.yaml"
-    if not metadata_path.is_file() or not config_path.is_file():
-        msg = (
-            f"Repository-local Beads authority is incomplete at {expected_beads}; both metadata.json and config.yaml "
-            "are required. A formula-only .beads directory is not initialized."
-        )
-        raise MigrationError(msg)
-    metadata = load_json(metadata_path)
-    if not isinstance(metadata, dict):
-        msg = f"Invalid repository-local Beads metadata: {metadata_path}"
-        raise MigrationError(msg)
-    BD_AUTHORITY_DB = expected_beads
+    global BD_AUTHORITY_SNAPSHOT
     BD_AUTHORITY_SNAPSHOT = None
     context = parse_json_object(run_command(["bd", "context", "--json"], cwd=root), command="bd context --json")
     location = parse_json_object(run_command(["bd", "where", "--json"], cwd=root), command="bd where --json")
-    project_slug = canonical_project_slug(root)
+
+    repository_root = Path(str(context.get("repo_root", ""))).expanduser().resolve()
+    expected_beads = repository_root / ".beads"
+    metadata_path = expected_beads / "metadata.json"
+    config_path = expected_beads / "config.yaml"
+    metadata = load_json(metadata_path) if metadata_path.is_file() else None
+    project_slug = canonical_project_slug(root, repository_root)
     expected_database = project_slug.replace("-", "_")
-    expected_prefix = project_slug
     problems: list[str] = []
-    tracking_controls: dict[str, str] = {}
-    if root.resolve() != expected_root:
-        active_beads = root / ".beads"
-        if active_beads.is_symlink() or _path_has_symlink(root, active_beads):
-            problems.append("Linked-worktree Beads controls must not traverse a symlink")
-        for name in BEADS_CONTROL_NAMES:
-            authority_path = expected_beads / name
-            active_path = active_beads / name
-            if active_path.is_symlink() or _path_has_symlink(active_beads, active_path):
-                problems.append(f"Linked-worktree Beads control {name!r} must not be a symlink")
-            elif not active_path.is_file():
-                problems.append(f"Linked-worktree Beads control {name!r} is missing")
-            elif name in BEADS_IDENTITY_CONTROL_NAMES and not beads_control_equivalent(
-                name, active_path, authority_path
-            ):
-                problems.append(f"Linked-worktree Beads control {name!r} differs from primary authority")
-            elif name in BEADS_IDENTITY_CONTROL_NAMES:
-                tracking_controls[str(active_path)] = hashlib.sha256(active_path.read_bytes()).hexdigest()
 
     def same_path(value: Any, expected: Path) -> bool:
         try:
@@ -2056,29 +1990,47 @@ def validate_beads_authority(root: Path) -> dict[str, Any]:
         except (OSError, RuntimeError, ValueError):
             return False
 
+    if expected_beads.is_symlink() or _path_has_symlink(repository_root, expected_beads):
+        problems.append("Repository-local .beads authority must not be a symlink")
+    if not isinstance(metadata, dict) or not config_path.is_file():
+        problems.append("Native Beads authority requires repository-local metadata.json and config.yaml")
+    if not same_path(context.get("cwd_repo_root"), root.resolve()):
+        problems.append(f"bd context cwd_repo_root does not match {root.resolve()}")
     if not same_path(context.get("beads_dir"), expected_beads):
-        problems.append(f"bd context beads_dir is {context.get('beads_dir')!r}, expected {str(expected_beads)!r}")
-    if not same_path(context.get("repo_root"), expected_root):
-        problems.append(f"bd context repo_root is {context.get('repo_root')!r}, expected {str(expected_root)!r}")
+        problems.append("bd context does not use the repository-local .beads directory")
     if not same_path(location.get("path"), expected_beads):
-        problems.append(f"bd where path is {location.get('path')!r}, expected {str(expected_beads)!r}")
-    database_path = Path(str(location.get("database_path", ""))).expanduser().resolve()
-    if not database_path.is_relative_to(expected_beads):
-        problems.append("bd where database_path is outside the repository-local .beads directory")
-    if context.get("database") != expected_database or metadata.get("dolt_database") != expected_database:
-        problems.append(
-            f"Beads database identity must be {expected_database!r}; context={context.get('database')!r}, "
-            f"metadata={metadata.get('dolt_database')!r}"
-        )
-    if location.get("prefix") != expected_prefix:
-        problems.append(f"Beads issue prefix is {location.get('prefix')!r}, expected {expected_prefix!r}")
-    if not metadata.get("project_id") or context.get("project_id") != metadata.get("project_id"):
+        problems.append("bd where does not use the repository-local .beads directory")
+    try:
+        database_path = Path(str(location.get("database_path", ""))).expanduser().resolve()
+        if not database_path.is_relative_to(expected_beads):
+            problems.append("bd where database_path is outside the repository-local .beads directory")
+    except (OSError, RuntimeError, ValueError):
+        problems.append("bd where returned an invalid database_path")
+    if (
+        context.get("database") != expected_database
+        or not isinstance(metadata, dict)
+        or metadata.get("dolt_database") != expected_database
+    ):
+        problems.append(f"Beads database identity must be {expected_database!r}")
+    if location.get("prefix") != project_slug:
+        problems.append(f"Beads issue prefix must be {project_slug!r}")
+    if (
+        not isinstance(metadata, dict)
+        or not metadata.get("project_id")
+        or context.get("project_id") != metadata.get("project_id")
+    ):
         problems.append("Beads project_id is missing or disagrees with repository-local metadata")
-    if context.get("dolt_mode") != "embedded" or context.get("is_redirected") is True:
-        problems.append("Migration requires a non-redirected repository-local embedded Dolt database")
+    if (
+        context.get("backend") != "dolt"
+        or context.get("dolt_mode") != "embedded"
+        or context.get("is_redirected") is True
+    ):
+        problems.append("Migration requires native, non-redirected, repository-local embedded Dolt")
     if problems:
         message = "Beads authority mismatch; refusing global/shared fallback:\n  - " + "\n  - ".join(problems)
         raise MigrationError(message)
+
+    assert isinstance(metadata, dict)
     BD_AUTHORITY_SNAPSHOT = {
         "beads_dir": str(expected_beads),
         "metadata_path": str(metadata_path),
@@ -2086,7 +2038,6 @@ def validate_beads_authority(root: Path) -> dict[str, Any]:
         "config_path": str(config_path),
         "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
         "project_id": str(metadata["project_id"]),
-        "tracking_controls": tracking_controls,
     }
     return {"context": context, "location": location, "metadata": metadata}
 
@@ -3197,255 +3148,68 @@ def apply_imported_states(
     feature["beads"]["state_applied"] = True
 
 
-def recover_beads_publication(beads_dir: Path) -> None:
-    backup = beads_dir.with_name(".beads.dstack-backup")
-    published = beads_dir.with_name(".beads.dstack-publish")
-    journal = beads_dir.with_name(".beads.dstack-transaction.json")
-    if not journal.exists():
-        if backup.exists() or published.exists():
-            msg = "Beads publication staging exists without its recovery journal"
-            raise MigrationError(msg)
-        return
-    record = load_json(journal)
-    state = str(record.get("state", "")) if isinstance(record, dict) else ""
-    authority_existed = record.get("authority_existed") if isinstance(record, dict) else None
-    if state != "committed" and backup.exists():
-        if beads_dir.exists():
-            shutil.rmtree(beads_dir)
-        backup.replace(beads_dir)
-    elif state != "committed" and authority_existed is False:
-        shutil.rmtree(beads_dir, ignore_errors=True)
-    else:
-        shutil.rmtree(backup, ignore_errors=True)
-    shutil.rmtree(published, ignore_errors=True)
-    journal.unlink()
+def primary_checkout(root: Path) -> bool:
+    if not git_repository(root):
+        return True
+    output = git_output(root, "worktree", "list", "--porcelain")
+    first = next((line.removeprefix("worktree ") for line in output.splitlines() if line.startswith("worktree ")), "")
+    return bool(first) and Path(first).resolve() == root.resolve()
 
 
-def formula_only_beads_source(root: Path, beads_dir: Path) -> Path:
-    source = beads_dir if beads_dir.exists() or beads_dir.is_symlink() else root / ".beads"
-    formula = source / "formulas/dstack-feature.formula.toml"
+def require_formula_only_beads(root: Path) -> None:
+    beads_dir = root / ".beads"
+    formula = beads_dir / "formulas/dstack-feature.formula.toml"
     if (
-        not source.is_dir()
-        or source.is_symlink()
-        or any(path.is_symlink() for path in source.rglob("*"))
-        or any(path.name != "formulas" for path in source.iterdir())
+        not beads_dir.is_dir()
+        or beads_dir.is_symlink()
+        or any(path.is_symlink() for path in beads_dir.rglob("*"))
+        or any(path.name != "formulas" for path in beads_dir.iterdir())
         or not formula.is_file()
     ):
-        msg = "Beads initialization requires a nonsymlinked formula-only .beads directory"
+        msg = "Native Beads initialization requires a nonsymlinked formula-only .beads directory"
         raise MigrationError(msg)
-    return source
-
-
-def initialize_collaborative_beads(root: Path, beads_dir: Path) -> None:
-    recover_beads_publication(beads_dir)
-    source_beads_dir = formula_only_beads_source(root, beads_dir)
-    authority_existed = beads_dir.exists()
-    prefix = canonical_project_slug(root)
-    command = [
-        "bd",
-        "init",
-        "--non-interactive",
-        "--skip-agents",
-        "--skip-hooks",
-        "--prefix",
-        prefix,
-    ]
-    control_names = BEADS_CONTROL_NAMES
-    allowed_generated = {
-        *control_names,
-        ".local_version",
-        "dolt",
-        "embeddeddolt",
-        "proxieddb",
-    }
-    runtime_entries = allowed_generated - set(control_names)
-    exclude_path = Path(git_output(root, "rev-parse", "--git-path", "info/exclude"))
-    if not exclude_path.is_absolute():
-        exclude_path = root / exclude_path
-    original_exclude = exclude_path.read_bytes() if exclude_path.exists() else b""
-    tracking_beads_dir = root / ".beads"
-    tracking_before = {
-        name: (tracking_beads_dir / name).read_bytes() if (tracking_beads_dir / name).is_file() else None
-        for name in control_names
-    }
-    with (
-        tempfile.TemporaryDirectory(prefix="dstack-beads-init-") as initialization,
-        tempfile.TemporaryDirectory(prefix="dstack-beads-transaction-", dir=beads_dir.parent.parent) as transaction,
-    ):
-        init_root = Path(initialization)
-        transaction_root = Path(transaction)
-        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=init_root, check=True)
-        isolated_root = git_output(init_root, "rev-parse", "--show-toplevel")
-        if Path(isolated_root).resolve() != init_root.resolve():
-            msg = "Temporary Beads initialization is not isolated from the project Git repository"
-            raise MigrationError(msg)
-        run_command(command, cwd=init_root)
-        generated = init_root / ".beads"
-        generated_names = {path.name for path in generated.iterdir() if path.name != "formulas"}
-        unexpected = sorted(generated_names - allowed_generated)
-        if unexpected:
-            raise MigrationError("bd init generated unsupported Beads entries: " + ", ".join(unexpected))
-        if any(not (generated / name).is_file() for name in control_names):
-            msg = "bd init did not generate the required collaborative control files"
-            raise MigrationError(msg)
-        for name in sorted(generated_names & runtime_entries):
-            ignored = subprocess.run(["git", "check-ignore", "-q", f".beads/{name}"], cwd=init_root, check=False)
-            if ignored.returncode != 0:
-                msg = f"bd init runtime entry is not ignored: .beads/{name}"
-                raise MigrationError(msg)
-
-        staged = transaction_root / "staged-beads"
-        shutil.copytree(source_beads_dir, staged)
-        readme = generated / "README.md"
-        readme_text = readme.read_text(encoding="utf-8")
-        if not readme_text.startswith("<!-- rumdl-disable -->"):
-            readme.write_text("<!-- rumdl-disable -->\n\n" + readme_text.lstrip(), encoding="utf-8")
-        for name in sorted(generated_names):
-            source = generated / name
-            target = staged / name
-            if source.is_dir():
-                shutil.copytree(source, target)
-            else:
-                shutil.copy2(source, target)
-        if not (staged / "formulas/dstack-feature.formula.toml").is_file():
-            msg = "Collaborative Beads staging lost the tracked dstack formula"
-            raise MigrationError(msg)
-        if tracking_beads_dir.resolve() != beads_dir.resolve():
-            for name in control_names:
-                target = tracking_beads_dir / name
-                if target.exists() and target.read_bytes() != (staged / name).read_bytes():
-                    msg = f"Linked-worktree Beads control file conflicts with repository authority: {target}"
-                    raise MigrationError(msg)
-
-        backup = beads_dir.with_name(".beads.dstack-backup")
-        published = beads_dir.with_name(".beads.dstack-publish")
-        journal = beads_dir.with_name(".beads.dstack-transaction.json")
-        shutil.copytree(staged, published)
-        journal_record = {"schema_version": 2, "state": "prepared", "authority_existed": authority_existed}
-        dump_json(journal, journal_record)
-        if authority_existed:
-            beads_dir.replace(backup)
-            journal_record["state"] = "backed_up"
-            dump_json(journal, journal_record)
-        published.replace(beads_dir)
-        journal_record["state"] = "published"
-        dump_json(journal, journal_record)
-        try:
-            expose_collaborative_beads_controls(root, beads_dir)
-            validate_beads_authority(root)
-        except BaseException:
-            global BD_AUTHORITY_DB, BD_AUTHORITY_SNAPSHOT
-            BD_AUTHORITY_DB = None
-            BD_AUTHORITY_SNAPSHOT = None
-            shutil.rmtree(beads_dir, ignore_errors=True)
-            if authority_existed:
-                backup.replace(beads_dir)
-            shutil.rmtree(published, ignore_errors=True)
-            journal.unlink(missing_ok=True)
-            for name, content in tracking_before.items():
-                path = tracking_beads_dir / name
-                if content is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    path.write_bytes(content)
-            exclude_path.write_bytes(original_exclude)
-            raise
-        journal_record["state"] = "committed"
-        dump_json(journal, journal_record)
-        shutil.rmtree(backup, ignore_errors=True)
-        journal.unlink()
-
-
-def expose_collaborative_beads_controls(root: Path, beads_dir: Path) -> None:
-    control_names = BEADS_CONTROL_NAMES
-    missing = [name for name in control_names if not (beads_dir / name).is_file()]
-    if missing:
-        msg = "Repository-local Beads authority lacks collaborative control files: " + ", ".join(missing)
-        raise MigrationError(msg)
-    tracking_beads_dir = root / ".beads"
-    if tracking_beads_dir.resolve() != beads_dir.resolve():
-        conflicts: list[Path] = [
-            tracking_beads_dir / name
-            for name in BEADS_IDENTITY_CONTROL_NAMES
-            if (tracking_beads_dir / name).exists()
-            and not beads_control_equivalent(name, tracking_beads_dir / name, beads_dir / name)
-        ]
-        if conflicts:
-            msg = "Linked-worktree Beads controls conflict with repository authority: " + ", ".join(
-                str(path) for path in conflicts
-            )
-            raise MigrationError(msg)
-        tracking_beads_dir.mkdir(parents=True, exist_ok=True)
-        for name in control_names:
-            target = tracking_beads_dir / name
-            if not target.exists():
-                shutil.copy2(beads_dir / name, target)
-
-    exclude_path = Path(git_output(root, "rev-parse", "--git-path", "info/exclude"))
-    if not exclude_path.is_absolute():
-        exclude_path = root / exclude_path
-    original = exclude_path.read_text(encoding="utf-8", errors="surrogateescape") if exclude_path.exists() else ""
-    filtered = [line for line in original.splitlines(keepends=True) if line.strip() not in {".beads", ".beads/"}]
-    if tracking_beads_dir.resolve() != beads_dir.resolve():
-        filtered.append(".beads/\n")
-    exclude_path.parent.mkdir(parents=True, exist_ok=True)
-    exclude_path.write_text("".join(filtered), encoding="utf-8", errors="surrogateescape")
-
-
-def sync_mutable_beads_controls(root: Path) -> None:
-    beads_dir = primary_worktree(root) / ".beads"
-    tracking_beads_dir = root / ".beads"
-    if tracking_beads_dir.resolve() == beads_dir.resolve():
-        return
-    for name in BEADS_MUTABLE_CONTROL_NAMES:
-        source = beads_dir / name
-        target = tracking_beads_dir / name
-        if source.is_file() and (not target.is_file() or target.read_bytes() != source.read_bytes()):
-            shutil.copy2(source, target)
 
 
 def ensure_bd_available(root: Path, *, init_beads: bool) -> None:
     if shutil.which("bd") is None:
         msg = "The 'bd' command is not installed"
         raise MigrationError(msg)
-    beads_dir = primary_worktree(root) / ".beads"
-    initialized = (beads_dir / "metadata.json").is_file() and (beads_dir / "config.yaml").is_file()
-    if not initialized:
-        if not init_beads:
-            msg = (
-                "Beads is not repository-locally initialized. A formula-only .beads directory is insufficient. "
-                "Run the guarded beads-authority --init command."
-            )
-            raise MigrationError(msg)
-        initialize_collaborative_beads(root, beads_dir)
-    elif init_beads:
-        control_names = BEADS_CONTROL_NAMES
-        tracking_beads_dir = root / ".beads"
-        tracking_before = {
-            name: (tracking_beads_dir / name).read_bytes() if (tracking_beads_dir / name).is_file() else None
-            for name in control_names
-        }
-        exclude_path = Path(git_output(root, "rev-parse", "--git-path", "info/exclude"))
-        if not exclude_path.is_absolute():
-            exclude_path = root / exclude_path
-        original_exclude = exclude_path.read_bytes() if exclude_path.exists() else b""
-        try:
-            expose_collaborative_beads_controls(root, beads_dir)
-            validate_beads_authority(root)
-        except BaseException:
-            for name, content in tracking_before.items():
-                path = tracking_beads_dir / name
-                if content is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    path.write_bytes(content)
-            exclude_path.write_bytes(original_exclude)
-            raise
+    try:
+        validate_beads_authority(root)
         return
-    if not (beads_dir / "metadata.json").is_file() or not (beads_dir / "config.yaml").is_file():
-        msg_0 = "bd init returned without creating complete repository-local Beads authority"
-        raise MigrationError(msg_0)
+    except MigrationError as authority_error:
+        local_controls_exist = (root / ".beads/metadata.json").is_file() and (root / ".beads/config.yaml").is_file()
+        if local_controls_exist:
+            raise authority_error
+        if not init_beads:
+            msg = "Beads is not repository-locally initialized; run beads-authority --init from the primary checkout."
+            raise MigrationError(msg) from authority_error
+
+    if not primary_checkout(root):
+        msg = (
+            "Native initialization cannot publish collaborative controls from a linked worktree; initialize Beads "
+            "from the primary checkout on the dedicated migration branch."
+        )
+        raise MigrationError(msg)
+    require_formula_only_beads(root)
+    prefix = canonical_project_slug(root)
+    before = git_output(root, "rev-parse", "HEAD") if git_repository(root) else ""
+    run_command(
+        ["bd", "init", "--non-interactive", "--skip-agents", "--skip-hooks", "--prefix", prefix],
+        cwd=root,
+    )
     validate_beads_authority(root)
+    if before:
+        after = git_output(root, "rev-parse", "HEAD")
+        if after == before:
+            msg = "Native bd init did not create its collaborative-control commit"
+            raise MigrationError(msg)
+        changed = set(git_output(root, "diff-tree", "--no-commit-id", "--name-only", "-r", before, after).splitlines())
+        allowed = {str(path) for path in BEADS_TRACKED_CONTROL_PATHS} | {".gitignore"}
+        unexpected = sorted(changed - allowed)
+        if unexpected:
+            raise MigrationError("Native bd init committed unexpected project paths: " + ", ".join(unexpected))
+        print(f"Native bd init created {after}; inspect and amend it through normal project hooks.")
 
 
 def selected_features(manifest: Mapping[str, Any], requested: Sequence[str]) -> list[dict[str, Any]]:
@@ -3811,7 +3575,6 @@ def import_beads(
     if progress["remaining"] == 0:
         manifest["beads_import_completed_at"] = manifest.get("beads_import_completed_at") or utc_now()
     save_manifest_and_report(root, manifest_path, report_path, manifest)
-    sync_mutable_beads_controls(root)
     print_import_progress(progress)
     print(f"Import pass complete for {len(features)} selected feature(s).")
 
@@ -3917,7 +3680,6 @@ def repair_beads_labels(
     )
     reconcile_existing_beads_state(root, manifest["features"], canonicalize=False)
     save_manifest_and_report(root, manifest_path, report_path, manifest)
-    sync_mutable_beads_controls(root)
     print(f"Repaired {len(full_plan)} record(s) with {full_label_count} additive label(s).")
 
 
@@ -4566,6 +4328,13 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
             errors.append(f"{feature['slug']} manifest has no recorded Beads root")
 
     if verify_beads:
+        try:
+            remotes = json.loads(run_command(["bd", "dolt", "remote", "list", "--json"], cwd=root))
+        except (json.JSONDecodeError, MigrationError) as exc:
+            errors.append(f"Cannot inspect native Beads Git-origin synchronization: {exc}")
+        else:
+            if not isinstance(remotes, list) or not remotes:
+                errors.append("Native Beads history has no configured Git-origin remote")
         try:
             graph, relationships = bd_feature_relationship_graph(root, features)
         except MigrationError as exc:
@@ -6253,6 +6022,10 @@ def _main(args: argparse.Namespace) -> int:
                 if checker_status != 0:
                     return checker_status
             print("Workflow migration verification passed.")
+            if any(feature.get("conflicts") for feature in manifest.get("features", [])):
+                print("Migration state: mechanical migration complete; semantic reconciliation pending.")
+            else:
+                print("Migration state: migration complete.")
             return 0
 
         msg = f"Unsupported command: {args.command}"
