@@ -2,7 +2,7 @@
 name: setup-project
 description: Create and initialize a new Copier-managed dstack project from the latest stable template release or the explicitly selected unstable channel. Use only for a new project, with an explicit project name or basename($PWD) by default.
 metadata:
-  version: "0.5.4"
+  version: "0.5.5"
 allowed-tools: Read Glob Bash AskUserQuestion
 ---
 

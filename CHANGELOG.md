@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.5 — 2026-07-23
+
+### Fixed
+
+- **workflow:** Repair stripped native Beads labels (`ea3b5c5`)
+
+- - -
+
 ## v0.5.4 — 2026-07-22
 
 ### Fixed
