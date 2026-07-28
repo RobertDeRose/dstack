@@ -2350,6 +2350,19 @@ def test_linked_worktree_tolerates_mutable_interactions_and_hides_primary_mirror
     assert not (linked / ".beads/embeddeddolt").exists()
     for name in (".gitignore", "README.md", "config.yaml", "metadata.json"):
         assert (primary / ".beads" / name).read_bytes() == (linked / ".beads" / name).read_bytes()
+
+    linked_metadata = linked / ".beads/metadata.json"
+    metadata = json.loads(linked_metadata.read_text(encoding="utf-8"))
+    linked_metadata.write_text(json.dumps(metadata, indent=4, sort_keys=True) + "\n", encoding="utf-8")
+    run_command(
+        [sys.executable, str(MIGRATOR), "beads-authority", "--init", "--root", str(linked)],
+        cwd=linked,
+    )
+    assert json.loads(linked_metadata.read_text(encoding="utf-8")) == json.loads(
+        (primary / ".beads/metadata.json").read_text(encoding="utf-8")
+    )
+    assert linked_metadata.read_bytes() != (primary / ".beads/metadata.json").read_bytes()
+
     (primary / ".beads/interactions.jsonl").write_text('{"event":"native mutation"}\n', encoding="utf-8")
     run_command(
         [sys.executable, str(MIGRATOR), "beads-authority", "--root", str(linked)],

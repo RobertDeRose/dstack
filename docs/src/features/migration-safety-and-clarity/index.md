@@ -94,4 +94,6 @@ pass to two incomplete features, made interrupted fresh imports resume their exa
 `interactions.jsonl` synchronization from immutable linked-worktree authority checks, hid the primary authority mirror,
 and made generated migration/Beads Markdown safe under project hooks. A follow-up correction made every native
 formula/inherited label mandatory and added a dry-run-first additive repair for exact manifest-backed damage, preventing
-ad hoc label replacement from silently removing workflow semantics.
+ad hoc label replacement from silently removing workflow semantics. Later simplification retained repository ownership
+and graph-integrity boundaries while replacing serialized control equality with semantic identity and making one
+explicit docs exception cover the bounded mechanical checkpoints.

@@ -42,8 +42,9 @@ and inconsistent backup presence/disposition. Migration stores only answers requ
 classification, dependency, collision, and artifact dispositions; question prose is not schema state. Checkpoints
 require successful `scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit.
 The only intermediate exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs. The exact response
-`APPROVE HK_SKIP_STEPS=docs`, approved step, reason, equivalent result, and risk are durable evidence.
-`checkpoint-evidence --hook <hook> --status <passed|failed|exception> --command <command>` appends
+`APPROVE HK_SKIP_STEPS=docs`, approved step, reason, equivalent result, and risk are durable evidence. One approval
+covers Gate 2–4 checkpoint commits while migration-mode docs remain error-free; each use is recorded without another
+prompt. `checkpoint-evidence --hook <hook> --status <passed|failed|exception> --command <command>` appends
 `checkpoint_evidence[]`; exceptions additionally require `--reason`, `--equivalent-result`, `--residual-risk`,
 `--approved-step`, and the exact `--approval` phrase.
 
@@ -57,9 +58,10 @@ initialization failure fatal, rejects symlinks, and validates database path/name
 prefix. Generated Beads README content carries an exact machine-authored Markdown exclusion rather than requiring
 repository formatters to rewrite authority controls. Global/shared/redirected fallback is never accepted. Later Beads
 commands carry the validated `.beads` path explicitly; mutations compare authority digests before and after, while
-dry-run/verify preserve authority bytes. Embedded database history is synchronized through a configured Dolt remote and
-`bd dolt push`; fresh clones use `bd bootstrap` rather than reconstructing live authority from ordinary branch files or
-JSONL.
+dry-run/verify preserve authority bytes. Linked `metadata.json` uses semantic JSON comparison and `config.yaml` ignores
+line-ending and terminal-newline differences. README and ignore-file formatting are not authority identity. Embedded
+database history is synchronized through a configured Dolt remote and `bd dolt push`; fresh clones use `bd bootstrap`
+rather than reconstructing live authority from ordinary branch files or JSONL.
 
 `import-beads` uses `bd --dolt-auto-commit=batch` and commits bounded per-feature state plus relationship phases. Apply
 selects at most two incomplete features by default; `--batch-size 1..14` changes that bound and repeatable
