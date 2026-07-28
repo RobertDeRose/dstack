@@ -2,7 +2,7 @@
 name: start-feature
 description: Activate and review a planned Beads feature, create or switch its worktree, reconcile its design and execution graph, and mark it ready for implementation. Use when asked to start or prepare a planned feature.
 metadata:
-  version: "0.5.5"
+  version: "0.5.6"
 allowed-tools: Read Glob Grep Edit Write Bash Task AskUserQuestion
 ---
 

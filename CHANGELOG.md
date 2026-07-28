@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.6 — 2026-07-24
+
+### Fixed
+
+- **workflow:** Initialize Beads from linked formula (`05e5150`)
+
+- - -
+
 ## v0.5.5 — 2026-07-23
 
 ### Fixed
