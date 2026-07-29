@@ -112,13 +112,13 @@ For a repository without an existing Pages site, use POST instead of PUT for the
 
 Generated workflows pin actions to these full commits, with comments naming their major tags:
 
-| Action                          | Major | Commit                                     |
-|---------------------------------|-------|--------------------------------------------|
-| `actions/checkout`              | `v6`  | `df4cb1c069e1874edd31b4311f1884172cec0e10` |
-| `jdx/mise-action`               | `v3`  | `5228313ee0372e111a38da051671ca30fc5a96db` |
-| `actions/configure-pages`       | `v5`  | `983d7736d9b0ae728b81ab479565c72886d7745b` |
-| `actions/upload-pages-artifact` | `v4`  | `7b1f4a764d45c48632c6b24a0339c27f5614fb0b` |
-| `actions/deploy-pages`          | `v4`  | `d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e` |
+| Action                          | Major    | Commit                                     |
+|---------------------------------|----------|--------------------------------------------|
+| `actions/checkout`              | `v6.0.3` | `df4cb1c069e1874edd31b4311f1884172cec0e10` |
+| `jdx/mise-action`               | `v3`     | `5228313ee0372e111a38da051671ca30fc5a96db` |
+| `actions/configure-pages`       | `v5`     | `983d7736d9b0ae728b81ab479565c72886d7745b` |
+| `actions/upload-pages-artifact` | `v4`     | `7b1f4a764d45c48632c6b24a0339c27f5614fb0b` |
+| `actions/deploy-pages`          | `v4`     | `d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e` |
 
 ### Quality Requirements
 
