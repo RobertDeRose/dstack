@@ -29,8 +29,9 @@ Delivery authority:
   merge.
 - Holistic-review subagents are read-only.
 - Merge mode authorizes bounded reconciliation of append-only `.beads/interactions.jsonl` rows for the selected feature
-  molecule and the two interaction-only workflow commits described below. It never authorizes discarding, including, or
-  rewriting unrelated rows or paths.
+  molecule, plus separately identified work whose authoritative dependency lineage reaches that molecule through only
+  `discovered-from` or `parent-child` edges, and the two interaction-only workflow commits described below. It never
+  authorizes discarding, including, or rewriting unrelated rows or paths.
 
 ## Supported Actions
 
@@ -162,7 +163,9 @@ clean worktree without stashing, deleting, or including unrelated changes, with 
 have appended tracked interaction evidence for the selected feature molecule in the base worktree.
 
 When the base is dirty only because `.beads/interactions.jsonl` has append-only rows whose `issue_id` is the selected
-root ID or its dotted descendant, preserve those rows on the feature branch before restoring the base copy:
+root ID, its dotted descendant, or separately identified work connected back to that molecule by a local Beads
+`discovered-from` or `parent-child` dependency path, preserve those rows on the feature branch before restoring the base
+copy. `related` and `blocks` edges alone do not grant this provenance:
 
 ```bash
 uv run <core-dir>/scripts/reconcile-beads-interactions.py prepare \
@@ -179,9 +182,9 @@ uv run <core-dir>/scripts/reconcile-beads-interactions.py finalize \
 ```
 
 Do not make another pre-merge Beads mutation after `prepare`; if one occurs, rerun `prepare`, amend the interaction-only
-commit, and rerun `finalize`. The helper rejects staged changes, non-append edits, malformed or duplicate rows, foreign
-issue IDs, any other dirty path, and restoration before every row is committed byte-for-byte on the feature branch. If
-it rejects the state, stop without restoring anything. All other dirty base states remain blocking.
+commit, and rerun `finalize`. The helper rejects staged changes, non-append edits, malformed or duplicate rows,
+unrelated issue IDs, any other dirty path, and restoration before every row is committed byte-for-byte on the feature
+branch. If it rejects the state, stop without restoring anything. All other dirty base states remain blocking.
 
 Then require both worktrees to be clean and merge:
 

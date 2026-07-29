@@ -686,6 +686,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "reconcile-beads-interactions.py verify-post-merge" in closeout
     assert "append-only" in closeout
     assert "selected feature molecule" in closeout
+    assert "`discovered-from` or `parent-child`" in closeout
     assert "chore(beads): record <slug> delivery" in closeout
 
     audit = skill("audit-project")

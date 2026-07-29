@@ -13,6 +13,7 @@ from typing import Any
 
 
 INTERACTIONS = Path(".beads/interactions.jsonl")
+LINEAGE_DEPENDENCY_TYPES = frozenset({"discovered-from", "parent-child"})
 
 
 class ReconciliationError(RuntimeError):
@@ -29,6 +30,71 @@ def git(worktree: Path, *args: str) -> bytes:
         stderr = result.stderr.decode(errors="replace").strip()
         raise ReconciliationError(f"git {' '.join(args)} failed in {worktree}: {stderr}")
     return result.stdout
+
+
+def bd_show(worktree: Path, issue_id: str) -> dict[str, Any]:
+    result = subprocess.run(
+        ["bd", "show", issue_id, "--json"],
+        cwd=worktree,
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode:
+        stderr = result.stderr.decode(errors="replace").strip()
+        raise ReconciliationError(f"bd show failed for {issue_id} in {worktree}: {stderr}")
+    try:
+        payload: Any = json.loads(result.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ReconciliationError(f"bd show returned invalid JSON for {issue_id}") from error
+    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+        raise ReconciliationError(f"bd show returned an unexpected record for {issue_id}")
+    record = payload[0]
+    if record.get("id") != issue_id:
+        raise ReconciliationError(f"bd show returned the wrong issue for {issue_id}")
+    return record
+
+
+def belongs_to_feature_lineage(
+    worktree: Path,
+    issue_id: str,
+    root_id: str,
+    *,
+    cache: dict[str, bool],
+    visiting: set[str],
+) -> bool:
+    if issue_id == root_id or issue_id.startswith(f"{root_id}."):
+        return True
+    if issue_id in cache:
+        return cache[issue_id]
+    if issue_id in visiting:
+        return False
+    visiting.add(issue_id)
+    record = bd_show(worktree, issue_id)
+    dependencies = record.get("dependencies", [])
+    if not isinstance(dependencies, list):
+        raise ReconciliationError(f"bd show returned invalid dependencies for {issue_id}")
+    related = False
+    for dependency in dependencies:
+        if not isinstance(dependency, dict):
+            raise ReconciliationError(f"bd show returned an invalid dependency for {issue_id}")
+        dependency_id = dependency.get("id")
+        dependency_type = dependency.get("dependency_type")
+        if (
+            isinstance(dependency_id, str)
+            and dependency_type in LINEAGE_DEPENDENCY_TYPES
+            and belongs_to_feature_lineage(
+                worktree,
+                dependency_id,
+                root_id,
+                cache=cache,
+                visiting=visiting,
+            )
+        ):
+            related = True
+            break
+    visiting.remove(issue_id)
+    cache[issue_id] = related
+    return related
 
 
 def validate_worktree(path: Path) -> Path:
@@ -103,10 +169,17 @@ def appended_records(worktree: Path, root_id: str) -> tuple[list[tuple[str, str,
     additions, _ = parse_records(current[len(head) :], source=f"{worktree}/{INTERACTIONS} additions")
     if not additions:
         raise ReconciliationError(f"{INTERACTIONS} has no appended records in {worktree}")
+    lineage_cache: dict[str, bool] = {}
     for interaction_id, issue_id, _raw in additions:
-        if issue_id != root_id and not issue_id.startswith(f"{root_id}."):
+        if not belongs_to_feature_lineage(
+            worktree,
+            issue_id,
+            root_id,
+            cache=lineage_cache,
+            visiting=set(),
+        ):
             raise ReconciliationError(
-                f"interaction {interaction_id} references {issue_id}, outside selected feature molecule {root_id}"
+                f"interaction {interaction_id} references {issue_id}, outside selected feature lineage {root_id}"
             )
     return additions, current
 

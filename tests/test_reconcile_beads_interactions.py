@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -39,7 +40,26 @@ def interaction(interaction_id: str, issue_id: str) -> str:
 
 
 @pytest.fixture
-def interaction_worktrees(tmp_path: Path) -> tuple[Path, Path]:
+def interaction_worktrees(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_bd = bin_dir / "bd"
+    fake_bd.write_text(
+        """#!/usr/bin/env python3
+import json
+import sys
+
+issue_id = sys.argv[2]
+dependencies = []
+if issue_id == "project-discovered":
+    dependencies = [{"id": "project-a.1", "dependency_type": "discovered-from"}]
+print(json.dumps([{"id": issue_id, "dependencies": dependencies}]))
+""",
+        encoding="utf-8",
+    )
+    fake_bd.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
     base = tmp_path / "project"
     feature = tmp_path / "project.feature"
     run("git", "init", "-b", "main", base)
@@ -62,7 +82,11 @@ def interaction_worktrees(tmp_path: Path) -> tuple[Path, Path]:
     run("git", "-C", feature, "commit", "-m", "record spec state")
 
     path.write_text(
-        path.read_text(encoding="utf-8") + interaction("int-close", "project-a.7") + "\n",
+        path.read_text(encoding="utf-8")
+        + interaction("int-close", "project-a.7")
+        + "\n"
+        + interaction("int-discovered", "project-discovered")
+        + "\n",
         encoding="utf-8",
     )
     return base, feature
@@ -86,6 +110,7 @@ def test_reconciles_only_committed_feature_interactions(
     run(sys.executable, script, "prepare", *common)
     assert "int-spec" in (feature / INTERACTIONS).read_text(encoding="utf-8")
     assert "int-close" in (feature / INTERACTIONS).read_text(encoding="utf-8")
+    assert "int-discovered" in (feature / INTERACTIONS).read_text(encoding="utf-8")
     assert run(sys.executable, script, "finalize", *common, check=False).returncode != 0
 
     run("git", "-C", feature, "add", INTERACTIONS)
@@ -124,4 +149,4 @@ def test_reconciles_only_committed_feature_interactions(
         check=False,
     )
     assert result.returncode != 0
-    assert "outside selected feature molecule" in result.stderr
+    assert "outside selected feature lineage" in result.stderr
