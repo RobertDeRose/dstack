@@ -100,5 +100,19 @@ commands, outcomes, skipped checks, and limitations. Do not report a correction 
 audit is complete only when every finding is corrected and revalidated, linked to a corrective issue, or explicitly
 accepted as residual risk.
 
+## 5. Publish Changed Beads State
+
+When the audit creates or updates Beads records, invoking `/audit-project` authorizes one ordinary non-force publication
+to the repository's already configured native Dolt remote after final validation:
+
+```bash
+bd dolt remote list --json
+bd dolt push
+```
+
+This authority does not authorize remote creation or replacement, force-pushes, or Git branch pushes. Do not push when
+Beads did not change. If no native remote is configured or the push fails, preserve local records and report
+`audit publication blocked`; do not claim the corrective work is shared.
+
 Return findings ordered by severity, intentional-versus-accidental classification, files and Beads IDs, corrections
-applied, corrective issues created, blocked work, and recommended next action.
+applied, corrective issues created, blocked work, publication evidence, and recommended next action.

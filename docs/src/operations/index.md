@@ -30,7 +30,8 @@ with explicit consent.
 ```
 
 Use `bd prime` at session start. Beads owns live readiness and dependencies; `docs/src/planned-features.md` is only the
-human roadmap.
+human roadmap. When `/audit-project` creates or updates corrective Beads records, it performs one ordinary non-force
+`bd dolt push` to the configured native remote after validation. It does not create remotes or publish Git branches.
 
 ## Repository-layout preflight
 

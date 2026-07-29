@@ -548,6 +548,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "git add migration docs/src/planned-features.md docs/src/features" in migration
     assert "Gate 5 carries those decisions into Beads" in migration
 
+    audit = skill("audit-project")
+    assert "bd dolt push" in audit
+    assert "non-force" in audit
+    assert "does not authorize remote creation" in audit
+    assert "Git branch pushes" in audit
+
     pr_review = skill("gh-pr-review")
     assert "# Purpose" not in pr_review
     assert pr_review.count("uv run <skill-dir>/scripts/fetch_comments.py") >= 3
