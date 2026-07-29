@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.12 — 2026-07-29
+
+### Fixed
+
+- **workflow:** Preserve discovered Beads interactions (`ef00616`)
+
+- - -
+
 ## v0.5.11 — 2026-07-29
 
 ### Fixed
