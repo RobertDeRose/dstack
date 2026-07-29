@@ -2,6 +2,18 @@
 
 - - -
 
+## v0.5.10 — 2026-07-29
+
+### Fixed
+
+- **workflow:** Publish audit-created Beads records (`2382185`)
+- **workflow:** Compact generated migration manifests (`671f09d`)
+- **toolchain:** Satisfy repository fix checks (`c40ce66`)
+- **workflow:** Handle CI Beads initialization edge cases (`2008220`)
+- **toolchain:** Allow technical commit message terms (`0db51dd`)
+
+- - -
+
 ## v0.5.9 — 2026-07-26
 
 ### Fixed
