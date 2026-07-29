@@ -28,6 +28,9 @@ Delivery authority:
 - The workflow never force-pushes, deletes a remote branch, bypasses hooks, or removes a worktree before a confirmed
   merge.
 - Holistic-review subagents are read-only.
+- Merge mode authorizes bounded reconciliation of append-only `.beads/interactions.jsonl` rows for the selected feature
+  molecule and the two interaction-only workflow commits described below. It never authorizes discarding, including, or
+  rewriting unrelated rows or paths.
 
 ## Supported Actions
 
@@ -154,24 +157,67 @@ is confirmed.
 ### `merge`
 
 Read the target repository's `AGENTS.md` merge policy. Resolve the worktree that has `<base-branch>` checked out from
-`git worktree list --porcelain`; do not assume the current directory is the base worktree. Verify its branch and require
-a clean worktree without stashing, deleting, or including unrelated changes:
+`git worktree list --porcelain`; do not assume the current directory is the base worktree. Verify its branch. Require a
+clean worktree without stashing, deleting, or including unrelated changes, with one bounded exception: native Beads may
+have appended tracked interaction evidence for the selected feature molecule in the base worktree.
+
+When the base is dirty only because `.beads/interactions.jsonl` has append-only rows whose `issue_id` is the selected
+root ID or its dotted descendant, preserve those rows on the feature branch before restoring the base copy:
 
 ```bash
-git -C <base-worktree> branch --show-current  # must equal <base-branch>
+uv run <core-dir>/scripts/reconcile-beads-interactions.py prepare \
+  --base-worktree <base-worktree> --feature-worktree <feature-worktree> --root-id <root-id>
+git -C <feature-worktree> add .beads/interactions.jsonl
+cat > /tmp/dstack-close-interactions-message <<'EOF'
+chore(beads): record <slug> close-out state
+
+Beads: <root-id>
+EOF
+git -C <feature-worktree> commit -F /tmp/dstack-close-interactions-message
+uv run <core-dir>/scripts/reconcile-beads-interactions.py finalize \
+  --base-worktree <base-worktree> --feature-worktree <feature-worktree> --root-id <root-id>
+```
+
+Do not make another pre-merge Beads mutation after `prepare`; if one occurs, rerun `prepare`, amend the interaction-only
+commit, and rerun `finalize`. The helper rejects staged changes, non-append edits, malformed or duplicate rows, foreign
+issue IDs, any other dirty path, and restoration before every row is committed byte-for-byte on the feature branch. If
+it rejects the state, stop without restoring anything. All other dirty base states remain blocking.
+
+Then require both worktrees to be clean and merge:
+
+```bash
+test -z "$(git -C <feature-worktree> status --porcelain)"
 test -z "$(git -C <base-worktree> status --porcelain)"
+git -C <base-worktree> branch --show-current  # must equal <base-branch>
 git -C <base-worktree> merge --ff-only feat/<slug>
 git -C <base-worktree> merge-base --is-ancestor feat/<slug> <base-branch>
 ```
 
-If the base worktree is missing, dirty, or on another branch, stop before merging. If `--ff-only` fails, report that the
-feature must be updated or rebased; never fall back to a merge commit. Only an explicit repository policy in `AGENTS.md`
-may replace this default with a merge-commit flow. User selection of `merge` alone does not authorize a merge commit.
+If the base worktree is missing, dirty for another reason, or on another branch, stop before merging. If `--ff-only`
+fails, report that the feature must be updated or rebased; never fall back to a merge commit. Only an explicit
+repository policy in `AGENTS.md` may replace this default with a merge-commit flow. User selection of `merge` alone does
+not authorize a merge commit.
 
-After success, record the fast-forward target (or explicitly authorized merge commit), close delivery, close the feature
-root, verify navigation and the implemented record, and remove the worktree. If `dstack.activeFeature` still equals this
-feature, clear that repository-local setting after confirmed delivery. Never push or delete a remote branch unless
-separately authorized.
+After confirmed merge, record the fast-forward target (or explicitly authorized merge commit), close delivery, and close
+the feature root. These final Beads mutations may append new selected-feature interaction rows in the now-merged base
+worktree. Verify and commit only that evidence:
+
+```bash
+uv run <core-dir>/scripts/reconcile-beads-interactions.py verify-post-merge \
+  --base-worktree <base-worktree> --root-id <root-id>
+git -C <base-worktree> add .beads/interactions.jsonl
+cat > /tmp/dstack-delivery-interactions-message <<'EOF'
+chore(beads): record <slug> delivery
+
+Beads: <root-id>
+EOF
+git -C <base-worktree> commit -F /tmp/dstack-delivery-interactions-message
+```
+
+Skip this post-merge commit when the worktree remains clean. Any rejection or additional dirty path blocks cleanup and
+must be preserved for explicit reconciliation. Verify navigation and the implemented record, then remove the feature
+worktree. If `dstack.activeFeature` still equals this feature, clear that repository-local setting after confirmed
+delivery. Never push or delete a remote branch unless separately authorized.
 
 Return one readiness state: `ready for delivery`, `ready after reconciliation fixes`,
 `blocked by implementation/docs mismatch`, or `blocked by incomplete validation`, together with the canonical feature

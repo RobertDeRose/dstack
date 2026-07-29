@@ -44,6 +44,7 @@ EXPECTED_SKILLS = {
 
 REQUIRED_SKILL_SUPPORT = (
     "skills/dstack-core/references/TRUST-AND-AUTHORITY.md",
+    "skills/dstack-core/scripts/reconcile-beads-interactions.py",
     "skills/dstack-core/scripts/resolve-feature.py",
     "skills/gh-pr-review/scripts/review_state.py",
     "skills/migrate-workflow/references/MIGRATION.md",
@@ -680,6 +681,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Refresh the shared packet only after broad" in normalized_closeout
     assert "distinct uncovered risk or an explicit user request" in normalized_closeout
     assert "AGENTS.md" in closeout
+    assert "reconcile-beads-interactions.py prepare" in closeout
+    assert "reconcile-beads-interactions.py finalize" in closeout
+    assert "reconcile-beads-interactions.py verify-post-merge" in closeout
+    assert "append-only" in closeout
+    assert "selected feature molecule" in closeout
+    assert "chore(beads): record <slug> delivery" in closeout
 
     audit = skill("audit-project")
     assert "Do not report a correction as verified from a pre-fix result" in audit

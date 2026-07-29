@@ -100,7 +100,12 @@ holistic reviewers for delivery and drift. They follow the neutrality, extra-sou
 replacement rules above; fixes resume only the affected reviewer. The workflow then performs an explicit `pr`, `merge`,
 or `ready` action. With no mode, it asks which action to take. Merge mode uses `git merge --ff-only` unless the target
 repository's `AGENTS.md` explicitly permits merge commits; it never falls back to a merge commit after a failed
-fast-forward.
+fast-forward. Native Beads can append selected-feature rows to the tracked `.beads/interactions.jsonl` in the base
+worktree during close-out. Merge mode verifies that this is the only dirty path and that every change is append-only and
+belongs to the selected feature molecule, commits those rows on the feature branch, and restores the base copy only
+after committed preservation. Delivery and root closures happen after the merge; their interaction rows receive a
+separate interaction-only commit on the base branch. Malformed, rewritten, foreign, or mixed dirty state remains
+blocking.
 
 ## Audit
 
