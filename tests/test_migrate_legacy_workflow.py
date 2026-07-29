@@ -501,6 +501,26 @@ def test_scan_is_conservative_and_override_survives_rescan(legacy_project: Path)
 
 
 @pytest.mark.integration
+def test_manifest_writes_use_canonical_compact_json(legacy_project: Path) -> None:
+    manifest_path = legacy_project / "migration/workflow-migration.json"
+
+    run_migrator(legacy_project, "scan", "--write")
+    raw = manifest_path.read_text(encoding="utf-8")
+    assert raw == json.dumps(json.loads(raw), sort_keys=True, separators=(",", ":")) + "\n"
+
+    run_migrator(
+        legacy_project,
+        "classify",
+        "alpha",
+        "completed",
+        "--reason",
+        "Code, tests, docs, and delivery commit were manually verified.",
+    )
+    rewritten = manifest_path.read_text(encoding="utf-8")
+    assert rewritten == json.dumps(json.loads(rewritten), sort_keys=True, separators=(",", ":")) + "\n"
+
+
+@pytest.mark.integration
 def test_prepare_import_and_finalize_are_resumable_and_guarded(
     legacy_project: Path,
     fake_bd_environment: tuple[dict[str, str], Path],

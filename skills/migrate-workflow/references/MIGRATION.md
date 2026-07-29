@@ -177,11 +177,13 @@ same-key collision, and a replacement disposition cannot approve deletion.
 
 ## Artifact lifecycle
 
-Migration treats the manifest, report, baseline, and `migration/legacy-tasks/*.md` as durable committed evidence.
-`migration/template-adoption-candidates/` is temporary and must be removed. A created
-`migration/template-adoption-backup/` defaults to unresolved, including when resuming an older manifest. Record
-`backup-disposition retain|remove --reason <evidence>`; retained evidence must exist, while removed evidence must be
-deleted. Final verification rejects untracked durable artifacts and every inconsistent temporary/conditional state.
+Migration treats the manifest, report, baseline, and `migration/legacy-tasks/*.md` as durable committed evidence. The
+manifest uses deterministic compact JSON to avoid inflating generated evidence past ordinary large-file hooks; the
+Markdown report remains the human-readable view. `migration/template-adoption-candidates/` is temporary and must be
+removed. A created `migration/template-adoption-backup/` defaults to unresolved, including when resuming an older
+manifest. Record `backup-disposition retain|remove --reason <evidence>`; retained evidence must exist, while removed
+evidence must be deleted. Final verification rejects untracked durable artifacts and every inconsistent
+temporary/conditional state.
 
 `finalize` archives legacy task files by default. `--delete-tasks` is the explicit alternative when the user accepts Git
 history as sufficient evidence.

@@ -99,4 +99,5 @@ and graph-integrity boundaries while making one explicit docs exception cover th
 subsequent deletion-oriented correction removed temporary Git initialization, database publication, control mirroring,
 and database-path injection in favor of native Beads initialization, worktree discovery, Git-origin refs, and bootstrap.
 Roadmap-only planned roots now finish their mechanical import without inventing a design and retain the planning note
-required before activation.
+required before activation. Migration manifests now use deterministic compact JSON so large generated histories remain
+subject to the repository's ordinary file-size policy without requiring an exception.

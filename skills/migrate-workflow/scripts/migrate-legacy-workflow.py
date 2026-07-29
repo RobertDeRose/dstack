@@ -233,6 +233,10 @@ def dump_json(path: Path, value: Mapping[str, Any]) -> None:
     write_text(path, json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
+def dump_compact_json(path: Path, value: Mapping[str, Any]) -> None:
+    write_text(path, json.dumps(value, sort_keys=True, separators=(",", ":")))
+
+
 def finding_id(message: str) -> str:
     return hashlib.sha256(message.encode("utf-8")).hexdigest()[:12]
 
@@ -1170,7 +1174,7 @@ def render_report(manifest: Mapping[str, Any]) -> str:
 
 
 def save_manifest_and_report(root: Path, manifest_path: Path, report_path: Path, manifest: Mapping[str, Any]) -> None:
-    dump_json(root / manifest_path, manifest)
+    dump_compact_json(root / manifest_path, manifest)
     write_text(root / report_path, render_report(manifest))
 
 

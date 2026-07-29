@@ -135,8 +135,10 @@ counts for existing, recovered, pending, conflicting, completed, and remaining r
 and dependency reconciliation are independently resumable phases. A roadmap-only planned or deferred feature without a
 design completes after its root state and relationships are durable; planned roots retain a note requiring
 `/plan-features` before activation. Rescans retain global import timestamps, completion state, imported identities, and
-phase progress. Performance acceptance uses a large fixture representative of at least 300 Beads records and proves
-retries perform work proportional to the remaining records rather than the total history.
+phase progress. The generated manifest uses sorted compact JSON while the Markdown report remains human-readable, so
+large resumable histories retain deterministic evidence without requiring a large-file hook exception. Performance
+acceptance uses a large fixture representative of at least 300 Beads records and proves retries perform work
+proportional to the remaining records rather than the total history.
 
 #### Canonical repository identity and adoption
 
