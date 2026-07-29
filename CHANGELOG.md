@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.5.11 — 2026-07-29
+
+### Fixed
+
+- **workflow:** Preserve Beads interactions during delivery (`6499cb9`)
+
+- - -
+
 ## v0.5.10 — 2026-07-29
 
 ### Fixed
