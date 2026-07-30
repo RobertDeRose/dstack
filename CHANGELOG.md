@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.6.2 — 2026-07-30
+
+### Fixed
+
+- **github:** Allow release attestation verification (`0871114`)
+
+- - -
+
 ## v0.6.1 — 2026-07-30
 
 ### Fixed
