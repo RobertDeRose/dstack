@@ -170,5 +170,14 @@ test "$(git config --get dstack.activeFeature || true)" != "<slug>" || \
 
 Return only after the implementation coordinator closes, or when every remaining child is simultaneously blocked on
 explicit user decisions. Report the canonical feature reference and human name, all completed task IDs and commits,
-worktree, changes, documentation, validation, reviews, discovered work, coordinator state, and next lifecycle item. If
-paused for decisions, report the exact blocked children and ask only the next decision question.
+worktree, changes, documentation, validation, reviews, discovered work, coordinator state, and next lifecycle item.
+Always include a `Recommended next step` line:
+
+- when the implementation coordinator closed successfully, recommend `/close-feature <slug>`;
+- when paused for decisions, state that implementation is blocked, name the blocker category, and ask only the next
+  decision question;
+- when blocked by validation, review, environment, dependency, or repository-state issues, state the exact advisement or
+  approval needed before `/implement-feature <slug>` can resume.
+
+Do not end with only a status summary. The recommendation must make clear whether the feature is ready for close-out or
+whether user advisement is needed first.

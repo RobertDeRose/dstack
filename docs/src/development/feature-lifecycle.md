@@ -79,7 +79,8 @@ close the task only after its acceptance criteria pass. Each task gets exactly o
 reviewer. A fresh replacement is allowed only when the original is unavailable or scope materially changes.
 `/implement-feature` then claims the next ready child and continues until the implementation coordinator closes. It
 pauses only when every remaining child is blocked on explicit user decisions; native planned work should never reach
-that state.
+that state. Its final response includes a recommended next step: run `/close-feature <slug>` when implementation is
+complete, or provide the named advisement before resuming `/implement-feature <slug>` when blocked.
 
 Discovered work should retain provenance:
 

@@ -660,6 +660,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Use a fresh replacement only if the original" in normalized_implementation
     assert "distinct uncovered risk or an explicit user request" in normalized_implementation
     assert "specific no-commit justification" in implementation
+    assert "Always include a `Recommended next step` line" in implementation
+    assert "recommend `/close-feature <slug>`" in implementation
+    assert "Do not end with only a status summary" in implementation
     assert "<implementation-epic-id>" not in implementation
     assert "--type <bug|spike|chore|task>" in implementation
     assert "Do not create an implementation `decision`" in implementation
