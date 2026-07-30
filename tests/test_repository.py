@@ -5318,10 +5318,14 @@ def test_migration_question_contract(repository_root: Path) -> None:
     ):
         assert category in normalized
     assert "one decision at a time" in section
+    assert "inspect current reader-facing docs" in normalized
+    assert "recommended answer" in section
+    assert "accept recommendation" in section
     assert "Do not ask the user to inspect internal implementation files" in section
     assert "Do not copy conversational prompt prose into the manifest" in section
     assert skill.count("**Contextual migration questions**") == 2
     assert "Persist only safety/resumability answers" in skill
+    assert "current docs may support recommendations" in skill
     operations = " ".join((repository_root / "docs/src/operations/index.md").read_text(encoding="utf-8").split())
     for phrase in ("one question at a time", "concise decision title", "choices/safe", "consequence of deferral"):
         assert phrase in operations

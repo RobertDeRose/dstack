@@ -62,8 +62,11 @@ hook evaluation needs review; never claim equivalence. See **Baseline interpreta
 
 ## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
-Collect the structured brief before rendering. Reuse only current Copier state; otherwise ask purpose, users, scope,
-boundaries, and kind one at a time using **Contextual migration questions**. Never infer facts from legacy evidence.
+Collect the structured brief before rendering. Reuse current Copier state when present. For each missing value, first
+review current reader-facing docs and repository metadata, then ask purpose, users, scope, boundaries, and kind one at a
+time using **Contextual migration questions** with an evidence-backed recommendation to accept, edit, or defer. Never
+silently infer or persist facts from legacy evidence; current docs may support recommendations, but the user remains the
+authority for the final answer.
 
 The adoption helper updates only dstack-owned framework files, merges marked blocks, and preserves differing
 project-owned files under `migration/template-adoption-candidates/<same-relative-path>`. Review each exact

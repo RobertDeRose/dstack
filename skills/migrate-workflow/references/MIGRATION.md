@@ -190,21 +190,30 @@ history as sufficient evidence.
 
 ## Contextual migration questions
 
+Before asking for a project brief, project kind, feature classification, or missing design intent, inspect current
+reader-facing docs and stable repository metadata first: `README*`, `docs/src/**/*.md`, existing architecture/usage
+pages, package manifests, CLI/service metadata, and current Copier answers when present. Exclude generated migration
+reports, legacy task files, and roadmap/task prose as sole authority. Use those sources to draft a recommended answer
+when they contain relevant evidence. The recommendation is a proposal for user confirmation, not an agent-authored fact.
+
 Ask one decision at a time with this reusable contract:
 
 1. **Decision** — a concise title.
 2. **Why now** — why migration cannot safely continue without it.
-3. **Evidence and uncertainty** — current authoritative facts and what remains unknown.
+3. **Evidence and uncertainty** — current authoritative facts, source paths, the recommended answer, and what remains
+   unknown.
 4. **Controlled behavior** — behavior/files changed by the answer.
-5. **Concrete example** — one valid answer in the current context.
-6. **Choices and safe default** — explicit options and the conservative default, when one exists.
+5. **Concrete example** — one valid answer in the current context, using the recommendation when evidence supports it.
+6. **Choices and safe default** — explicit options and the conservative default, when one exists. Include
+   `accept recommendation`, `edit`, and `defer` when a recommendation is offered.
 7. **Deferral consequence** — exactly what remains blocked if unanswered.
 
 Apply all seven elements to every category: structured brief fields; project kind; feature classification; missing
 design intent; dependency direction/type; hk collision/removal; candidate-file reconciliation; archive deletion or
-backup disposition; and any other explicit policy choice. Do not ask the user to inspect internal implementation files.
-Persist only answers needed for safety or resume (for example, a collision disposition); product intent belongs in the
-design, roadmap, and Beads. Do not copy conversational prompt prose into the manifest.
+backup disposition; and any other explicit policy choice. For safety/resume decisions that cannot be answered from docs,
+ask without inventing a recommendation. Do not ask the user to inspect internal implementation files. Persist only
+answers needed for safety or resume (for example, a collision disposition); product intent belongs in the design,
+roadmap, and Beads. Do not copy conversational prompt prose into the manifest.
 
 ## Verified migration checkpoints
 
@@ -259,10 +268,12 @@ uv run <skill-dir>/scripts/adopt-template.py '<canonical project name>' \
   --json
 ```
 
-Collect missing values from the user one at a time. A legacy `project_description` is not authoritative for any new
-brief field and must not be converted or supplemented with generic defaults. The installed skill defaults to
-`gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies it before Copier runs. If tags cannot be
-discovered, supply an explicitly reviewed revision; never silently use GitHub `HEAD`.
+Collect missing values from the user one at a time using evidence-backed recommendations from current docs when
+available. A legacy `project_description` is not authoritative for any new brief field and must not be converted or
+supplemented with generic defaults, but current reader-facing docs may support a recommendation that the user can accept
+or edit. The installed skill defaults to `gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies
+it before Copier runs. If tags cannot be discovered, supply an explicitly reviewed revision; never silently use GitHub
+`HEAD`.
 
 For a fork, local repository, branch, or commit:
 

@@ -68,14 +68,16 @@ step or changed same-key definition blocks verification until restored or explic
 reason. If the legacy config cannot be evaluated, migration stops for manual inventory confirmation rather than treating
 the generated policy as equivalent. Durable manifests, reports, baselines, and legacy-task archives must be committed;
 temporary candidates must be removed. Conditional adoption backups require an explicit retain/remove disposition.
-Repeated unchanged scans do not churn committed migration evidence. Migration asks one question at a time with a concise
-decision title, why it is needed, current evidence/uncertainty, controlled behavior, a concrete example, choices/safe
-default, and the consequence of deferral. After reconciliation, the rendered project provisioner must install the locked
-tools and Git hooks before an ordinary checkpoint commit. Failures stop with exact reproduction/recovery. A
-user-approved intermediate exception may skip only the strict docs step after migration-mode docs pass and the decision,
-equivalent evidence, and risk are recorded. The exact response `APPROVE HK_SKIP_STEPS=docs` applies to the bounded Gate
-2–4 checkpoints and is not repeatedly requested while migration-mode docs remain error-free. Acknowledgement is
-insufficient, a different exception needs a new decision, and whole-hook bypass is never allowed.
+Repeated unchanged scans do not churn committed migration evidence. For project brief and semantic questions, migration
+reviews current reader-facing docs and repository metadata first, then offers an evidence-backed recommendation for the
+user to accept, edit, or defer. Migration asks one question at a time with a concise decision title, why it is needed,
+current evidence/uncertainty, controlled behavior, a concrete example, choices/safe default, and the consequence of
+deferral. After reconciliation, the rendered project provisioner must install the locked tools and Git hooks before an
+ordinary checkpoint commit. Failures stop with exact reproduction/recovery. A user-approved intermediate exception may
+skip only the strict docs step after migration-mode docs pass and the decision, equivalent evidence, and risk are
+recorded. The exact response `APPROVE HK_SKIP_STEPS=docs` applies to the bounded Gate 2–4 checkpoints and is not
+repeatedly requested while migration-mode docs remain error-free. Acknowledgement is insufficient, a different exception
+needs a new decision, and whole-hook bypass is never allowed.
 
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
 database location/name, project ID, repository root, and issue prefix. Uninitialized migrations use the primary checkout
