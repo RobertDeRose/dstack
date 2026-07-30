@@ -662,6 +662,28 @@ Run repository-native formatting, linting, documentation build, tests, and featu
 record that limitation instead of treating pytest exit code 5 as a failed suite. After any fix, rerun every affected
 check and the final documentation check.
 
+## Delivery and merging
+
+A verified migration branch that is not merged to its selected base is complete but not delivered. After verification
+passes and the migration worktree is clean, inspect `migration/session-authority.json`, report the exact base branch,
+migration branch, head SHA, and merge state, then ask one explicit delivery question:
+
+```text
+Migration verification is complete but the migration is not merged to <base-branch>. Choose one: merge now, create PR,
+leave complete but unmerged.
+```
+
+Do not return a final completion summary before recording one of those choices. If the user selects `merge now`, use a
+clean base-branch worktree, verify the migration head is a fast-forward of the selected base, run
+`git merge --ff-only <migration-head>`, verify the base worktree is clean, and report the resulting base SHA. Never
+create a merge commit or merge into any branch other than the authorized base. If no clean base worktree exists, stop
+with the exact recovery needed instead of merging from the migration worktree.
+
+If the user selects `create PR`, push the migration branch when needed and create or report the PR against the selected
+base branch. If the user selects `leave complete but unmerged`, report that the migration is intentionally complete but
+undelivered and provide the exact later command to merge or open a PR. In all cases, include a `Recommended next step`
+line stating whether the repository is migrated, PR-ready, or intentionally waiting for delivery.
+
 Prefer separate commits for:
 
 1. pre-adoption baseline;

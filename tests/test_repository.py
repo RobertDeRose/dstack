@@ -521,6 +521,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         "## Dependency cycles",
         "## Beads import and recovery",
         "## Verification and completion",
+        "## Delivery and merging",
     ):
         assert heading in migration_reference
     assert "baseline --write" in migration
@@ -548,6 +549,10 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Only migration may retain" in migration
     assert "git add migration docs/src/planned-features.md docs/src/features" in migration
     assert "Gate 5 carries those decisions into Beads" in migration
+    assert "Delivery and merging" in migration
+    assert "merge now, create PR" in migration_reference
+    assert "git merge --ff-only" in migration_reference
+    assert "intentionally complete but" in migration_reference
 
     audit = skill("audit-project")
     assert "bd dolt push" in audit

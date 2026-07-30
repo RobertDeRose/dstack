@@ -190,10 +190,10 @@ bd ready --json
 
 The verifier checks the manifest graph and, with `--beads`, imported root relationships. `bd dep cycles` checks only
 blocking cycles. Run repository-native formatting, linting, docs, tests, and feature checks; no tests is an explicit
-limitation, not a failed suite. See **Verification and completion**.
+limitation, not a failed suite. See **Verification and completion** and **Delivery and merging**.
 
 ## Return
 
-Report authority, template revision, evidence, decisions, checkpoints, Beads/archive validation, and limitations. Quote
-the exact `Migration state:` line from final verification without reinterpretation. If verification fails, report
-`blocked by migration conflict` and its errors.
+Report authority, template revision, evidence, decisions, checkpoints, Beads/archive validation, limitations, and the
+selected delivery action. Quote the exact `Migration state:` line from final verification without reinterpretation. If
+verification fails, report `blocked by migration conflict` and its errors.

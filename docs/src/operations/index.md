@@ -77,7 +77,8 @@ ordinary checkpoint commit. Failures stop with exact reproduction/recovery. A us
 skip only the strict docs step after migration-mode docs pass and the decision, equivalent evidence, and risk are
 recorded. The exact response `APPROVE HK_SKIP_STEPS=docs` applies to the bounded Gate 2–4 checkpoints and is not
 repeatedly requested while migration-mode docs remain error-free. Acknowledgement is insufficient, a different exception
-needs a new decision, and whole-hook bypass is never allowed.
+needs a new decision, and whole-hook bypass is never allowed. After final verification, migration reports that the
+branch is complete but unmerged and asks whether to merge now, create a PR, or leave it complete but undelivered.
 
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
 database location/name, project ID, repository root, and issue prefix. Uninitialized migrations use the primary checkout
