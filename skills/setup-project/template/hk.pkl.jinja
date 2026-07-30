@@ -99,6 +99,16 @@ local harper_commit_message = (Builtins.harper_commit_message) {
     """#
 }
 
+local ruff = (Builtins.ruff) {
+  check = "ruff check --force-exclude --config line-length=120 {{ files }}"
+  fix = "ruff check --force-exclude --config line-length=120 --fix {{ files }}"
+}
+
+local ruff_format = (Builtins.ruff_format) {
+  check_diff = "ruff format --quiet --force-exclude --config line-length=120 --diff {{ files }}"
+  fix = "ruff format --quiet --force-exclude --config line-length=120 {{ files }}"
+}
+
 local linters = new Mapping<String, Step> {
   ["byte_order_marker"] = Builtins.byte_order_marker
   ["check_case_conflict"] = Builtins.check_case_conflict
@@ -130,8 +140,8 @@ local linters = new Mapping<String, Step> {
 [% if repository_layout == 'monorepo' %]
 [% for package in monorepo_packages %]
 [% if 'python' in package.language_profiles %]
-  ["ruff-[[ package.slug ]]"] = (Builtins.ruff) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
-  ["ruff-format-[[ package.slug ]]"] = (Builtins.ruff_format) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
+  ["ruff-[[ package.slug ]]"] = (ruff) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
+  ["ruff-format-[[ package.slug ]]"] = (ruff_format) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
   ["ty-[[ package.slug ]]"] = (Builtins.ty) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
 [% endif %]
 [% if 'typescript' in package.language_profiles %]
@@ -170,8 +180,8 @@ local linters = new Mapping<String, Step> {
 [% endfor %]
 [% else %]
 [% if 'python' in language_profiles %]
-  ["ruff"] = Builtins.ruff
-  ["ruff-format"] = Builtins.ruff_format
+  ["ruff"] = ruff
+  ["ruff-format"] = ruff_format
   ["ty"] = Builtins.ty
 [% endif %]
 [% if 'typescript' in language_profiles %]

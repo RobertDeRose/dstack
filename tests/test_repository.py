@@ -2518,6 +2518,7 @@ def test_generated_language_profiles_end_to_end(
         env=environment,
     )
     module = load_tooling_module(repository_root)
+    assert module.normalize_biome_lock(project, project / "mise.lock") is None
     assert module.normalize_nixfmt_lock(project, project / "mise.lock") is None
     run_command(["mise", "install", "--locked"], cwd=project, env=environment)
     lock = (project / "mise.lock").read_text(encoding="utf-8")

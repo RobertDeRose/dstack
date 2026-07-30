@@ -4,7 +4,7 @@
 # requires-python = ">=3.13"
 # dependencies = []
 # ///
-# ruff: noqa: S607
+# ruff: noqa: S607,RUF100
 """Validate documentation structure for the Beads documentation-first workflow.
 
 Default mode enforces the current workflow. ``--migration-mode`` keeps broken

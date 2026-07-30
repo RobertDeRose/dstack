@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ruff: noqa: S603
+# ruff: noqa: S603,RUF100
 """Resolve and install the generated project's mise tooling without rolling back its scaffold."""
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ INSTALL_COMMAND = ["mise", "install", "--locked"]
 HOOK_COMMAND = ["mise", "x", "--", "hk", "install", "--mise"]
 RERUN_COMMAND = "python3 scripts/setup-tooling.py --json"
 MAX_ERROR_CHARS = 2_000
+BIOME_TOOL = "biome"
 NIXFMT_TOOL = "github:Mic92/nixfmt-rs"
 NIXFMT_UNSUPPORTED_PLATFORM = "macos-x64"
 NIXFMT_SUPPORTED_PLATFORMS = ("linux-x64", "linux-arm64", "macos-arm64")
@@ -80,6 +81,31 @@ def run(command: Sequence[str], project_root: Path, *, config_dir: Path) -> subp
         return subprocess.CompletedProcess(list(command), 127, "", str(exc))
 
 
+def normalize_biome_lock(project_root: Path, lock_path: Path) -> str | None:
+    config_path = project_root / "mise.toml"
+    if not config_path.is_file() or BIOME_TOOL not in config_path.read_text(encoding="utf-8"):
+        return None
+
+    lines = lock_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    updated: list[str] = []
+    in_biome = False
+    changed = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_biome = stripped.startswith(("[[tools.biome]]", "[tools.biome."))
+        if in_biome and stripped == 'provenance = "github-attestations"':
+            changed = True
+            continue
+        updated.append(line)
+
+    if changed:
+        temporary = lock_path.with_suffix(".lock.tmp")
+        temporary.write_text("".join(updated), encoding="utf-8")
+        temporary.replace(lock_path)
+    return None
+
+
 def normalize_nixfmt_lock(project_root: Path, lock_path: Path) -> str | None:
     config_path = project_root / "mise.toml"
     if not config_path.is_file():
@@ -103,7 +129,10 @@ def normalize_nixfmt_lock(project_root: Path, lock_path: Path) -> str | None:
         start = next(index for index, line in enumerate(lines) if line.strip() == unsupported)
     except StopIteration:
         return None
-    end = next((index for index in range(start + 1, len(lines)) if lines[index].startswith("[")), len(lines))
+    end = next(
+        (index for index in range(start + 1, len(lines)) if lines[index].startswith("[")),
+        len(lines),
+    )
     temporary = lock_path.with_suffix(".lock.tmp")
     temporary.write_text("".join(lines[:start] + lines[end:]), encoding="utf-8")
     temporary.replace(lock_path)
@@ -130,7 +159,9 @@ def _provision(project_root: Path, config_dir: Path) -> dict[str, Any]:
         result["lock"] = stage("failed", path="mise.lock", error=error)
         result["recovery"] = [RERUN_COMMAND]
         return result
-    normalization_error = normalize_nixfmt_lock(project_root, lock_path)
+    normalization_error = normalize_biome_lock(project_root, lock_path) or normalize_nixfmt_lock(
+        project_root, lock_path
+    )
     if normalization_error:
         result["lock"] = stage("failed", path="mise.lock", error=normalization_error)
         result["recovery"] = [RERUN_COMMAND]
@@ -164,7 +195,11 @@ def _provision(project_root: Path, config_dir: Path) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--skip", action="store_true", help="Report an explicitly skipped provisioning run.")
+    parser.add_argument(
+        "--skip",
+        action="store_true",
+        help="Report an explicitly skipped provisioning run.",
+    )
     return parser.parse_args()
 
 
