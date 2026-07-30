@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.6.0 — 2026-07-30
+
+### Added
+
+- **workflow:** Recommend migration answers from docs (`82876c5`)
+
+- - -
+
 ## v0.5.12 — 2026-07-29
 
 ### Fixed
