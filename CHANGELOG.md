@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.6.5 — 2026-07-30
+
+### Fixed
+
+- **skill:** Prompt migrate-workflow delivery action (`938340e`)
+
+- - -
+
 ## v0.6.4 — 2026-07-30
 
 ### Fixed
