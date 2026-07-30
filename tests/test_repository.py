@@ -1981,8 +1981,8 @@ def test_python_profile_renders_exact_contract(tagged_template_source: Path, tmp
     assert "aube" not in mise["tools"]
     assert "biome" not in mise["tools"]
     for command in (
-        '["ruff"] = Builtins.ruff',
-        '["ruff-format"] = Builtins.ruff_format',
+        '["ruff"] = ruff',
+        '["ruff-format"] = ruff_format',
         '["ty"] = Builtins.ty',
         "uv run pytest",
     ):
@@ -2014,8 +2014,8 @@ def test_python_profile_renders_exact_contract(tagged_template_source: Path, tmp
 
     run_command(["hk", "check", "-a", "-S", "ruff", "-S", "ruff-format", "-S", "ty"], cwd=project, env=environment)
     check_log = log.read_text(encoding="utf-8")
-    assert "ruff check --force-exclude" in check_log
-    assert "ruff format --quiet --force-exclude --diff" in check_log
+    assert "ruff check --force-exclude --config line-length=120" in check_log
+    assert "ruff format --quiet --force-exclude --config line-length=120 --diff" in check_log
     assert "ty check" in check_log
     assert source.read_bytes() == original
 
@@ -2027,8 +2027,8 @@ def test_python_profile_renders_exact_contract(tagged_template_source: Path, tmp
         env=fix_environment,
     )
     fix_log = log.read_text(encoding="utf-8")
-    assert "ruff check --force-exclude --fix" in fix_log
-    assert "ruff format --quiet --force-exclude" in fix_log
+    assert "ruff check --force-exclude --config line-length=120 --fix" in fix_log
+    assert "ruff format --quiet --force-exclude --config line-length=120" in fix_log
 
     log.write_text("", encoding="utf-8")
     run_command(["hk", "check", "-a", "-S", "pytest"], cwd=project, env=environment)
