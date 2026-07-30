@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.6.1 — 2026-07-30
+
+### Fixed
+
+- **workflow:** Recommend implementation next steps (`19ff6b0`)
+
+- - -
+
 ## v0.6.0 — 2026-07-30
 
 ### Added
