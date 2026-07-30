@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.6.3 — 2026-07-30
+
+### Fixed
+
+- **toolchain:** Normalize Biome lock provenance (`e437fc7`)
+
+- - -
+
 ## v0.6.2 — 2026-07-30
 
 ### Fixed
