@@ -99,14 +99,33 @@ local harper_commit_message = (Builtins.harper_commit_message) {
     """#
 }
 
-local ruff = (Builtins.ruff) {
+local ruff = new Step {
+  glob = List("**/*.py", "**/*.pyi")
   check = "ruff check --force-exclude --config line-length=120 {{ files }}"
   fix = "ruff check --force-exclude --config line-length=120 --fix {{ files }}"
 }
 
-local ruff_format = (Builtins.ruff_format) {
+local ruff_format = new Step {
+  glob = List("**/*.py", "**/*.pyi")
   check_diff = "ruff format --quiet --force-exclude --config line-length=120 --diff {{ files }}"
   fix = "ruff format --quiet --force-exclude --config line-length=120 {{ files }}"
+}
+
+local ty = new Step {
+  glob = List("**/*.py", "**/*.pyi")
+  check = "ty check {{ files }}"
+}
+
+local biome = new Step {
+  glob = List("**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts")
+  check = "biome check --no-errors-on-unmatched {{ files }}"
+  fix = "biome check --write --no-errors-on-unmatched {{ files }}"
+}
+
+local rustfmt = new Step {
+  glob = List("**/*.rs")
+  check = "rustfmt --check --edition 2024 {{ files }}"
+  fix = "rustfmt --edition 2024 {{ files }}"
 }
 
 local linters = new Mapping<String, Step> {
@@ -142,13 +161,13 @@ local linters = new Mapping<String, Step> {
 [% if 'python' in package.language_profiles %]
   ["ruff-[[ package.slug ]]"] = (ruff) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
   ["ruff-format-[[ package.slug ]]"] = (ruff_format) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
-  ["ty-[[ package.slug ]]"] = (Builtins.ty) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
+  ["ty-[[ package.slug ]]"] = (ty) { glob = List("[[ package.path ]]/**/*.py", "[[ package.path ]]/**/*.pyi") }
 [% endif %]
 [% if 'typescript' in package.language_profiles %]
-  ["biome-[[ package.slug ]]"] = (Builtins.biome) { glob = List("[[ package.path ]]/**/*.ts", "[[ package.path ]]/**/*.tsx", "[[ package.path ]]/**/*.mts", "[[ package.path ]]/**/*.cts") }
+  ["biome-[[ package.slug ]]"] = (biome) { glob = List("[[ package.path ]]/**/*.ts", "[[ package.path ]]/**/*.tsx", "[[ package.path ]]/**/*.mts", "[[ package.path ]]/**/*.cts") }
 [% endif %]
 [% if 'rust' in package.language_profiles %]
-  ["rustfmt-[[ package.slug ]]"] = (Builtins.rustfmt) { glob = List("[[ package.path ]]/**/*.rs") }
+  ["rustfmt-[[ package.slug ]]"] = (rustfmt) { glob = List("[[ package.path ]]/**/*.rs") }
 [% endif %]
 [% if 'go' in package.language_profiles %]
   ["goimports-[[ package.slug ]]"] = new Step {
@@ -182,13 +201,13 @@ local linters = new Mapping<String, Step> {
 [% if 'python' in language_profiles %]
   ["ruff"] = ruff
   ["ruff-format"] = ruff_format
-  ["ty"] = Builtins.ty
+  ["ty"] = ty
 [% endif %]
 [% if 'typescript' in language_profiles %]
-  ["biome"] = (Builtins.biome) { glob = List("**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts") }
+  ["biome"] = biome
 [% endif %]
 [% if 'rust' in language_profiles %]
-  ["rustfmt"] = Builtins.rustfmt
+  ["rustfmt"] = rustfmt
 [% endif %]
 [% if 'go' in language_profiles %]
   ["goimports"] = new Step { glob = List("**/*.go"); check = "output=$(goimports -l {{ files }}) && test -z \"$output\""; fix = "goimports -w {{ files }}" }

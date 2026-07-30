@@ -1988,7 +1988,7 @@ def test_python_profile_renders_exact_contract(tagged_template_source: Path, tmp
     for command in (
         '["ruff"] = ruff',
         '["ruff-format"] = ruff_format',
-        '["ty"] = Builtins.ty',
+        '["ty"] = ty',
         "uv run pytest",
     ):
         assert command in hk
@@ -2065,7 +2065,7 @@ def test_typescript_profile_renders_exact_contract(tagged_template_source: Path,
     assert list(mise["tools"]).count("node") == 1
     assert "ruff" not in mise["tools"]
     for command in (
-        '["biome"] = (Builtins.biome)',
+        '["biome"] = biome',
         "aube exec vitest --version",
         "aube exec vitest run",
     ):
@@ -2127,7 +2127,7 @@ def test_rust_profile_renders_exact_contract(tagged_template_source: Path, tmp_p
     assert mise["tools"]["rust"] == {"version": "latest", "components": "rustfmt,clippy"}
     assert "go" not in mise["tools"]
     for command in (
-        '["rustfmt"] = Builtins.rustfmt',
+        '["rustfmt"] = rustfmt',
         "cargo clippy --all-targets --all-features -- -D warnings",
         "cargo test --all-targets --all-features",
     ):
