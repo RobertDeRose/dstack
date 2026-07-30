@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.6.4 — 2026-07-30
+
+### Fixed
+
+- **toolchain:** Align generated Ruff assertions (`7451ad7`)
+
+- - -
+
 ## v0.6.3 — 2026-07-30
 
 ### Fixed
