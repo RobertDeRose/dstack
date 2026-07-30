@@ -7,6 +7,7 @@ on:
     tags:
       - "v*"
 permissions:
+  attestations: read
   contents: read
 jobs:
   skills-cli:

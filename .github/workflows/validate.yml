@@ -3,6 +3,7 @@ on:
   push:
   pull_request:
 permissions:
+  attestations: read
   contents: read
 jobs:
   static:
