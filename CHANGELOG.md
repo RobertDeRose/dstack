@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.6.6 — 2026-07-30
+
+### Fixed
+
+- **profiles:** Render explicit generated check steps (`4b1b236`)
+
+- - -
+
 ## v0.6.5 — 2026-07-30
 
 ### Fixed
