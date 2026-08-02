@@ -698,7 +698,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "chore(beads): record <slug> delivery" in closeout
 
     audit = skill("audit-project")
+    normalized_audit = " ".join(audit.split())
     assert "Do not report a correction as verified from a pre-fix result" in audit
+    assert "Recent commit comparison is required audit evidence" in audit
+    assert "read-only Git inspection" in audit
+    assert "audit state: incomplete" in audit
+    assert "Beads publication success never changes an incomplete audit into a complete one" in normalized_audit
 
     start = skill("start-feature")
     assert "git show-ref --verify --quiet refs/heads/feat/<slug>" in start

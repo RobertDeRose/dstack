@@ -111,7 +111,9 @@ the base branch. Malformed, rewritten, foreign, or mixed dirty state remains blo
 ## Audit
 
 `/audit-project` periodically compares Beads, designs, current docs, implemented-feature records, code, tests, and
-recent commits. Drift becomes linked Beads work rather than an untracked note.
+recent commits. Recent commit comparison is required read-only Git evidence; it does not authorize Git mutations. If the
+execution context denies read-only Git inspection, the audit is explicitly incomplete rather than silently omitting the
+comparison. Drift becomes linked Beads work rather than an untracked note.
 
 ## Skill maintenance
 

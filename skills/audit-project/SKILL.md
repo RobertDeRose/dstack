@@ -44,6 +44,19 @@ tests, configuration, migrations, and commits changed since the previous audit. 
 `migration/workflow-migration.json` exists, include unresolved migration findings and verify no active feature still
 relies on `tasks.md`.
 
+### Git evidence boundary
+
+Recent commit comparison is required audit evidence. Use read-only Git inspection (`git status`, `git log`, `git show`,
+and `git diff`) to identify the comparison range and inspect relevant changes. Do not create commits, switch branches,
+merge, push, rewrite history, or perform any other Git mutation. A `bd prime` message such as
+`Git workflow: stealth mode (no git ops)` does not justify silently omitting this required evidence; it must not be
+conflated with the no-branch-push rule in this skill.
+
+If the execution context genuinely forbids even read-only Git inspection, report `audit state: incomplete` and identify
+Git evidence as a blocking limitation. Do not describe that evidence as merely excluded and do not claim the audit is
+complete. The final report must state either the exact commit range inspected or that the audit is incomplete because
+read-only Git evidence was unavailable.
+
 ## 2. Compare the System
 
 Check for:
@@ -115,4 +128,16 @@ Beads did not change. If no native remote is configured or the push fails, prese
 `audit publication blocked`; do not claim the corrective work is shared.
 
 Return findings ordered by severity, intentional-versus-accidental classification, files and Beads IDs, corrections
-applied, corrective issues created, blocked work, publication evidence, and recommended next action.
+applied, corrective issues created, blocked work, publication evidence, the Git comparison range, and recommended next
+action. Include exactly one explicit status line: `audit state: complete` only when all required evidence was inspected
+and every finding was corrected, linked to a corrective issue, or explicitly accepted as residual risk; otherwise use
+`audit state: incomplete` and name the missing evidence or unresolved work. Beads publication success never changes an
+incomplete audit into a complete one. Use this form for the evidence status:
+
+```text
+Git evidence: compared <base>..<head> with read-only Git inspection.
+Audit state: complete
+```
+
+When Git inspection is unavailable, replace the first line with `Git evidence: unavailable — <reason>` and use
+`Audit state: incomplete`; do not use a sentence saying that comparison was simply excluded.
