@@ -25,16 +25,19 @@ with explicit consent.
 /plan-features
 /start-feature feature-name
 /implement-feature feature-name
+/implement-task task-selector
 /close-feature feature-name
 /audit-project
 ```
 
-Use `bd prime` at session start. Beads owns live readiness and dependencies; `docs/src/planned-features.md` is only the
-human roadmap. When `/audit-project` creates or updates corrective Beads records, it performs one ordinary non-force
-`bd dolt push` to the configured native remote after validation. It does not create remotes or publish Git branches. The
-audit also requires read-only Git history comparison; a `bd prime` stealth-mode message forbids Git mutations, not this
-required evidence. If the execution context denies read-only Git inspection, the result must be reported as
-`audit state: incomplete`, not as a completed audit with Git comparison silently excluded.
+Use `bd prime` at session start. Use `/implement-task <task-selector>` for exactly one standalone executable issue. Use
+`/implement-feature` for reviewed feature children; it continues until the feature implementation coordinator closes.
+Beads owns live readiness and dependencies; `docs/src/planned-features.md` is only the human roadmap. When
+`/audit-project` creates or updates corrective Beads records, it performs one ordinary non-force `bd dolt push` to the
+configured native remote after validation. It does not create remotes or publish Git branches. The audit also requires
+read-only Git history comparison; a `bd prime` stealth-mode message forbids Git mutations, not this required evidence.
+If the execution context denies read-only Git inspection, the result must be reported as `audit state: incomplete`, not
+as a completed audit with Git comparison silently excluded.
 
 ## Repository-layout preflight
 

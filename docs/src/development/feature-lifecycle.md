@@ -82,6 +82,13 @@ pauses only when every remaining child is blocked on explicit user decisions; na
 that state. Its final response includes a recommended next step: run `/close-feature <slug>` when implementation is
 complete, or provide the named advisement before resuming `/implement-feature <slug>` when blocked.
 
+### Standalone tasks
+
+Use `/implement-task <task-selector>` for exactly one open standalone `task`, `bug`, `chore`, `spike`, or `feature`. It
+claims only the selected issue, loads bounded context, validates, runs one fresh reviewer, commits evidence, and closes
+that issue. It does not create feature design or close-out records. A feature epic or child of a `workflow:feature` epic
+must use `/start-feature` or `/implement-feature` instead.
+
 Discovered work should retain provenance:
 
 ```bash

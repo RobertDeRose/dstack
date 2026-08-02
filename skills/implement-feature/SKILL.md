@@ -10,7 +10,9 @@ allowed-tools: Read Glob Grep Edit Write Bash Task AskUserQuestion
 
 Use this skill after `/start-feature` closes `spec-reconcile`. Accept the same human feature selectors as
 `/start-feature`. Beads selects executable work; `design.md` supplies intended behavior and design constraints. Resolve
-`<core-dir>` as the installed `../dstack-core` skill directory.
+`<core-dir>` as the installed `../dstack-core` skill directory. If the supplied selector resolves to a standalone
+`task`, `bug`, `chore`, `spike`, or `feature` rather than a child of a reviewed `workflow:feature` epic, stop before
+claiming it and recommend `/implement-task <human task selector>`.
 
 ## Execution
 

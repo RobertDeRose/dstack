@@ -18,3 +18,6 @@ calling skill remains responsible for its workflow-specific authority and comple
 `<core-dir>/scripts/resolve-feature.py` resolves feature epics through Beads by canonical slug, exact or unique human
 name, or ID. Use `--next` to select the next ready feature epic. Workflow commands should expose the canonical `<slug>`
 reference and retain the Beads ID only for mutations and audit evidence.
+
+Standalone executable issues use `/implement-task <task-selector>`. It processes exactly one open `task`, `bug`,
+`chore`, `spike`, or standalone `feature`; feature epics and their descendants remain owned by the feature lifecycle.

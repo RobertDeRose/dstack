@@ -20,6 +20,7 @@ Available skills:
 - `plan-features`
 - `start-feature`
 - `implement-feature`
+- `implement-task`
 - `close-feature`
 - `audit-project`
 - `migrate-workflow`
@@ -30,4 +31,5 @@ Skills CLI installs the complete runtime surface recursively.
 
 `setup-project` is new-project only. Existing Copier-managed repositories route to `update-project` after explicit
 approval; legacy repositories route through `migrate-workflow`. Features are represented by one Beads epic/molecule with
-lifecycle and implementation tasks beneath it and are selected by number, slug, or human name.
+lifecycle and implementation tasks beneath it and are selected by number, slug, or human name. Standalone Beads `task`,
+`bug`, `chore`, `spike`, and `feature` issues are executed one at a time with `implement-task`.

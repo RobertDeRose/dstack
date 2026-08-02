@@ -34,6 +34,7 @@ EXPECTED_SKILLS = {
     "dstack-core",
     "close-feature",
     "implement-feature",
+    "implement-task",
     "migrate-workflow",
     "plan-features",
     "gh-pr-review",
@@ -705,8 +706,16 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "audit state: incomplete" in audit
     assert "Beads publication success never changes an incomplete audit into a complete one" in normalized_audit
 
+    task = skill("implement-task")
+    assert "exactly one standalone executable Beads issue" in task
+    assert "bd update <issue-id> --claim" in task
+    assert "Launch exactly one fresh, read-only reviewer" in task
+    assert "Never close another issue" in task
+    assert "/implement-feature <feature-slug>" in task
+
     start = skill("start-feature")
     assert "git show-ref --verify --quiet refs/heads/feat/<slug>" in start
+    assert "/implement-task <human task selector>" in start
     assert "Branch exists but has no worktree" in start
     assert "<implementation-epic-id>" not in start
     assert "resolve-feature.py" in start
@@ -743,7 +752,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "the lock is stale or missing" in normalized_update
     assert "a changed path is unclassified" in normalized_update
 
-    for name in ("audit-project", "close-feature", "implement-feature", "gh-pr-review"):
+    for name in ("audit-project", "close-feature", "implement-feature", "implement-task", "gh-pr-review"):
         description = str(load_skill_manifest(repository_root / "skills" / name / "SKILL.md")["description"])
         assert "Use when" in description, f"Missing invocation trigger in {name}: {description}"
 
@@ -751,6 +760,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         "audit-project",
         "close-feature",
         "gh-pr-review",
+        "implement-task",
         "migrate-workflow",
         "setup-project",
         "update-project",
@@ -769,7 +779,15 @@ def test_required_skill_support_exists(repository_root: Path, relative_path: str
 def test_security_sensitive_skills_require_shared_contract(repository_root: Path) -> None:
     contract = repository_root / "skills/dstack-core/references/TRUST-AND-AUTHORITY.md"
     assert contract.is_file()
-    names = ("audit-project", "close-feature", "gh-pr-review", "migrate-workflow", "setup-project", "update-project")
+    names = (
+        "audit-project",
+        "close-feature",
+        "gh-pr-review",
+        "implement-task",
+        "migrate-workflow",
+        "setup-project",
+        "update-project",
+    )
     for name in names:
         text = (repository_root / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
         assert "../dstack-core/references/TRUST-AND-AUTHORITY.md" in text

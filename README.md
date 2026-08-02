@@ -100,13 +100,15 @@ archive on a validation failure, or overwrite project documentation.
 /plan-features
 /start-feature feature-name
 /implement-feature feature-name
+/implement-task task-selector
 /close-feature feature-name
 /audit-project
 ```
 
 Each feature is one Beads epic, or a molecule when created from the lifecycle formula. Lifecycle gates and bounded
-implementation tasks live below that epic. Human workflow commands use the stable `<slug>` or feature name; opaque Beads
-IDs remain internal mutation and audit references.
+implementation tasks live below that epic. Standalone executable issues use `/implement-task task-selector` and are
+processed one at a time. Human workflow commands use the stable `<slug>` or human task selector; opaque Beads IDs remain
+internal mutation and audit references.
 
 ## Commit scopes
 

@@ -83,6 +83,7 @@ The workflow commands are:
 /plan-features
 /start-feature
 /implement-feature
+/implement-task
 /close-feature
 /audit-project
 ```
@@ -112,8 +113,9 @@ aggregate. Labels and metadata, not extra issue types, own workflow phase and re
 For each implementation task: claim it atomically, load only relevant design and documentation context, implement the
 smallest complete scope, update documentation in the same work unit, validate, run an isolated
 quality/security/maintainability review, record evidence, commit with the Beads ID, and close only after acceptance
-criteria pass. Use focused checks while iterating. Run the full repository suite once after review fixes stabilize and
-before commit; rerun it only after a failure or a later broad/shared fix.
+criteria pass. Use `/implement-task` for one standalone executable issue; `/implement-feature` continues through a
+reviewed feature's children. Use focused checks while iterating. Run the full repository suite once after review fixes
+stabilize and before commit; rerun it only after a failure or a later broad/shared fix.
 
 ### Review orchestration
 

@@ -39,7 +39,10 @@ bd show <resolved-root-id> --json
 
 The selected issue must be an epic carrying `workflow:feature`. Read root metadata first. It should provide feature
 slug, human name, paths, base branch, implementation repository/path, workflow kind, and lifecycle IDs. Stop on an
-ambiguous selector and show the resolver's human-readable candidates; do not guess or append characters to an ID.
+ambiguous selector and show the resolver's human-readable candidates; do not guess or append characters to an ID. If the
+selector resolves to a standalone `task`, `bug`, `chore`, `spike`, or `feature`, make no state, branch, or worktree
+change and recommend `/implement-task <human task selector>` instead. Do not route a standalone issue through feature
+planning merely to satisfy this command.
 
 When the selected root is roadmap-only and lacks `design.md` or lifecycle metadata, do not stop or ask the user to
 invoke another skill. Run the bounded single-feature planning phase from `/plan-features`: resolve only the missing
