@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.6.7 — 2026-08-02
+
+### Fixed
+
+- **workflow:** Require audit Git evidence status (`9eafa5b`)
+
+- - -
+
 ## v0.6.6 — 2026-07-30
 
 ### Fixed
