@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.7.0 — 2026-08-02
+
+### Added
+
+- **skill:** Add standalone task execution workflow (`571df55`)
+
+- - -
+
 ## v0.6.7 — 2026-08-02
 
 ### Fixed

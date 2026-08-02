@@ -2,7 +2,7 @@
 name: plan-features
 description: Turn an idea or existing project plan into interactive feature designs, a concise human roadmap, project documentation architecture, and an executable Beads dependency graph.
 metadata:
-  version: "0.6.7"
+  version: "0.7.0"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 ---
 
