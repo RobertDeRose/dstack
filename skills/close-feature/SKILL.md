@@ -201,9 +201,55 @@ fails, report that the feature must be updated or rebased; never fall back to a 
 repository policy in `AGENTS.md` may replace this default with a merge-commit flow. User selection of `merge` alone does
 not authorize a merge commit.
 
-After confirmed merge, record the fast-forward target (or explicitly authorized merge commit), close delivery, and close
-the feature root. These final Beads mutations may append new selected-feature interaction rows in the now-merged base
-worktree. Verify and commit only that evidence:
+After confirmed merge, capture the actual delivery target but do not close the delivery/root or remove either worktree:
+
+```bash
+merge_sha=$(git -C <base-worktree> rev-parse <base-branch>)
+```
+
+### Mandatory post-merge finalizer
+
+The merge is not close-out completion until this finalizer passes. In the merged base worktree:
+
+1. Update `docs/src/features/<slug>/index.md` with `Status: delivered` and `Merge commit: <merge_sha>` (annotated as
+   fast-forward or merge commit), and record the actual pull request or `not created` value.
+2. Reconcile every path listed in the record's `Documentation Updated` section, every reader-facing page changed by the
+   feature, `docs/src/planned-features.md`, `docs/src/features/index.md`, and `docs/src/SUMMARY.md`. Remove stale claims
+   that the merge or delivery is pending; do not ask a holistic reviewer to discover this mechanically detectable drift.
+3. Run the semantic delivery verifier against the record and every reconciled reader-facing path:
+
+```bash
+uv run <core-dir>/scripts/verify-delivery-state.py \
+  --base-worktree <base-worktree> --base-branch <base-branch> \
+  --record docs/src/features/<slug>/index.md --merge-sha <merge_sha> \
+  --path <reader-facing-path> --path <another-reader-facing-path>
+```
+
+The verifier must confirm that the recorded merge SHA is an ancestor of the base branch, the record says delivered and
+contains that SHA, and no supplied path contains a stale pending/unmerged delivery claim. Then rerun
+`uv run scripts/check-docs.py` and every formatter, linter, build, test, and feature-specific check affected by the
+finalizer. Never reuse pre-merge validation for these edits.
+
+Stage only the finalizer paths, commit them on the merged base branch, and record both SHAs in Beads:
+
+```bash
+git -C <base-worktree> add docs/src/features/<slug>/index.md <reader-facing-paths> \
+  docs/src/planned-features.md docs/src/features/index.md docs/src/SUMMARY.md
+cat > /tmp/dstack-post-merge-finalizer-message <<'EOF'
+docs(<scope>): reconcile <slug> delivery state
+
+Beads: <root-id>
+EOF
+git -C <base-worktree> commit -F /tmp/dstack-post-merge-finalizer-message
+finalizer_sha=$(git -C <base-worktree> rev-parse HEAD)
+bd update <delivery-id> --append-notes "Post-merge delivery SHA: ${merge_sha}; finalizer commit: ${finalizer_sha}"
+```
+
+If the verifier, documentation check, finalizer commit, or Beads evidence update fails, report
+`blocked by post-merge reconciliation` and preserve both worktrees. Do not close delivery/root or claim completion.
+
+Only after the finalizer passes, close delivery and the feature root. These final Beads mutations may append new
+selected-feature interaction rows in the now-merged base worktree. Verify and commit only that evidence:
 
 ```bash
 uv run <core-dir>/scripts/reconcile-beads-interactions.py verify-post-merge \
@@ -217,10 +263,11 @@ EOF
 git -C <base-worktree> commit -F /tmp/dstack-delivery-interactions-message
 ```
 
-Skip this post-merge commit when the worktree remains clean. Any rejection or additional dirty path blocks cleanup and
-must be preserved for explicit reconciliation. Verify navigation and the implemented record, then remove the feature
-worktree. If `dstack.activeFeature` still equals this feature, clear that repository-local setting after confirmed
-delivery. Never push or delete a remote branch unless separately authorized.
+Skip this post-merge commit when the worktree remains clean. Rerun the verifier after any interaction commit and before
+cleanup. Any rejection or additional dirty path blocks cleanup and must be preserved for explicit reconciliation. Verify
+navigation and the implemented record, then remove the feature worktree. If `dstack.activeFeature` still equals this
+feature, clear that repository-local setting after confirmed delivery. Never push or delete a remote branch unless
+separately authorized.
 
 Return one readiness state: `ready for delivery`, `ready after reconciliation fixes`,
 `blocked by implementation/docs mismatch`, or `blocked by incomplete validation`, together with the canonical feature

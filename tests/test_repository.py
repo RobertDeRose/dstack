@@ -47,6 +47,7 @@ REQUIRED_SKILL_SUPPORT = (
     "skills/dstack-core/references/TRUST-AND-AUTHORITY.md",
     "skills/dstack-core/scripts/reconcile-beads-interactions.py",
     "skills/dstack-core/scripts/resolve-feature.py",
+    "skills/dstack-core/scripts/verify-delivery-state.py",
     "skills/gh-pr-review/scripts/review_state.py",
     "skills/migrate-workflow/references/MIGRATION.md",
     "skills/migrate-workflow/scripts/adopt-template.py",
@@ -693,6 +694,10 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "reconcile-beads-interactions.py prepare" in closeout
     assert "reconcile-beads-interactions.py finalize" in closeout
     assert "reconcile-beads-interactions.py verify-post-merge" in closeout
+    assert "verify-delivery-state.py" in closeout
+    assert "Mandatory post-merge finalizer" in closeout
+    assert "Post-merge delivery SHA" in closeout
+    assert "blocked by post-merge reconciliation" in closeout
     assert "append-only" in closeout
     assert "selected feature molecule" in closeout
     assert "`discovered-from` or `parent-child`" in closeout

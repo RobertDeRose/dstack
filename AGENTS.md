@@ -180,4 +180,8 @@ merge
 leave ready with no delivery action
 ```
 
+After a confirmed merge, `/close-feature` must update the implemented record with the actual merge SHA, reconcile
+reader-facing delivery claims, run the semantic delivery verifier and documentation checks, commit that post-merge
+finalizer, and only then close delivery/root state. Stale merge-pending claims block completion.
+
 <!-- END DSTACK WORKFLOW -->

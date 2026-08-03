@@ -113,7 +113,10 @@ worktree during close-out. Merge mode verifies that this is the only dirty path 
 belongs to the selected feature molecule or separately identified work with a `discovered-from` or `parent-child` path
 back to it, commits those rows on the feature branch, and restores the base copy only after committed preservation.
 Delivery and root closures happen after the merge; their interaction rows receive a separate interaction-only commit on
-the base branch. Malformed, rewritten, foreign, or mixed dirty state remains blocking.
+the base branch. Malformed, rewritten, foreign, or mixed dirty state remains blocking. After a confirmed merge,
+`/close-feature` runs a mandatory post-merge finalizer: it records the actual merge SHA in the implemented record,
+reconciles reader-facing delivery claims, runs `verify-delivery-state.py` and documentation validation, commits the
+finalizer, and only then closes delivery and the feature root. A stale merge-pending claim blocks completion.
 
 ## Audit
 

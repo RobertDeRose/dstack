@@ -21,3 +21,5 @@ reference and retain the Beads ID only for mutations and audit evidence.
 
 Standalone executable issues use `/implement-task <task-selector>`. It processes exactly one open `task`, `bug`,
 `chore`, `spike`, or standalone `feature`; feature epics and their descendants remain owned by the feature lifecycle.
+`verify-delivery-state.py` provides the post-merge semantic check used by `/close-feature` to reconcile delivery claims
+with the actual base-branch commit.
