@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.7.1 — 2026-08-03
+
+### Fixed
+
+- **workflow:** Finalize feature delivery after merge (`b93edfd`)
+
+- - -
+
 ## v0.7.0 — 2026-08-02
 
 ### Added
