@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.8.0 — 2026-08-03
+
+### Added
+
+- **skill:** Collect optional analysis findings (`2f84923`)
+
+- - -
+
 ## v0.7.1 — 2026-08-03
 
 ### Fixed
