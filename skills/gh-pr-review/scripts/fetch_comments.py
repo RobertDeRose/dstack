@@ -5,7 +5,7 @@
 # dependencies = [
 # ]
 # ///
-# ruff: noqa: S603
+# ruff: noqa: EM101, S603
 
 """
 Fetch all PR conversation comments + reviews + review threads (inline threads)
@@ -13,8 +13,8 @@ for the PR associated with the current git branch, by shelling out to:
 
   gh api graphql
 
-Filters out review threads that are resolved or outdated.
-Skips status comments and reviews from known bots (e.g., github-actions, sonarqube).
+Filters out review threads that are resolved or outdated. Skips status comments and reviews from known bots;
+SonarQube Cloud content is retained only when the optional `sonar` CLI is installed and a SonarQube comment is present.
 
 Requires:
   - `gh auth login` already set up
@@ -28,9 +28,11 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 
 QUERY = """\
@@ -108,31 +110,70 @@ query(
 # GitHub Apps usually append '[bot]' to their logins, while some integrations are standard users.
 MAX_BODY_CHARS = 20_000
 MAX_DIAGNOSTIC_CHARS = 2_000
+SONAR_PAGE_SIZE = 500
 CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+SONAR_URL = re.compile(r"https://(?:www\.)?sonarcloud\.io/[^\s<>()]+", re.IGNORECASE)
+SONAR_PROJECT_KEY = re.compile(r"[A-Za-z0-9_.:-]+")
 ALLOWED_COMMANDS = {
     ("gh", "auth"),
     ("gh", "pr"),
     ("gh", "api"),
+    ("sonar", "list"),
 }
 
 
-BOT_BLOCKLIST = {
-    "github-actions",
-    "github-actions[bot]",
+SONAR_BOT_LOGINS = {
     "sonarqube",
     "sonarcloud",
     "sonarcloud[bot]",
     "sonarqubecloud",
+    "sonarqubecloud[bot]",
+}
+BOT_BLOCKLIST = {
+    "github-actions",
+    "github-actions[bot]",
+    *SONAR_BOT_LOGINS,
 }
 
 
-def _is_bot(node: dict[str, Any]) -> bool:
-    """Helper to check if a comment/review author is a known bot."""
+def _author_login(node: dict[str, Any]) -> str:
     author = node.get("author")
     if not author:  # Handle deleted accounts/ghost users
+        return ""
+    return str(author.get("login", "")).lower()
+
+
+def _is_sonar_bot(node: dict[str, Any]) -> bool:
+    return _author_login(node) in SONAR_BOT_LOGINS
+
+
+def _is_bot(node: dict[str, Any], *, allow_sonar: bool = False) -> bool:
+    """Check if a comment/review author is a known bot."""
+    login = _author_login(node)
+    if allow_sonar and login in SONAR_BOT_LOGINS:
         return False
-    login = author.get("login", "").lower()
     return login in BOT_BLOCKLIST
+
+
+def _sonar_cli_available() -> bool:
+    return shutil.which("sonar") is not None
+
+
+def _sonar_project_keys(node: dict[str, Any]) -> set[str]:
+    """Extract safe SonarCloud project keys from links in a Sonar bot comment."""
+    if not _is_sonar_bot(node):
+        return set()
+    keys: set[str] = set()
+    for raw_url in SONAR_URL.findall(str(node.get("body") or "")):
+        try:
+            query = parse_qs(urlsplit(raw_url.rstrip(".,;")).query)
+        except ValueError:
+            continue
+        for parameter in ("id", "project"):
+            for value in query.get(parameter, []):
+                if SONAR_PROJECT_KEY.fullmatch(value):
+                    keys.add(value)
+    return keys
 
 
 def _clean_external_text(value: object, *, limit: int = MAX_BODY_CHARS) -> tuple[str, bool]:
@@ -214,6 +255,61 @@ def get_current_pr_ref() -> tuple[str, str, int]:
     return owner, repo, number
 
 
+def _collect_sonar_issues(number: int, project_keys: list[str]) -> list[dict[str, Any]]:
+    if not project_keys:
+        raise RuntimeError("could not derive a SonarQube project key from the SonarCloud comment")
+
+    normalized: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for project in project_keys:
+        page = 1
+        while True:
+            payload = _run_json(
+                [
+                    "sonar",
+                    "list",
+                    "issues",
+                    "--project",
+                    project,
+                    "--pull-request",
+                    str(number),
+                    "--page-size",
+                    str(SONAR_PAGE_SIZE),
+                    "--page",
+                    str(page),
+                    "--format",
+                    "json",
+                ]
+            )
+            issues = payload.get("issues")
+            if not isinstance(issues, list):
+                raise RuntimeError("SonarQube CLI returned JSON without an issues array")
+            for issue in issues:
+                if not isinstance(issue, dict):
+                    raise RuntimeError("SonarQube CLI returned a non-object issue")
+                key = str(issue.get("key") or "")
+                identity = (project, key)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                item = dict(issue)
+                body, truncated = _clean_external_text(item.get("message"))
+                item["body"] = body
+                item["body_truncated"] = truncated
+                item["project"] = project
+                item["trust"] = "untrusted_external_content"
+                item["source_type"] = "sonarqube_issue"
+                normalized.append(item)
+
+            paging = payload.get("paging")
+            total = paging.get("total") if isinstance(paging, dict) else None
+            has_next_page = isinstance(paging, dict) and paging.get("hasNextPage") is True
+            if not has_next_page and not (isinstance(total, int) and page * SONAR_PAGE_SIZE < total):
+                break
+            page += 1
+    return normalized
+
+
 def gh_api_graphql(
     owner: str,
     repo: str,
@@ -249,6 +345,10 @@ def fetch_all(owner: str, repo: str, number: int) -> dict[str, Any]:
     conversation_comments: list[dict[str, Any]] = []
     reviews: list[dict[str, Any]] = []
     review_threads: list[dict[str, Any]] = []
+    sonar_issues: list[dict[str, Any]] = []
+    sonar_cli_available = _sonar_cli_available()
+    sonar_comment_detected = False
+    sonar_project_keys: set[str] = set()
 
     comments_cursor: str | None = None
     reviews_cursor: str | None = None
@@ -285,29 +385,44 @@ def fetch_all(owner: str, repo: str, number: int) -> dict[str, Any]:
         r = pr["reviews"]
         t = pr["reviewThreads"]
 
-        # 1. Filter Top-level Conversation Comments
+        # 1. Filter top-level conversation comments. SonarCloud content is retained only when
+        # the optional SonarQube CLI is installed; the CLI is also used to fetch structured issues below.
         for comment in c.get("nodes") or []:
-            if not _is_bot(comment):
-                conversation_comments.append(_normalize_external_node(comment, source_type="pull_request_comment"))
+            if _is_sonar_bot(comment):
+                sonar_comment_detected = True
+                sonar_project_keys.update(_sonar_project_keys(comment))
+            if not _is_bot(comment, allow_sonar=sonar_cli_available):
+                source_type = "sonarqube_comment" if _is_sonar_bot(comment) else "pull_request_comment"
+                conversation_comments.append(_normalize_external_node(comment, source_type=source_type))
 
-        # 2. Filter Review Submissions
+        # 2. Filter review submissions
         for review in r.get("nodes") or []:
-            if not _is_bot(review):
-                reviews.append(_normalize_external_node(review, source_type="review_submission"))
+            if _is_sonar_bot(review):
+                sonar_comment_detected = True
+                sonar_project_keys.update(_sonar_project_keys(review))
+            if not _is_bot(review, allow_sonar=sonar_cli_available):
+                source_type = "sonarqube_review" if _is_sonar_bot(review) else "review_submission"
+                reviews.append(_normalize_external_node(review, source_type=source_type))
 
-        # 3. Filter Inline Review Threads (and internal thread comments)
+        # 3. Filter inline review threads (and internal thread comments)
         for thread in t.get("nodes") or []:
-            # First, enforce your existing criteria (must be active and up-to-date)
+            thread_comments = thread.get("comments", {}).get("nodes") or []
+            for message in thread_comments:
+                if _is_sonar_bot(message):
+                    sonar_comment_detected = True
+                    sonar_project_keys.update(_sonar_project_keys(message))
+            # Keep only active, up-to-date threads.
             if not thread.get("isResolved") and not thread.get("isOutdated"):
-                # Filter out specific individual comments within this thread if written by a bot
-                thread_comments = thread.get("comments", {}).get("nodes") or []
                 filtered_comments = [
-                    _normalize_external_node(msg, source_type="inline_review_comment")
+                    _normalize_external_node(
+                        msg,
+                        source_type=("sonarqube_inline_comment" if _is_sonar_bot(msg) else "inline_review_comment"),
+                    )
                     for msg in thread_comments
-                    if not _is_bot(msg)
+                    if not _is_bot(msg, allow_sonar=sonar_cli_available)
                 ]
 
-                # Only keep the thread if it still contains valid human comments
+                # Only keep the thread if it still contains valid comments.
                 if filtered_comments:
                     normalized_thread = dict(thread)
                     path_text, path_truncated = _clean_external_text(normalized_thread.get("path"), limit=1_024)
@@ -325,6 +440,42 @@ def fetch_all(owner: str, repo: str, number: int) -> dict[str, Any]:
         if not (comments_cursor or reviews_cursor or threads_cursor):
             break
 
+    sonar_status: dict[str, Any]
+    if not sonar_comment_detected:
+        sonar_status = {
+            "status": "not_detected",
+            "cli_available": sonar_cli_available,
+            "issue_count": 0,
+            "projects": [],
+        }
+    elif not sonar_cli_available:
+        sonar_status = {
+            "status": "skipped",
+            "cli_available": False,
+            "issue_count": 0,
+            "projects": sorted(sonar_project_keys),
+            "reason": "sonar CLI is not installed",
+        }
+    else:
+        try:
+            sonar_issues = _collect_sonar_issues(number, sorted(sonar_project_keys))
+        except RuntimeError as error:
+            detail, _ = _clean_external_text(str(error), limit=MAX_DIAGNOSTIC_CHARS)
+            sonar_status = {
+                "status": "error",
+                "cli_available": True,
+                "issue_count": 0,
+                "projects": sorted(sonar_project_keys),
+                "error": detail,
+            }
+        else:
+            sonar_status = {
+                "status": "loaded",
+                "cli_available": True,
+                "issue_count": len(sonar_issues),
+                "projects": sorted(sonar_project_keys),
+            }
+
     assert pr_meta is not None
     return {
         "schema_version": 1,
@@ -333,6 +484,8 @@ def fetch_all(owner: str, repo: str, number: int) -> dict[str, Any]:
         "conversation_comments": conversation_comments,
         "reviews": reviews,
         "review_threads": review_threads,
+        "sonarqube": sonar_status,
+        "sonar_issues": sonar_issues,
     }
 
 

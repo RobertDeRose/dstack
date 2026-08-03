@@ -572,6 +572,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "intermediate workflow pause" in pr_review
     assert "successful copilot review request" in " ".join(pr_review.casefold().split())
     assert "scripts/review_state.py" in pr_review
+    assert "SonarQube" in pr_review
+    assert "sonar list issues" in pr_review
+    assert "sonar_issues" in pr_review
 
     setup = skill("setup-project")
     assert "command -v bd" in setup
@@ -5949,8 +5952,126 @@ def test_review_collector_sanitizes_untrusted_content(repository_root: Path) -> 
     assert "\x00" not in normalized["body"]
     assert normalized["body_truncated"] is True
     assert normalized["trust"] == "untrusted_external_content"
+    assert (
+        module._sonar_project_keys(
+            {
+                "author": {"login": "sonarqubecloud"},
+                "body": "https://sonarcloud.io/summary/new_code?id=bad%20project",
+            }
+        )
+        == set()
+    )
     with pytest.raises(RuntimeError, match="Unsupported command"):
         module._validate_command(["bash", "-lc", "echo unsafe"])
+
+
+def test_review_collector_fetches_sonarqube_issues_when_cli_is_available(
+    repository_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = repository_root / "skills/gh-pr-review/scripts/fetch_comments.py"
+    spec = importlib.util.spec_from_file_location("dstack_fetch_comments_sonar", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    sonar_comment = {
+        "id": "sonar-comment",
+        "body": "SonarCloud analysis: https://sonarcloud.io/summary/new_code?id=example_project&pullRequest=42",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "author": {"login": "sonarqubecloud"},
+    }
+    page = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "number": 42,
+                    "url": "https://github.com/example/repo/pull/42",
+                    "title": "Example",
+                    "state": "OPEN",
+                    "comments": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [sonar_comment]},
+                    "reviews": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []},
+                    "reviewThreads": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []},
+                }
+            }
+        }
+    }
+    sonar_calls: list[list[str]] = []
+
+    monkeypatch.setattr(module, "gh_api_graphql", lambda **_: page)
+    monkeypatch.setattr(module, "_sonar_cli_available", lambda: True)
+
+    def fake_run_json(command: list[str], stdin: str | None = None) -> dict[str, Any]:
+        del stdin
+        sonar_calls.append(command)
+        return {"issues": [{"key": "AX-1", "message": "Fix this issue", "severity": "MAJOR"}]}
+
+    monkeypatch.setattr(module, "_run_json", fake_run_json)
+
+    result = module.fetch_all("example", "repo", 42)
+
+    assert result["conversation_comments"][0]["author"]["login"] == "sonarqubecloud"
+    assert result["conversation_comments"][0]["source_type"] == "sonarqube_comment"
+    assert result["sonarqube"]["status"] == "loaded"
+    assert result["sonar_issues"][0]["key"] == "AX-1"
+    assert result["sonar_issues"][0]["source_type"] == "sonarqube_issue"
+    assert sonar_calls == [
+        [
+            "sonar",
+            "list",
+            "issues",
+            "--project",
+            "example_project",
+            "--pull-request",
+            "42",
+            "--page-size",
+            "500",
+            "--page",
+            "1",
+            "--format",
+            "json",
+        ]
+    ]
+
+
+def test_review_collector_keeps_sonarqube_content_disabled_without_cli(
+    repository_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = repository_root / "skills/gh-pr-review/scripts/fetch_comments.py"
+    spec = importlib.util.spec_from_file_location("dstack_fetch_comments_no_sonar", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    page = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "number": 42,
+                    "url": "https://github.com/example/repo/pull/42",
+                    "title": "Example",
+                    "state": "OPEN",
+                    "comments": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [{"author": {"login": "sonarqubecloud"}, "body": "SonarCloud analysis."}],
+                    },
+                    "reviews": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []},
+                    "reviewThreads": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []},
+                }
+            }
+        }
+    }
+
+    monkeypatch.setattr(module, "gh_api_graphql", lambda **_: page)
+    monkeypatch.setattr(module, "_sonar_cli_available", lambda: False)
+
+    result = module.fetch_all("example", "repo", 42)
+
+    assert result["conversation_comments"] == []
+    assert result["sonar_issues"] == []
+    assert result["sonarqube"]["status"] == "skipped"
 
 
 def test_migrator_is_owned_only_by_migration_skill(repository_root: Path) -> None:

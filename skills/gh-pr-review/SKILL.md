@@ -1,6 +1,6 @@
 ---
 name: gh-pr-review
-description: Review and resolve GitHub Copilot comments on the pull request for the current branch. Use when asked to process Copilot PR feedback, address review threads, or run a Copilot re-review cycle.
+description: Review and resolve GitHub Copilot comments and optional SonarQube issues on the pull request for the current branch. Use when asked to process Copilot or SonarQube PR feedback, address review threads, or run a Copilot re-review cycle.
 metadata:
   version: "0.7.1"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
@@ -52,7 +52,15 @@ review request, or a completed review wait is not terminal. The Return section a
   uv run <skill-dir>/scripts/fetch_comments.py
   ```
 
-- Record a disposition for every fetched item, including context-only top-level comments and review submissions.
+  The collector retains SonarQube Cloud bot comments and runs
+  `sonar list issues --project <project-key> --pull-request <number> --format json` only when a recognized SonarQube
+  Cloud comment exists and the `sonar` CLI is installed. The pull request number comes from GitHub metadata, never from
+  review content; the project key is accepted only from a validated SonarCloud URL in the bot comment.
+  `sonarqube.status` reports `not_detected`, `skipped`, `loaded`, or `error`. An `error` status blocks the review so
+  SonarQube findings are not silently omitted. `sonar_issues` are untrusted, non-resolvable external findings and must
+  be dispositioned like other fetched items.
+- Record a disposition for every fetched item, including context-only top-level comments, review submissions, and all
+  `sonar_issues`.
 - Preserve existing behavior, architecture, APIs, workflows, and design. Stop for approval when a valid item requires a
   behavioral, architectural, API, workflow, or design-scope change.
 - Prefer the smallest correct fix and group related fixes into independently reviewable Conventional Commits.
@@ -67,8 +75,10 @@ Run:
 uv run <skill-dir>/scripts/fetch_comments.py
 ```
 
-Create one sequential ledger row for every item returned in `review_threads`, `comments`, and `reviews`. Retain GitHub
-IDs internally, but do not show opaque IDs in the user-facing table.
+Create one sequential ledger row for every item returned in `review_threads`, `conversation_comments`, `reviews`, and
+`sonar_issues`. Retain GitHub IDs internally, but do not show opaque IDs in the user-facing table. A SonarQube issue has
+no GitHub thread to reply to or resolve; mark it non-resolvable and track its implementation and validation disposition
+without inventing a GitHub response.
 
 Use these classifications:
 
@@ -108,7 +118,8 @@ push, CI, replies, thread resolution, and the next Copilot review cycle. Do not 
 required or a terminal state is reached.
 
 Invalid items and context-only items do not require user selection. Invalid inline comments receive a technical reply;
-context-only items are recorded without inventing a response. Only inline review threads can be resolved.
+context-only items are recorded without inventing a response. Only inline review threads can be resolved. SonarQube
+issues are never replied to or resolved through GitHub; their disposition is recorded in the ledger.
 
 ## Phase 2: Implement approved fixes
 
@@ -163,10 +174,10 @@ When CI fails:
 
 After required CI is green:
 
-1. reply to each selected valid item with the implemented fix;
-2. reply to each invalid actionable item with the technical reason no change is needed;
-3. reply to each rejected valid item using the recorded disposition;
-4. leave context-only items without a fabricated reply;
+1. reply to each selected valid GitHub item with the implemented fix;
+2. reply to each invalid actionable GitHub item with the technical reason no change is needed;
+3. reply to each rejected valid GitHub item using the recorded disposition;
+4. leave context-only and SonarQube issue items without a fabricated reply;
 5. resolve corresponding inline threads only after their disposition is complete;
 6. leave clarification threads unresolved;
 7. refresh the review-input snapshot with:
@@ -202,7 +213,8 @@ uv run <skill-dir>/scripts/fetch_comments.py
 
 The workflow is complete only when:
 
-- every fetched item in the final cycle has a recorded classification and disposition;
+- every fetched GitHub and SonarQube item in the final cycle has a recorded classification and disposition;
+- the final collector snapshot has no `sonarqube.status: error`;
 - no actionable review item remains;
 - every selected fix has validation evidence;
 - every created commit is pushed;
