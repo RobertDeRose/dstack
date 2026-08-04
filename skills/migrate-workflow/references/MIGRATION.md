@@ -96,27 +96,36 @@ Statuses mean:
 - `unavailable`: a complete bounded scan confirmed no pre-adoption documentation capability;
 - `no_tests`: a complete bounded scan confirmed no tests, or every selected test partition proved zero tests.
 
-Before staging, inspect the artifacts and run the existing policy against their exact paths:
+Before staging, inspect all three checkpoint artifacts. If the legacy repository has a runnable project-local hk policy
+and hook routing, run the existing policy against their exact paths:
 
 ```bash
+git diff --no-index /dev/null migration/session-authority.json || true
 git diff --no-index /dev/null migration/baseline.json || true
 git diff --no-index /dev/null migration/baseline.md || true
-HK_FIX=0 mise x -- hk run pre-commit migration/baseline.json migration/baseline.md
+HK_FIX=0 mise x -- hk run pre-commit migration/session-authority.json migration/baseline.json migration/baseline.md
 ```
 
-A validation failure leaves the artifacts untracked. Fix and rerun, or discard only those two files. After validation,
-stage only the baseline files, inspect the staged diff, and make an ordinary verified commit as distinct actions:
+If no runnable project-local hk policy/tooling exists, do not ask the user to install `hk`, invoke
+`confirm-hk-inventory`, or use `--allow-dirty` solely to cross the baseline gate. The baseline's explicit `Hk: absent`
+or `manual_confirmation_required` status records the limitation; defer policy execution and equivalence claims until
+Copier adoption provisions the project tooling. This is not a hook exception because no existing policy is being
+bypassed. If a project-local policy/toolchain exists but validation fails, stop and resolve that failure instead.
+
+A validation failure leaves the generated artifacts untracked. Fix and rerun, or discard only those three paths. After
+validation—or immediately in the no-policy branch—stage all three, inspect the staged diff, and make an ordinary
+verified commit as distinct actions:
 
 ```bash
-git add migration/baseline.json migration/baseline.md
-git diff --cached -- migration/baseline.json migration/baseline.md
+git add migration/session-authority.json migration/baseline.json migration/baseline.md
+git diff --cached -- migration/session-authority.json migration/baseline.json migration/baseline.md
 git commit -m "chore: record pre-migration baseline"
 ```
 
 If staging or commit fails, preserve the artifacts, unstage them with
-`git restore --staged migration/baseline.json migration/baseline.md`, fix, revalidate, and retry. Never bypass commit
-verification or a whole hook. Because `adopt-template.py` requires a clean worktree, complete this commit before
-adoption. Do not use `--allow-dirty` merely to bypass the checkpoint.
+`git restore --staged migration/session-authority.json migration/baseline.json migration/baseline.md`, fix, revalidate,
+and retry. Never bypass commit verification or a whole hook. Because `adopt-template.py` requires a clean worktree,
+complete this commit before adoption. Do not use `--allow-dirty` merely to bypass the checkpoint.
 
 For interrupted baseline recovery, put the complete corrected partition arguments in one repeatable command. Run it
 first as preview and then as write, for example:
@@ -222,8 +231,14 @@ After baseline capture and conflict-free candidate reconciliation, run the rende
 one shared temporary `MISE_CONFIG_DIR`, excludes caller global overrides, removes that directory on exit, and reports
 only `python3 scripts/setup-tooling.py --json` as recovery. On failure, enter **tooling provisioning blocked**: preserve
 the reconciled worktree, fix the reported stage, and rerun that exact command. Do not introduce a second installer.
-Verify `pkl eval hk.pkl`, repository-local Git hook routing, and `mise x -- hk run pre-commit -a -P` before staging the
-adoption checkpoint.
+After provisioning, run the deferred baseline policy over the committed authority and baseline artifacts:
+
+```bash
+HK_FIX=0 mise x -- hk run pre-commit migration/session-authority.json migration/baseline.json migration/baseline.md
+```
+
+Then verify `pkl eval hk.pkl`, repository-local Git hook routing, and `mise x -- hk run pre-commit -a -P` before staging
+the adoption checkpoint. This post-adoption validation is required even when the pre-adoption policy was absent.
 
 Use an ordinary `git commit` so configured hooks are authoritative. If it fails, preserve the worktree and report the
 named hook/step, the exact commit or `mise x -- hk run <hook>` reproduction, and corrective recovery. Never bypass all

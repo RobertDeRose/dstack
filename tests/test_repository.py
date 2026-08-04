@@ -527,8 +527,20 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     ):
         assert heading in migration_reference
     assert "baseline --write" in migration
+    baseline_gate = migration.split("## Gate 2:", 1)[0]
+    gate_two = migration.split("## Gate 2:", 1)[1].split("## Gate 3:", 1)[0]
+    assert "defer policy execution; this is not a hook exception" in baseline_gate
+    assert "Do not ask the user to install `hk`" in baseline_gate
+    assert "python3 scripts/setup-tooling.py --json" in gate_two
+    assert "post-adoption" in gate_two
     assert 'git diff --cached --quiet || git commit -m "chore: record pre-migration baseline"' not in migration
-    assert "git add migration/baseline.json migration/baseline.md" in migration_reference
+    assert (
+        "git add migration/session-authority.json migration/baseline.json migration/baseline.md" in migration_reference
+    )
+    assert (
+        "HK_FIX=0 mise x -- hk run pre-commit migration/session-authority.json migration/baseline.json "
+        "migration/baseline.md" in migration_reference
+    )
     assert 'git commit -m "chore: record pre-migration baseline"' in migration_reference
     assert 'git diff --cached --quiet || git commit -m "chore: record workflow migration plan"' in migration
     assert migration.count('test -z "$(git status --porcelain)"') >= 3

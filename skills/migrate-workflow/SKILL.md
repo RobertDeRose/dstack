@@ -52,13 +52,14 @@ baseline checkpoint. Keep these boundaries:
 
 1. Run `uv run <skill-dir>/scripts/migrate-legacy-workflow.py baseline` for a non-executing, non-writing inventory.
 2. Review the evidence and explicitly supply every partition; rerun preview until `write_eligible` is true.
-3. Run `baseline --write` with those exact reviewed arguments; inspect both artifacts and run
-   `HK_FIX=0 mise x -- hk run pre-commit migration/baseline.json migration/baseline.md`.
-4. After validation, stage the files, inspect `git diff --cached`, and run an ordinary verified commit separately.
+3. Run `baseline --write` with those exact reviewed arguments; inspect both artifacts. If no runnable project-local hk
+   policy/tooling exists, record its explicit `Hk` limitation and defer policy execution; this is not a hook exception.
+   Do not ask the user to install `hk` or pass `--allow-dirty` solely to cross Gate 1; otherwise run the exact hook on
+   all three checkpoint paths.
+4. Stage all three paths, inspect `git diff --cached`, and run an ordinary verified commit separately.
 
-Never combine write, staging, and commit or bypass the whole hook. Revise unresolved partitions and rerun preview. Fix
-or discard only the generated artifacts; after a staged failure, unstage those exact paths before retrying. Stop when
-hook evaluation needs review; never claim equivalence. See **Baseline interpretation** for the full procedure.
+Never combine write, staging, and commit or bypass the whole hook. Revise unresolved partitions; stop when existing hook
+evaluation needs review; never claim equivalence. See **Baseline interpretation** for the full procedure.
 
 ## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
@@ -69,9 +70,8 @@ defer. Never silently persist legacy-derived facts; current docs may support rec
 The adoption helper updates only dstack-owned framework files, merges marked blocks, and preserves differing
 project-owned files under `migration/template-adoption-candidates/<same-relative-path>`. Review each exact
 `manual_merge` with **Template source and revision**; preserve baseline hooks through **Additive hk reconciliation**;
-resolve candidates and backup lifecycle; never replace project documentation wholesale. Require successful project-local
-provisioning, Pkl evaluation, hook routing, and pre-commit plan. See **Artifact lifecycle** and
-**Verified migration checkpoints**.
+resolve candidates and backup lifecycle; never replace project documentation wholesale. After post-adoption
+reconciliation, run `python3 scripts/setup-tooling.py --json`, require success; verify Pkl, hooks, and pre-commit.
 
 Validate migration-mode docs, format, stage, and use an ordinary verified commit. Only the exact user response
 `APPROVE HK_SKIP_STEPS=docs` authorizes a docs-only exception. Record it once; that approval remains valid for the Gate
