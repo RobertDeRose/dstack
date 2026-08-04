@@ -135,7 +135,9 @@ append the durable `Review state:` record defined by the installed dstack-core `
 reviewer session, packet identity/digest, reviewed commit/diff boundary, and disposition. Do not launch fresh follow-up
 reviewers unless the original cannot be resumed or the fix materially changes the review scope. Give a replacement the
 original packet identity, findings ledger, resolutions, and post-review diff, and record why resumption was unavailable.
-Refresh the shared packet only after broad design, architecture, task-graph, or documentation-structure changes.
+Refresh the shared packet only after broad design, architecture, task-graph, or documentation-structure changes. A
+material finding that remains unresolved in the same domain for two consecutive review rounds is a convergence stop:
+record `redesign_required`, do not launch another reviewer, and return to specification redesign or decomposition.
 
 ### Execution efficiency
 

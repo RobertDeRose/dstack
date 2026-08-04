@@ -156,9 +156,12 @@ bd update <review-task-id> --append-notes "<findings and resolution>"
 ```
 
 Review is complete when all four review beads contain independently produced evidence, findings, and dispositions. If
-reconciliation changes a reviewed domain, resume only its original reviewer and run ID. Refresh the shared packet only
-after broad design, architecture, task-graph, or documentation-structure changes. Launch a fresh replacement only when
-the original cannot be resumed or the fix materially changes that role's scope; provide the original packet, finding,
+reconciliation changes a reviewed domain, resume only its original reviewer and run ID. Before launching another review
+round, apply the convergence threshold in `../dstack-core/references/REVIEW-STATE.md`: two unresolved review rounds in
+the same domain require redesign or decomposition. Do not launch another reviewer while that threshold is active; keep
+or reopen `spec-reconcile` and return to the design-question/decomposition phase. Refresh the shared packet only after
+broad design, architecture, task-graph, or documentation-structure changes. Launch a fresh replacement only when the
+original cannot be resumed or the fix materially changes that role's scope; provide the original packet, finding,
 resolution, and post-review diff.
 
 ## 5. Reconcile the Specification

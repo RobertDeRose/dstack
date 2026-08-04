@@ -59,7 +59,9 @@ when it is insufficient. Every review bead persists the durable `Review state:` 
 disposition. Do not add confidence reviewers without a distinct uncovered risk or user request. Fix verification resumes
 only affected reviewers and their run IDs; fresh replacements are used only when an original is unavailable or the scope
 materially changes, and receive the original evidence, findings, resolutions, and post-review diff. Refresh a shared
-packet only after broad design, architecture, task-graph, or documentation-structure changes.
+packet only after broad design, architecture, task-graph, or documentation-structure changes. Two unresolved review
+rounds in the same domain are a convergence stop: record `redesign_required`, do not launch another reviewer, and return
+through specification redesign or decomposition before creating a new packet.
 
 It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes
 `spec-reconcile` only when implementation can proceed without inventing intent. A successful start records the canonical

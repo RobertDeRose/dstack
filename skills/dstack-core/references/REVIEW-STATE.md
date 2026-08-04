@@ -9,7 +9,7 @@ launching its reviewer and after every material transition.
 Append one single-line JSON record to the review bead's notes with the `Review state:` prefix:
 
 ```text
-Review state: {"schema":"dstack.review-state.v1","run_id":"run-...","reviewer_session_id":"session-...","packet_id":"packet-...","packet_path":"/ephemeral/...","packet_digest":"sha256:...","reviewed_commit":"<sha>","reviewed_diff_base":"<sha>","reviewed_diff_digest":"sha256:...","status":"active","disposition":"pending","replacement_reason":null,"supersedes_run_id":null,"unavailable_reason":null}
+Review state: {"schema":"dstack.review-state.v1","run_id":"run-...","reviewer_session_id":"session-...","packet_id":"packet-...","packet_path":"/ephemeral/...","packet_digest":"sha256:...","reviewed_commit":"<sha>","reviewed_diff_base":"<sha>","reviewed_diff_digest":"sha256:...","review_round":1,"finding_domains":["architecture"],"status":"active","disposition":"pending","replacement_reason":null,"supersedes_run_id":null,"unavailable_reason":null}
 ```
 
 Required fields are:
@@ -19,14 +19,31 @@ Required fields are:
 - `reviewer_session_id`: identifier supplied by the reviewer harness;
 - `packet_id`, `packet_path`, and `packet_digest`: packet identity, ephemeral location, and content digest;
 - `reviewed_commit`, `reviewed_diff_base`, and `reviewed_diff_digest`: exact reviewed source boundary;
-- `status`: `active`, `findings`, `verified`, `unavailable`, or `replaced`;
-- `disposition`: `pending`, `changes_required`, `approved`, or `replaced`;
+- `review_round`: positive integer for the current review/reconciliation round;
+- `finding_domains`: stable lower-case domain identifiers for the current findings;
+- `status`: `active`, `findings`, `verified`, `unavailable`, `replaced`, or `redesign_required`;
+- `disposition`: `pending`, `changes_required`, `approved`, `replaced`, or `redesign_required`;
 - `replacement_reason`, `supersedes_run_id`, and `unavailable_reason`: explicit values when applicable, otherwise
   `null`.
 
 The last `Review state:` line is the canonical current state. Earlier records remain append-only audit history and must
 not be interpreted as current findings or approval. A later state for the same `run_id` resumes the original reviewer
 against a new reviewed commit or diff boundary.
+
+## Convergence threshold
+
+A review round is one review run followed by its reconciliation and verification attempt. The controller must preserve
+stable domain identifiers in `finding_domains`; do not compare free-form prose or reviewer wording. An unresolved
+material finding is a finding whose current disposition remains `changes_required` after the round. Before launching
+another role reviewer, inspect the current state and ledger:
+
+- If two unresolved review rounds in the same domain are consecutive, append `status: redesign_required` and
+  `disposition: redesign_required` to the affected review bead(s), preserving the domain and round numbers.
+- Do not launch another reviewer while the threshold is active. Keep or reopen `spec-reconcile` and route the feature to
+  the design-question or decomposition phase; do not silently patch the same boundary again.
+- After a new design/decomposition boundary is committed, start a new packet and review round. The prior run remains
+  audit history and does not carry approval into the redesigned boundary.
+- Findings in unrelated domains, or a resolved round between two findings, do not trigger this threshold.
 
 ## Required lifecycle
 

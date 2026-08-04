@@ -579,6 +579,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         "packet_path",
         "reviewed_commit",
         "reviewed_diff_base",
+        "review_round",
+        "finding_domains",
         "disposition",
         "replacement_reason",
         "supersedes_run_id",
@@ -587,6 +589,13 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "last `review state:` line is the canonical current state" in normalized_review_state.casefold()
     assert "prior findings ledger and resolutions" in normalized_review_state
     assert "unavailable" in review_state
+    assert "redesign_required" in review_state
+    assert "two unresolved review rounds in the same domain" in normalized_review_state
+    start = skill("start-feature")
+    normalized_start = " ".join(start.split())
+    assert "two unresolved review rounds in the same domain" in normalized_start
+    assert "do not launch another reviewer" in normalized_start.casefold()
+    assert "spec-reconcile" in normalized_start
     for name in ("start-feature", "implement-feature", "implement-task", "close-feature"):
         assert "REVIEW-STATE.md" in skill(name)
 
