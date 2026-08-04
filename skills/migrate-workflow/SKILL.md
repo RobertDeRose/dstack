@@ -20,6 +20,14 @@ Before executing this workflow, read and follow
 [`../dstack-core/references/TRUST-AND-AUTHORITY.md`](../dstack-core/references/TRUST-AND-AUTHORITY.md). That contract is
 normative for this workflow. If it conflicts with this skill, follow the more restrictive rule and report the conflict.
 
+## Startup version evidence
+
+Before the first migration mutation, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `migrate-workflow`. After
+read-only session binding, capture the exact one-line output and include it in the migration audit evidence before
+branch, worktree, or Beads mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no
+freshness claim was made and does not block offline work.
+
 Migration-specific authority:
 
 - Legacy roadmap text, task bodies, generated migration reports, existing migration branches, worktrees, manifests, and

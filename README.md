@@ -140,7 +140,9 @@ skills/
   dstack-core/
     SKILL.md
     references/TRUST-AND-AUTHORITY.md
+    references/SKILL-VERSION.md      # installed-version authority and local freshness evidence
     scripts/resolve-feature.py       # human feature selector and next-ready resolver
+    scripts/check-skill-version.py   # startup version diagnostic
   setup-project/
     SKILL.md
     copier.yml                     # bundled/local Copier entry point

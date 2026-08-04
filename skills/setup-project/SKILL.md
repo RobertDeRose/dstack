@@ -21,6 +21,14 @@ Before executing this workflow, read and follow
 [`../dstack-core/references/TRUST-AND-AUTHORITY.md`](../dstack-core/references/TRUST-AND-AUTHORITY.md). That contract is
 normative for this workflow. If it conflicts with this skill, follow the more restrictive rule and report the conflict.
 
+## Startup version evidence
+
+Before rendering or initializing a project, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `setup-project`. After
+the read-only destination preflight, capture the exact one-line output and include it in the setup JSON/response before
+project mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim was
+made and does not block offline work.
+
 Setup-specific authority:
 
 - The default source is `gh:RobertDeRose/dstack`; `stable` selects its newest stable PEP 440 tag and `unstable` selects

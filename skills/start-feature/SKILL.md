@@ -13,6 +13,14 @@ name fragment, or Beads ID. It owns bounded promotion of roadmap-only migrated r
 activation, and implementation-readiness reconciliation. Resolve `<core-dir>` as the installed `../dstack-core` skill
 directory.
 
+## Startup version evidence
+
+Before branch, worktree, Beads, or file mutation, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `start-feature`. After
+read-only feature resolution, capture the exact one-line output and append it to the selected root's Beads notes before
+activation. A `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim was made and
+does not block offline work.
+
 ## Execution
 
 ## 1. Resolve Feature Context

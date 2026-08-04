@@ -18,6 +18,14 @@ Before executing this workflow, read and follow
 [`../dstack-core/references/TRUST-AND-AUTHORITY.md`](../dstack-core/references/TRUST-AND-AUTHORITY.md). That contract is
 normative for this workflow. If it conflicts with this skill, follow the more restrictive rule and report the conflict.
 
+## Startup version evidence
+
+Before the first workflow mutation, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `close-feature`. After
+read-only feature resolution, capture the exact one-line output and append it to the selected root's Beads notes before
+reconciliation or delivery mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no
+freshness claim was made and does not block offline work.
+
 Delivery authority:
 
 - Invocation authorizes local reconciliation, validation, workflow commits, and Beads updates for the selected feature.

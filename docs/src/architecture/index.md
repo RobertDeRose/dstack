@@ -78,6 +78,8 @@ verification compares the exact recursive archive and current feature/design/tas
 - Feature implementation cannot become ready before specification reconciliation.
 - Reader documentation must stand alone rather than embedding internal designs or legacy task files.
 - Delivery follows documentation reconciliation, validation, and independent drift/delivery reviews.
+- Installed skill metadata is execution authority; startup records its version and compares only against trustworthy
+  local canonical evidence.
 
 ## Update flow
 

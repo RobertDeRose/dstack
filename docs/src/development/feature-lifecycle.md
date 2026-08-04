@@ -21,6 +21,13 @@ bd ready --type epic --label workflow:feature --json --limit 0
 bd ready --json
 ```
 
+## Executing skill version
+
+Each workflow records the installed skill's frontmatter `metadata.version` before its first mutation. When a local
+canonical dstack checkout is available, startup compares that version and records the exact `Skill version evidence:`
+line. A stale installed skill warns with `npx skills update`; unavailable canonical evidence reports that no freshness
+claim was made and does not block offline work. The installed skill remains execution authority.
+
 ## Plan
 
 `/plan-features` asks design-changing questions, defines the documentation architecture, creates slug-named feature

@@ -17,6 +17,14 @@ Before executing this workflow, read and follow
 [`../dstack-core/references/TRUST-AND-AUTHORITY.md`](../dstack-core/references/TRUST-AND-AUTHORITY.md). That contract is
 normative for this workflow. If it conflicts with this skill, follow the more restrictive rule and report the conflict.
 
+## Startup version evidence
+
+Before the first workflow mutation, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `audit-project`. After
+read-only inventory work, capture the exact one-line output and record it in the audit evidence before any correction. A
+`stale` result warns with `npx skills update`; `unavailable` records that no freshness claim was made and does not block
+offline work.
+
 Audit-specific authority:
 
 - Automatic corrections are limited to unambiguous local documentation, navigation, and workflow-state reconciliation.

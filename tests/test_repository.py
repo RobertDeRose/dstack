@@ -516,7 +516,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     migration_reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(
         encoding="utf-8"
     )
-    assert len(migration.splitlines()) < 200
+    assert len(migration.splitlines()) < 210
     assert "references/MIGRATION.md" in migration
     for heading in (
         "## Baseline interpretation",
@@ -628,6 +628,32 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "REVIEW-STATE.md" in skill(name)
         assert "REVIEW-FINDINGS.md" in skill(name)
 
+    skill_version_reference = (repository_root / "skills/dstack-core/references/SKILL-VERSION.md").read_text(
+        encoding="utf-8"
+    )
+    assert "dstack.skill-version.v1" in skill_version_reference
+    assert "metadata.version" in skill_version_reference
+    assert "DSTACK_CANONICAL_ROOT" in skill_version_reference
+    assert "npx skills update" in skill_version_reference
+    assert "invalid-installed" in skill_version_reference
+    for name in (
+        "audit-project",
+        "close-feature",
+        "gh-pr-review",
+        "implement-feature",
+        "implement-task",
+        "migrate-workflow",
+        "plan-features",
+        "setup-project",
+        "start-feature",
+        "update-project",
+    ):
+        workflow = skill(name)
+        assert "SKILL-VERSION.md" in workflow
+        assert "exact one-line output" in workflow
+        assert "npx skills update" in workflow
+        assert "unavailable" in workflow
+
     audit = skill("audit-project")
     assert "bd dolt push" in audit
     assert "non-force" in audit
@@ -695,6 +721,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "prefer a Markdown `-` list with one idea per item" in normalized_agents
         assert "Use prose when sequence, causality, or rationale" in normalized_agents
         assert "cohesion checkpoint after each child" in normalized_agents
+        assert "executing skill version" in normalized_agents
+        assert "dstack-core evidence contract" in normalized_agents
         assert "normal feature planning" in normalized_agents
         assert "incoherent coordinator" in normalized_agents
     root_agents = (repository_root / "AGENTS.md").read_text(encoding="utf-8")
@@ -861,6 +889,11 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "dependent feature epics" in lifecycle
         assert "incoherent coordinator" in lifecycle
         assert "if no independent value or review boundary is found, continue" in lifecycle.casefold()
+        assert "executing skill version" in lifecycle.casefold()
+        assert "metadata.version" in lifecycle
+        assert "Skill version evidence:" in lifecycle
+        assert "npx skills update" in lifecycle
+        assert "no freshness claim" in lifecycle
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update

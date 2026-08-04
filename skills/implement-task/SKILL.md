@@ -21,6 +21,14 @@ Before executing this workflow, read and follow
 [`../dstack-core/references/TRUST-AND-AUTHORITY.md`](../dstack-core/references/TRUST-AND-AUTHORITY.md). That contract is
 normative for this workflow. If it conflicts with this skill, follow the more restrictive rule and report the conflict.
 
+## Startup version evidence
+
+Before claiming or mutating the issue, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `implement-task`. After
+read-only selector and readiness checks, capture the exact one-line output and append it to the selected issue's Beads
+notes before the claim. A `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim
+was made and does not block offline work.
+
 ## 1. Resolve and claim exactly one issue
 
 Require a task selector: an exact Beads ID, exact title, or unique human title fragment. Resolve it before making any

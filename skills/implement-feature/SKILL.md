@@ -14,6 +14,14 @@ Use this skill after `/start-feature` closes `spec-reconcile`. Accept the same h
 `task`, `bug`, `chore`, `spike`, or `feature` rather than a child of a reviewed `workflow:feature` epic, stop before
 claiming it and recommend `/implement-task <human task selector>`.
 
+## Startup version evidence
+
+Before claiming a child or mutating the feature, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `implement-feature`.
+After read-only feature resolution, capture the exact one-line output and append it to the selected root or child Beads
+notes before the claim. A `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim
+was made and does not block offline work.
+
 ## Execution
 
 ## 1. Load Minimal Context

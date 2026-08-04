@@ -14,6 +14,9 @@ Review orchestration uses [`references/REVIEW-STATE.md`](references/REVIEW-STATE
 packet/source boundaries, resumption, and replacement evidence, and
 [`references/REVIEW-FINDINGS.md`](references/REVIEW-FINDINGS.md) for current finding dispositions.
 
+Lifecycle startup uses [`references/SKILL-VERSION.md`](references/SKILL-VERSION.md) to record the executing installed
+skill version and compare it with trustworthy local canonical evidence before mutation.
+
 Before executing a dstack workflow that links to a reference in this directory, read that reference completely. The
 calling skill remains responsible for its workflow-specific authority and completion rules.
 

@@ -21,6 +21,14 @@ Before executing this workflow, read and follow
 [`../dstack-core/references/TRUST-AND-AUTHORITY.md`](../dstack-core/references/TRUST-AND-AUTHORITY.md). That contract is
 normative for this workflow. If it conflicts with this skill, follow the more restrictive rule and report the conflict.
 
+## Startup version evidence
+
+Before applying an update or migration, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `update-project`. After
+the read-only preflight, capture the exact one-line output and include it in the update/migration JSON or response
+before mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim was made
+and does not block offline work.
+
 Update-specific authority:
 
 - Invocation authorizes preflight inspection. It authorizes a local Copier update and dedicated reconciliation commit

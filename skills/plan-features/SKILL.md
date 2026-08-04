@@ -12,6 +12,14 @@ Use this skill to take project intent from discussion to durable design and orde
 state. `design.md` owns detailed feature intent. `planned-features.md` remains a concise human roadmap. Resolve
 `<core-dir>` as the installed `../dstack-core` skill directory so feature selection uses its deterministic resolver.
 
+## Startup version evidence
+
+Before creating or updating project planning state, follow
+[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `plan-features`. After
+read-only project inspection, capture the exact one-line output and include it in the planning response or selected
+Beads/design evidence before mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no
+freshness claim was made and does not block offline work.
+
 ## Inputs
 
 Use the user's request together with:
