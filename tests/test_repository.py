@@ -749,6 +749,13 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "<implementation-epic-id>" not in implementation
     assert "--type <bug|spike|chore|task>" in implementation
     assert "Do not create an implementation `decision`" in implementation
+    assert "boundedness check" in normalized_implementation
+    assert "one independently reviewable behavior" in normalized_implementation
+    assert "one primary owner" in normalized_implementation
+    assert "one practical commit boundary" in normalized_implementation
+    assert "before mutating code" in normalized_implementation.casefold()
+    assert "return the task to specification reconciliation" in normalized_implementation
+    assert "Character counts are warning signals" in normalized_implementation
 
     closeout = skill("close-feature")
     normalized_closeout = " ".join(closeout.split())
@@ -821,7 +828,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "read extra source" in lifecycle
         assert "confidence reviewers" in lifecycle
         assert "Refresh a shared packet only after broad" in lifecycle
-        assert "original is unavailable or" in lifecycle
+        assert "original is unavailable" in lifecycle
+        assert "material scope changes invalidate" in lifecycle
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update

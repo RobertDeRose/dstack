@@ -63,6 +63,12 @@ Legacy `tasks.md` files are migration input only. Never use them as live task st
 
 ## 2. Implement the Bounded Outcome
 
+Before mutating code, run a semantic boundedness check against the selected child and reviewed design. The child must
+identify one independently reviewable behavior, one primary owner, and one practical commit boundary. Character counts
+are warning signals only, not correctness limits. If the child combines independent outcomes, ownership boundaries,
+documentation sets, or commit boundaries, do not write code: record the planning defect, reopen `spec-reconcile`, and
+return the task to specification reconciliation rather than inventing a decomposition during implementation.
+
 Implement the smallest complete change satisfying the selected task. Preserve the reviewed design and established
 repository patterns. Keep code, tests, configuration, migrations, observability, failure behavior, and recovery within
 the task boundary.

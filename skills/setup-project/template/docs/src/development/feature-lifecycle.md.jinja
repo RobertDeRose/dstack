@@ -64,7 +64,9 @@ bd ready --parent <implementation-id> --claim --json
 bd show <task-id> --json
 ```
 
-Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after its acceptance criteria pass. Each task gets exactly one fresh reviewer; fixes resume that reviewer. A fresh replacement is allowed only when the original is unavailable or scope materially changes. `/implement-feature` then claims the next ready child and continues until the implementation coordinator closes. It pauses only when every remaining child is blocked on explicit user decisions; native planned work should never reach that state.
+Before mutating code, run a semantic boundedness check: one independently reviewable behavior, one primary owner, and one practical commit boundary. Character counts are warning signals only. Cross-boundary work returns to specification reconciliation without code changes.
+
+Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after its acceptance criteria pass. Each task gets exactly one fresh reviewer; fixes resume that reviewer. A fresh replacement is allowed only when the original is unavailable; material scope changes invalidate the review and return to specification reconciliation. `/implement-feature` then claims the next ready child and continues until the implementation coordinator closes. It pauses only when every remaining child is blocked on explicit user decisions; native planned work should never reach that state.
 
 ### Standalone tasks
 
