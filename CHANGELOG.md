@@ -2,6 +2,33 @@
 
 - - -
 
+## v0.8.2 — 2026-08-04
+
+### Fixed
+
+- **github:** Atomically persist review state (`9f977b2`)
+- **github:** Paginate review collector connections (`2f7b32a`)
+- **workflow:** Report stale installed skills (`7b05bd8`)
+- **workflow:** Checkpoint feature cohesion during implementation (`76489b9`)
+- **workflow:** Invalidate stale planning review evidence (`36cab66`)
+- **workflow:** Gate unbounded implementation tasks (`f4d508a`)
+- **workflow:** Bound replacement reviews (`f53f27e`)
+- **workflow:** Canonicalize review findings (`90ae5bf`)
+- **workflow:** Distinguish open review gates (`4eb8300`)
+- **workflow:** Stop repeated review churn (`c27670a`)
+- **workflow:** Persist durable review state (`dd4ad82`)
+
+### Performance
+
+- **template:** Avoid full-history setup verification (`e883db3`)
+- **workflow:** Batch migration validation lookups (`a073dae`)
+
+### Changed
+
+- **workflow:** Split migration orchestration modules (`8d3e6bf`)
+
+- - -
+
 ## v0.8.1 — 2026-08-04
 
 ### Fixed

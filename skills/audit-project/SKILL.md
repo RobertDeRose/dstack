@@ -2,7 +2,7 @@
 name: audit-project
 description: Audit and reconcile drift across Beads, designs, delivered records, documentation, tests, code, and migration state. Use when asked to audit project consistency, investigate disagreeing artifacts, verify a migration, or prepare for major planning.
 metadata:
-  version: "0.8.1"
+  version: "0.8.2"
 allowed-tools: Read Glob Grep Edit Write Bash Task
 ---
 
