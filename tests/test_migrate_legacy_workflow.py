@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import runpy
 import shutil
 import sys
 import textwrap
@@ -21,6 +22,50 @@ from tests.support import commit_repository, initialize_git, merged_environment,
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MIGRATOR = REPOSITORY_ROOT / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
 FORMULA = REPOSITORY_ROOT / "skills/setup-project/template/.beads/formulas/dstack-feature.formula.toml"
+
+
+def test_feature_path_rewrite_keeps_structural_references_only() -> None:
+    module = runpy.run_path(str(MIGRATOR), run_name="test_migrator")
+    replace_feature_paths = module["replace_feature_paths"]
+
+    source = (
+        "docs/src/features/old-name/design.md features/old-name/index.md "
+        "feat/old-name ../old-name/index.md (old-name/index.md) "
+        "/old-name/v1/items"
+    )
+    assert replace_feature_paths(source, {"old-name": "new-name"}, rewrite_sibling_links=True) == (
+        "docs/src/features/new-name/design.md features/new-name/index.md "
+        "feat/new-name ../new-name/index.md (new-name/index.md) "
+        "/old-name/v1/items"
+    )
+
+
+def test_feature_relationship_graph_batches_dependency_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = runpy.run_path(str(MIGRATOR), run_name="test_migrator")
+    calls: list[list[str]] = []
+
+    def fake_run_command(command: list[str], *, cwd: Path, **_: Any) -> str:
+        del cwd
+        calls.append(command)
+        return json.dumps(
+            [
+                {"issue_id": "project-1", "depends_on_id": "project-2", "type": "blocks"},
+                {"issue_id": "project-2", "depends_on_id": "project-1", "type": "related"},
+            ]
+        )
+
+    monkeypatch.setitem(module["bd_feature_relationship_graph"].__globals__, "run_command", fake_run_command)
+    graph, relationships = module["bd_feature_relationship_graph"](
+        Path("/tmp/project"),
+        [
+            {"slug": "alpha", "beads": {"root_id": "project-1"}},
+            {"slug": "beta", "beads": {"root_id": "project-2"}},
+        ],
+    )
+
+    assert calls == [["bd", "dep", "list", "project-1", "project-2", "--json"]]
+    assert graph == {"alpha": ["beta"], "beta": ["alpha"]}
+    assert relationships == {("alpha", "beta"): "blocks", ("beta", "alpha"): "related"}
 
 
 def create_legacy_project(root: Path) -> None:

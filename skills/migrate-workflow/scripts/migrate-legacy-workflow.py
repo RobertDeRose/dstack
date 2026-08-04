@@ -1196,6 +1196,54 @@ def print_scan_summary(manifest: Mapping[str, Any]) -> None:
         )
 
 
+def _compile_literal_replacements(
+    replacements: Mapping[str, str],
+) -> tuple[re.Pattern[str] | None, dict[str, str]]:
+    ordered = sorted(replacements.items(), key=lambda item: (-len(item[0]), item[0]))
+    if not ordered:
+        return None, {}
+    pattern = re.compile("|".join(re.escape(old) for old, _ in ordered))
+    return pattern, dict(ordered)
+
+
+def _apply_literal_replacements(
+    text: str,
+    compiled: tuple[re.Pattern[str] | None, Mapping[str, str]],
+) -> str:
+    pattern, replacements = compiled
+    if pattern is None:
+        return text
+    return pattern.sub(lambda match: replacements[match.group(0)], text)
+
+
+def _feature_path_replacements(
+    mapping: Mapping[str, str],
+    *,
+    rewrite_sibling_links: bool,
+) -> dict[str, str]:
+    replacements: dict[str, str] = {}
+    for slug in mapping:
+        target = mapping[slug]
+        replacements.update(
+            {
+                f"docs/src/features/{slug}/": f"docs/src/features/{target}/",
+                f"docs/src/features/{slug}`": f"docs/src/features/{target}`",
+                f"features/{slug}/": f"features/{target}/",
+                f"feat/{slug}": f"feat/{target}",
+            }
+        )
+        if rewrite_sibling_links:
+            replacements.update(
+                {
+                    f"../{slug}/": f"../{target}/",
+                    f"./{slug}/": f"./{target}/",
+                    f"({slug}/": f"({target}/",
+                    f"<{slug}/": f"<{target}/",
+                }
+            )
+    return replacements
+
+
 def replace_feature_paths(
     text: str,
     mapping: Mapping[str, str],
@@ -1206,30 +1254,15 @@ def replace_feature_paths(
 
     Avoid broad ``/<slug>/`` replacement: a feature slug may also be an API,
     package, or deployment path elsewhere in project documentation. Relative
-    sibling forms are rewritten only inside ``docs/src/features``.
+    sibling forms are rewritten only inside ``docs/src/features``. All literals
+    are applied in one pass so a target slug cannot be rewritten again as a
+    source slug.
     """
 
-    result = text
-    for slug in sorted(mapping, key=lambda slug: len(slug), reverse=True):
-        target = mapping[slug]
-        replacements = [
-            (f"docs/src/features/{slug}/", f"docs/src/features/{target}/"),
-            (f"docs/src/features/{slug}`", f"docs/src/features/{target}`"),
-            (f"features/{slug}/", f"features/{target}/"),
-            (f"feat/{slug}", f"feat/{target}"),
-        ]
-        if rewrite_sibling_links:
-            replacements.extend(
-                (
-                    (f"../{slug}/", f"../{target}/"),
-                    (f"./{slug}/", f"./{target}/"),
-                    (f"({slug}/", f"({target}/"),
-                    (f"<{slug}/", f"<{target}/"),
-                )
-            )
-        for old, new in replacements:
-            result = result.replace(old, new)
-    return result
+    compiled = _compile_literal_replacements(
+        _feature_path_replacements(mapping, rewrite_sibling_links=rewrite_sibling_links)
+    )
+    return _apply_literal_replacements(text, compiled)
 
 
 def rewrite_roadmap_headings(
@@ -1790,15 +1823,20 @@ def prepare_filesystem(
                 feature_index_path,
                 "# Implemented features\n\n" + MARKER_START + "\n" + MARKER_END,
             )
+    compiled_feature_paths = {
+        rewrite_sibling_links: _compile_literal_replacements(
+            _feature_path_replacements(mapping, rewrite_sibling_links=rewrite_sibling_links)
+        )
+        for rewrite_sibling_links in (False, True)
+    }
     if docs_src.exists():
         for path in sorted(docs_src.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in {".md", ".toml", ".json", ".yaml", ".yml"}:
                 continue
             old = read_text(path)
-            new = replace_feature_paths(
+            new = _apply_literal_replacements(
                 old,
-                mapping,
-                rewrite_sibling_links=path.is_relative_to(root / FEATURES_PATH),
+                compiled_feature_paths[path.is_relative_to(root / FEATURES_PATH)],
             )
             if path == root / ROADMAP_PATH:
                 new = rewrite_roadmap_headings(
@@ -2436,6 +2474,13 @@ def reconcile_existing_beads_state(
         ):
             problems.append(f"{slug} is missing required migration reconciliation task")
 
+    roots_by_slug = {str(feature["slug"]): str(feature.get("beads", {}).get("root_id") or "") for feature in features}
+    relationship_issue_ids = [
+        str(feature.get("beads", {}).get("root_id") or "")
+        for feature in features
+        if feature.get("beads", {}).get("root_id")
+    ]
+    relationships_by_root = bd_dependency_types_batch(root, relationship_issue_ids)
     for feature in features:
         slug = str(feature["slug"])
         beads = feature.get("beads", {})
@@ -2550,9 +2595,6 @@ def reconcile_existing_beads_state(
                 expected_type="task",
             )
         if root_id and root_issue is not None:
-            roots_by_slug = {
-                str(candidate["slug"]): str(candidate.get("beads", {}).get("root_id") or "") for candidate in features
-            }
             expected_relationships = {
                 roots_by_slug[dependency]: "blocks"
                 for dependency in feature.get("dependencies", [])
@@ -2568,7 +2610,7 @@ def reconcile_existing_beads_state(
             parent_slug = feature.get("parent_feature")
             if parent_slug and roots_by_slug.get(str(parent_slug)):
                 expected_relationships[roots_by_slug[str(parent_slug)]] = "related"
-            actual_relationships = bd_dependency_types(root, root_id)
+            actual_relationships = relationships_by_root.get(root_id, {})
             relationship_complete = not allow_recovery or beads.get("import_phase") == "completed"
             has_conflicting_relationship = any(
                 expected_relationships.get(issue_id) != relationship
@@ -2695,10 +2737,59 @@ def bd_dep(root: Path, issue_id: str, depends_on: str, dep_type: str = "blocks")
     )
 
 
-def bd_dependency_types(root: Path, issue_id: str) -> dict[str, str]:
+def _dependency_records_by_target(records: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    dependencies: dict[str, str] = {}
+    for item in records:
+        target = item.get("depends_on_id") or item.get("id")
+        if target:
+            dependencies[str(target)] = str(item.get("dependency_type") or item.get("type") or "blocks")
+    return dependencies
+
+
+def _bd_dependency_types_single(root: Path, issue_id: str) -> dict[str, str]:
     output = run_command(["bd", "dep", "list", issue_id, "--json"], cwd=root)
     dependencies = parse_bd_issue_list(output, command="bd dep list --json")
-    return {str(item["id"]): str(item.get("dependency_type") or "blocks") for item in dependencies if item.get("id")}
+    return _dependency_records_by_target(dependencies)
+
+
+def bd_dependency_types_batch(root: Path, issue_ids: Sequence[str]) -> dict[str, dict[str, str]]:
+    normalized_ids = tuple(dict.fromkeys(str(issue_id) for issue_id in issue_ids if issue_id))
+    grouped = {issue_id: {} for issue_id in normalized_ids}
+    if not normalized_ids:
+        return grouped
+
+    output = run_command(["bd", "dep", "list", *normalized_ids, "--json"], cwd=root)
+    dependencies = parse_bd_issue_list(output, command="bd dep list --json")
+    if not dependencies:
+        if len(normalized_ids) == 1:
+            return grouped
+        # An older Beads response can omit source IDs and silently return only
+        # the first requested issue. Probe individually before accepting an
+        # empty multi-issue result as complete.
+        return {issue_id: _bd_dependency_types_single(root, issue_id) for issue_id in normalized_ids}
+
+    batch_records = all(
+        item.get("issue_id") in grouped and (item.get("depends_on_id") or item.get("id")) for item in dependencies
+    )
+    if batch_records:
+        for issue_id in normalized_ids:
+            grouped[issue_id] = _dependency_records_by_target(
+                item for item in dependencies if item.get("issue_id") == issue_id
+            )
+        return grouped
+
+    if len(normalized_ids) == 1:
+        grouped[normalized_ids[0]] = _dependency_records_by_target(dependencies)
+        return grouped
+
+    # Older Beads versions return dependency records without their source ID.
+    # Preserve compatibility with one bounded fallback call per issue only when
+    # the batch response cannot be attributed safely.
+    return {issue_id: _bd_dependency_types_single(root, issue_id) for issue_id in normalized_ids}
+
+
+def bd_dependency_types(root: Path, issue_id: str) -> dict[str, str]:
+    return bd_dependency_types_batch(root, [issue_id]).get(issue_id, {})
 
 
 def bd_remove_dep(root: Path, issue_id: str, depends_on: str) -> None:
@@ -2733,12 +2824,18 @@ def bd_feature_relationship_graph(
     }
     graph = {str(feature["slug"]): [] for feature in features}
     relationships: dict[tuple[str, str], str] = {}
+    issue_ids = [
+        str(feature.get("beads", {}).get("root_id") or "")
+        for feature in features
+        if feature.get("beads", {}).get("root_id")
+    ]
+    dependencies_by_issue = bd_dependency_types_batch(root, issue_ids)
     for feature in features:
         source = str(feature["slug"])
         issue_id = str(feature.get("beads", {}).get("root_id") or "")
         if not issue_id:
             continue
-        for dependency_id, relation in bd_dependency_types(root, issue_id).items():
+        for dependency_id, relation in dependencies_by_issue.get(issue_id, {}).items():
             target = slug_by_id.get(dependency_id)
             if target is None:
                 continue
@@ -4355,15 +4452,18 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
                     "Imported Beads graph contains a traversal cycle: " + render_typed_cycle(cycle, relationships)
                 )
 
+    stale_paths = {
+        pattern: slug
+        for source_name, slug in mapping.items()
+        if source_name != slug
+        for pattern in (f"docs/src/features/{source_name}/", f"features/{source_name}/", f"({source_name}/")
+    }
+    stale_pattern, stale_slugs = _compile_literal_replacements(stale_paths)
     for path in sorted((root / "docs/src").rglob("*.md")) if (root / "docs/src").exists() else []:
         text = read_text(path)
-        for source_name, slug in mapping.items():
-            if source_name == slug:
-                continue
-            stale_patterns = (f"docs/src/features/{source_name}/", f"features/{source_name}/", f"({source_name}/")
-            if any(pattern in text for pattern in stale_patterns):
-                errors.append(f"Stale feature path for {slug} in {path.relative_to(root)}")
-                break
+        match = stale_pattern.search(text) if stale_pattern is not None else None
+        if match is not None:
+            errors.append(f"Stale feature path for {stale_slugs[match.group(0)]} in {path.relative_to(root)}")
     if task_references(root):
         warnings.append("Reader-facing documentation still references legacy tasks.md")
     return errors, warnings
