@@ -45,6 +45,7 @@ EXPECTED_SKILLS = {
 
 REQUIRED_SKILL_SUPPORT = (
     "skills/dstack-core/references/TRUST-AND-AUTHORITY.md",
+    "skills/dstack-core/references/REVIEW-STATE.md",
     "skills/dstack-core/scripts/reconcile-beads-interactions.py",
     "skills/dstack-core/scripts/resolve-feature.py",
     "skills/dstack-core/scripts/verify-delivery-state.py",
@@ -568,6 +569,27 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "git merge --ff-only" in migration_reference
     assert "intentionally complete but" in migration_reference
 
+    review_state = (repository_root / "skills/dstack-core/references/REVIEW-STATE.md").read_text(encoding="utf-8")
+    normalized_review_state = " ".join(review_state.split())
+    for field in (
+        "dstack.review-state.v1",
+        "run_id",
+        "reviewer_session_id",
+        "packet_digest",
+        "packet_path",
+        "reviewed_commit",
+        "reviewed_diff_base",
+        "disposition",
+        "replacement_reason",
+        "supersedes_run_id",
+    ):
+        assert field in review_state
+    assert "last `review state:` line is the canonical current state" in normalized_review_state.casefold()
+    assert "prior findings ledger and resolutions" in normalized_review_state
+    assert "unavailable" in review_state
+    for name in ("start-feature", "implement-feature", "implement-task", "close-feature"):
+        assert "REVIEW-STATE.md" in skill(name)
+
     audit = skill("audit-project")
     assert "bd dolt push" in audit
     assert "non-force" in audit
@@ -623,7 +645,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "one context builder plus four reviewers" in normalized_agents
         assert "one context builder plus two reviewers" in normalized_agents
         assert "resume only the original reviewers whose domains changed" in normalized_agents
-        assert "original packet when one exists" in normalized_agents
+        assert "original packet when one exists" in normalized_agents or "original packet identity" in normalized_agents
+        assert "REVIEW-STATE.md" in agents
         assert "Do bounded work directly in the controlling session" in normalized_agents
         assert "Do not launch a scout, planner, or reviewer merely to save parent context" in normalized_agents
         assert "Redirect long command output to an ephemeral file" in normalized_agents
@@ -756,6 +779,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     ):
         lifecycle = " ".join(lifecycle_path.read_text(encoding="utf-8").split())
         assert "no findings, recommendations, or verdict" in lifecycle
+        assert "REVIEW-STATE.md" in lifecycle
         assert "read extra source" in lifecycle
         assert "confidence reviewers" in lifecycle
         assert "Refresh a shared packet only after broad" in lifecycle

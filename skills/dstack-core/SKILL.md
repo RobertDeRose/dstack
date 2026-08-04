@@ -10,6 +10,9 @@ allowed-tools: Read Bash
 
 This support skill contains the shared contracts used by the dstack workflows.
 
+Review orchestration uses [`references/REVIEW-STATE.md`](references/REVIEW-STATE.md) for durable reviewer identity,
+packet/source boundaries, resumption, and replacement evidence.
+
 Before executing a dstack workflow that links to a reference in this directory, read that reference completely. The
 calling skill remains responsible for its workflow-specific authority and completion rules.
 

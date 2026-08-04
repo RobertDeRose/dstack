@@ -122,8 +122,9 @@ contain findings, recommendations, or a verdict.
 
 Launch exactly four role reviewers with `context: fresh`, giving each the same packet and its distinct goal below. Each
 reviewer independently reasons from the packet, verifies evidence critical to its role, and reads additional source only
-when needed. Claim the matching lifecycle task before recording each review. Do not add general-purpose or confidence
-reviewers unless a distinct uncovered risk or the user explicitly requires one.
+when needed. Follow `../dstack-core/references/REVIEW-STATE.md`: claim the matching lifecycle task, append its durable
+`Review state:` record before launch, and update that record after each finding or resolution. Do not add
+general-purpose or confidence reviewers unless a distinct uncovered risk or the user explicitly requires one.
 
 ### Architecture Consistency
 
@@ -147,7 +148,7 @@ Review implementation children, blocker direction, parallel safety, acceptance c
 ownership, and commit boundaries. Confirm every remaining task depends on `spec-reconcile` and is small enough for one
 agent without inventing design intent.
 
-Record findings and resolutions:
+Record findings and resolutions on the review bead, alongside the current `Review state:` record:
 
 ```bash
 bd update <review-task-id> --claim
@@ -155,10 +156,10 @@ bd update <review-task-id> --append-notes "<findings and resolution>"
 ```
 
 Review is complete when all four review beads contain independently produced evidence, findings, and dispositions. If
-reconciliation changes a reviewed domain, resume only its original reviewer. Refresh the shared packet only after broad
-design, architecture, task-graph, or documentation-structure changes. Launch a fresh replacement only when the original
-cannot be resumed or the fix materially changes that role's scope; provide the original packet, finding, resolution, and
-post-review diff.
+reconciliation changes a reviewed domain, resume only its original reviewer and run ID. Refresh the shared packet only
+after broad design, architecture, task-graph, or documentation-structure changes. Launch a fresh replacement only when
+the original cannot be resumed or the fix materially changes that role's scope; provide the original packet, finding,
+resolution, and post-review diff.
 
 ## 5. Reconcile the Specification
 

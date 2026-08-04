@@ -130,10 +130,12 @@ context builder; `/start-feature` uses one context builder plus four reviewers; 
 builder plus two reviewers. Do not add confidence reviewers without a distinct uncovered risk or an explicit user
 request.
 
-After a fix, resume only the original reviewers whose domains changed. Do not launch fresh follow-up reviewers unless
-the original cannot be resumed or the fix materially changes the review scope. Give a replacement the original packet
-when one exists, plus findings, resolutions, and the post-review diff. Refresh the shared packet only after broad
-design, architecture, task-graph, or documentation-structure changes.
+After a fix, resume only the original reviewers whose domains changed and preserve their run IDs. Every review bead must
+append the durable `Review state:` record defined by the installed dstack-core `REVIEW-STATE.md` reference, including
+reviewer session, packet identity/digest, reviewed commit/diff boundary, and disposition. Do not launch fresh follow-up
+reviewers unless the original cannot be resumed or the fix materially changes the review scope. Give a replacement the
+original packet identity, findings ledger, resolutions, and post-review diff, and record why resumption was unavailable.
+Refresh the shared packet only after broad design, architecture, task-graph, or documentation-structure changes.
 
 ### Execution efficiency
 

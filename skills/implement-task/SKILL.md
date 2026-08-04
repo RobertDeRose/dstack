@@ -87,9 +87,11 @@ checks, and limitations. Do not reuse validation from before the final fix.
 
 Launch exactly one fresh, read-only reviewer for correctness, security, maintainability, test adequacy, and compliance
 with the selected issue. A context builder is unnecessary. Give the reviewer the issue metadata, intended boundary,
-changed paths, validation evidence, and diff. Resume the same reviewer after fixes; use a replacement only when the
-original is unavailable or the fix materially changes scope. Do not add confidence reviewers without a distinct
-uncovered risk or explicit user request.
+changed paths, validation evidence, and diff. Follow `../dstack-core/references/REVIEW-STATE.md` and persist the review
+bead's run ID, reviewer session, packet identity/digest, reviewed commit/diff boundary, and current disposition before
+launch. Resume the same reviewer and run ID after fixes; use a replacement only when the original is unavailable or the
+fix materially changes scope. Do not add confidence reviewers without a distinct uncovered risk or explicit user
+request.
 
 Record evidence before closure:
 

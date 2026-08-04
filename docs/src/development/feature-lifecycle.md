@@ -54,10 +54,12 @@ independently cover:
 4. execution-graph readiness.
 
 The packet contains factual source locations but no findings, recommendations, or verdict. Reviewers read extra source
-when it is insufficient. Do not add confidence reviewers without a distinct uncovered risk or user request. Fix
-verification resumes only affected reviewers; fresh replacements are used only when an original is unavailable or the
-scope materially changes, and receive the original evidence and post-review diff. Refresh a shared packet only after
-broad design, architecture, task-graph, or documentation-structure changes.
+when it is insufficient. Every review bead persists the durable `Review state:` record from the installed dstack-core
+`REVIEW-STATE.md` reference, including reviewer session, packet identity/digest, reviewed commit/diff boundary, and
+disposition. Do not add confidence reviewers without a distinct uncovered risk or user request. Fix verification resumes
+only affected reviewers and their run IDs; fresh replacements are used only when an original is unavailable or the scope
+materially changes, and receive the original evidence, findings, resolutions, and post-review diff. Refresh a shared
+packet only after broad design, architecture, task-graph, or documentation-structure changes.
 
 It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes
 `spec-reconcile` only when implementation can proceed without inventing intent. A successful start records the canonical
