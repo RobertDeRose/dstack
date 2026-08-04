@@ -153,7 +153,20 @@ completion.
 
 ## 5. Continue Until the Feature Is Exhausted
 
-A task boundary or commit boundary is not a stopping point. After every successful child commit and closure:
+A task boundary or commit boundary is not a stopping point. Before claiming the next child after every successful child
+commit and closure, run a cohesion checkpoint against new evidence from implementation, review, and validation. Look
+specifically for new ownership boundaries, migrations, external dependencies, or risky effect classes. If no independent
+value or review boundary is found, continue under the same feature. Incidental complexity alone is not a decomposition
+signal.
+
+When the evidence identifies independently valuable and reviewable remaining outcomes, pause the implementation
+coordinator and record the cohesion defect and its provenance. Do not create replacement children or new epics from the
+implementation loop, and do not continue claiming remaining work under an incoherent coordinator. Return through normal
+feature planning authority to define dependent feature epics, preserve user authority and existing Beads dependency
+semantics, and run the required design/review gates before implementation resumes. Preserve completed work and add
+`blocks` edges only for real prerequisites.
+
+When the checkpoint confirms cohesion:
 
 1. query and atomically claim the next ready child under the same implementation coordinator;
 2. implement, validate, review, commit, and close it;

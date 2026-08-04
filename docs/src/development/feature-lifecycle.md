@@ -93,6 +93,13 @@ reconcile and commit the new specification boundary, and complete its review bef
 editorial clarification may stay in place only when it does not alter reviewed intent, ownership, compatibility,
 acceptance, or the review boundary.
 
+After each child closes, the implementation loop runs a cohesion checkpoint against new evidence. New ownership
+boundaries, migrations, external dependencies, or risky effect classes require inspection, but incidental complexity
+alone does not require decomposition. If remaining outcomes are independently valuable and reviewable, pause the
+coordinator and return through normal feature planning authority to define dependent feature epics. Do not create
+replacement children under an incoherent coordinator; preserve user authority, completed work, and real Beads
+prerequisites. If no independent value or review boundary is found, continue the same feature.
+
 Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation
 aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and
 close the task only after its acceptance criteria pass. Each task gets exactly one fresh reviewer; fixes resume that

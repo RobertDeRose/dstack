@@ -694,6 +694,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in normalized_agents
         assert "prefer a Markdown `-` list with one idea per item" in normalized_agents
         assert "Use prose when sequence, causality, or rationale" in normalized_agents
+        assert "cohesion checkpoint after each child" in normalized_agents
+        assert "normal feature planning" in normalized_agents
+        assert "incoherent coordinator" in normalized_agents
     root_agents = (repository_root / "AGENTS.md").read_text(encoding="utf-8")
     assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in root_agents
     assert "Omitted internal types may be unscoped" in root_agents
@@ -764,6 +767,15 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "affected review beads" in normalized_implementation
     assert "editorial clarification" in normalized_implementation
     assert "does not alter reviewed intent" in normalized_implementation
+    assert "cohesion checkpoint" in normalized_implementation
+    for boundary_signal in ("new ownership boundaries", "migrations", "external dependencies", "risky effect classes"):
+        assert boundary_signal in normalized_implementation
+    assert "independently valuable and reviewable" in normalized_implementation
+    assert "dependent feature epics" in normalized_implementation
+    assert "do not create replacement children" in normalized_implementation.casefold()
+    assert "user authority" in normalized_implementation
+    assert "if no independent value or review boundary is found, continue" in normalized_implementation.casefold()
+    assert "when the checkpoint confirms cohesion" in normalized_implementation.casefold()
 
     closeout = skill("close-feature")
     normalized_closeout = " ".join(closeout.split())
@@ -844,6 +856,11 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         )
         assert "editorial clarification" in lifecycle
         assert "does not alter reviewed intent" in lifecycle
+        assert "cohesion checkpoint" in lifecycle
+        assert "independently valuable and reviewable" in lifecycle
+        assert "dependent feature epics" in lifecycle
+        assert "incoherent coordinator" in lifecycle
+        assert "if no independent value or review boundary is found, continue" in lifecycle.casefold()
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update

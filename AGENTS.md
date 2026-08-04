@@ -114,9 +114,10 @@ For each implementation task: claim it atomically, load only relevant design and
 boundedness check before mutating code, implement the smallest complete scope, update documentation in the same work
 unit, validate, run an isolated quality/security/maintainability review, record evidence, commit with the Beads ID, and
 close only after acceptance criteria pass. Use `/implement-task` for one standalone executable issue;
-`/implement-feature` continues through a reviewed feature's children. Use focused checks while iterating. Run the full
-repository suite once after review fixes stabilize and before commit; rerun it only after a failure or a later
-broad/shared fix.
+`/implement-feature` continues through a reviewed feature's children, running a cohesion checkpoint after each child; if
+remaining work gains an independent value or review boundary, pause and return to normal feature planning rather than
+adding children under an incoherent coordinator. Use focused checks while iterating. Run the full repository suite once
+after review fixes stabilize and before commit; rerun it only after a failure or a later broad/shared fix.
 
 ### Review orchestration
 
