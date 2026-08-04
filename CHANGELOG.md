@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.8.1 — 2026-08-04
+
+### Fixed
+
+- **workflow:** Defer migration hooks until adoption (`a45c944`)
+
+- - -
+
 ## v0.8.0 — 2026-08-03
 
 ### Added
