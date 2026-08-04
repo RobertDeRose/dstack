@@ -6220,6 +6220,97 @@ def test_review_collector_keeps_sonarqube_content_disabled_without_cli(
     assert result["sonarqube"]["status"] == "skipped"
 
 
+def test_review_collector_paginates_active_connections_and_thread_comments(
+    repository_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = repository_root / "skills/gh-pr-review/scripts/fetch_comments.py"
+    spec = importlib.util.spec_from_file_location("dstack_fetch_comments_pagination", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    comment = {"id": "comment-1", "body": "conversation", "author": {"login": "reviewer"}}
+    review_one = {"id": "review-1", "body": "first", "author": {"login": "reviewer"}}
+    review_two = {"id": "review-2", "body": "second", "author": {"login": "reviewer"}}
+    thread = {
+        "id": "thread-1",
+        "isResolved": False,
+        "isOutdated": False,
+        "path": "src/example.py",
+        "comments": {
+            "pageInfo": {"hasNextPage": True, "endCursor": "thread-cursor-1"},
+            "nodes": [{"id": "inline-1", "body": "first reply", "author": {"login": "reviewer"}}],
+        },
+    }
+
+    def page(
+        *, comments: list[dict[str, Any]], reviews: list[dict[str, Any]], threads: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "number": 42,
+                        "url": "https://github.com/example/repo/pull/42",
+                        "title": "Example",
+                        "state": "OPEN",
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": comments,
+                        },
+                        "reviews": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": reviews,
+                        },
+                        "reviewThreads": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": threads,
+                        },
+                    }
+                }
+            }
+        }
+
+    graphql_calls: list[dict[str, Any]] = []
+
+    def fake_graphql(**kwargs: Any) -> dict[str, Any]:
+        graphql_calls.append(kwargs)
+        if kwargs.get("reviews_cursor") == "review-cursor-1":
+            return page(
+                comments=[] if not kwargs.get("include_comments", True) else [comment],
+                reviews=[review_two],
+                threads=[],
+            )
+        response = page(comments=[comment], reviews=[review_one], threads=[thread])
+        response["data"]["repository"]["pullRequest"]["reviews"]["pageInfo"] = {
+            "hasNextPage": True,
+            "endCursor": "review-cursor-1",
+        }
+        return response
+
+    def fake_thread_comments(thread_id: str, comments_cursor: str | None = None) -> dict[str, Any]:
+        assert thread_id == "thread-1"
+        assert comments_cursor == "thread-cursor-1"
+        return {
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+            "nodes": [{"id": "inline-2", "body": "second reply", "author": {"login": "reviewer"}}],
+        }
+
+    monkeypatch.setattr(module, "gh_api_graphql", fake_graphql)
+    monkeypatch.setattr(module, "gh_thread_comments", fake_thread_comments)
+    monkeypatch.setattr(module, "_sonar_cli_available", lambda: False)
+
+    result = module.fetch_all("example", "repo", 42)
+
+    assert [item["id"] for item in result["conversation_comments"]] == ["comment-1"]
+    assert [item["id"] for item in result["reviews"]] == ["review-1", "review-2"]
+    assert [item["id"] for item in result["review_threads"][0]["comments"]["nodes"]] == ["inline-1", "inline-2"]
+    assert len(graphql_calls) == 2
+    assert graphql_calls[0]["include_comments"] is True
+    assert graphql_calls[1]["include_comments"] is False
+
+
 def test_migrator_is_owned_only_by_migration_skill(repository_root: Path) -> None:
     canonical = repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
     bundled = repository_root / "skills/setup-project/template/scripts/migrate-legacy-workflow.py"

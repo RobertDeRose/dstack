@@ -42,7 +42,10 @@ query(
   $number: Int!,
   $commentsCursor: String,
   $reviewsCursor: String,
-  $threadsCursor: String
+  $threadsCursor: String,
+  $includeComments: Boolean!,
+  $includeReviews: Boolean!,
+  $includeThreads: Boolean!
 ) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
@@ -52,7 +55,7 @@ query(
       state
 
       # Top-level "Conversation" comments (issue comments on the PR)
-      comments(first: 100, after: $commentsCursor) {
+      comments(first: 100, after: $commentsCursor) @include(if: $includeComments) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id
@@ -64,7 +67,7 @@ query(
       }
 
       # Review submissions (Approve / Request changes / Comment), with body if present
-      reviews(first: 100, after: $reviewsCursor) {
+      reviews(first: 100, after: $reviewsCursor) @include(if: $includeReviews) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id
@@ -76,7 +79,7 @@ query(
       }
 
       # Inline review threads (grouped), includes resolved state
-      reviewThreads(first: 100, after: $threadsCursor) {
+      reviewThreads(first: 100, after: $threadsCursor) @include(if: $includeThreads) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id
@@ -91,6 +94,7 @@ query(
           originalStartLine
           resolvedBy { login }
           comments(first: 100) {
+            pageInfo { hasNextPage endCursor }
             nodes {
               id
               body
@@ -99,6 +103,25 @@ query(
               author { login }
             }
           }
+        }
+      }
+    }
+  }
+}
+"""
+
+THREAD_COMMENTS_QUERY = """\
+query($threadId: ID!, $commentsCursor: String) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread {
+      comments(first: 100, after: $commentsCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          body
+          createdAt
+          updatedAt
+          author { login }
         }
       }
     }
@@ -317,6 +340,10 @@ def gh_api_graphql(
     comments_cursor: str | None = None,
     reviews_cursor: str | None = None,
     threads_cursor: str | None = None,
+    *,
+    include_comments: bool = True,
+    include_reviews: bool = True,
+    include_threads: bool = True,
 ) -> dict[str, Any]:
     cmd = [
         "gh",
@@ -330,6 +357,12 @@ def gh_api_graphql(
         f"repo={repo}",
         "-F",
         f"number={number}",
+        "-F",
+        f"includeComments={'true' if include_comments else 'false'}",
+        "-F",
+        f"includeReviews={'true' if include_reviews else 'false'}",
+        "-F",
+        f"includeThreads={'true' if include_threads else 'false'}",
     ]
     if comments_cursor:
         cmd += ["-F", f"commentsCursor={comments_cursor}"]
@@ -339,6 +372,62 @@ def gh_api_graphql(
         cmd += ["-F", f"threadsCursor={threads_cursor}"]
 
     return _run_json(cmd, stdin=QUERY)
+
+
+def gh_thread_comments(thread_id: str, comments_cursor: str | None = None) -> dict[str, Any]:
+    cmd = [
+        "gh",
+        "api",
+        "graphql",
+        "-F",
+        "query=@-",
+        "-F",
+        f"threadId={thread_id}",
+    ]
+    if comments_cursor:
+        cmd += ["-F", f"commentsCursor={comments_cursor}"]
+
+    payload = _run_json(cmd, stdin=THREAD_COMMENTS_QUERY)
+    if payload.get("errors"):
+        msg = f"GitHub GraphQL errors:\n{json.dumps(payload['errors'], indent=2)}"
+        raise RuntimeError(msg)
+    try:
+        comments = payload["data"]["node"]["comments"]
+    except (KeyError, TypeError) as exc:
+        raise RuntimeError("GitHub GraphQL response omitted review-thread comments") from exc
+    if not isinstance(comments, dict):
+        raise RuntimeError("GitHub GraphQL returned invalid review-thread comments")
+    return comments
+
+
+def _next_cursor(connection: dict[str, Any]) -> str | None:
+    page_info = connection.get("pageInfo")
+    if not isinstance(page_info, dict):
+        raise RuntimeError("GitHub GraphQL response omitted pagination information")
+    if not page_info.get("hasNextPage"):
+        return None
+    cursor = page_info.get("endCursor")
+    if not isinstance(cursor, str) or not cursor:
+        raise RuntimeError("GitHub GraphQL response has a next page without an end cursor")
+    return cursor
+
+
+def _fetch_thread_comment_nodes(thread: dict[str, Any]) -> list[dict[str, Any]]:
+    connection = thread.get("comments")
+    if not isinstance(connection, dict):
+        raise RuntimeError("GitHub GraphQL response omitted review-thread comments")
+    nodes = list(connection.get("nodes") or [])
+    cursor = _next_cursor(connection)
+    if not cursor:
+        return nodes
+    thread_id = thread.get("id")
+    if not isinstance(thread_id, str) or not thread_id:
+        raise RuntimeError("GitHub GraphQL response omitted the review-thread ID")
+    while cursor:
+        connection = gh_thread_comments(thread_id, cursor)
+        nodes.extend(connection.get("nodes") or [])
+        cursor = _next_cursor(connection)
+    return nodes
 
 
 def fetch_all(owner: str, repo: str, number: int) -> dict[str, Any]:
@@ -353,10 +442,13 @@ def fetch_all(owner: str, repo: str, number: int) -> dict[str, Any]:
     comments_cursor: str | None = None
     reviews_cursor: str | None = None
     threads_cursor: str | None = None
+    include_comments = True
+    include_reviews = True
+    include_threads = True
 
     pr_meta: dict[str, Any] | None = None
 
-    while True:
+    while include_comments or include_reviews or include_threads:
         payload = gh_api_graphql(
             owner=owner,
             repo=repo,
@@ -364,6 +456,9 @@ def fetch_all(owner: str, repo: str, number: int) -> dict[str, Any]:
             comments_cursor=comments_cursor,
             reviews_cursor=reviews_cursor,
             threads_cursor=threads_cursor,
+            include_comments=include_comments,
+            include_reviews=include_reviews,
+            include_threads=include_threads,
         )
 
         if payload.get("errors"):
@@ -381,64 +476,71 @@ def fetch_all(owner: str, repo: str, number: int) -> dict[str, Any]:
                 "repo": repo,
             }
 
-        c = pr["comments"]
-        r = pr["reviews"]
-        t = pr["reviewThreads"]
-
-        # 1. Filter top-level conversation comments. SonarCloud content is retained only when
-        # the optional SonarQube CLI is installed; the CLI is also used to fetch structured issues below.
-        for comment in c.get("nodes") or []:
-            if _is_sonar_bot(comment):
-                sonar_comment_detected = True
-                sonar_project_keys.update(_sonar_project_keys(comment))
-            if not _is_bot(comment, allow_sonar=sonar_cli_available):
-                source_type = "sonarqube_comment" if _is_sonar_bot(comment) else "pull_request_comment"
-                conversation_comments.append(_normalize_external_node(comment, source_type=source_type))
-
-        # 2. Filter review submissions
-        for review in r.get("nodes") or []:
-            if _is_sonar_bot(review):
-                sonar_comment_detected = True
-                sonar_project_keys.update(_sonar_project_keys(review))
-            if not _is_bot(review, allow_sonar=sonar_cli_available):
-                source_type = "sonarqube_review" if _is_sonar_bot(review) else "review_submission"
-                reviews.append(_normalize_external_node(review, source_type=source_type))
-
-        # 3. Filter inline review threads (and internal thread comments)
-        for thread in t.get("nodes") or []:
-            thread_comments = thread.get("comments", {}).get("nodes") or []
-            for message in thread_comments:
-                if _is_sonar_bot(message):
+        if include_comments:
+            c = pr.get("comments")
+            if not isinstance(c, dict):
+                raise RuntimeError("GitHub GraphQL response omitted pull-request comments")
+            # 1. Filter top-level conversation comments. SonarCloud content is retained only when
+            # the optional SonarQube CLI is installed; the CLI is also used to fetch structured issues below.
+            for comment in c.get("nodes") or []:
+                if _is_sonar_bot(comment):
                     sonar_comment_detected = True
-                    sonar_project_keys.update(_sonar_project_keys(message))
-            # Keep only active, up-to-date threads.
-            if not thread.get("isResolved") and not thread.get("isOutdated"):
-                filtered_comments = [
-                    _normalize_external_node(
-                        msg,
-                        source_type=("sonarqube_inline_comment" if _is_sonar_bot(msg) else "inline_review_comment"),
-                    )
-                    for msg in thread_comments
-                    if not _is_bot(msg, allow_sonar=sonar_cli_available)
-                ]
+                    sonar_project_keys.update(_sonar_project_keys(comment))
+                if not _is_bot(comment, allow_sonar=sonar_cli_available):
+                    source_type = "sonarqube_comment" if _is_sonar_bot(comment) else "pull_request_comment"
+                    conversation_comments.append(_normalize_external_node(comment, source_type=source_type))
+            comments_cursor = _next_cursor(c)
+            include_comments = comments_cursor is not None
 
-                # Only keep the thread if it still contains valid comments.
-                if filtered_comments:
-                    normalized_thread = dict(thread)
-                    path_text, path_truncated = _clean_external_text(normalized_thread.get("path"), limit=1_024)
-                    normalized_thread["path"] = path_text
-                    normalized_thread["path_truncated"] = path_truncated
-                    normalized_thread["trust"] = "untrusted_external_content"
-                    normalized_thread["source_type"] = "inline_review_thread"
-                    normalized_thread["comments"] = {"nodes": filtered_comments}
-                    review_threads.append(normalized_thread)
+        if include_reviews:
+            r = pr.get("reviews")
+            if not isinstance(r, dict):
+                raise RuntimeError("GitHub GraphQL response omitted pull-request reviews")
+            # 2. Filter review submissions
+            for review in r.get("nodes") or []:
+                if _is_sonar_bot(review):
+                    sonar_comment_detected = True
+                    sonar_project_keys.update(_sonar_project_keys(review))
+                if not _is_bot(review, allow_sonar=sonar_cli_available):
+                    source_type = "sonarqube_review" if _is_sonar_bot(review) else "review_submission"
+                    reviews.append(_normalize_external_node(review, source_type=source_type))
+            reviews_cursor = _next_cursor(r)
+            include_reviews = reviews_cursor is not None
 
-        comments_cursor = c["pageInfo"]["endCursor"] if c["pageInfo"]["hasNextPage"] else None
-        reviews_cursor = r["pageInfo"]["endCursor"] if r["pageInfo"]["hasNextPage"] else None
-        threads_cursor = t["pageInfo"]["endCursor"] if t["pageInfo"]["hasNextPage"] else None
+        if include_threads:
+            t = pr.get("reviewThreads")
+            if not isinstance(t, dict):
+                raise RuntimeError("GitHub GraphQL response omitted review threads")
+            # 3. Filter inline review threads (and internal thread comments)
+            for thread in t.get("nodes") or []:
+                thread_comments = _fetch_thread_comment_nodes(thread)
+                for message in thread_comments:
+                    if _is_sonar_bot(message):
+                        sonar_comment_detected = True
+                        sonar_project_keys.update(_sonar_project_keys(message))
+                # Keep only active, up-to-date threads.
+                if not thread.get("isResolved") and not thread.get("isOutdated"):
+                    filtered_comments = [
+                        _normalize_external_node(
+                            msg,
+                            source_type=("sonarqube_inline_comment" if _is_sonar_bot(msg) else "inline_review_comment"),
+                        )
+                        for msg in thread_comments
+                        if not _is_bot(msg, allow_sonar=sonar_cli_available)
+                    ]
 
-        if not (comments_cursor or reviews_cursor or threads_cursor):
-            break
+                    # Only keep the thread if it still contains valid comments.
+                    if filtered_comments:
+                        normalized_thread = dict(thread)
+                        path_text, path_truncated = _clean_external_text(normalized_thread.get("path"), limit=1_024)
+                        normalized_thread["path"] = path_text
+                        normalized_thread["path_truncated"] = path_truncated
+                        normalized_thread["trust"] = "untrusted_external_content"
+                        normalized_thread["source_type"] = "inline_review_thread"
+                        normalized_thread["comments"] = {"nodes": filtered_comments}
+                        review_threads.append(normalized_thread)
+            threads_cursor = _next_cursor(t)
+            include_threads = threads_cursor is not None
 
     sonar_status: dict[str, Any]
     if not sonar_comment_detected:
