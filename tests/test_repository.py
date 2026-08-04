@@ -596,6 +596,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "two unresolved review rounds in the same domain" in normalized_start
     assert "do not launch another reviewer" in normalized_start.casefold()
     assert "spec-reconcile" in normalized_start
+    assert "open review tasks and `spec-reconcile` are expected" in normalized_start
+    assert "stale dependency direction" in normalized_start.casefold()
+    assert "controller verifies gate closure" in normalized_start.casefold()
     for name in ("start-feature", "implement-feature", "implement-task", "close-feature"):
         assert "REVIEW-STATE.md" in skill(name)
 

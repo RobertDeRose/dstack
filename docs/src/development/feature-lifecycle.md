@@ -63,6 +63,10 @@ packet only after broad design, architecture, task-graph, or documentation-struc
 rounds in the same domain are a convergence stop: record `redesign_required`, do not launch another reviewer, and return
 through specification redesign or decomposition before creating a new packet.
 
+Open review tasks and `spec-reconcile` are expected during review and are not findings by themselves. Reviewers report
+stale dependency direction, missing tasks, and other graph defects; the controller verifies gate closure only after
+approval and the specification-reconciliation commit.
+
 It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes
 `spec-reconcile` only when implementation can proceed without inventing intent. A successful start records the canonical
 feature in repository-local Git configuration so `/implement-feature` can resume it from the base worktree when no

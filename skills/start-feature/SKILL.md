@@ -120,6 +120,10 @@ and identity, reviewed requirements, relevant architecture and prior decisions, 
 graph and acceptance criteria, documentation impact, validation evidence, and exact source locations. It must not
 contain findings, recommendations, or a verdict.
 
+The open review tasks and `spec-reconcile` are expected while review is in progress; reviewers must not report that
+state itself. Report stale dependency direction, missing tasks, and other graph defects. The controller verifies gate
+closure only after reviewer approval and the specification-reconciliation commit.
+
 Launch exactly four role reviewers with `context: fresh`, giving each the same packet and its distinct goal below. Each
 reviewer independently reasons from the packet, verifies evidence critical to its role, and reads additional source only
 when needed. Follow `../dstack-core/references/REVIEW-STATE.md`: claim the matching lifecycle task, append its durable
