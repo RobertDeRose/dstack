@@ -36,8 +36,10 @@ Review-specific authority:
 ## Workflow state and termination
 
 Use `<skill-dir>/scripts/review_state.py` to persist the current PR, head SHA, cycle, phase, ledger, selections, and
-clarifications under the repository Git directory. Load existing state before every continuation. Discard it only when
-the PR or head SHA changed unexpectedly, or after a terminal state is recorded.
+clarifications under the repository Git directory. State writes use a same-directory temporary file, file and directory
+fsync, and atomic replacement; concurrent continuations remain last-writer-wins and must be serialized by the workflow.
+Load existing state before every continuation. Discard it only when the PR or head SHA changed unexpectedly, or after a
+terminal state is recorded.
 
 The workflow may return a final response only in one of these terminal states:
 

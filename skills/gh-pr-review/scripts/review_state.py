@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -66,7 +69,25 @@ def load() -> dict[str, Any]:
 def save(value: dict[str, Any]) -> None:
     path = state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    payload = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.exists():
+            temporary_path.chmod(stat.S_IMODE(path.stat().st_mode))
+        temporary_path.replace(path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def parse_numbers(raw: str) -> list[int]:

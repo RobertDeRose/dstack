@@ -6390,6 +6390,36 @@ def test_tagged_release_name_matches_packaged_version(repository_root: Path) -> 
     assert os.environ.get("GITHUB_REF_NAME") == f"v{project['project']['version']}"
 
 
+def test_review_state_save_preserves_previous_file_on_replace_failure(
+    repository_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = repository_root / "skills/gh-pr-review/scripts/review_state.py"
+    spec = importlib.util.spec_from_file_location("dstack_review_state_atomic", script)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    path = tmp_path / "dstack" / "gh-pr-review-state.json"
+    path.parent.mkdir()
+    path.write_text('{"schema_version": 1, "phase": "collecting"}\n', encoding="utf-8")
+    monkeypatch.setattr(module, "state_path", lambda: path)
+
+    def fail_replace(source: Path, destination: Path) -> Path:
+        assert source != destination
+        assert destination == path
+        error = "injected replace failure"
+        raise OSError(error)
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="injected replace failure"):
+        module.save({"schema_version": 1, "phase": "complete"})
+
+    assert path.read_text(encoding="utf-8") == '{"schema_version": 1, "phase": "collecting"}\n'
+    assert not list(path.parent.glob(f".{path.name}.*"))
+
+
 def test_gh_pr_review_state_is_resumable(repository_root: Path, tmp_path: Path) -> None:
     repository = tmp_path / "review-state"
     repository.mkdir()
