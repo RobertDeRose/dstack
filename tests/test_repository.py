@@ -582,6 +582,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         "reviewed_diff_base",
         "review_round",
         "finding_domains",
+        "review_boundary_id",
+        "replacement_count",
         "disposition",
         "replacement_reason",
         "supersedes_run_id",
@@ -609,6 +611,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "only currently open findings" in normalized_findings
     assert "historical" in normalized_findings
     assert "two unresolved review rounds in the same domain" in normalized_review_state
+    assert "one redesigned packet" in normalized_review_state
+    assert "material scope change invalidates" in normalized_review_state
     start = skill("start-feature")
     normalized_start = " ".join(start.split())
     assert "two unresolved review rounds in the same domain" in normalized_start
@@ -617,6 +621,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "open review tasks and `spec-reconcile` are expected" in normalized_start
     assert "stale dependency direction" in normalized_start.casefold()
     assert "controller verifies gate closure" in normalized_start.casefold()
+    assert "material scope change invalidates the whole review run" in normalized_start.casefold()
+    assert "one new four-role review" in normalized_start.casefold()
+    assert "do not launch a fresh replacement reviewer in the same run" in normalized_start.casefold()
     for name in ("start-feature", "implement-feature", "implement-task", "close-feature"):
         assert "REVIEW-STATE.md" in skill(name)
         assert "REVIEW-FINDINGS.md" in skill(name)

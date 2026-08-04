@@ -165,10 +165,12 @@ Review is complete when all four review beads contain independently produced evi
 reconciliation changes a reviewed domain, resume only its original reviewer and run ID. Before launching another review
 round, apply the convergence threshold in `../dstack-core/references/REVIEW-STATE.md`: two unresolved review rounds in
 the same domain require redesign or decomposition. Do not launch another reviewer while that threshold is active; keep
-or reopen `spec-reconcile` and return to the design-question/decomposition phase. Refresh the shared packet only after
-broad design, architecture, task-graph, or documentation-structure changes. Launch a fresh replacement only when the
-original cannot be resumed or the fix materially changes that role's scope; provide the original packet, finding,
-resolution, and post-review diff.
+or reopen `spec-reconcile` and return to the design-question/decomposition phase. A material scope change invalidates
+the whole review run. Do not launch a fresh replacement reviewer in the same run; reopen `spec-reconcile`, commit the
+redesigned boundary, rebuild one redesigned packet, and run one new four-role review with `replacement_count: 1`.
+Refresh the shared packet only after broad design, architecture, task-graph, or documentation-structure changes. Launch
+a fresh replacement only when the original cannot be resumed without a scope change; provide the original packet,
+finding, resolution, and post-review diff.
 
 ## 5. Reconcile the Specification
 

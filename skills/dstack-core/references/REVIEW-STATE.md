@@ -9,7 +9,7 @@ launching its reviewer and after every material transition.
 Append one single-line JSON record to the review bead's notes with the `Review state:` prefix:
 
 ```text
-Review state: {"schema":"dstack.review-state.v1","run_id":"run-...","reviewer_session_id":"session-...","packet_id":"packet-...","packet_path":"/ephemeral/...","packet_digest":"sha256:...","reviewed_commit":"<sha>","reviewed_diff_base":"<sha>","reviewed_diff_digest":"sha256:...","review_round":1,"finding_domains":["architecture"],"status":"active","disposition":"pending","replacement_reason":null,"supersedes_run_id":null,"unavailable_reason":null}
+Review state: {"schema":"dstack.review-state.v1","run_id":"run-...","reviewer_session_id":"session-...","packet_id":"packet-...","packet_path":"/ephemeral/...","packet_digest":"sha256:...","reviewed_commit":"<sha>","reviewed_diff_base":"<sha>","reviewed_diff_digest":"sha256:...","review_round":1,"finding_domains":["architecture"],"review_boundary_id":"boundary-...","replacement_count":0,"status":"active","disposition":"pending","replacement_reason":null,"supersedes_run_id":null,"unavailable_reason":null}
 ```
 
 Required fields are:
@@ -21,6 +21,8 @@ Required fields are:
 - `reviewed_commit`, `reviewed_diff_base`, and `reviewed_diff_digest`: exact reviewed source boundary;
 - `review_round`: positive integer for the current review/reconciliation round;
 - `finding_domains`: stable lower-case domain identifiers for the current findings;
+- `review_boundary_id`: immutable identifier for the current design/specification boundary;
+- `replacement_count`: zero or one for a bounded redesign replacement within that boundary;
 - `status`: `active`, `findings`, `verified`, `unavailable`, `replaced`, or `redesign_required`;
 - `disposition`: `pending`, `changes_required`, `approved`, `replaced`, or `redesign_required`;
 - `replacement_reason`, `supersedes_run_id`, and `unavailable_reason`: explicit values when applicable, otherwise
@@ -44,6 +46,18 @@ another role reviewer, inspect the current state and ledger:
 - After a new design/decomposition boundary is committed, start a new packet and review round. The prior run remains
   audit history and does not carry approval into the redesigned boundary.
 - Findings in unrelated domains, or a resolved round between two findings, do not trigger this threshold.
+
+## Bounded redesign replacement
+
+A material scope change invalidates the whole review run, not just one role's interpretation. Do not launch a fresh
+replacement reviewer in the same run. Append `status: replaced`, `disposition: replaced`, and a concrete
+`replacement_reason`, keep the original packet and findings as audit history, and reopen `spec-reconcile`.
+
+After the redesigned boundary is committed, rebuild one redesigned packet and run one new four-role review. Give the new
+run a new `review_boundary_id`, `supersedes_run_id` pointing to the invalidated run, and `replacement_count: 1`. No
+second redesign replacement is allowed within that boundary; foundational findings in the new run enter the convergence
+threshold above. A reviewer that is unavailable without a scope change follows the ordinary replacement path and does
+not consume the redesign replacement allowance.
 
 ## Required lifecycle
 
