@@ -107,9 +107,10 @@ and validation evidence with exact source locations. It contains no findings, re
 
 Then launch exactly two reviewers with `context: fresh`, giving both the same packet and their distinct roles below.
 Each reviewer reasons independently, verifies evidence critical to its role, and reads additional source only when
-needed. Follow `../dstack-core/references/REVIEW-STATE.md`: claim each review bead and persist its run ID, reviewer
-session, packet identity/digest, reviewed commit/diff boundary, and current disposition before launch. Do not add
-confidence reviewers without a distinct uncovered risk or an explicit user request.
+needed. Follow `../dstack-core/references/REVIEW-STATE.md` and `../dstack-core/references/REVIEW-FINDINGS.md`: claim
+each review bead and persist its run ID, reviewer session, packet identity/digest, reviewed commit/diff boundary,
+current disposition, and current open findings before launch. Do not add confidence reviewers without a distinct
+uncovered risk or an explicit user request.
 
 ### Delivery Reviewer
 

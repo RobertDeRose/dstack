@@ -80,9 +80,10 @@ broad/shared behavior; otherwise rerun only impacted focused checks.
 
 Launch exactly one initial reviewer with `context: fresh`, focused on correctness, security, maintainability, test
 adequacy, and compliance with the selected task and design. A separate context builder is unnecessary for this single
-scoped reviewer. Follow `../dstack-core/references/REVIEW-STATE.md` to persist the review bead's run ID, reviewer
-session, packet identity/digest, reviewed commit/diff boundary, and current disposition before launch. Do not add
-confidence reviewers without a distinct uncovered risk or an explicit user request.
+scoped reviewer. Follow `../dstack-core/references/REVIEW-STATE.md` and `../dstack-core/references/REVIEW-FINDINGS.md`
+to persist the review bead's run ID, reviewer session, packet identity/digest, reviewed commit/diff boundary, current
+disposition, and current open findings before launch. Do not add confidence reviewers without a distinct uncovered risk
+or an explicit user request.
 
 Resolve actionable findings. Resume the same reviewer and run ID to verify fixes. Use a fresh replacement only if the
 original cannot be resumed or the fix materially changes the reviewed scope; provide it the original packet identity,

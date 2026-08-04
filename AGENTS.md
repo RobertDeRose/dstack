@@ -132,14 +132,16 @@ request.
 
 After a fix, resume only the original reviewers whose domains changed and preserve their run IDs. Every review bead must
 append the durable `Review state:` record defined by the installed dstack-core `REVIEW-STATE.md` reference, including
-reviewer session, packet identity/digest, reviewed commit/diff boundary, and disposition. Do not launch fresh follow-up
-reviewers unless the original cannot be resumed or the fix materially changes the review scope. Give a replacement the
-original packet identity, findings ledger, resolutions, and post-review diff, and record why resumption was unavailable.
-Refresh the shared packet only after broad design, architecture, task-graph, or documentation-structure changes. Active
-review tasks and `spec-reconcile` are expected to remain open during review; reviewers report stale graph state, while
-the controller verifies gate closure only after approval and the reconciliation commit. A material finding that remains
-unresolved in the same domain for two consecutive review rounds is a convergence stop: record `redesign_required`, do
-not launch another reviewer, and return to specification redesign or decomposition.
+reviewer session, packet identity/digest, reviewed commit/diff boundary, and disposition. Supply reviewers only the
+current open projection from the installed dstack-core `REVIEW-FINDINGS.md`; retain historical findings for audit. Do
+not launch fresh follow-up reviewers unless the original cannot be resumed or the fix materially changes the review
+scope. Give a replacement the original packet identity, findings ledger, resolutions, and post-review diff, and record
+why resumption was unavailable. Refresh the shared packet only after broad design, architecture, task-graph, or
+documentation-structure changes. Active review tasks and `spec-reconcile` are expected to remain open during review;
+reviewers report stale graph state, while the controller verifies gate closure only after approval and the
+reconciliation commit. A material finding that remains unresolved in the same domain for two consecutive review rounds
+is a convergence stop: record `redesign_required`, do not launch another reviewer, and return to specification redesign
+or decomposition.
 
 ### Execution efficiency
 

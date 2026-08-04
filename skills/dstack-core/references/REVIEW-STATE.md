@@ -61,5 +61,5 @@ another role reviewer, inspect the current state and ledger:
    bead only after its canonical state is `verified` or an explicitly recorded terminal disposition.
 
 Use Beads notes for the durable record; do not store the authoritative state only in an ephemeral packet, transcript, or
-controller memory. The replacement reviewer receives the prior findings ledger and resolutions as input, while the
-canonical finding IDs and disposition rules are defined by the workflow's findings-ledger contract.
+controller memory. The replacement reviewer receives the prior findings ledger and resolutions as input. Finding IDs and
+current dispositions follow [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md).

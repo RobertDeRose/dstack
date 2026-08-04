@@ -56,8 +56,9 @@ independently cover:
 The packet contains factual source locations but no findings, recommendations, or verdict. Reviewers read extra source
 when it is insufficient. Every review bead persists the durable `Review state:` record from the installed dstack-core
 `REVIEW-STATE.md` reference, including reviewer session, packet identity/digest, reviewed commit/diff boundary, and
-disposition. Do not add confidence reviewers without a distinct uncovered risk or user request. Fix verification resumes
-only affected reviewers and their run IDs; fresh replacements are used only when an original is unavailable or the scope
+disposition. Supply reviewers the current open projection from `REVIEW-FINDINGS.md`; retain historical findings for
+audit. Do not add confidence reviewers without a distinct uncovered risk or user request. Fix verification resumes only
+affected reviewers and their run IDs; fresh replacements are used only when an original is unavailable or the scope
 materially changes, and receive the original evidence, findings, resolutions, and post-review diff. Refresh a shared
 packet only after broad design, architecture, task-graph, or documentation-structure changes. Two unresolved review
 rounds in the same domain are a convergence stop: record `redesign_required`, do not launch another reviewer, and return

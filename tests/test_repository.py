@@ -46,6 +46,7 @@ EXPECTED_SKILLS = {
 REQUIRED_SKILL_SUPPORT = (
     "skills/dstack-core/references/TRUST-AND-AUTHORITY.md",
     "skills/dstack-core/references/REVIEW-STATE.md",
+    "skills/dstack-core/references/REVIEW-FINDINGS.md",
     "skills/dstack-core/scripts/reconcile-beads-interactions.py",
     "skills/dstack-core/scripts/resolve-feature.py",
     "skills/dstack-core/scripts/verify-delivery-state.py",
@@ -590,6 +591,23 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "prior findings ledger and resolutions" in normalized_review_state
     assert "unavailable" in review_state
     assert "redesign_required" in review_state
+    assert "REVIEW-FINDINGS.md" in review_state
+    findings = (repository_root / "skills/dstack-core/references/REVIEW-FINDINGS.md").read_text(encoding="utf-8")
+    normalized_findings = " ".join(findings.split())
+    for field in (
+        "dstack.review-finding.v1",
+        "finding_id",
+        "severity",
+        "status",
+        "source_boundary",
+        "resolution",
+        "verification",
+        "supersedes_finding_id",
+    ):
+        assert field in findings
+    assert "last record for a `finding_id`" in normalized_findings
+    assert "only currently open findings" in normalized_findings
+    assert "historical" in normalized_findings
     assert "two unresolved review rounds in the same domain" in normalized_review_state
     start = skill("start-feature")
     normalized_start = " ".join(start.split())
@@ -601,6 +619,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "controller verifies gate closure" in normalized_start.casefold()
     for name in ("start-feature", "implement-feature", "implement-task", "close-feature"):
         assert "REVIEW-STATE.md" in skill(name)
+        assert "REVIEW-FINDINGS.md" in skill(name)
 
     audit = skill("audit-project")
     assert "bd dolt push" in audit
