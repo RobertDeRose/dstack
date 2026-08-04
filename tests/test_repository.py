@@ -3025,6 +3025,54 @@ def test_setup_project_records_the_exact_stable_template_commit(
         assert not (project / relative).exists(), relative
 
 
+def test_bundled_revision_verification_prefers_filtered_fetch(
+    repository_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = repository_root / "skills/setup-project/scripts/setup-project.py"
+    spec = importlib.util.spec_from_file_location("dstack_setup_revision_fetch", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(module, "_archive_file_digests", lambda *_args: {})
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module._template_revision_digests("https://example.invalid/dstack.git", "a" * 40) == {}
+    fetch = next(command for command in commands if "fetch" in command)
+    assert "--filter=blob:none" in fetch
+    assert "--depth=1" in fetch
+    assert not any(command[:2] == ["git", "clone"] for command in commands)
+
+
+def test_bundled_revision_verification_falls_back_to_clone(
+    repository_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = repository_root / "skills/setup-project/scripts/setup-project.py"
+    spec = importlib.util.spec_from_file_location("dstack_setup_revision_fallback", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        status = 1 if "fetch" in command else 0
+        return subprocess.CompletedProcess(command, status, stdout="", stderr="unsupported filter")
+
+    monkeypatch.setattr(module, "_archive_file_digests", lambda *_args: {})
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    assert module._template_revision_digests("https://example.invalid/dstack.git", "b" * 40) == {}
+    assert any(command[:2] == ["git", "clone"] for command in commands)
+
+
 @pytest.mark.integration
 def test_bundled_setup_requires_an_exact_selected_revision(
     repository_root: Path,

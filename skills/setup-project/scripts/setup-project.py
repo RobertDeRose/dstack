@@ -14,11 +14,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -124,55 +127,134 @@ def record_update_state(path: Path, *, source: str, commit: str, channel: str) -
     )
 
 
-def bundled_files(root: Path) -> dict[str, bytes]:
+def _file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _bundled_file_digests(root: Path) -> dict[str, str]:
     paths = [root / "copier.yml", *(root / "template").rglob("*")]
     return {
-        path.relative_to(root).as_posix(): path.read_bytes()
+        path.relative_to(root).as_posix(): _file_digest(path)
         for path in paths
         if path.is_file() and not any(part in {"__pycache__", ".DS_Store"} for part in path.relative_to(root).parts)
     }
 
 
-def verify_bundled_revision(source: str, commit: str) -> None:
+def _archive_file_digests(repository: Path, commit: str) -> dict[str, str]:
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "archive",
+            "--format=tar",
+            commit,
+            "--",
+            "skills/setup-project/copier.yml",
+            "skills/setup-project/template",
+        ],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        message = f"Selected template commit {commit} does not contain the setup-project template"
+        raise SystemExit(message)
+    prefix = "skills/setup-project/"
+    digests: dict[str, str] = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+            for member in archive:
+                if not member.isfile() or not member.name.startswith(prefix):
+                    continue
+                relative = member.name.removeprefix(prefix)
+                if relative != "copier.yml" and not relative.startswith("template/"):
+                    continue
+                if any(part in {"__pycache__", ".DS_Store"} for part in Path(relative).parts):
+                    continue
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise SystemExit(f"Unable to read selected template file {relative}")
+                digest = hashlib.sha256()
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
+                digests[relative] = digest.hexdigest()
+    except tarfile.TarError as exc:
+        raise SystemExit(f"Unable to read the selected template archive: {exc}") from exc
+    return digests
+
+
+def _clone_revision_digests(source: str, commit: str, checkout: Path) -> dict[str, str]:
+    clone_source = git_source(source)
+    cloned = subprocess.run(
+        ["git", "clone", "--quiet", "--no-checkout", clone_source, str(checkout)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if cloned.returncode != 0:
+        message = f"Unable to verify the bundled template against {source!r}: {cloned.stderr.strip()}"
+        raise SystemExit(message)
+    return _archive_file_digests(checkout, commit)
+
+
+def _template_revision_digests(source: str, commit: str) -> dict[str, str]:
+    local_root = local_git_root(source)
+    if local_root is not None:
+        return _archive_file_digests(local_root, commit)
+
     with tempfile.TemporaryDirectory(prefix="dstack-bundled-template-") as temporary:
         checkout = Path(temporary) / "source"
-        local_source = Path(source).expanduser()
-        clone_source = local_source.resolve().as_uri() if local_source.exists() else git_source(source)
-        cloned = subprocess.run(
-            ["git", "clone", "--quiet", "--no-checkout", clone_source, str(checkout)],
+        initialized = subprocess.run(
+            ["git", "init", "--quiet", str(checkout)],
             check=False,
             capture_output=True,
             text=True,
         )
-        if cloned.returncode != 0:
-            message = f"Unable to verify the bundled template against {source!r}: {cloned.stderr.strip()}"
-            raise SystemExit(message)
-        selected = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(checkout),
-                "checkout",
-                "--quiet",
-                commit,
-                "--",
-                "skills/setup-project/copier.yml",
-                "skills/setup-project/template",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if selected.returncode != 0:
-            message = f"Selected template commit {commit} does not contain the setup-project template"
-            raise SystemExit(message)
-        expected = checkout / "skills/setup-project"
-        if bundled_files(BUNDLED_TEMPLATE_SOURCE) != bundled_files(expected):
-            message = (
-                "The installed setup-project template does not match the selected template commit. "
-                "Update the installed dstack skills or choose an explicit --template-source."
+        fetched = None
+        if initialized.returncode == 0:
+            remote = subprocess.run(
+                ["git", "-C", str(checkout), "remote", "add", "origin", git_source(source)],
+                check=False,
+                capture_output=True,
+                text=True,
             )
-            raise SystemExit(message)
+            if remote.returncode == 0:
+                fetched = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(checkout),
+                        "fetch",
+                        "--quiet",
+                        "--filter=blob:none",
+                        "--no-tags",
+                        "--depth=1",
+                        "origin",
+                        commit,
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+        if fetched is not None and fetched.returncode == 0:
+            return _archive_file_digests(checkout, commit)
+        shutil.rmtree(checkout, ignore_errors=True)
+        return _clone_revision_digests(source, commit, checkout)
+
+
+def verify_bundled_revision(source: str, commit: str) -> None:
+    expected = _bundled_file_digests(BUNDLED_TEMPLATE_SOURCE)
+    selected = _template_revision_digests(source, commit)
+    if expected != selected:
+        message = (
+            "The installed setup-project template does not match the selected template commit. "
+            "Update the installed dstack skills or choose an explicit --template-source."
+        )
+        raise SystemExit(message)
 
 
 def validate_template_source(source: str) -> None:
