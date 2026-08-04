@@ -54,6 +54,12 @@ REQUIRED_SKILL_SUPPORT = (
     "skills/migrate-workflow/references/MIGRATION.md",
     "skills/migrate-workflow/scripts/adopt-template.py",
     "skills/migrate-workflow/scripts/migrate-legacy-workflow.py",
+    "skills/migrate-workflow/scripts/migration_beads.py",
+    "skills/migrate-workflow/scripts/migration_cli.py",
+    "skills/migrate-workflow/scripts/migration_core.py",
+    "skills/migrate-workflow/scripts/migration_filesystem.py",
+    "skills/migrate-workflow/scripts/migration_git.py",
+    "skills/migrate-workflow/scripts/migration_verification.py",
     "skills/setup-project/copier.yml",
     "skills/setup-project/scripts/setup-project.py",
     "skills/setup-project/template/docs/src/features/_template/design.md",
@@ -5734,12 +5740,15 @@ def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: 
 
 
 def test_migration_supports_json_and_deduplicates_notes(repository_root: Path) -> None:
-    script = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
+    wrapper = (repository_root / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py").read_text(
         encoding="utf-8"
     )
-    assert 'parser.add_argument("--json"' in script
-    assert '["bd", "show", issue_id, "--json"]' in script
-    assert "if note in str(notes)" in script
+    cli = (repository_root / "skills/migrate-workflow/scripts/migration_cli.py").read_text(encoding="utf-8")
+    beads = (repository_root / "skills/migrate-workflow/scripts/migration_beads.py").read_text(encoding="utf-8")
+    assert "from migration_cli import main" in wrapper
+    assert 'parser.add_argument("--json"' in cli
+    assert '["bd", "show", issue_id, "--json"]' in beads
+    assert "if note in str(notes)" in beads
 
 
 @pytest.mark.external

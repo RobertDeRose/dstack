@@ -22,6 +22,14 @@ Mechanical conversion includes legacy-number removal, path rewriting, task parsi
 reconciliation determines what was actually delivered and must use code, tests, current docs, commits, or operational
 evidence.
 
+## Script ownership
+
+The stable `scripts/migrate-legacy-workflow.py` entrypoint delegates command parsing and dispatch to
+`scripts/migration_cli.py`. The CLI calls the migration engine in `scripts/migration_core.py`, which owns the mechanical
+parsers, manifest planning, Git/Beads adapters, filesystem operations, finalization, and verification. Keep new command
+syntax in the CLI module and keep side-effect-free parsing/planning changes independently testable in the core module;
+changes to authority, Beads, or archival behavior must preserve their existing fail-closed ordering.
+
 ## Migration session authority
 
 Existing branches, worktrees, manifests, checkpoint commits, and migration reports never authorize resume. Before

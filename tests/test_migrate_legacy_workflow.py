@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import os
-import runpy
 import shutil
 import sys
 import textwrap
@@ -21,12 +21,26 @@ from tests.support import commit_repository, initialize_git, merged_environment,
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MIGRATOR = REPOSITORY_ROOT / "skills/migrate-workflow/scripts/migrate-legacy-workflow.py"
+MIGRATION_CORE = REPOSITORY_ROOT / "skills/migrate-workflow/scripts/migration_core.py"
 FORMULA = REPOSITORY_ROOT / "skills/setup-project/template/.beads/formulas/dstack-feature.formula.toml"
 
 
+def load_migration_core() -> Any:
+    core_directory = str(MIGRATION_CORE.parent)
+    if core_directory not in sys.path:
+        sys.path.insert(0, core_directory)
+    spec = importlib.util.spec_from_file_location("migration_core", MIGRATION_CORE)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_feature_path_rewrite_keeps_structural_references_only() -> None:
-    module = runpy.run_path(str(MIGRATOR), run_name="test_migrator")
-    replace_feature_paths = module["replace_feature_paths"]
+    module = load_migration_core()
+    replace_feature_paths = module.replace_feature_paths
 
     source = (
         "docs/src/features/old-name/design.md features/old-name/index.md "
@@ -41,7 +55,7 @@ def test_feature_path_rewrite_keeps_structural_references_only() -> None:
 
 
 def test_feature_relationship_graph_batches_dependency_queries(monkeypatch: pytest.MonkeyPatch) -> None:
-    module = runpy.run_path(str(MIGRATOR), run_name="test_migrator")
+    load_migration_core()
     calls: list[list[str]] = []
 
     def fake_run_command(command: list[str], *, cwd: Path, **_: Any) -> str:
@@ -54,8 +68,9 @@ def test_feature_relationship_graph_batches_dependency_queries(monkeypatch: pyte
             ]
         )
 
-    monkeypatch.setitem(module["bd_feature_relationship_graph"].__globals__, "run_command", fake_run_command)
-    graph, relationships = module["bd_feature_relationship_graph"](
+    beads_module = sys.modules["migration_beads"]
+    monkeypatch.setattr(beads_module, "run_command", fake_run_command)
+    graph, relationships = beads_module.bd_feature_relationship_graph(
         Path("/tmp/project"),
         [
             {"slug": "alpha", "beads": {"root_id": "project-1"}},
