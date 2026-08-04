@@ -87,6 +87,12 @@ Before mutating code, run a semantic boundedness check: one independently review
 one practical commit boundary. Character counts are warning signals only. Cross-boundary work returns to specification
 reconciliation without code changes.
 
+Material changes to behavior, ownership, compatibility, or acceptance stop implementation and invalidate the reviewed
+source boundary. Reopen specification reconciliation and affected review gates, mark stale review evidence invalid,
+reconcile and commit the new specification boundary, and complete its review before reclaiming implementation. An
+editorial clarification may stay in place only when it does not alter reviewed intent, ownership, compatibility,
+acceptance, or the review boundary.
+
 Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation
 aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and
 close the task only after its acceptance criteria pass. Each task gets exactly one fresh reviewer; fixes resume that

@@ -756,6 +756,14 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "before mutating code" in normalized_implementation.casefold()
     assert "return the task to specification reconciliation" in normalized_implementation
     assert "Character counts are warning signals" in normalized_implementation
+    assert (
+        "material changes to behavior, ownership, compatibility, or acceptance stop implementation"
+        in normalized_implementation.casefold()
+    )
+    assert "reopen `spec-reconcile`" in normalized_implementation
+    assert "affected review beads" in normalized_implementation
+    assert "editorial clarification" in normalized_implementation
+    assert "does not alter reviewed intent" in normalized_implementation
 
     closeout = skill("close-feature")
     normalized_closeout = " ".join(closeout.split())
@@ -830,6 +838,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "Refresh a shared packet only after broad" in lifecycle
         assert "original is unavailable" in lifecycle
         assert "material scope changes invalidate" in lifecycle
+        assert (
+            "material changes to behavior, ownership, compatibility, or acceptance stop implementation"
+            in lifecycle.casefold()
+        )
+        assert "editorial clarification" in lifecycle
+        assert "does not alter reviewed intent" in lifecycle
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update

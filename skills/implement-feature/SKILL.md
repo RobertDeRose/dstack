@@ -69,6 +69,14 @@ are warning signals only, not correctness limits. If the child combines independ
 documentation sets, or commit boundaries, do not write code: record the planning defect, reopen `spec-reconcile`, and
 return the task to specification reconciliation rather than inventing a decomposition during implementation.
 
+Material planning changes discovered at any point also stop implementation. Material changes to behavior, ownership,
+compatibility, or acceptance stop implementation and invalidate the reviewed source boundary: reopen `spec-reconcile`
+and the affected review beads, mark stale review evidence as invalid, reconcile the design and task acceptance, commit
+and review the new specification boundary, and reclaim implementation only after its gates close. Do not reconcile
+material intent in place or continue under old review evidence. An editorial clarification is allowed in place only when
+it does not alter reviewed intent, ownership, compatibility, acceptance, or the review boundary; record the
+clarification and continue.
+
 Implement the smallest complete change satisfying the selected task. Preserve the reviewed design and established
 repository patterns. Keep code, tests, configuration, migrations, observability, failure behavior, and recovery within
 the task boundary.
@@ -92,8 +100,9 @@ disposition, and current open findings before launch. Do not add confidence revi
 or an explicit user request.
 
 Resolve actionable findings. Resume the same reviewer and run ID to verify fixes. Use a fresh replacement only if the
-original cannot be resumed or the fix materially changes the reviewed scope; provide it the original packet identity,
-findings ledger, resolutions, and post-review diff. Record the unavailable/replacement reason and current
+original cannot be resumed; if a fix materially changes the reviewed scope, stop and use the planning-defect path above
+rather than asking a replacement reviewer to approve a different boundary. Provide a replacement the original packet
+identity, findings ledger, resolutions, and post-review diff. Record the unavailable/replacement reason and current
 `Review state:` record alongside commands, outcomes, limitations, findings, and fixes:
 
 ```bash
@@ -160,8 +169,11 @@ Pause for the user only when **every** remaining open child is blocked by missin
 question at a time and resume immediately after each answer. This state is valid only for migrated work: native
 `/plan-features` output must already contain every implementation decision.
 
-If any native planned task unexpectedly requires a user decision, record it as a planning defect, resolve the question,
-reconcile the design/task acceptance, and continue rather than ending the invocation.
+If implementation exposes a material planning defect involving behavior, ownership, compatibility, acceptance, or a new
+independent boundary, stop and follow the planning-defect invalidation path in Section 2. Do not continue under the old
+specification or review evidence. If the discovery is only an editorial clarification that leaves reviewed intent
+unchanged, record it and continue. Native `/plan-features` output should prevent both cases, but the gate protects
+against drift discovered during implementation.
 
 ## 6. Complete the Implementation Coordinator
 
