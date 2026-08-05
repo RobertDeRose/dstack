@@ -76,8 +76,11 @@ Open review tasks and `spec-reconcile` are expected during review and are not fi
 stale dependency direction, missing tasks, and other graph defects; the controller verifies gate closure only after
 approval and the specification-reconciliation commit.
 
-It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes
-`spec-reconcile` only when implementation can proceed without inventing intent. A successful start records the canonical
+Invoking `/start-feature` authorizes its local reconciliation work, including the reviewed design/graph commit and
+feature-scoped Beads mutations. It does not authorize remote publication, pull-request creation, or branch pushes. It
+reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes `spec-reconcile`
+only when implementation can proceed without inventing intent. Before recommending implementation, it commits any
+remaining in-scope workflow state and confirms the feature worktree is clean. A successful start records the canonical
 feature in repository-local Git configuration so `/implement-feature` can resume it from the base worktree when no
 selector is supplied.
 

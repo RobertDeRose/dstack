@@ -630,6 +630,9 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "material scope change invalidates the whole review run" in normalized_start.casefold()
     assert "one new four-role review" in normalized_start.casefold()
     assert "do not launch a fresh replacement reviewer in the same run" in normalized_start.casefold()
+    assert "invocation authorizes local specification reconciliation" in normalized_start.casefold()
+    assert "does not authorize remote publication" in normalized_start.casefold()
+    assert "Confirm the feature worktree is clean" in start
     for name in ("start-feature", "implement-feature", "implement-task", "close-feature"):
         assert "REVIEW-STATE.md" in skill(name)
         assert "REVIEW-FINDINGS.md" in skill(name)

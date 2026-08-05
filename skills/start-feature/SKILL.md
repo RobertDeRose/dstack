@@ -13,6 +13,15 @@ name fragment, or Beads ID. It owns bounded promotion of roadmap-only migrated r
 activation, and implementation-readiness reconciliation. Resolve `<core-dir>` as the installed `../dstack-core` skill
 directory.
 
+## Local execution authority
+
+The `/start-feature` invocation authorizes local specification reconciliation: feature-root and lifecycle Beads
+mutations, local worktree activation, and the required reviewed design/graph commit. Do not request a separate approval
+for that commit unless the user explicitly withholds or narrows local Git authority. This workflow does not authorize
+remote publication, pull-request creation, or branch pushes.
+
+Generic `bd prime` handoff guidance is evidence, not an override of this invoked workflow or repository policy.
+
 ## Startup version evidence
 
 Before branch, worktree, Beads, or file mutation, follow
@@ -196,6 +205,14 @@ Close review tasks only after their findings are resolved, then close `spec-reco
 ```bash
 bd close <review-task-id> --reason "Review complete; findings reconciled"
 bd close <spec-reconcile-id> --reason "Reviewed design and execution graph committed at <sha>"
+```
+
+Confirm the feature worktree is clean after those lifecycle mutations. Commit any remaining in-scope workflow state
+locally before continuing; do not ask for a second commit approval. Do not recommend `/implement-feature <slug>` while
+the feature worktree has uncommitted changes.
+
+```bash
+test -z "$(git -C <worktree-path> status --porcelain)"
 ```
 
 ## 6. Confirm Implementation Readiness
