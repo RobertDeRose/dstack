@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.8.4 — 2026-08-05
+
+### Fixed
+
+- **workflow:** Install and verify Beads hooks (`bd26e44`)
+
+- - -
+
 ## v0.8.3 — 2026-08-05
 
 ### Fixed
