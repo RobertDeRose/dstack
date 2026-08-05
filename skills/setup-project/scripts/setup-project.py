@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import io
 import json
 import re
@@ -33,6 +34,16 @@ from packaging.version import InvalidVersion, Version
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
+CORE_SCRIPTS = SKILL_DIR.parent / "dstack-core" / "scripts"
+BEADS_HOOKS_SPEC = importlib.util.spec_from_file_location("dstack_beads_hooks", CORE_SCRIPTS / "beads_hooks.py")
+if BEADS_HOOKS_SPEC is None or BEADS_HOOKS_SPEC.loader is None:
+    raise SystemExit(f"Beads hook helper is missing from {CORE_SCRIPTS}")
+BEADS_HOOKS_MODULE: Any = importlib.util.module_from_spec(BEADS_HOOKS_SPEC)
+BEADS_HOOKS_SPEC.loader.exec_module(BEADS_HOOKS_MODULE)
+install_and_verify_beads_hooks = BEADS_HOOKS_MODULE.install_and_verify_beads_hooks
+skipped_beads_hooks = BEADS_HOOKS_MODULE.skipped_beads_hooks
+unavailable_beads_hooks = BEADS_HOOKS_MODULE.unavailable_beads_hooks
+
 sys.path.insert(0, str(SKILL_DIR / "scripts"))
 from layout_contract import render_package_configs, validate_layout  # noqa: E402
 
@@ -576,7 +587,7 @@ def validate_setup_beads_authority(destination: Path, prefix: str) -> None:
         raise SystemExit(message)
 
 
-def initialize_beads(destination: Path, args: argparse.Namespace, *, prefix: str, quiet: bool) -> None:
+def initialize_beads(destination: Path, args: argparse.Namespace, *, prefix: str, quiet: bool) -> dict[str, Any]:
     git_root = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"], cwd=destination, check=False, capture_output=True, text=True
     )
@@ -652,8 +663,10 @@ def initialize_beads(destination: Path, args: argparse.Namespace, *, prefix: str
         cwd=destination,
         quiet=quiet,
     )
+    beads_hooks = install_and_verify_beads_hooks(destination, available=True, quiet=quiet)
     for integration in args.setup:
         run_checked(["bd", "setup", integration], cwd=destination, quiet=quiet)
+    return beads_hooks
 
 
 def verify_scaffold(destination: Path) -> None:
@@ -988,6 +1001,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     beads_is_available = bd_available(destination)
     beads_initialized = False
+    beads_hooks = skipped_beads_hooks("post-setup was skipped")
     docs_validated = False
     post_setup_ran = False
     outstanding: list[str] = []
@@ -997,13 +1011,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         verify_scaffold(destination)
         if args.skip_beads:
             outstanding.append("Beads initialization and verification")
+            beads_hooks = skipped_beads_hooks("skipped by --skip-beads")
         elif beads_is_available and own_git_repository(destination):
-            initialize_beads(destination, args, prefix=project_slug, quiet=args.quiet or args.json)
-            beads_initialized = True
+            beads_hooks = initialize_beads(destination, args, prefix=project_slug, quiet=args.quiet or args.json)
+            beads_initialized = beads_hooks["status"] == "succeeded"
+            if beads_hooks["recovery"]:
+                outstanding.extend(f"Beads hook recovery: {command}" for command in beads_hooks["recovery"])
         elif beads_is_available:
             outstanding.append("Beads initialization requires a project-local Git repository")
+            beads_hooks = skipped_beads_hooks("Beads initialization requires a project-local Git repository")
         else:
             outstanding.append("Beads initialization and verification")
+            beads_hooks = unavailable_beads_hooks("bd is unavailable or its launcher cannot execute")
+            outstanding.extend(f"Beads hook recovery: {command}" for command in beads_hooks["recovery"])
         validate_docs(destination, quiet=args.quiet or args.json)
         docs_validated = True
         verify_scaffold(destination)
@@ -1037,6 +1057,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "docs_validated": docs_validated,
         "beads_available": beads_is_available,
         "beads_initialized": beads_initialized,
+        "beads_hooks": beads_hooks,
         "readme_created": (destination / "README.md").exists(),
         "tooling": tooling,
         "outstanding": outstanding,
@@ -1051,7 +1072,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Future update source: {recorded_update_source}")
         print(f"Copier state: {answers}")
         if beads_initialized:
-            print("Beads initialized. Next: run 'bd prime', then use /plan-features.")
+            print("Beads initialized and hooks verified. Next: run 'bd prime', then use /plan-features.")
         elif args.skip_beads:
             print("Beads initialization and verification remain outstanding because --skip-beads was supplied.")
         elif not beads_is_available:
@@ -1062,6 +1083,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Tooling provisioning: {tooling['status']}")
         for command in tooling["recovery"]:
             print(f"Tooling recovery: {command}")
+        print(f"Beads hooks: {beads_hooks['status']}")
+        for command in beads_hooks["recovery"]:
+            print(f"Beads hook recovery: {command}")
         print("Commit the initial scaffold before applying Copier updates.")
     return 0
 

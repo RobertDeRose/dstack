@@ -62,6 +62,7 @@ REQUIRED_SKILL_SUPPORT = (
     "skills/migrate-workflow/scripts/migration_verification.py",
     "skills/setup-project/copier.yml",
     "skills/setup-project/scripts/setup-project.py",
+    "skills/dstack-core/scripts/beads_hooks.py",
     "skills/setup-project/template/docs/src/features/_template/design.md",
     "skills/update-project/scripts/update-project.py",
 )
@@ -455,6 +456,21 @@ def write_fake_bd(bin_dir: Path, log_path: Path) -> Path:
         "    subprocess.run(['git', '-c', 'user.name=bd test', '-c', 'user.email=bd@test',\n"
         "                    'commit', '-m', 'bd init: initialize beads issue tracking'], check=True,\n"
         "                   capture_output=True)\n"
+        "elif args[:2] == ['hooks', 'install']:\n"
+        "    if os.environ.get('DSTACK_BD_HOOKS_FAIL') == 'install':\n"
+        "        print('bd hooks install failed', file=sys.stderr)\n"
+        "        raise SystemExit(1)\n"
+        "elif args[:3] == ['hooks', 'list', '--json']:\n"
+        "    if os.environ.get('DSTACK_BD_HOOKS_FAIL') == 'list':\n"
+        "        print('{not-json}')\n"
+        "    else:\n"
+        "        outdated = os.environ.get('DSTACK_BD_HOOKS_OUTDATED') == '1'\n"
+        "        print(json.dumps({'hooks': [\n"
+        "            {'Name': name, 'Installed': True, 'Version': '1.1.0',\n"
+        "             'IsShim': True, 'Outdated': outdated if name == 'pre-commit' else False}\n"
+        "            for name in ('pre-commit', 'post-merge', 'pre-push', 'post-checkout',\n"
+        "                         'prepare-commit-msg')\n"
+        "        ]}))\n"
         "elif args[:2] == ['context', '--json']:\n"
         "    root = Path.cwd()\n"
         "    metadata = json.loads((root / '.beads/metadata.json').read_text())\n"
@@ -699,6 +715,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "overwrite=False" in setup_script
     assert "unsafe=False" in setup_script
     assert "Beads initialization and verification remain outstanding" in setup_script
+    beads_hooks_script = (repository_root / "skills/dstack-core/scripts/beads_hooks.py").read_text(encoding="utf-8")
+    assert "bd hooks install" in beads_hooks_script
+    assert "bd hooks list --json" in beads_hooks_script
+    assert "install_and_verify_beads_hooks" in setup_script
+    update = skill("update-project")
+    assert "beads_hooks" in update
     assert 'default="default"' in setup_script
     assert 'command.append("--stealth")' not in setup_script
     assert "git commit -F <file>" in setup
@@ -3912,11 +3934,15 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
     assert payload["vcs_ref"] == packaged_ref
     assert payload["conflicts"] == []
     assert payload["beads_checked"] is True
+    assert payload["beads_hooks"]["status"] == "succeeded"
+    assert payload["beads_hooks"]["verification"]["hook_count"] == 5
     assert (project / ".dstack-release").read_text(encoding="utf-8") == packaged_ref + "\n"
     commands = bd_log.read_text(encoding="utf-8").splitlines()
     assert "info --json" in commands
     assert "ready --json --limit 1" in commands
     assert "formula show dstack-feature --json" in commands
+    assert "hooks install" in commands
+    assert "hooks list --json" in commands
     assert all(not command.startswith("doctor") for command in commands)
 
 
@@ -4105,6 +4131,94 @@ def test_update_project_preserves_update_and_reports_degraded_tooling(
     assert payload["outstanding"]
     assert (project / ".dstack-release").read_text(encoding="utf-8") == "v0.0.2\n"
     assert (project / ".copier-answers.yml").is_file()
+
+
+@pytest.mark.integration
+def test_update_project_does_not_install_beads_hooks_after_tooling_failure(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "tooling-failure-before-beads-hooks"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+    (tagged_template_source / "skills/setup-project/template/.dstack-release.jinja").write_text(
+        "v0.0.2\n", encoding="utf-8"
+    )
+    commit_repository(tagged_template_source, "dstack v0.0.2", "v0.0.2")
+    fake_bin = tmp_path / "bin-tooling-failure-before-beads-hooks"
+    bd_log = tmp_path / "bd-tooling-failure-before-beads-hooks.log"
+    write_fake_mise(fake_bin)
+    write_fake_bd(fake_bin, bd_log)
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(project),
+            "--vcs-ref",
+            "v0.0.2",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        env=merged_environment(
+            PATH=f"{fake_bin}:{os.environ['PATH']}",
+            DSTACK_MISE_FAIL="hooks",
+            DSTACK_BD_LOG=str(bd_log),
+        ),
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["tooling"]["status"] == "degraded"
+    assert payload["beads_hooks"]["status"] == "skipped"
+    assert not any(command.startswith("hooks ") for command in bd_log.read_text(encoding="utf-8").splitlines())
+
+
+@pytest.mark.integration
+def test_update_reports_beads_hook_failure_and_recovery(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "beads-hook-update-failure"
+    setup_generated_project(tagged_template_source, project)
+    configure_project_git(project)
+    commit_repository(project, "Initial generated project")
+    (tagged_template_source / "skills/setup-project/template/.dstack-release.jinja").write_text(
+        "v0.0.2\n", encoding="utf-8"
+    )
+    commit_repository(tagged_template_source, "dstack v0.0.2", "v0.0.2")
+    fake_bin = tmp_path / "bin-beads-hook-update-failure"
+    bd_log = tmp_path / "bd-beads-hook-update-failure.log"
+    write_fake_mise(fake_bin)
+    write_fake_bd(fake_bin, bd_log)
+
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(tagged_template_source / "skills/update-project/scripts/update-project.py"),
+            "--destination",
+            str(project),
+            "--vcs-ref",
+            "v0.0.2",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        env=merged_environment(
+            PATH=f"{fake_bin}:{os.environ['PATH']}",
+            DSTACK_BD_HOOKS_FAIL="install",
+            DSTACK_BD_LOG=str(bd_log),
+        ),
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["tooling"]["status"] == "succeeded"
+    assert payload["beads_hooks"]["status"] == "failed"
+    assert payload["beads_hooks"]["install"]["status"] == "failed"
+    assert payload["beads_hooks"]["recovery"] == ["bd hooks install", "bd hooks list --json"]
+    assert payload["ready_to_resume_feature_work"] is False
 
 
 @pytest.mark.integration
@@ -4839,6 +4953,8 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     assert payload["post_setup_ran"] is True
     assert payload["docs_validated"] is True
     assert payload["beads_initialized"] is True
+    assert payload["beads_hooks"]["status"] == "succeeded"
+    assert payload["beads_hooks"]["verification"]["hook_count"] == 5
     assert payload["git_initialized"] is True
     run_command(["git", "rev-parse", "--verify", "HEAD"], cwd=project)
     assert run_command(["git", "log", "-1", "--format=%s"], cwd=project).stdout.strip() == (
@@ -4852,6 +4968,8 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
         for command in commands
     )
     assert "formula show dstack-feature --json" in commands
+    assert commands.index("hooks install") > commands.index("formula show dstack-feature --json")
+    assert commands.index("hooks list --json") > commands.index("hooks install")
     for relative in (
         ".beads/.gitignore",
         ".beads/README.md",
@@ -4864,6 +4982,46 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
     assert (project / ".beads/README.md").read_text(encoding="utf-8").startswith("<!-- rumdl-disable -->\n\n")
     for relative in FORBIDDEN_NEW_PROJECT_TEMPLATE_FILES:
         assert not (project / relative).exists(), relative
+
+
+@pytest.mark.integration
+def test_setup_reports_beads_hook_failure_without_rolling_back_scaffold(
+    repository_root: Path,
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "beads-hook-failure"
+    fake_bin = tmp_path / "bin-beads-hook-failure"
+    bd_log = tmp_path / "bd-beads-hook-failure.log"
+    write_fake_bd(fake_bin, bd_log)
+    write_fake_mise(fake_bin)
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(repository_root / "skills/setup-project/scripts/setup-project.py"),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            *SETUP_BRIEF_ARGS,
+            "--json",
+        ],
+        cwd=tmp_path,
+        env=merged_environment(
+            PATH=f"{fake_bin}:{os.environ['PATH']}",
+            DSTACK_BD_LOG=str(bd_log),
+            DSTACK_BD_HOOKS_FAIL="install",
+        ),
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["beads_initialized"] is False
+    assert payload["beads_hooks"]["status"] == "failed"
+    assert payload["beads_hooks"]["install"]["status"] == "failed"
+    assert payload["beads_hooks"]["recovery"] == ["bd hooks install", "bd hooks list --json"]
+    assert "Beads hook recovery: bd hooks install" in payload["outstanding"]
+    assert (project / ".beads/metadata.json").is_file()
 
 
 @pytest.mark.integration

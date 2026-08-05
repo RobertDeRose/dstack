@@ -97,11 +97,20 @@ or degraded setup, run:
 python3 scripts/setup-tooling.py --json
 ```
 
-The command gives lock, install, and hook stages one temporary `MISE_CONFIG_DIR`, removes inherited global config
+The command gives lock, install, and hk hook stages one temporary `MISE_CONFIG_DIR`, removes inherited global config
 overrides, and deletes the temporary directory on exit. It preserves the scaffold on failure, reports the failed stage,
-and uses the same command above for recovery. A repository created without Git can install hooks after Git initialization
-with:
+and uses the same command above for recovery. A repository created without Git can install hk hooks after Git
+initialization with:
 
 ```bash
 python3 scripts/setup-tooling.py --json
+```
+
+Beads hooks are separate from hk hooks. `/setup-project` runs `bd hooks install` only after the native Beads init
+amend commit, and `/update-project` runs it after conflict-free tooling succeeds. Both verify the result with
+`bd hooks list --json` and report the separate `beads_hooks` status. If verification fails, run:
+
+```bash
+bd hooks install
+bd hooks list --json
 ```

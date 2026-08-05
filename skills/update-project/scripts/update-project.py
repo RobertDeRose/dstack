@@ -32,6 +32,16 @@ from copier import run_copy, run_update
 from packaging.version import InvalidVersion, Version
 
 
+CORE_SCRIPTS = Path(__file__).resolve().parents[1].parent / "dstack-core" / "scripts"
+BEADS_HOOKS_SPEC = importlib.util.spec_from_file_location("dstack_beads_hooks", CORE_SCRIPTS / "beads_hooks.py")
+if BEADS_HOOKS_SPEC is None or BEADS_HOOKS_SPEC.loader is None:
+    raise SystemExit(f"Beads hook helper is missing from {CORE_SCRIPTS}")
+BEADS_HOOKS_MODULE: Any = importlib.util.module_from_spec(BEADS_HOOKS_SPEC)
+BEADS_HOOKS_SPEC.loader.exec_module(BEADS_HOOKS_MODULE)
+install_and_verify_beads_hooks = BEADS_HOOKS_MODULE.install_and_verify_beads_hooks
+skipped_beads_hooks = BEADS_HOOKS_MODULE.skipped_beads_hooks
+
+
 DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"
 CONFLICT_START = re.compile(r"^<<<<<<<(?: .*)?$", re.MULTILINE)
 CONFLICT_MIDDLE = re.compile(r"^=======$", re.MULTILINE)
@@ -1195,6 +1205,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     conflicts: list[str] = []
     docs_validated = False
     beads_health: dict[str, Any] | None = None
+    beads_hooks = skipped_beads_hooks("update did not reach conflict-free tooling setup")
     warnings: list[str] = []
     tooling = skipped_tooling()
     if not args.pretend:
@@ -1211,6 +1222,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             tooling = provision_tooling(destination)
             if tooling["status"] != "succeeded":
                 warnings.append("Tooling reconciliation is incomplete; run the reported recovery commands")
+            else:
+                beads_hooks = install_and_verify_beads_hooks(
+                    destination,
+                    available=bd_available(destination),
+                    quiet=args.quiet or args.json,
+                )
+                if beads_hooks["status"] != "succeeded":
+                    warnings.append("Beads hook setup is incomplete; run the reported recovery commands")
 
         if not conflicts and not layout_render["candidates"] and not args.skip_docs_check:
             checker = destination / "scripts/check-docs.py"
@@ -1262,14 +1281,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         "docs_validated": docs_validated,
         "beads_checked": beads_health is not None,
         "beads_health": beads_health,
+        "beads_hooks": beads_hooks,
         "warnings": warnings,
         "tooling": tooling,
-        "outstanding": [f"Tooling recovery: {command}" for command in tooling["recovery"]],
+        "outstanding": [
+            *(f"Tooling recovery: {command}" for command in tooling["recovery"]),
+            *(f"Beads hook recovery: {command}" for command in beads_hooks["recovery"]),
+        ],
         "ready_to_resume_feature_work": bool(
             not args.pretend
             and not conflicts
             and not layout_render["candidates"]
             and tooling["status"] == "succeeded"
+            and beads_hooks["status"] in {"succeeded", "skipped"}
             and not changed
         ),
         "preflight": preflight,
@@ -1288,6 +1312,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Beads health checks passed:")
             for command in beads_health["commands"]:
                 print(f"  - {command}")
+        print(f"Beads hooks: {beads_hooks['status']}")
+        for command in beads_hooks["recovery"]:
+            print(f"Beads hook recovery: {command}")
         print(f"Tooling reconciliation: {tooling['status']}")
         for command in tooling["recovery"]:
             print(f"Tooling recovery: {command}")

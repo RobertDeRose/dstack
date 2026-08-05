@@ -87,9 +87,10 @@ do not render when it reports an invalid, reserved, overlapping, case-colliding,
 - Recorded baseline revision: the exact resolved commit SHA; stable results also report the selected release tag.
 - Default branch: `main`.
 - Beads: run native non-stealth initialization in the project repository. Native Beads commits collaborative controls,
-  discovers Git origin, owns Dolt placement, and configures synchronization. Verify its exact commit paths, apply the
-  machine-authored README exclusion, and amend that commit through project hooks. If `bd` is unavailable, report
-  initialization as outstanding; never substitute `--stealth` or commit runtime/database paths.
+  discovers Git origin, owns Dolt placement, and configures synchronization. Keep `--skip-hooks` during `bd init`,
+  verify its exact commit paths, apply the machine-authored README exclusion, amend that commit through project hooks,
+  then run `bd hooks install` and verify `bd hooks list --json`. If `bd` is unavailable, report initialization and hook
+  verification as outstanding; never substitute `--stealth` or commit runtime/database paths.
 - Tooling: after rendering and optional Git initialization, resolve `mise.lock` for Linux/macOS x64/ARM64, install with
   `mise install --locked`, then install repository-local hk hooks separately. These steps require mise and network
   access.
@@ -163,9 +164,10 @@ Verify `.copier-answers.yml` records the selected source, exact resolved commit 
 Verify generated `AGENTS.md` requires real multiline commit messages via `git commit -F <file>` (never multiple `-m`
 flags or escaped `\n`) and permits only `git merge --ff-only` into `main`. The helper runs
 `uv run scripts/check-docs.py` as part of setup. A successful tooling run creates a nonempty `mise.lock`, installs with
-`--locked`, and runs `mise x -- hk install --mise`. If mise, resolution, installation, or hook setup fails, the scaffold
-remains intact and the JSON `tooling` object reports separate `mise`, `lock`, `install`, and `hooks` states, supported
-platforms, bounded error text, and exact recovery commands. Rerun recovery with:
+`--locked`, and runs `mise x -- hk install --mise`. The Beads phase runs `bd hooks install` only after the native init
+amend commit, then requires every hook reported by `bd hooks list --json` to be installed and current. If mise,
+resolution, installation, hk hook setup, or Beads hook setup fails, the scaffold remains intact and the JSON `tooling`
+and `beads_hooks` objects report separate states, bounded error text, and exact recovery commands. Rerun recovery with:
 
 ```bash
 python3 scripts/setup-tooling.py --json
@@ -198,6 +200,6 @@ initialization and verification as outstanding.
 
 Report project name, slug, purpose, users, scope, boundaries, kind, language profiles, repository layout, exact package
 answers, layout preflight/render destinations, destination, template channel, selected ref, exact recorded commit, skill
-version, Git result, Beads result, documentation validation, the complete `tooling` status, outstanding recovery
-commands, and the next `/plan-features` action. If setup was routed to `/update-project`, report the user's consent
-decision and do not claim setup ran.
+version, Git result, Beads result, documentation validation, the complete `tooling` and `beads_hooks` statuses,
+outstanding recovery commands, and the next `/plan-features` action. If setup was routed to `/update-project`, report
+the user's consent decision and do not claim setup ran.

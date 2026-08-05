@@ -2,21 +2,21 @@
 
 ## Files
 
-| File                                | Contract                                                                    |
-|-------------------------------------|-----------------------------------------------------------------------------|
-| `mise.toml`                         | Declares project tools, environment, and named tasks.                       |
-| `mise.lock`                         | Project-owned resolved downloads; commit it.                                |
-| `hk.pkl`                            | Defines the shared check/fix/pre-commit step map.                           |
-| `.config/rumdl.toml`                | Configures Markdown linting and deterministic fixes.                        |
-| `.editorconfig`                     | Keeps editor output on UTF-8, LF, final newlines, and no trailing spaces.   |
-| `_typos.toml`                       | Ignores hash-like identifiers while retaining typo checks elsewhere.        |
-| `contextlint.config.json`           | Checks documentation links, anchors, and image targets.                     |
-| `cog.toml`                          | Configures Conventional Commits and concise changelogs.                     |
-| `.config/cog-changelog.tera`        | Renders plain Markdown changelogs without author noise.                     |
-| `scripts/setup-tooling.py`          | Resolves the lock, installs tools, installs hooks, and returns JSON status. |
-| `scripts/enable-docs-deployment.py` | Configures workflow-built Pages through external `gh`.                      |
-| `.github/workflows/validate.yml`    | Runs locked `mise run check` on pushes and pull requests.                   |
-| `.github/workflows/docs.yml`        | Builds gated docs from the default branch or manual dispatch.               |
+| File                                | Contract                                                                       |
+|-------------------------------------|--------------------------------------------------------------------------------|
+| `mise.toml`                         | Declares project tools, environment, and named tasks.                          |
+| `mise.lock`                         | Project-owned resolved downloads; commit it.                                   |
+| `hk.pkl`                            | Defines the shared check/fix/pre-commit step map.                              |
+| `.config/rumdl.toml`                | Configures Markdown linting and deterministic fixes.                           |
+| `.editorconfig`                     | Keeps editor output on UTF-8, LF, final newlines, and no trailing spaces.      |
+| `_typos.toml`                       | Ignores hash-like identifiers while retaining typo checks elsewhere.           |
+| `contextlint.config.json`           | Checks documentation links, anchors, and image targets.                        |
+| `cog.toml`                          | Configures Conventional Commits and concise changelogs.                        |
+| `.config/cog-changelog.tera`        | Renders plain Markdown changelogs without author noise.                        |
+| `scripts/setup-tooling.py`          | Resolves the lock, installs tools, installs hk hooks, and returns JSON status. |
+| `scripts/enable-docs-deployment.py` | Configures workflow-built Pages through external `gh`.                         |
+| `.github/workflows/validate.yml`    | Runs locked `mise run check` on pushes and pull requests.                      |
+| `.github/workflows/docs.yml`        | Builds gated docs from the default branch or manual dispatch.                  |
 
 ## Tools
 
@@ -68,12 +68,21 @@ Ruff and ty are mise-managed at `latest`; pytest is project-owned. The profile i
 The committed lock targets `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`. Windows is not part of this
 POSIX-shell task contract.
 
-The mise environment routes hooks through mise with `HK_MISE=1` and sets `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`, so
-Git rejects merges that require a merge commit.
+The mise environment routes hk hooks through mise with `HK_MISE=1` and sets `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`,
+so Git rejects merges that require a merge commit.
+
+Beads hooks are installed separately by `/setup-project` after its `bd init` amend commit and by `/update-project` after
+successful conflict-free tooling. Each workflow verifies `bd hooks list --json`; the workflow JSON reports the separate
+`beads_hooks` status and recovery commands. Recover missing or outdated Beads hooks with:
+
+```bash
+bd hooks install
+bd hooks list --json
+```
 
 The universal tool count remains ten; `gh` is an external administrative prerequisite, not a mise tool. Pages requires
 `build_type=workflow` plus `DOCS_DEPLOYMENT_ENABLED=true`. The build job has `contents: read`; only the deploy job has
 `pages: write` and `id-token: write`.
 
-Provisioning reports separate mise availability, lock, install, and hook states. Overall status is `succeeded`,
-`degraded`, or `skipped`; failed or skipped stages include exact recovery commands.
+The project provisioner reports separate mise availability, lock, install, and hk hook states. Overall status is
+`succeeded`, `degraded`, or `skipped`; failed or skipped stages include exact recovery commands.

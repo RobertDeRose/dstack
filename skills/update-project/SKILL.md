@@ -151,16 +151,19 @@ The helper:
    produced `.rej` files;
 9. ignores dependency environments and other Git-ignored content such as `.venv`;
 10. when conflict-free, runs `python3 scripts/setup-tooling.py --json` to refresh `mise.lock`, install with `--locked`,
-    and reconcile hooks before documentation or Beads checks;
-11. when conflicted, skips all generated project code, reports tooling as skipped, and names the recovery command;
-12. runs `scripts/check-docs.py` when present;
-13. runs storage-mode-neutral Beads smoke checks with `bd info --json` and `bd ready --json --limit 1`;
-14. validates the project feature formula when present;
-15. preserves or explicitly adds/removes canonical language profiles, with legacy root-manifest suggestions reported by
+    and reconcile hk hooks;
+11. after successful tooling, runs `bd hooks install` and verifies every hook reported by `bd hooks list --json` is
+    installed and current; the separate `beads_hooks` result reports status and recovery commands;
+12. when conflicted, skips all generated project code, reports tooling and Beads hooks as skipped, and names the
+    recovery command;
+13. runs `scripts/check-docs.py` when present;
+14. runs storage-mode-neutral Beads smoke checks with `bd info --json` and `bd ready --json --limit 1`;
+15. validates the project feature formula when present;
+16. preserves or explicitly adds/removes canonical language profiles, with legacy root-manifest suggestions reported by
     preflight but never silently applied;
-16. defaults older layout answers to single-package and validates explicit package conversion before rendering;
-17. reports the selected release, resolved Copier commit, changed files, tooling stages, validation, warnings,
-    conflicts, and readiness.
+17. defaults older layout answers to single-package and validates explicit package conversion before rendering;
+18. reports the selected release, resolved Copier commit, changed files, separate tooling and Beads hook stages,
+    validation, warnings, conflicts, and readiness.
 
 `bd doctor` is not used because it is not supported by every Beads storage mode.
 

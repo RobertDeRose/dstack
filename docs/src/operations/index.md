@@ -172,7 +172,9 @@ mise x -- hk install --mise
 
 The lock/install commands ignore user-global mise tools. For the Nix profile, the provisioner validates the three
 supported nixfmt-rs lock entries and removes only its macOS x64 entry before locked installation; all other tools retain
-the four-platform lock. Hook installation runs only when Git exists and is reported separately. Setup with
+the four-platform lock. hk hook installation runs only when Git exists and is reported separately. After native Beads
+initialization, setup runs `bd hooks install` and verifies `bd hooks list --json`; conflict-free updates do the same
+after successful tooling. These Beads hooks are separate from hk and are reported in `beads_hooks`. Setup with
 `--no-git-init` can therefore finish lock/install work while reporting hooks as `skipped-no-git`; `--skip-post-setup`
 performs no generated code and reports all tooling stages as skipped.
 
@@ -180,8 +182,16 @@ Profile source checks skip when no matching files exist. Package checks skip wit
 manifest with missing project-owned pytest, Vitest, or Credo fails with the named prerequisite; flake checks similarly
 require system Nix. Matching Nix inputs fail clearly on unsupported macOS x64.
 
-A missing mise executable, failed lock resolution/download, failed locked install, or failed hook does not roll back the
-scaffold. Inspect the returned `tooling` stages and run each listed recovery command. The general rerun command is:
+A missing mise executable, failed lock resolution/download, failed locked install, or failed hk/Beads hook does not roll
+back the scaffold. Inspect the returned `tooling` and `beads_hooks` stages and run each listed recovery command. For
+Beads hook recovery, use:
+
+```bash
+bd hooks install
+bd hooks list --json
+```
+
+The general tooling rerun command is:
 
 ```bash
 python3 scripts/setup-tooling.py --json
