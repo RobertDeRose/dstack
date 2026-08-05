@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.8.3 — 2026-08-05
+
+### Fixed
+
+- **workflow:** Authorize start-feature local commits (`bd49e31`)
+
+- - -
+
 ## v0.8.2 — 2026-08-04
 
 ### Fixed
