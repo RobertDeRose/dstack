@@ -684,7 +684,7 @@ def verify_scaffold(destination: Path) -> None:
 
 
 def validate_docs(destination: Path, *, quiet: bool) -> None:
-    command = ["uv", "run", "scripts/check-docs.py"]
+    command = [sys.executable, "scripts/check-docs.py"]
     if quiet:
         command.append("--json")
     run_checked(command, cwd=destination, quiet=quiet)

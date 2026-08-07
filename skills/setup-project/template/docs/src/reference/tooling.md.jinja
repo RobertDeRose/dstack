@@ -164,8 +164,9 @@ POSIX-shell task contract.
 The mise environment routes hk hooks through mise with `HK_MISE=1` and sets `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`, so
 Git rejects merges that require a merge commit.
 
-Beads hooks are installed separately by `/setup-project` after its `bd init` amend commit and by `/update-project` after
-successful conflict-free tooling. Each workflow verifies `bd hooks list --json`; the workflow JSON reports the separate
+`scripts/check-docs.py` is stdlib-only and runs with `uv run --no-project python`, avoiding a path-keyed uv script
+environment. Beads hooks are installed separately by `/setup-project` after its `bd init` amend commit and by
+`/update-project` after successful conflict-free tooling. Each workflow verifies `bd hooks list --json`; the workflow JSON reports the separate
 `beads_hooks` status and recovery commands. Recover missing or outdated Beads hooks with:
 
 ```bash

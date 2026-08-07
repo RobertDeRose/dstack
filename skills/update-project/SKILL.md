@@ -13,7 +13,9 @@ legacy-workflow migration, or is the dstack template source eligible for explici
 resolves the recorded stable or unstable channel from the Git source in `.copier-answers.yml`, then applies Copier's
 three-way update so project-owned changes remain local.
 
-Resolve `<skill-dir>` as the directory containing this `SKILL.md`.
+Resolve `<skill-dir>` as the directory containing this `SKILL.md`; resolve `<core-dir>` as its sibling `dstack-core`
+skill directory. Run the update helper through the shared workflow runner so uv reuses one environment for the workflow
+rather than creating one environment per script path.
 
 ## Shared trust contract
 
@@ -45,7 +47,7 @@ Update-specific authority:
 Run the non-mutating preflight first:
 
 ```bash
-uv run <skill-dir>/scripts/update-project.py --preflight --json
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --preflight --json
 ```
 
 The helper inspects:
@@ -92,20 +94,20 @@ Continue with a normal update only when preflight recommends `update-project` an
 Update through the recorded channel, or override it explicitly:
 
 ```bash
-uv run <skill-dir>/scripts/update-project.py
-uv run <skill-dir>/scripts/update-project.py --stable
-uv run <skill-dir>/scripts/update-project.py --unstable
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --stable
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --unstable
 ```
 
 Preview, include prereleases, or explicitly select another revision:
 
 ```bash
-uv run <skill-dir>/scripts/update-project.py --pretend
-uv run <skill-dir>/scripts/update-project.py --prereleases --pretend
-uv run <skill-dir>/scripts/update-project.py --vcs-ref <release-tag>
-uv run <skill-dir>/scripts/update-project.py --vcs-ref <reviewed-tag-branch-or-commit>
-uv run <skill-dir>/scripts/update-project.py --add-profile typescript
-uv run <skill-dir>/scripts/update-project.py --remove-profile python --add-profile other
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --pretend
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --prereleases --pretend
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --vcs-ref <release-tag>
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --vcs-ref <reviewed-tag-branch-or-commit>
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --add-profile typescript
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --remove-profile python --add-profile other
 ```
 
 Omitting profile flags preserves the recorded selection. Add/remove flags are repeatable, idempotent set operations; the
@@ -124,7 +126,7 @@ leaving the selected stable/unstable channel as the default for the next update.
 When preflight reports `update-project-adopt`, run only after explicit user approval and a clean worktree:
 
 ```bash
-uv run <skill-dir>/scripts/update-project.py --adopt --unstable \
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/update-project.py --adopt --unstable \
   --project-name dstack --project-slug dstack \
   --purpose "<purpose>" --users "<users>" --scope "<scope>" --boundaries "<boundaries>" \
   --project-kind other --language-profile python --json

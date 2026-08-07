@@ -1,9 +1,4 @@
-#!/usr/bin/env -S uv run --script
-#
-# /// script
-# requires-python = ">=3.13"
-# dependencies = []
-# ///
+#!/usr/bin/env python3
 # ruff: noqa: S607,RUF100
 """Validate documentation structure for the Beads documentation-first workflow.
 

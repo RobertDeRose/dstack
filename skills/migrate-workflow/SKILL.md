@@ -175,7 +175,7 @@ See **Semantic reconciliation**.
 After reconciliation, run migration-mode documentation validation, then preview and apply archival:
 
 ```bash
-uv run scripts/check-docs.py --migration-mode
+uv run --no-project python scripts/check-docs.py --migration-mode
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py finalize
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py finalize --apply
 ```
@@ -190,7 +190,7 @@ inventory.
 ```bash
 bd dolt push
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py verify --beads
-uv run scripts/check-docs.py
+uv run --no-project python scripts/check-docs.py
 bd dep cycles
 bd blocked --json
 bd ready --json

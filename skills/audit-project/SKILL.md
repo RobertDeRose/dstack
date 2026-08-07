@@ -43,7 +43,7 @@ bd prime
 bd list --all --label workflow:feature --json
 bd ready --json
 bd blocked --json
-uv run scripts/check-docs.py
+uv run --no-project python scripts/check-docs.py
 ```
 
 Build an inventory row for every `workflow:feature` root containing its lifecycle state, design path, implemented-record
@@ -115,11 +115,12 @@ bd create "Reconcile <finding>" \
 
 Use blocking dependencies only when unresolved drift makes further delivery unsafe.
 
-After corrections, discard validation results made stale by those edits. Rerun `uv run scripts/check-docs.py` and every
-affected formatter, linter, build, test, migration, and feature-specific check against the final files. Record exact
-commands, outcomes, skipped checks, and limitations. Do not report a correction as verified from a pre-fix result. The
-audit is complete only when every finding is corrected and revalidated, linked to a corrective issue, or explicitly
-accepted as residual risk.
+After corrections, discard validation results made stale by those edits. Rerun
+`uv run --no-project python scripts/check-docs.py` and every affected formatter, linter, build, test, migration, and
+feature-specific check against the final files. Record exact commands, outcomes, skipped checks, and limitations.
+
+Do not report a correction as verified from a pre-fix result. The audit is complete only when every finding is corrected
+and revalidated, linked to a corrective issue, or explicitly accepted as residual risk.
 
 ## 5. Publish Changed Beads State
 

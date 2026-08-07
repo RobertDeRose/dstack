@@ -174,12 +174,12 @@ hook rather than ambient tooling.
 
 If strict final documentation is intentionally premature because legacy task files remain, the only supported targeted
 exception is explicit user-approved `HK_SKIP_STEPS=docs git commit ...` after
-`uv run scripts/check-docs.py --migration-mode` passes. The durable migration note records approval, reason, equivalent
-result, and residual risk; every other configured hook step still runs. That one approval covers the bounded Gate 2–4
-checkpoint commits while migration-mode docs remain error-free, avoiding repeated decisions about the same temporary
-condition. Once finalization removes legacy inputs, ordinary commits run strict docs without that environment variable.
-A hook failure stops, names the hook/step, preserves the worktree, and gives a reproduction and recovery command.
-`HK_SKIP_HOOK` and broad bypass remain prohibited.
+`uv run --no-project python scripts/check-docs.py --migration-mode` passes. The durable migration note records approval,
+reason, equivalent result, and residual risk; every other configured hook step still runs. That one approval covers the
+bounded Gate 2–4 checkpoint commits while migration-mode docs remain error-free, avoiding repeated decisions about the
+same temporary condition. Once finalization removes legacy inputs, ordinary commits run strict docs without that
+environment variable. A hook failure stops, names the hook/step, preserves the worktree, and gives a reproduction and
+recovery command. `HK_SKIP_HOOK` and broad bypass remain prohibited.
 
 ### Quality Requirements
 
@@ -307,9 +307,10 @@ it. Recovery remains local and resumable. Durable archives increase repository s
 This feature depends on hk policy simplification so its candidate inventory reflects the final generated policy. Tasks
 are serialized because they share the migration skill, reference, script, manifest, and integration fixture; `.5` is the
 final integration gate after `.7`–`.10`. Every task depends directly on specification reconciliation. Each task runs its
-named focused migration test with `uv run --frozen --group test pytest`, `uv run scripts/check-docs.py`,
-`HK_JOBS=1 mise run check`, and the full `uv run --frozen --group test pytest` suite before commit; `.5` additionally
-runs the complete migration test partition and asserts final clean status.
+named focused migration test with `uv run --frozen --group test pytest`,
+`uv run --no-project python scripts/check-docs.py`, `HK_JOBS=1 mise run check`, and the full
+`uv run --frozen --group test pytest` suite before commit; `.5` additionally runs the complete migration test partition
+and asserts final clean status.
 
 ## Rollout and Migration
 

@@ -99,12 +99,12 @@ evidence in the reconciliation bead.
 ## 3. Validate
 
 Claim the validation step. Classify every required check as `passed`, `failed`, `unavailable`, `waived`, or
-`not-applicable`. Run `uv run scripts/check-docs.py`, repository-wide checks, and every feature-specific command named
-by the design or implementation beads. Record commands, outcomes, skipped checks, and limitations. Treat these results
-as valid only for the exact files and commit tested; any later holistic-review fix invalidates the affected results. Do
-not close validation until required evidence is complete and current. `unavailable` remains blocking unless the user
-explicitly waives that exact check. A waiver must record the command, reason, affected commit, accepting user decision,
-and residual risk.
+`not-applicable`. Run `uv run --no-project python scripts/check-docs.py`, repository-wide checks, and every
+feature-specific command named by the design or implementation beads. Record commands, outcomes, skipped checks, and
+limitations. Treat these results as valid only for the exact files and commit tested; any later holistic-review fix
+invalidates the affected results. Do not close validation until required evidence is complete and current. `unavailable`
+remains blocking unless the user explicitly waives that exact check. A waiver must record the command, reason, affected
+commit, accepting user decision, and residual risk.
 
 ## 4. Build Context Once, Then Run Two Holistic Reviews
 
@@ -139,9 +139,9 @@ the original packet identity, findings ledger, resolutions, and post-review diff
 reason on both review beads.
 
 After the final review fix, rerun every affected formatter, linter, build, test, feature-specific command, and
-`uv run scripts/check-docs.py`. Update the validation bead with the post-fix commands and outcomes; do not reuse pre-fix
-results. Close each review and the validation step only when no actionable finding remains and validation reflects the
-final worktree state.
+`uv run --no-project python scripts/check-docs.py`. Update the validation bead with the post-fix commands and outcomes;
+do not reuse pre-fix results. Close each review and the validation step only when no actionable finding remains and
+validation reflects the final worktree state.
 
 ## 5. Commit Reconciliation
 
@@ -240,8 +240,8 @@ uv run <core-dir>/scripts/verify-delivery-state.py \
 
 The verifier must confirm that the recorded merge SHA is an ancestor of the base branch, the record says delivered and
 contains that SHA, and no supplied path contains a stale pending/unmerged delivery claim. Then rerun
-`uv run scripts/check-docs.py` and every formatter, linter, build, test, and feature-specific check affected by the
-finalizer. Never reuse pre-merge validation for these edits.
+`uv run --no-project python scripts/check-docs.py` and every formatter, linter, build, test, and feature-specific check
+affected by the finalizer. Never reuse pre-merge validation for these edits.
 
 Stage only the finalizer paths, commit them on the merged base branch, and record both SHAs in Beads:
 

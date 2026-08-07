@@ -13,7 +13,9 @@ installed bundled template matches that exact commit, renders the bundle, record
 updates, initializes the new-project workflow, and validates the generated documentation. It does not migrate legacy
 project state.
 
-Resolve `<skill-dir>` as the directory containing this `SKILL.md`.
+Resolve `<skill-dir>` as the directory containing this `SKILL.md`; resolve `<core-dir>` as its sibling `dstack-core`
+skill directory. Run the setup helper through the shared workflow runner so uv reuses one environment for the workflow
+rather than creating one environment per script path.
 
 ## Shared trust contract
 
@@ -98,7 +100,7 @@ do not render when it reports an invalid, reserved, overlapping, case-colliding,
 ## Execution
 
 ```bash
-uv run <skill-dir>/scripts/setup-project.py [project-name] \
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/setup-project.py [project-name] \
   --purpose "<problem and outcome>" \
   --users "<intended users>" \
   --scope "<current supported scope>" \
@@ -114,7 +116,7 @@ directory, `--delete-readme` to omit the starter README, or `--unstable` to use 
 Development-only template overrides retain the same required brief flags:
 
 ```bash
-uv run <skill-dir>/scripts/setup-project.py "Reader Control Plane" \
+uv run <core-dir>/scripts/run-workflow.py <skill-dir>/scripts/setup-project.py "Reader Control Plane" \
   --purpose "Coordinate reader devices from one control plane." \
   --users "Operators responsible for reader fleets." \
   --scope "Provisioning and health workflows for supported readers." \
@@ -163,11 +165,12 @@ scripts/migrate-legacy-workflow.py
 Verify `.copier-answers.yml` records the selected source, exact resolved commit SHA, and `dstack_template_channel`.
 Verify generated `AGENTS.md` requires real multiline commit messages via `git commit -F <file>` (never multiple `-m`
 flags or escaped `\n`) and permits only `git merge --ff-only` into `main`. The helper runs
-`uv run scripts/check-docs.py` as part of setup. A successful tooling run creates a nonempty `mise.lock`, installs with
-`--locked`, and runs `mise x -- hk install --mise`. The Beads phase runs `bd hooks install` only after the native init
-amend commit, then requires every hook reported by `bd hooks list --json` to be installed and current. If mise,
-resolution, installation, hk hook setup, or Beads hook setup fails, the scaffold remains intact and the JSON `tooling`
-and `beads_hooks` objects report separate states, bounded error text, and exact recovery commands. Rerun recovery with:
+`uv run --no-project python scripts/check-docs.py` as part of setup. A successful tooling run creates a nonempty
+`mise.lock`, installs with `--locked`, and runs `mise x -- hk install --mise`. The Beads phase runs `bd hooks install`
+only after the native init amend commit, then requires every hook reported by `bd hooks list --json` to be installed and
+current. If mise, resolution, installation, hk hook setup, or Beads hook setup fails, the scaffold remains intact and
+the JSON `tooling` and `beads_hooks` objects report separate states, bounded error text, and exact recovery commands.
+Rerun recovery with:
 
 ```bash
 python3 scripts/setup-tooling.py --json

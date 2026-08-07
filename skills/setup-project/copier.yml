@@ -22,7 +22,7 @@ _message_after_copy: |
   Setup initializes Beads when available and validates the generated workflow.
 _message_after_update: |
   dstack template changes applied.
-  Review the diff and any conflicts, then run `uv run scripts/check-docs.py`.
+  Review the diff and any conflicts, then run `uv run --no-project python scripts/check-docs.py`.
 project_name:
   type: str
   help: Human-readable project name.

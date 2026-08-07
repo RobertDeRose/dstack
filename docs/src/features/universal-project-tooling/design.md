@@ -63,13 +63,13 @@ release, CI, YAML, shell, Python, or scanner tool is copied.
 `mise.toml` sets `HK_MISE=1`; it does not use a post-install hook because provisioning must report install and hook
 outcomes separately.
 
-| mise task    | Command                                               |
-|--------------|-------------------------------------------------------|
-| `check`      | `hk check -a`                                         |
-| `fix`        | `hk fix -a`                                           |
-| `docs:check` | build dependency, then `uv run scripts/check-docs.py` |
-| `docs:build` | `mdbook build docs`                                   |
-| `docs:serve` | `mdbook serve docs --port <port>`, default `3000`     |
+| mise task    | Command                                                                   |
+|--------------|---------------------------------------------------------------------------|
+| `check`      | `hk check -a`                                                             |
+| `fix`        | `hk fix -a`                                                               |
+| `docs:check` | build dependency, then `uv run --no-project python scripts/check-docs.py` |
+| `docs:build` | `mdbook build docs`                                                       |
+| `docs:serve` | `mdbook serve docs --port <port>`, default `3000`                         |
 
 One hk step map feeds `check`, `fix`, and `pre-commit`. It contains only docs, markdown-table-formatter, rumdl, typos,
 mise config, byte-order-marker, case-conflict, executable-shebang, merge-conflict, private-key, smart-quote, newline,

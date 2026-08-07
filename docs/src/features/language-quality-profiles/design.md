@@ -292,7 +292,7 @@ uv run pytest -q tests/test_repository.py::test_generated_language_profiles_end_
 # final repository and documentation validation
 uv run --frozen --group test pytest
 mise run check
-uv run scripts/check-docs.py
+uv run --no-project python scripts/check-docs.py
 mdbook build docs
 ```
 

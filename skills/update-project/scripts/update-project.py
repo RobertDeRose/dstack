@@ -1235,7 +1235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             checker = destination / "scripts/check-docs.py"
             if checker.exists():
                 run(
-                    ["uv", "run", str(checker)],
+                    [sys.executable, str(checker)],
                     cwd=destination,
                     quiet=args.quiet or args.json,
                 )

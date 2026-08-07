@@ -140,7 +140,7 @@ local linters = new Mapping<String, Step> {
   ["detect_private_key"] = Builtins.detect_private_key
   ["docs"] = new Step {
     glob = List("docs/src/**/*.md", "docs/book.toml", "scripts/check-docs.py")
-    check = "uv run scripts/check-docs.py && mdbook build docs"
+    check = "uv run --no-project python scripts/check-docs.py && mdbook build docs"
   }
   ["fix_smart_quotes"] = Builtins.fix_smart_quotes
   ["markdown-table-formatter"] = new Step {

@@ -45,7 +45,7 @@ run = "hk fix -a"
 [tasks."docs:check"]
 description = "Validate and build the documentation"
 depends = ["docs:build"]
-run = "uv run scripts/check-docs.py"
+run = "uv run --no-project python scripts/check-docs.py"
 
 [tasks."docs:build"]
 description = "Build the documentation site"

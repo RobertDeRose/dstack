@@ -56,6 +56,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -2387,7 +2388,7 @@ def finalize_migration(
             feature["legacy_tasks_archive_identity"] = operation["archive_identity"]
         checker = root / "scripts/check-docs.py"
         if checker.exists():
-            run_command(["uv", "run", str(checker)], cwd=root)
+            run_command([sys.executable, str(checker)], cwd=root)
         if not delete_tasks:
             for operation in operation_records:
                 destination = operation["destination"]

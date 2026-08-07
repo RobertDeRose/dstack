@@ -251,8 +251,8 @@ the adoption checkpoint. This post-adoption validation is required even when the
 Use an ordinary `git commit` so configured hooks are authoritative. If it fails, preserve the worktree and report the
 named hook/step, the exact commit or `mise x -- hk run <hook>` reproduction, and corrective recovery. Never bypass all
 hooks. While live legacy tasks intentionally make strict docs premature, one migration-scoped docs-step exception is
-allowed only after the user explicitly approves it and `uv run scripts/check-docs.py --migration-mode` passes. Stage a
-durable note through:
+allowed only after the user explicitly approves it and
+`uv run --no-project python scripts/check-docs.py --migration-mode` passes. Stage a durable note through:
 
 ```bash
 checkpoint-evidence --hook pre-commit --status exception \
@@ -344,7 +344,7 @@ confirms every index was reviewed. Merge only the needed documentation structure
 preserve project-specific content, and remove the candidate directory before the adoption checkpoint:
 
 ```bash
-uv run scripts/check-docs.py --migration-mode
+uv run --no-project python scripts/check-docs.py --migration-mode
 test ! -e migration/template-adoption-candidates
 ```
 
@@ -669,7 +669,7 @@ Run:
 ```bash
 bd dolt push
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py verify --beads
-uv run scripts/check-docs.py
+uv run --no-project python scripts/check-docs.py
 bd dep cycles
 bd blocked --json
 bd ready --json

@@ -63,6 +63,7 @@ REQUIRED_SKILL_SUPPORT = (
     "skills/setup-project/copier.yml",
     "skills/setup-project/scripts/setup-project.py",
     "skills/dstack-core/scripts/beads_hooks.py",
+    "skills/dstack-core/scripts/run-workflow.py",
     "skills/setup-project/template/docs/src/features/_template/design.md",
     "skills/update-project/scripts/update-project.py",
 )
@@ -234,6 +235,7 @@ def setup_generated_project(
     )
     (project / "skills-lock.json").write_text("{}\n", encoding="utf-8")
     setup = source / "skills/setup-project/scripts/setup-project.py"
+    runner = source / "skills/dstack-core/scripts/run-workflow.py"
     selected_brief = {**(brief or SETUP_BRIEF), "project_kind": kind}
     brief_args = [
         "--purpose",
@@ -255,6 +257,7 @@ def setup_generated_project(
         [
             "uv",
             "run",
+            str(runner),
             str(setup),
             *([name] if name else []),
             "--destination",
@@ -719,8 +722,14 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "bd hooks install" in beads_hooks_script
     assert "bd hooks list --json" in beads_hooks_script
     assert "install_and_verify_beads_hooks" in setup_script
+    assert 'command = [sys.executable, "scripts/check-docs.py"]' in setup_script
+    assert "run-workflow.py" in setup
+    assert "uv run --no-project python scripts/check-docs.py" in setup
     update = skill("update-project")
+    update_script = (repository_root / "skills/update-project/scripts/update-project.py").read_text(encoding="utf-8")
     assert "beads_hooks" in update
+    assert "[sys.executable, str(checker)]" in update_script
+    assert "run-workflow.py" in update
     assert 'default="default"' in setup_script
     assert 'command.append("--stealth")' not in setup_script
     assert "git commit -F <file>" in setup
@@ -867,7 +876,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
 
     audit = skill("audit-project")
     normalized_audit = " ".join(audit.split())
-    assert "Do not report a correction as verified from a pre-fix result" in audit
+    assert "Do not report a correction as verified from a pre-fix result" in normalized_audit
     assert "Recent commit comparison is required audit evidence" in audit
     assert "read-only Git inspection" in audit
     assert "audit state: incomplete" in audit
@@ -3475,7 +3484,7 @@ def test_setup_project_renders_the_factual_book_matrix(
             "docs:check": {
                 "description": "Validate and build the documentation",
                 "depends": ["docs:build"],
-                "run": "uv run scripts/check-docs.py",
+                "run": "uv run --no-project python scripts/check-docs.py",
             },
             "docs:build": {"description": "Build the documentation site", "run": "mdbook build docs"},
             "docs:deployment:enable": {
@@ -3903,6 +3912,7 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
     )
 
     update = tagged_template_source / "skills/update-project/scripts/update-project.py"
+    runner = tagged_template_source / "skills/dstack-core/scripts/run-workflow.py"
     packaged_ref = "v0.0.2"
     (tagged_template_source / "skills/setup-project/template/.dstack-release.jinja").write_text(
         packaged_ref + "\n", encoding="utf-8"
@@ -3921,6 +3931,7 @@ def test_update_project_uses_latest_release_tag_ignores_venv_and_uses_portable_b
         [
             "uv",
             "run",
+            str(runner),
             str(update),
             "--destination",
             str(project),
@@ -4933,6 +4944,7 @@ def test_setup_helper_runs_post_setup_without_generating_bootstrap(
         [
             "uv",
             "run",
+            str(repository_root / "skills/dstack-core/scripts/run-workflow.py"),
             str(repository_root / "skills/setup-project/scripts/setup-project.py"),
             "--destination",
             str(project),
@@ -6155,6 +6167,53 @@ def test_documentation_checker_copies_are_identical(repository_root: Path) -> No
     assert (repository_root / "scripts/check-docs.py").read_bytes() == (
         repository_root / "skills/setup-project/template/scripts/check-docs.py"
     ).read_bytes()
+
+
+def test_documentation_checker_does_not_create_path_keyed_uv_environments(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "uv-cache"
+    roots = [tmp_path / "project-one", tmp_path / "project-two"]
+    source = repository_root / "skills/setup-project/template/scripts/check-docs.py"
+    for root in roots:
+        write_valid_documentation_tree(repository_root, root)
+        checker = root / "scripts/check-docs.py"
+        checker.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, checker)
+        run_command(
+            ["uv", "run", str(checker), "--root", str(root)],
+            cwd=root,
+            env=merged_environment(UV_CACHE_DIR=str(cache), UV_NO_CONFIG="1"),
+        )
+
+    environments = cache / "environments-v2"
+    assert not environments.exists() or not any(environments.iterdir())
+
+
+def test_workflow_runner_reuses_environment_across_target_paths(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "uv-cache"
+    runner = repository_root / "skills/dstack-core/scripts/run-workflow.py"
+    roots = [tmp_path / "workflow-one", tmp_path / "workflow-two"]
+    for root in roots:
+        setup_scripts = root / "skills/setup-project/scripts"
+        core_scripts = root / "skills/dstack-core/scripts"
+        setup_scripts.mkdir(parents=True)
+        core_scripts.mkdir(parents=True)
+        shutil.copy2(repository_root / "skills/setup-project/scripts/setup-project.py", setup_scripts)
+        shutil.copy2(repository_root / "skills/setup-project/scripts/layout_contract.py", setup_scripts)
+        shutil.copy2(repository_root / "skills/dstack-core/scripts/beads_hooks.py", core_scripts)
+        run_command(
+            ["uv", "run", str(runner), str(setup_scripts / "setup-project.py"), "--help"],
+            cwd=root,
+            env=merged_environment(UV_CACHE_DIR=str(cache), UV_NO_CONFIG="1"),
+        )
+
+    environments = cache / "environments-v2"
+    assert not environments.exists() or len(list(environments.iterdir())) <= 1
 
 
 def test_documentation_checker_ignores_unused_reference_definitions(repository_root: Path, tmp_path: Path) -> None:
