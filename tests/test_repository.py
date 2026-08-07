@@ -749,7 +749,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "one context builder plus four reviewers" in normalized_agents
         assert "one context builder plus two reviewers" in normalized_agents
         assert "resume only the original reviewers whose domains changed" in normalized_agents
-        assert "original packet when one exists" in normalized_agents or "original packet identity" in normalized_agents
+        assert "original packet identity" in normalized_agents
         assert "REVIEW-STATE.md" in agents
         assert "Do bounded work directly in the controlling session" in normalized_agents
         assert "Do not launch a scout, planner, or reviewer merely to save parent context" in normalized_agents
@@ -3496,7 +3496,7 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert "one context builder plus four reviewers" in agents
         assert "one context builder plus two reviewers" in agents
         assert "resume only the original reviewers whose domains changed" in agents
-        assert "original packet when one exists" in agents
+        assert "original packet identity" in agents
 
         mise_config = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
         assert mise_config["tools"] == {
