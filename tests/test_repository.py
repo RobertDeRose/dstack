@@ -1097,6 +1097,39 @@ def test_copier_entry_points_are_consistent(repository_root: Path) -> None:
         assert root_config[question] == bundled_config[question]
 
 
+@pytest.mark.integration
+def test_copier_answers_begin_with_managed_header_and_parse_as_yaml(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    (source / "skills/setup-project").mkdir(parents=True)
+    shutil.copy2(repository_root / "copier.yml", source / "copier.yml")
+    shutil.copytree(repository_root / "skills/setup-project/template", source / "skills/setup-project/template")
+    project = tmp_path / "project"
+    run_copy(
+        str(source),
+        project,
+        data={
+            "project_name": "Clean Answers",
+            "project_slug": "clean-answers",
+            **SETUP_BRIEF,
+            "language_profiles": ["other"],
+            "repository_layout": "single-package",
+            "monorepo_packages": [],
+            "repository_default_branch": "main",
+            "include_readme": True,
+        },
+        defaults=True,
+        quiet=True,
+        unsafe=False,
+    )
+
+    answer_text = (project / ".copier-answers.yml").read_text(encoding="utf-8")
+    assert answer_text.startswith("# This file is managed by Copier. Do not edit it manually.\n")
+    assert yaml.safe_load(answer_text)["project_name"] == "Clean Answers"
+
+
 @pytest.mark.parametrize("path", ["-api", "packages/-api", "packages/.api", "packages/_api"])
 def test_copier_rejects_package_components_without_alphanumeric_start(
     repository_root: Path,
