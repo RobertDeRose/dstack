@@ -292,6 +292,14 @@ def copy_unadopted_template_source(source: Path, project: Path) -> None:
         (project / relative).unlink(missing_ok=True)
 
 
+def copy_installed_skill_bundle(source: Path, installation: Path, skill_name: str) -> Path:
+    installation.mkdir(parents=True)
+    installed_skill = installation / skill_name
+    shutil.copytree(source / "skills" / skill_name, installed_skill)
+    shutil.copytree(source / "skills/dstack-core", installation / "dstack-core")
+    return installed_skill
+
+
 def configure_project_git(project: Path) -> None:
     run_command(["git", "config", "user.email", "test@example.com"], cwd=project)
     run_command(["git", "config", "user.name", "dstack Test"], cwd=project)
@@ -3048,8 +3056,7 @@ def test_setup_project_records_the_exact_stable_template_commit(
     tagged_template_source: Path,
     tmp_path: Path,
 ) -> None:
-    installed_skill = tmp_path / "installed/setup-project"
-    shutil.copytree(repository_root / "skills/setup-project", installed_skill)
+    installed_skill = copy_installed_skill_bundle(repository_root, tmp_path / "installed", "setup-project")
     project = tmp_path / "bundled-project"
     result = run_command(
         [
@@ -4509,11 +4516,13 @@ def test_update_project_self_adoption_establishes_a_working_three_way_base(
     project = tmp_path / "dstack"
     copy_unadopted_template_source(tagged_template_source, project)
     initialize_git(project, "dstack template source")
-    update = tmp_path / "update-project.py"
+    installed_skill = copy_installed_skill_bundle(project, tmp_path / "installed", "update-project")
+    update = installed_skill / "scripts/update-project.py"
     update.write_text(
-        (project / "skills/update-project/scripts/update-project.py")
-        .read_text(encoding="utf-8")
-        .replace('DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"', f"DEFAULT_TEMPLATE_SOURCE = {str(remote)!r}"),
+        update.read_text(encoding="utf-8").replace(
+            'DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"',
+            f"DEFAULT_TEMPLATE_SOURCE = {str(remote)!r}",
+        ),
         encoding="utf-8",
     )
     preflight = json.loads(
@@ -4642,11 +4651,13 @@ def test_update_project_self_adoption_preflights_paths_before_copier_state(
         formula.unlink()
         formula.symlink_to(external_formula)
     initialize_git(project, "dstack with path collision")
-    update = tmp_path / "update-project.py"
+    installed_skill = copy_installed_skill_bundle(project, tmp_path / "installed", "update-project")
+    update = installed_skill / "scripts/update-project.py"
     update.write_text(
-        (project / "skills/update-project/scripts/update-project.py")
-        .read_text(encoding="utf-8")
-        .replace('DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"', f"DEFAULT_TEMPLATE_SOURCE = {str(remote)!r}"),
+        update.read_text(encoding="utf-8").replace(
+            'DEFAULT_TEMPLATE_SOURCE = "gh:RobertDeRose/dstack"',
+            f"DEFAULT_TEMPLATE_SOURCE = {str(remote)!r}",
+        ),
         encoding="utf-8",
     )
     result = run_command(
