@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.8.5 — 2026-08-07
+
+### Fixed
+
+- **toolchain:** Reuse workflow environments (`14b5888`)
+
+- - -
+
 ## v0.8.4 — 2026-08-05
 
 ### Fixed
