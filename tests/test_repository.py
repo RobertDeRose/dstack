@@ -323,6 +323,10 @@ def assert_commit_message_policy(project: Path, messages: Path) -> None:
     valid_footer = valid + "\nBeads: dstack-mol-v8c.1\n"
     run_message("valid", valid)
     run_message("valid-footer", valid_footer)
+    run_message(
+        "valid-standalone-interactions",
+        "chore: Record standalone task evidence\n\nBeads: dstack-v1v3\n",
+    )
     run_message("valid-release", "release: v1.0.0\n")
     run_message(
         "valid-harper-technical-token",
@@ -891,11 +895,20 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Beads publication success never changes an incomplete audit into a complete one" in normalized_audit
 
     task = skill("implement-task")
+    normalized_task = " ".join(task.split())
     assert "exactly one standalone executable Beads issue" in task
     assert "bd update <issue-id> --claim" in task
     assert "Launch exactly one fresh, read-only reviewer" in task
     assert "Never close another issue" in task
     assert "/implement-feature <feature-slug>" in task
+    assert "task_base_commit=$(git rev-parse HEAD)" in task
+    assert "reconcile-beads-interactions.py verify-standalone" in task
+    assert '--baseline-commit "$task_base_commit"' in task
+    assert "--staged" in task
+    assert "chore: Record standalone task evidence" in task
+    assert "one interaction-evidence audit commit" in normalized_task
+    assert "does not authorize pushes, pull requests, merges, or remote delivery" in normalized_task
+    assert 'test -z "$(git status --porcelain)"' in task
 
     start = skill("start-feature")
     assert "git show-ref --verify --quiet refs/heads/feat/<slug>" in start
@@ -942,6 +955,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "Skill version evidence:" in lifecycle
         assert "npx skills update" in lifecycle
         assert "no freshness claim" in lifecycle
+        assert "interaction-only audit commit" in lifecycle
+        assert "remote delivery" in lifecycle
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update

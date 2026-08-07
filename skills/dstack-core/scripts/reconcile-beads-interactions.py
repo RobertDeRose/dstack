@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # ruff: noqa: EM101, EM102, S603, S607
-"""Safely reconcile append-only Beads interaction evidence across worktrees."""
+"""Safely reconcile append-only Beads interaction evidence."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -122,14 +123,16 @@ def status_entries(worktree: Path) -> list[tuple[str, str]]:
     return entries
 
 
-def require_interaction_only_status(worktree: Path, *, allow_clean: bool) -> bool:
+def require_interaction_only_status(worktree: Path, *, allow_clean: bool, staged: bool = False) -> bool:
     entries = status_entries(worktree)
     if not entries and allow_clean:
         return False
-    expected = [(" M", INTERACTIONS.as_posix())]
+    expected_status = "M " if staged else " M"
+    expected = [(expected_status, INTERACTIONS.as_posix())]
     if entries != expected:
         rendered = ", ".join(f"{status} {path}" for status, path in entries) or "clean"
-        raise ReconciliationError(f"worktree must contain only an unstaged {INTERACTIONS} change; found: {rendered}")
+        location = "a staged" if staged else "an unstaged"
+        raise ReconciliationError(f"worktree must contain only {location} {INTERACTIONS} change; found: {rendered}")
     return True
 
 
@@ -182,6 +185,132 @@ def appended_records(worktree: Path, root_id: str) -> tuple[list[tuple[str, str,
                 f"interaction {interaction_id} references {issue_id}, outside selected feature lineage {root_id}"
             )
     return additions, current
+
+
+def resolve_baseline_commit(worktree: Path, revision: str) -> str:
+    try:
+        commit = git(worktree, "rev-parse", "--verify", f"{revision}^{{commit}}").decode().strip()
+    except ReconciliationError as error:
+        raise ReconciliationError(f"invalid standalone task baseline: {revision}") from error
+    try:
+        git(worktree, "merge-base", "--is-ancestor", commit, "HEAD")
+    except ReconciliationError as error:
+        raise ReconciliationError(f"standalone task baseline {commit} is not an ancestor of HEAD") from error
+    return commit
+
+
+def parse_interaction_entry(data: bytes, *, source: str, index: bool) -> str | None:
+    if not data:
+        return None
+    entries = data.rstrip(b"\0").split(b"\0")
+    if len(entries) != 1:
+        raise ReconciliationError(f"{source} returned multiple {INTERACTIONS} entries")
+    metadata, separator, raw_path = entries[0].partition(b"\t")
+    fields = metadata.split()
+    path = raw_path.decode(errors="surrogateescape")
+    expected_middle = b"0" if index else b"blob"
+    middle = fields[2] if index and len(fields) == 3 else fields[1] if len(fields) == 3 else b""
+    if separator != b"\t" or len(fields) != 3 or middle != expected_middle or path != INTERACTIONS.as_posix():
+        raise ReconciliationError(f"{source} returned an invalid {INTERACTIONS} entry")
+    return fields[0].decode()
+
+
+def interaction_revision_mode(worktree: Path, revision: str) -> str | None:
+    data = git(worktree, "ls-tree", "-z", revision, "--", INTERACTIONS.as_posix())
+    return parse_interaction_entry(data, source=f"git ls-tree {revision}", index=False)
+
+
+def interaction_index_mode(worktree: Path) -> str | None:
+    data = git(worktree, "ls-files", "--stage", "-z", "--", INTERACTIONS.as_posix())
+    return parse_interaction_entry(data, source="git ls-files --stage", index=True)
+
+
+def interaction_worktree_mode(worktree: Path) -> str:
+    path = worktree / INTERACTIONS
+    try:
+        mode = path.lstat().st_mode
+    except OSError as error:
+        raise ReconciliationError(f"unable to inspect {path}: {error}") from error
+    if not stat.S_ISREG(mode):
+        raise ReconciliationError(f"{path} must remain a regular file")
+    return "100755" if mode & 0o111 else "100644"
+
+
+def interaction_blob(worktree: Path, revision: str) -> bytes | None:
+    if interaction_revision_mode(worktree, revision) is None:
+        return None
+    return git(worktree, "show", f"{revision}:{INTERACTIONS.as_posix()}")
+
+
+def verify_standalone(
+    worktree: Path,
+    issue_id: str,
+    baseline_revision: str,
+    *,
+    staged: bool = False,
+) -> dict[str, object]:
+    interaction_dirty = require_interaction_only_status(worktree, allow_clean=not staged, staged=staged)
+    baseline_commit = resolve_baseline_commit(worktree, baseline_revision)
+    interaction_commits = (
+        git(
+            worktree,
+            "log",
+            "--format=%H",
+            "--full-history",
+            f"{baseline_commit}..HEAD",
+            "--",
+            INTERACTIONS.as_posix(),
+        )
+        .decode()
+        .splitlines()
+    )
+    if interaction_commits:
+        raise ReconciliationError(
+            f"{INTERACTIONS} must remain uncommitted until standalone finalization in {worktree}; "
+            f"touched by {interaction_commits[0]}"
+        )
+
+    baseline_mode = interaction_revision_mode(worktree, baseline_commit)
+    head_mode = interaction_revision_mode(worktree, "HEAD")
+    baseline = interaction_blob(worktree, baseline_commit)
+    head = interaction_blob(worktree, "HEAD")
+    if head != baseline or head_mode != baseline_mode:
+        raise ReconciliationError(f"{INTERACTIONS} differs from the standalone task baseline in HEAD")
+    if baseline is None:
+        return {"dirty": False, "issue_id": issue_id, "tracked": False, "verified": 0}
+
+    current_mode = interaction_index_mode(worktree) if staged else interaction_worktree_mode(worktree)
+    if current_mode != baseline_mode:
+        location = "index" if staged else "worktree"
+        raise ReconciliationError(
+            f"{INTERACTIONS} mode or type differs from the standalone task baseline in the {location}"
+        )
+    current = git(worktree, "show", f":{INTERACTIONS.as_posix()}") if staged else (worktree / INTERACTIONS).read_bytes()
+    parse_records(baseline, source=f"{worktree}/{baseline_commit}/{INTERACTIONS}")
+    if current == baseline:
+        if interaction_dirty:
+            raise ReconciliationError(f"{INTERACTIONS} is not an append-only content change in {worktree}")
+        return {"dirty": False, "issue_id": issue_id, "tracked": True, "verified": 0}
+    if not interaction_dirty:
+        raise ReconciliationError(
+            f"{INTERACTIONS} changed from the standalone task baseline but is not an unstaged finalization change"
+        )
+    if not current.startswith(baseline):
+        raise ReconciliationError(f"{INTERACTIONS} is not an append-only change since {baseline_commit} in {worktree}")
+    parse_records(current, source=f"{worktree}/{INTERACTIONS}")
+    additions, _ = parse_records(
+        current[len(baseline) :],
+        source=f"{worktree}/{INTERACTIONS} additions",
+    )
+    if not additions:
+        raise ReconciliationError(f"{INTERACTIONS} has no appended records in {worktree}")
+    for interaction_id, recorded_issue_id, _raw in additions:
+        if recorded_issue_id != issue_id:
+            raise ReconciliationError(
+                f"interaction {interaction_id} references {recorded_issue_id}, "
+                f"outside selected standalone issue {issue_id}"
+            )
+    return {"dirty": True, "issue_id": issue_id, "tracked": True, "verified": len(additions)}
 
 
 def prepare(base: Path, feature: Path, root_id: str) -> dict[str, object]:
@@ -248,21 +377,30 @@ def parser() -> argparse.ArgumentParser:
     post_merge = subparsers.add_parser("verify-post-merge")
     post_merge.add_argument("--base-worktree", type=Path, required=True)
     post_merge.add_argument("--root-id", required=True)
+    standalone = subparsers.add_parser("verify-standalone")
+    standalone.add_argument("--worktree", type=Path, required=True)
+    standalone.add_argument("--issue-id", required=True)
+    standalone.add_argument("--baseline-commit", required=True)
+    standalone.add_argument("--staged", action="store_true")
     return result
 
 
 def main() -> int:
     args = parser().parse_args()
     try:
-        base = validate_worktree(args.base_worktree)
-        if args.command == "verify-post-merge":
-            output = verify_post_merge(base, args.root_id)
+        if args.command == "verify-standalone":
+            worktree = validate_worktree(args.worktree)
+            output = verify_standalone(worktree, args.issue_id, args.baseline_commit, staged=args.staged)
         else:
-            feature = validate_worktree(args.feature_worktree)
-            if feature == base:
-                raise ReconciliationError("base and feature worktrees must differ")
-            operation = prepare if args.command == "prepare" else finalize
-            output = operation(base, feature, args.root_id)
+            base = validate_worktree(args.base_worktree)
+            if args.command == "verify-post-merge":
+                output = verify_post_merge(base, args.root_id)
+            else:
+                feature = validate_worktree(args.feature_worktree)
+                if feature == base:
+                    raise ReconciliationError("base and feature worktrees must differ")
+                operation = prepare if args.command == "prepare" else finalize
+                output = operation(base, feature, args.root_id)
     except ReconciliationError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1

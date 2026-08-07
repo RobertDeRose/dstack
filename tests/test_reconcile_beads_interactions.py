@@ -92,6 +92,268 @@ print(json.dumps([{"id": issue_id, "dependencies": dependencies}]))
     return base, feature
 
 
+@pytest.fixture
+def standalone_worktree(tmp_path: Path) -> tuple[Path, str]:
+    worktree = tmp_path / "standalone"
+    run("git", "init", "-b", "main", worktree)
+    run("git", "-C", worktree, "config", "user.name", "Test User")
+    run("git", "-C", worktree, "config", "user.email", "test@example.com")
+    run("git", "-C", worktree, "config", "core.fileMode", "true")
+    path = worktree / INTERACTIONS
+    path.parent.mkdir()
+    path.write_text(interaction("int-base", "project-old") + "\n", encoding="utf-8")
+    run("git", "-C", worktree, "add", INTERACTIONS)
+    run("git", "-C", worktree, "commit", "-m", "initial")
+    baseline = run("git", "-C", worktree, "rev-parse", "HEAD").stdout.strip()
+    return worktree, baseline
+
+
+def verify_standalone(
+    repository_root: Path,
+    worktree: Path,
+    baseline: str,
+    *,
+    staged: bool = False,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    command: list[str | Path] = [
+        sys.executable,
+        repository_root / SCRIPT,
+        "verify-standalone",
+        "--worktree",
+        worktree,
+        "--issue-id",
+        "project-task",
+        "--baseline-commit",
+        baseline,
+    ]
+    if staged:
+        command.append("--staged")
+    return run(*command, check=check)
+
+
+def test_accepts_clean_standalone_interaction_state(
+    repository_root: Path,
+    standalone_worktree: tuple[Path, str],
+) -> None:
+    worktree, baseline = standalone_worktree
+
+    result = verify_standalone(repository_root, worktree, baseline)
+
+    assert json.loads(result.stdout) == {
+        "dirty": False,
+        "issue_id": "project-task",
+        "tracked": True,
+        "verified": 0,
+    }
+
+
+def test_accepts_clean_worktree_without_tracked_interactions(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "untracked"
+    run("git", "init", "-b", "main", worktree)
+    run("git", "-C", worktree, "config", "user.name", "Test User")
+    run("git", "-C", worktree, "config", "user.email", "test@example.com")
+    (worktree / ".gitignore").write_text(".beads/\n", encoding="utf-8")
+    path = worktree / INTERACTIONS
+    path.parent.mkdir()
+    path.write_text(interaction("int-local", "project-task") + "\n", encoding="utf-8")
+    run("git", "-C", worktree, "add", ".gitignore")
+    run("git", "-C", worktree, "commit", "-m", "initial")
+    baseline = run("git", "-C", worktree, "rev-parse", "HEAD").stdout.strip()
+
+    result = verify_standalone(repository_root, worktree, baseline)
+
+    assert json.loads(result.stdout) == {
+        "dirty": False,
+        "issue_id": "project-task",
+        "tracked": False,
+        "verified": 0,
+    }
+
+
+def test_accepts_only_selected_standalone_interactions(
+    repository_root: Path,
+    standalone_worktree: tuple[Path, str],
+) -> None:
+    worktree, baseline = standalone_worktree
+    implementation = worktree / "implementation.txt"
+    implementation.write_text("implemented\n", encoding="utf-8")
+    run("git", "-C", worktree, "add", implementation.name)
+    run("git", "-C", worktree, "commit", "-m", "implementation")
+    path = worktree / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-task", "project-task") + "\n",
+        encoding="utf-8",
+    )
+
+    result = verify_standalone(repository_root, worktree, baseline)
+
+    assert json.loads(result.stdout) == {
+        "dirty": True,
+        "issue_id": "project-task",
+        "tracked": True,
+        "verified": 1,
+    }
+
+
+def test_finalizes_standalone_interactions_in_a_separate_clean_commit(
+    repository_root: Path,
+    standalone_worktree: tuple[Path, str],
+) -> None:
+    worktree, baseline = standalone_worktree
+    implementation = worktree / "implementation.txt"
+    implementation.write_text("implemented\n", encoding="utf-8")
+    run("git", "-C", worktree, "add", implementation.name)
+    run("git", "-C", worktree, "commit", "-m", "implementation")
+    path = worktree / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-task", "project-task") + "\n",
+        encoding="utf-8",
+    )
+
+    verify_standalone(repository_root, worktree, baseline)
+    run("git", "-C", worktree, "add", INTERACTIONS)
+    verify_standalone(repository_root, worktree, baseline, staged=True)
+    run(
+        "git",
+        "-C",
+        worktree,
+        "commit",
+        "-m",
+        "chore: Record standalone task evidence\n\nBeads: project-task",
+    )
+
+    assert run("git", "-C", worktree, "show", "--format=", "--name-only", "HEAD^").stdout.splitlines() == [
+        implementation.name
+    ]
+    assert run("git", "-C", worktree, "show", "--format=", "--name-only", "HEAD").stdout.splitlines() == [
+        INTERACTIONS.as_posix()
+    ]
+    assert run("git", "-C", worktree, "status", "--porcelain=v1").stdout == ""
+
+
+def test_staged_verification_rejects_rows_added_after_worktree_verification(
+    repository_root: Path,
+    standalone_worktree: tuple[Path, str],
+) -> None:
+    worktree, baseline = standalone_worktree
+    path = worktree / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-task", "project-task") + "\n",
+        encoding="utf-8",
+    )
+    verify_standalone(repository_root, worktree, baseline)
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-race", "project-other") + "\n",
+        encoding="utf-8",
+    )
+    run("git", "-C", worktree, "add", INTERACTIONS)
+
+    result = verify_standalone(repository_root, worktree, baseline, staged=True, check=False)
+
+    assert result.returncode != 0
+    assert "outside selected standalone issue" in result.stderr
+    assert run("git", "-C", worktree, "status", "--porcelain=v1").stdout.startswith("M  ")
+
+
+def test_rejects_mode_change_combined_with_selected_interaction_append(
+    repository_root: Path,
+    standalone_worktree: tuple[Path, str],
+) -> None:
+    worktree, baseline = standalone_worktree
+    path = worktree / INTERACTIONS
+    path.chmod(0o755)
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-task", "project-task") + "\n",
+        encoding="utf-8",
+    )
+
+    worktree_result = verify_standalone(repository_root, worktree, baseline, check=False)
+    run("git", "-C", worktree, "add", INTERACTIONS)
+    index_result = verify_standalone(repository_root, worktree, baseline, staged=True, check=False)
+
+    assert worktree_result.returncode != 0
+    assert index_result.returncode != 0
+    assert "mode or type differs" in worktree_result.stderr
+    assert "mode or type differs" in index_result.stderr
+    assert run("git", "-C", worktree, "rev-parse", "HEAD").stdout.strip() == baseline
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_error"),
+    [
+        ("unrelated", "outside selected standalone issue"),
+        ("malformed", "is not valid JSON"),
+        ("duplicate", "repeats interaction id"),
+        ("non-append", "is not an append-only change"),
+        ("extra-path", "worktree must contain only an unstaged"),
+        ("staged", "worktree must contain only an unstaged"),
+        ("committed-early", "must remain uncommitted until standalone finalization"),
+        ("commit-revert", "must remain uncommitted until standalone finalization"),
+        ("mode-only", "must remain uncommitted until standalone finalization"),
+    ],
+)
+def test_rejects_unsafe_standalone_interactions_without_mutation(
+    repository_root: Path,
+    standalone_worktree: tuple[Path, str],
+    case: str,
+    expected_error: str,
+) -> None:
+    worktree, baseline = standalone_worktree
+    path = worktree / INTERACTIONS
+    if case == "unrelated":
+        path.write_text(
+            path.read_text(encoding="utf-8") + interaction("int-other", "project-other") + "\n",
+            encoding="utf-8",
+        )
+    elif case == "malformed":
+        path.write_text(path.read_text(encoding="utf-8") + "{not-json}\n", encoding="utf-8")
+    elif case == "duplicate":
+        path.write_text(
+            path.read_text(encoding="utf-8") + interaction("int-base", "project-task") + "\n",
+            encoding="utf-8",
+        )
+    elif case == "non-append":
+        path.write_text(interaction("int-task", "project-task") + "\n", encoding="utf-8")
+    elif case == "mode-only":
+        path.chmod(0o755)
+        run("git", "-C", worktree, "add", INTERACTIONS)
+        run("git", "-C", worktree, "commit", "-m", "premature mode change")
+    else:
+        path.write_text(
+            path.read_text(encoding="utf-8") + interaction("int-task", "project-task") + "\n",
+            encoding="utf-8",
+        )
+        if case == "extra-path":
+            (worktree / "unrelated.txt").write_text("unrelated\n", encoding="utf-8")
+        elif case == "staged":
+            run("git", "-C", worktree, "add", INTERACTIONS)
+        elif case == "commit-revert":
+            run("git", "-C", worktree, "add", INTERACTIONS)
+            run("git", "-C", worktree, "commit", "-m", "premature interaction commit")
+            run("git", "-C", worktree, "checkout", baseline, "--", INTERACTIONS)
+            run("git", "-C", worktree, "commit", "-m", "restore interaction baseline")
+        else:
+            run("git", "-C", worktree, "add", INTERACTIONS)
+            run("git", "-C", worktree, "commit", "-m", "premature interaction commit")
+    before = {
+        "head": run("git", "-C", worktree, "rev-parse", "HEAD").stdout,
+        "status": run("git", "-C", worktree, "status", "--porcelain=v1").stdout,
+        "interactions": path.read_bytes(),
+    }
+
+    result = verify_standalone(repository_root, worktree, baseline, check=False)
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    assert run("git", "-C", worktree, "rev-parse", "HEAD").stdout == before["head"]
+    assert run("git", "-C", worktree, "status", "--porcelain=v1").stdout == before["status"]
+    assert path.read_bytes() == before["interactions"]
+
+
 def test_reconciles_only_committed_feature_interactions(
     repository_root: Path,
     interaction_worktrees: tuple[Path, Path],

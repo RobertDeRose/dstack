@@ -124,8 +124,13 @@ decisions; native planned work should never reach that state. Its final response
 
 Use `/implement-task <task-selector>` for exactly one open standalone `task`, `bug`, `chore`, `spike`, or `feature`. It
 claims only the selected issue, loads bounded context, validates, runs one fresh reviewer, commits evidence, and closes
-that issue. It does not create feature design or close-out records. A feature epic or child of a `workflow:feature` epic
-must use `/start-feature` or `/implement-feature` instead.
+that issue. Before its first Beads mutation, it captures a clean worktree and commit baseline. After closure, it
+verifies that any tracked `.beads/interactions.jsonl` change is append-only, valid, unstaged, limited to the selected
+issue, and untouched by intervening commits. It revalidates the staged index immediately before recording those rows in
+a separate interaction-only audit commit. Rewritten, malformed, mode/type-changed, prematurely committed,
+commit-then-reverted, unrelated, or mixed dirty state remains blocking and is never restored or absorbed. Invocation
+authorizes those bounded local commits but no remote delivery. It does not create feature design or close-out records. A
+feature epic or child of a `workflow:feature` epic must use `/start-feature` or `/implement-feature` instead.
 
 Discovered work should retain provenance:
 

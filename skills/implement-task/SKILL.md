@@ -25,9 +25,10 @@ normative for this workflow. If it conflicts with this skill, follow the more re
 
 Before claiming or mutating the issue, follow
 [`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `implement-task`. After
-read-only selector and readiness checks, capture the exact one-line output and append it to the selected issue's Beads
-notes before the claim. A `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim
-was made and does not block offline work.
+read-only selector and readiness checks, first capture the clean worktree and commit baseline required by section 1,
+then capture the exact one-line output and append it to the selected issue's Beads notes before the claim. A `stale`
+result warns with `npx skills update`; `unavailable` records that no freshness claim was made and does not block offline
+work.
 
 ## 1. Resolve and claim exactly one issue
 
@@ -49,7 +50,17 @@ and recommend the command that owns it:
 /implement-feature <feature-slug>
 ```
 
-For a valid standalone issue, verify the selected issue appears in `bd ready --json`, then claim only that issue:
+For a valid standalone issue, verify the selected issue appears in `bd ready --json`. Before the first Beads or file
+mutation, require a clean current task worktree and capture its immutable interaction baseline:
+
+```bash
+test -z "$(git status --porcelain)"
+task_worktree=$(git rev-parse --show-toplevel)
+task_base_commit=$(git rev-parse HEAD)
+```
+
+This clean-start check precedes the startup-version note because that note and the claim may append tracked
+`.beads/interactions.jsonl` evidence. After recording the required skill-version line, claim only the selected issue:
 
 ```bash
 bd update <issue-id> --claim
@@ -57,16 +68,11 @@ bd show <issue-id> --json
 ```
 
 If the claim or readiness check fails, stop. Never claim the next unrelated ready issue. Report the human title first;
-retain the Beads ID for mutations, notes, commit evidence, and closure.
-
-Require a clean current task worktree before editing:
-
-```bash
-git status --porcelain
-```
+retain the Beads ID, `task_worktree`, and `task_base_commit` for mutations, notes, commit evidence, closure, and final
+interaction verification.
 
 Do not silently switch branches, create a feature worktree, alter `dstack.activeFeature`, or absorb pre-existing
-changes. If the worktree is dirty, the current branch is not authorized for the task, or repository ownership is
+changes. If the clean-start check fails, the current branch is not authorized for the task, or repository ownership is
 unclear, stop and ask for the exact recovery or worktree. Standalone tasks do not receive feature design or feature
 close-out records.
 
@@ -107,10 +113,15 @@ Record evidence before closure:
 bd update <issue-id> --append-notes "Validation and review evidence: <commands, outcomes, findings, resolutions>"
 ```
 
-## 5. Commit and close only this issue
+## 5. Commit, close, and finalize only this issue
 
-Run `git status --short` and confirm every intended path belongs to the selected issue. Follow the repository's
-conventional commit and scope policy, include the issue ID, and use the canonical Beads footer:
+Invoking `/implement-task` authorizes the local implementation commit and, when needed, one interaction-evidence audit
+commit. It does not authorize pushes, pull requests, merges, or remote delivery.
+
+Run `git status --short` and confirm every intended implementation path belongs to the selected issue. An unstaged
+`.beads/interactions.jsonl` append may also exist from this workflow; it is audit evidence, not an implementation path.
+Never stage it with the implementation. Stage only explicit intended paths, confirm the staged set excludes the
+interaction export, follow the repository's conventional commit and scope policy, and use the canonical Beads footer:
 
 ```text
 <type>(<scope>): <summary>
@@ -120,27 +131,69 @@ conventional commit and scope policy, include the issue ID, and use the canonica
 Beads: <issue-id>
 ```
 
-Capture and record the exact commit before closing:
+Capture and record the exact implementation commit before closing:
 
 ```bash
-commit_sha=$(git rev-parse HEAD)
-bd update <issue-id> --append-notes "Commit evidence: ${commit_sha}"
-bd close <issue-id> --reason "Acceptance criteria satisfied; commit ${commit_sha}"
+implementation_sha=$(git rev-parse HEAD)
+bd update <issue-id> --append-notes "Commit evidence: ${implementation_sha}"
+bd close <issue-id> --reason "Acceptance criteria satisfied; commit ${implementation_sha}"
 ```
 
-If the task legitimately requires no repository change, record a specific reason instead of a placeholder SHA:
+If the task legitimately requires no implementation commit, record a specific reason instead of a placeholder SHA:
 
 ```bash
 bd update <issue-id> --append-notes "Commit evidence: no commit required — <specific reason>"
 bd close <issue-id> --reason "Acceptance criteria satisfied; no commit required — <specific reason>"
 ```
 
-Never close another issue, close with a placeholder SHA, or claim completion while intended changes remain uncommitted.
+The close is the final Beads mutation. Do not append another note afterward. Verify the complete clean-start boundary
+against the selected issue before staging or restoring anything:
+
+```bash
+uv run <core-dir>/scripts/reconcile-beads-interactions.py verify-standalone \
+  --worktree "$task_worktree" --issue-id <issue-id> \
+  --baseline-commit "$task_base_commit"
+```
+
+The verifier accepts a clean worktree when the interaction export is not tracked or no rows were appended. Otherwise it
+requires that `.beads/interactions.jsonl` be the only dirty path, remain unstaged, have no commit touching that path
+since `task_base_commit`, be append-only and valid JSONL, and contain only rows whose `issue_id` is the selected issue.
+It rejects rewritten, malformed, duplicate, unrelated, staged, mode/type-changed, prematurely committed,
+commit-then-reverted, or mixed dirty state without restoring or committing anything. If it rejects the state, stop and
+preserve it for explicit recovery.
+
+When verified interaction rows remain, commit exactly that path in a separate audit commit. Create the message first,
+fail closed on every guard, and rerun the verifier against the staged index immediately before committing so rows added
+between worktree verification and staging cannot be absorbed:
+
+```bash
+set -euo pipefail
+if test -n "$(git status --porcelain)"; then
+  cat > /tmp/dstack-task-interactions-message <<'EOF'
+chore: Record standalone task evidence
+
+Beads: <issue-id>
+EOF
+  git add -- .beads/interactions.jsonl
+  test "$(git diff --cached --name-only)" = ".beads/interactions.jsonl"
+  uv run <core-dir>/scripts/reconcile-beads-interactions.py verify-standalone \
+    --worktree "$task_worktree" --issue-id <issue-id> \
+    --baseline-commit "$task_base_commit" --staged
+  git commit -F /tmp/dstack-task-interactions-message
+  interaction_commit_sha=$(git rev-parse HEAD)
+else
+  interaction_commit_sha="not required — no tracked interaction append"
+fi
+test -z "$(git status --porcelain)"
+```
+
+Never close another issue, close with a placeholder SHA, absorb unrelated interaction rows, or claim completion while
+intended implementation or audit evidence remains uncommitted.
 
 ## Return
 
-Return the human title first, then the issue ID, classification, changed paths, validation and review evidence, commit
-SHA or specific no-commit reason, and closure state. State that exactly one standalone issue was processed. Include a
-`Recommended next step` line: suggest `/implement-task <next human selector>` only when the user asks for another
-standalone issue; otherwise report that the task is complete and no feature close-out is required. Do not recommend
-`/start-feature` for a standalone issue.
+Return the human title first, then the issue ID, classification, changed paths, validation and review evidence,
+implementation commit SHA or specific no-commit reason, interaction audit commit SHA or specific no-commit reason, and
+closure state. State that exactly one standalone issue was processed. Include a `Recommended next step` line: suggest
+`/implement-task <next human selector>` only when the user asks for another standalone issue; otherwise report that the
+task is complete and no feature close-out is required. Do not recommend `/start-feature` for a standalone issue.
