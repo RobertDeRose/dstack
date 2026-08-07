@@ -2,6 +2,15 @@
 
 - - -
 
+## v0.8.7 — 2026-08-07
+
+### Fixed
+
+- **workflow:** Finalize standalone interaction evidence (`81a9c82`)
+- **template:** Install core support in test fixtures (`158e4c5`)
+
+- - -
+
 ## v0.8.6 — 2026-08-07
 
 ### Fixed
