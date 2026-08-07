@@ -813,11 +813,11 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
 
     implementation = skill("implement-feature")
     normalized_implementation = " ".join(implementation.split())
-    assert "git rev-parse HEAD" in implementation
+    assert 'git -C "$task_worktree" rev-parse HEAD' in implementation
     assert "resolve-feature.py --next" not in implementation
     assert "feat/<slug>" in implementation
     assert "dstack.activeFeature" in implementation
-    assert "git config --unset-all dstack.activeFeature" in implementation
+    assert 'git -C "$task_worktree" config --unset-all dstack.activeFeature' in implementation
     assert "immediately return to this selection step" in normalized_implementation
     assert "remaining open child is blocked by missing user decisions" in normalized_implementation
     assert "exactly one initial reviewer with `context: fresh`" in normalized_implementation
@@ -826,6 +826,25 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Use a fresh replacement only if the original" in normalized_implementation
     assert "distinct uncovered risk or an explicit user request" in normalized_implementation
     assert "specific no-commit justification" in implementation
+    assert 'task_base_commit=$(git -C "$task_worktree" rev-parse HEAD)' in implementation
+    assert 'coordinator_base_commit=$(git -C "$task_worktree" rev-parse HEAD)' in implementation
+    assert "reconcile-beads-interactions.py verify-feature" in implementation
+    assert "--root-id <root-id>" in implementation
+    assert "--staged" in implementation
+    assert "--expected-content-sha256" in implementation
+    assert "--expected-mode" in implementation
+    assert "--allow-clean" in implementation
+    assert "worktree_dirty=$(printf" in implementation
+    assert "write-tree" in implementation
+    assert "diff-tree --no-commit-id" in implementation
+    assert 'rev-parse "$interaction_commit_sha^"' in implementation
+    assert "worktree list --porcelain" in implementation
+    assert 'bd -C "$task_worktree"' in implementation
+    assert "chore: Record feature work evidence" in implementation
+    assert "interaction-only audit commit after every child" in normalized_implementation
+    assert "coordinator close is the final beads mutation" in normalized_implementation.casefold()
+    assert "does not authorize pushes, pull requests, merges, or worktree removal" in normalized_implementation
+    assert 'test -z "$(git -C "$task_worktree" status --porcelain)"' in implementation
     assert "Always include a `Recommended next step` line" in implementation
     assert "recommend `/close-feature <slug>`" in implementation
     assert "Do not end with only a status summary" in implementation
@@ -956,6 +975,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "npx skills update" in lifecycle
         assert "no freshness claim" in lifecycle
         assert "interaction-only audit commit" in lifecycle
+        assert "every child closure and the implementation coordinator closure" in lifecycle.casefold()
+        assert "selected feature lineage" in lifecycle.casefold()
         assert "remote delivery" in lifecycle
 
     update = skill("update-project")
@@ -986,6 +1007,40 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         content = skill(name)
         assert "Shared trust contract" in content, name
         assert "../dstack-core/references/TRUST-AND-AUTHORITY.md" in content, name
+
+
+def test_implement_feature_resolves_linked_worktree_from_base_context(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    base = tmp_path / "repo"
+    feature = tmp_path / "repo feature"
+    base.mkdir()
+    (base / "README.md").write_text("fixture\n", encoding="utf-8")
+    initialize_git(base, "initial")
+    run_command(
+        ["git", "worktree", "add", "-b", "feat/example", str(feature)],
+        cwd=base,
+    )
+
+    skill = (repository_root / "skills/implement-feature/SKILL.md").read_text(encoding="utf-8")
+    marker = "feature_branch=feat/<slug>\n"
+    worktree_block = skill.split("```bash\n" + marker, 1)[1].split("\n```", 1)[0]
+    worktree_block = worktree_block.replace("feat/<slug>", "feat/example")
+    result = run_command(
+        [
+            "bash",
+            "-c",
+            "set -euo pipefail\n"
+            "repository_root=$(git rev-parse --show-toplevel)\n"
+            "feature_branch=feat/example\n"
+            f"{worktree_block}\n"
+            'printf "%s\\n" "$task_worktree"\n',
+        ],
+        cwd=base,
+    )
+
+    assert result.stdout.strip() == str(feature.resolve())
 
 
 @pytest.mark.parametrize("relative_path", REQUIRED_SKILL_SUPPORT)

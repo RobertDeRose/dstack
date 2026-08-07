@@ -132,6 +132,42 @@ def verify_standalone(
     return run(*command, check=check)
 
 
+def verify_feature(
+    repository_root: Path,
+    worktree: Path,
+    baseline: str,
+    issue_id: str,
+    *,
+    staged: bool = False,
+    expected_content_sha256: str | None = None,
+    expected_mode: str | None = None,
+    allow_clean: bool = False,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    command: list[str | Path] = [
+        sys.executable,
+        repository_root / SCRIPT,
+        "verify-feature",
+        "--worktree",
+        worktree,
+        "--root-id",
+        "project-a",
+        "--issue-id",
+        issue_id,
+        "--baseline-commit",
+        baseline,
+    ]
+    if expected_content_sha256 is not None:
+        command.extend(("--expected-content-sha256", expected_content_sha256))
+    if expected_mode is not None:
+        command.extend(("--expected-mode", expected_mode))
+    if allow_clean:
+        command.append("--allow-clean")
+    if staged:
+        command.append("--staged")
+    return run(*command, check=check)
+
+
 def test_accepts_clean_standalone_interaction_state(
     repository_root: Path,
     standalone_worktree: tuple[Path, str],
@@ -282,6 +318,210 @@ def test_rejects_mode_change_combined_with_selected_interaction_append(
     assert run("git", "-C", worktree, "rev-parse", "HEAD").stdout.strip() == baseline
 
 
+def test_finalizes_feature_work_units_at_clean_boundaries(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    _base, feature = interaction_worktrees
+    path = feature / INTERACTIONS
+    audit_commits: list[str] = []
+
+    for sequence, issue_id in enumerate(("project-a.1", "project-a.2", "project-a.99"), start=1):
+        baseline = run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip()
+        additions = interaction(f"int-work-{sequence}", issue_id) + "\n"
+        if sequence == 1:
+            additions += interaction("int-discovered-work", "project-discovered") + "\n"
+        path.write_text(path.read_text(encoding="utf-8") + additions, encoding="utf-8")
+        if sequence < 3:
+            implementation = feature / f"implementation-{sequence}.txt"
+            implementation.write_text(f"implemented {issue_id}\n", encoding="utf-8")
+            run("git", "-C", feature, "add", implementation.name)
+            run("git", "-C", feature, "commit", "-m", f"implement {issue_id}")
+
+        worktree_result = verify_feature(repository_root, feature, baseline, issue_id)
+        snapshot = json.loads(worktree_result.stdout)
+        assert snapshot == {
+            "dirty": True,
+            "issue_id": issue_id,
+            "root_id": "project-a",
+            "snapshot_mode": "100644",
+            "snapshot_sha256": snapshot["snapshot_sha256"],
+            "tracked": True,
+            "verified": 2 if sequence == 1 else 1,
+        }
+        run("git", "-C", feature, "add", INTERACTIONS)
+        verify_feature(
+            repository_root,
+            feature,
+            baseline,
+            issue_id,
+            staged=True,
+            expected_content_sha256=snapshot["snapshot_sha256"],
+            expected_mode=snapshot["snapshot_mode"],
+        )
+        run(
+            "git",
+            "-C",
+            feature,
+            "commit",
+            "-m",
+            f"chore: Record feature work evidence\n\nBeads: {issue_id}",
+        )
+        audit_commits.append(run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip())
+        assert run("git", "-C", feature, "status", "--porcelain=v1").stdout == ""
+
+    for commit in audit_commits:
+        assert run("git", "-C", feature, "show", "--format=", "--name-only", commit).stdout.splitlines() == [
+            INTERACTIONS.as_posix()
+        ]
+
+
+def test_feature_verification_rejects_a_clean_tracked_interval(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    _base, feature = interaction_worktrees
+    baseline = run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip()
+
+    result = verify_feature(repository_root, feature, baseline, "project-a.1", check=False)
+
+    assert result.returncode != 0
+    assert "no appended interaction references selected feature work unit" in result.stderr
+    allowed = verify_feature(repository_root, feature, baseline, "project-a", allow_clean=True)
+    assert json.loads(allowed.stdout) == {
+        "dirty": False,
+        "issue_id": "project-a",
+        "root_id": "project-a",
+        "tracked": True,
+        "verified": 0,
+    }
+    assert run("git", "-C", feature, "status", "--porcelain=v1").stdout == ""
+
+
+def test_feature_verification_rejects_an_interaction_commit_after_worktree_verification(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    _base, feature = interaction_worktrees
+    baseline = run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip()
+    path = feature / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-current", "project-a.1") + "\n",
+        encoding="utf-8",
+    )
+    verify_feature(repository_root, feature, baseline, "project-a.1")
+    run("git", "-C", feature, "add", INTERACTIONS)
+    run("git", "-C", feature, "commit", "-m", "premature feature interaction commit")
+
+    result = verify_feature(repository_root, feature, baseline, "project-a.1", check=False)
+
+    assert result.returncode != 0
+    assert "must remain uncommitted until work-unit finalization" in result.stderr
+    assert run("git", "-C", feature, "status", "--porcelain=v1").stdout == ""
+
+
+def test_feature_verification_rejects_a_same_lineage_snapshot_race(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    _base, feature = interaction_worktrees
+    baseline = run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip()
+    path = feature / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-current", "project-a.1") + "\n",
+        encoding="utf-8",
+    )
+    worktree_result = verify_feature(repository_root, feature, baseline, "project-a.1")
+    snapshot = json.loads(worktree_result.stdout)
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-sibling", "project-a.2") + "\n",
+        encoding="utf-8",
+    )
+    run("git", "-C", feature, "add", INTERACTIONS)
+
+    result = verify_feature(
+        repository_root,
+        feature,
+        baseline,
+        "project-a.1",
+        staged=True,
+        expected_content_sha256=snapshot["snapshot_sha256"],
+        expected_mode=snapshot["snapshot_mode"],
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "content changed after work-unit verification" in result.stderr
+    assert run("git", "-C", feature, "status", "--porcelain=v1").stdout.startswith("M  ")
+
+
+def test_feature_staged_snapshot_rejects_index_mutation_after_revalidation(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    _base, feature = interaction_worktrees
+    baseline = run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip()
+    path = feature / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-current", "project-a.1") + "\n",
+        encoding="utf-8",
+    )
+    worktree_result = verify_feature(repository_root, feature, baseline, "project-a.1")
+    snapshot = json.loads(worktree_result.stdout)
+    run("git", "-C", feature, "add", INTERACTIONS)
+    verify_feature(
+        repository_root,
+        feature,
+        baseline,
+        "project-a.1",
+        staged=True,
+        expected_content_sha256=snapshot["snapshot_sha256"],
+        expected_mode=snapshot["snapshot_mode"],
+    )
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-index-race", "project-a.2") + "\n",
+        encoding="utf-8",
+    )
+    run("git", "-C", feature, "add", INTERACTIONS)
+
+    result = verify_feature(
+        repository_root,
+        feature,
+        baseline,
+        "project-a.1",
+        staged=True,
+        expected_content_sha256=snapshot["snapshot_sha256"],
+        expected_mode=snapshot["snapshot_mode"],
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "content changed after work-unit verification" in result.stderr
+
+
+def test_feature_verification_rejects_interactions_outside_the_selected_lineage(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    _base, feature = interaction_worktrees
+    baseline = run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip()
+    path = feature / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + interaction("int-current", "project-a.1")
+        + "\n"
+        + interaction("int-foreign", "project-b.1")
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = verify_feature(repository_root, feature, baseline, "project-a.1", check=False)
+
+    assert result.returncode != 0
+    assert "outside selected feature lineage" in result.stderr
+    assert run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip() == baseline
+
+
 @pytest.mark.parametrize(
     ("case", "expected_error"),
     [
@@ -291,9 +531,9 @@ def test_rejects_mode_change_combined_with_selected_interaction_append(
         ("non-append", "is not an append-only change"),
         ("extra-path", "worktree must contain only an unstaged"),
         ("staged", "worktree must contain only an unstaged"),
-        ("committed-early", "must remain uncommitted until standalone finalization"),
-        ("commit-revert", "must remain uncommitted until standalone finalization"),
-        ("mode-only", "must remain uncommitted until standalone finalization"),
+        ("committed-early", "must remain uncommitted until work-unit finalization"),
+        ("commit-revert", "must remain uncommitted until work-unit finalization"),
+        ("mode-only", "must remain uncommitted until work-unit finalization"),
     ],
 )
 def test_rejects_unsafe_standalone_interactions_without_mutation(
@@ -369,6 +609,18 @@ def test_reconciles_only_committed_feature_interactions(
         "project-a",
     )
 
+    feature_path = feature / INTERACTIONS
+    for interaction_id, issue_id in (
+        ("int-child-audit", "project-a.2"),
+        ("int-coordinator-audit", "project-a.99"),
+    ):
+        feature_path.write_text(
+            feature_path.read_text(encoding="utf-8") + interaction(interaction_id, issue_id) + "\n",
+            encoding="utf-8",
+        )
+        run("git", "-C", feature, "add", INTERACTIONS)
+        run("git", "-C", feature, "commit", "-m", f"record {issue_id} interaction boundary")
+
     run(sys.executable, script, "prepare", *common)
     assert "int-spec" in (feature / INTERACTIONS).read_text(encoding="utf-8")
     assert "int-close" in (feature / INTERACTIONS).read_text(encoding="utf-8")
@@ -382,6 +634,9 @@ def test_reconciles_only_committed_feature_interactions(
 
     run("git", "-C", base, "merge", "--ff-only", "feat/example")
     base_path = base / INTERACTIONS
+    merged_interactions = base_path.read_text(encoding="utf-8")
+    assert "int-child-audit" in merged_interactions
+    assert "int-coordinator-audit" in merged_interactions
     base_path.write_text(
         base_path.read_text(encoding="utf-8") + interaction("int-delivery", "project-a") + "\n",
         encoding="utf-8",

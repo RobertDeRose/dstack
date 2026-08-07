@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import stat
 import subprocess
@@ -191,11 +192,11 @@ def resolve_baseline_commit(worktree: Path, revision: str) -> str:
     try:
         commit = git(worktree, "rev-parse", "--verify", f"{revision}^{{commit}}").decode().strip()
     except ReconciliationError as error:
-        raise ReconciliationError(f"invalid standalone task baseline: {revision}") from error
+        raise ReconciliationError(f"invalid work-unit baseline: {revision}") from error
     try:
         git(worktree, "merge-base", "--is-ancestor", commit, "HEAD")
     except ReconciliationError as error:
-        raise ReconciliationError(f"standalone task baseline {commit} is not an ancestor of HEAD") from error
+        raise ReconciliationError(f"work-unit baseline {commit} is not an ancestor of HEAD") from error
     return commit
 
 
@@ -242,12 +243,16 @@ def interaction_blob(worktree: Path, revision: str) -> bytes | None:
     return git(worktree, "show", f"{revision}:{INTERACTIONS.as_posix()}")
 
 
-def verify_standalone(
+def verify_work_unit(
     worktree: Path,
     issue_id: str,
     baseline_revision: str,
     *,
+    root_id: str | None = None,
     staged: bool = False,
+    allow_clean: bool = False,
+    expected_content_sha256: str | None = None,
+    expected_mode: str | None = None,
 ) -> dict[str, object]:
     interaction_dirty = require_interaction_only_status(worktree, allow_clean=not staged, staged=staged)
     baseline_commit = resolve_baseline_commit(worktree, baseline_revision)
@@ -266,7 +271,7 @@ def verify_standalone(
     )
     if interaction_commits:
         raise ReconciliationError(
-            f"{INTERACTIONS} must remain uncommitted until standalone finalization in {worktree}; "
+            f"{INTERACTIONS} must remain uncommitted until work-unit finalization in {worktree}; "
             f"touched by {interaction_commits[0]}"
         )
 
@@ -275,42 +280,120 @@ def verify_standalone(
     baseline = interaction_blob(worktree, baseline_commit)
     head = interaction_blob(worktree, "HEAD")
     if head != baseline or head_mode != baseline_mode:
-        raise ReconciliationError(f"{INTERACTIONS} differs from the standalone task baseline in HEAD")
+        raise ReconciliationError(f"{INTERACTIONS} differs from the work-unit baseline in HEAD")
+    output: dict[str, object] = {
+        "dirty": False,
+        "issue_id": issue_id,
+        "tracked": baseline is not None,
+        "verified": 0,
+    }
+    if root_id is not None:
+        output["root_id"] = root_id
     if baseline is None:
-        return {"dirty": False, "issue_id": issue_id, "tracked": False, "verified": 0}
+        return output
 
     current_mode = interaction_index_mode(worktree) if staged else interaction_worktree_mode(worktree)
     if current_mode != baseline_mode:
         location = "index" if staged else "worktree"
-        raise ReconciliationError(
-            f"{INTERACTIONS} mode or type differs from the standalone task baseline in the {location}"
-        )
+        raise ReconciliationError(f"{INTERACTIONS} mode or type differs from the work-unit baseline in the {location}")
     current = git(worktree, "show", f":{INTERACTIONS.as_posix()}") if staged else (worktree / INTERACTIONS).read_bytes()
     parse_records(baseline, source=f"{worktree}/{baseline_commit}/{INTERACTIONS}")
     if current == baseline:
         if interaction_dirty:
             raise ReconciliationError(f"{INTERACTIONS} is not an append-only content change in {worktree}")
-        return {"dirty": False, "issue_id": issue_id, "tracked": True, "verified": 0}
+        if root_id is not None and not allow_clean:
+            raise ReconciliationError(f"no appended interaction references selected feature work unit {issue_id}")
+        return output
     if not interaction_dirty:
         raise ReconciliationError(
-            f"{INTERACTIONS} changed from the standalone task baseline but is not an unstaged finalization change"
+            f"{INTERACTIONS} changed from the work-unit baseline but is not an unstaged finalization change"
         )
     if not current.startswith(baseline):
         raise ReconciliationError(f"{INTERACTIONS} is not an append-only change since {baseline_commit} in {worktree}")
     parse_records(current, source=f"{worktree}/{INTERACTIONS}")
+    if expected_content_sha256 is not None:
+        actual_content_sha256 = hashlib.sha256(current).hexdigest()
+        if actual_content_sha256 != expected_content_sha256:
+            raise ReconciliationError(
+                f"{INTERACTIONS} content changed after work-unit verification; expected "
+                f"{expected_content_sha256}, found {actual_content_sha256}"
+            )
+    if expected_mode is not None and current_mode != expected_mode:
+        raise ReconciliationError(
+            f"{INTERACTIONS} mode changed after work-unit verification; expected {expected_mode}, found {current_mode}"
+        )
     additions, _ = parse_records(
         current[len(baseline) :],
         source=f"{worktree}/{INTERACTIONS} additions",
     )
     if not additions:
         raise ReconciliationError(f"{INTERACTIONS} has no appended records in {worktree}")
+    lineage_cache: dict[str, bool] = {}
+    selected_issue_found = False
     for interaction_id, recorded_issue_id, _raw in additions:
-        if recorded_issue_id != issue_id:
+        selected_issue_found |= recorded_issue_id == issue_id
+        if root_id is None:
+            if recorded_issue_id != issue_id:
+                raise ReconciliationError(
+                    f"interaction {interaction_id} references {recorded_issue_id}, "
+                    f"outside selected standalone issue {issue_id}"
+                )
+        elif not belongs_to_feature_lineage(
+            worktree,
+            recorded_issue_id,
+            root_id,
+            cache=lineage_cache,
+            visiting=set(),
+        ):
             raise ReconciliationError(
                 f"interaction {interaction_id} references {recorded_issue_id}, "
-                f"outside selected standalone issue {issue_id}"
+                f"outside selected feature lineage {root_id}"
             )
-    return {"dirty": True, "issue_id": issue_id, "tracked": True, "verified": len(additions)}
+    if root_id is not None and not selected_issue_found:
+        raise ReconciliationError(f"no appended interaction references selected feature work unit {issue_id}")
+    output["dirty"] = True
+    output["verified"] = len(additions)
+    if root_id is not None:
+        output["snapshot_sha256"] = hashlib.sha256(current).hexdigest()
+        output["snapshot_mode"] = current_mode
+    return output
+
+
+def verify_standalone(
+    worktree: Path,
+    issue_id: str,
+    baseline_revision: str,
+    *,
+    staged: bool = False,
+) -> dict[str, object]:
+    return verify_work_unit(worktree, issue_id, baseline_revision, staged=staged)
+
+
+def verify_feature(
+    worktree: Path,
+    root_id: str,
+    issue_id: str,
+    baseline_revision: str,
+    *,
+    staged: bool = False,
+    expected_content_sha256: str | None = None,
+    expected_mode: str | None = None,
+    allow_clean: bool = False,
+) -> dict[str, object]:
+    if staged and (expected_content_sha256 is None or expected_mode is None):
+        raise ReconciliationError("staged feature verification requires the previously verified interaction snapshot")
+    if not belongs_to_feature_lineage(worktree, issue_id, root_id, cache={}, visiting=set()):
+        raise ReconciliationError(f"selected work unit {issue_id} is outside selected feature lineage {root_id}")
+    return verify_work_unit(
+        worktree,
+        issue_id,
+        baseline_revision,
+        root_id=root_id,
+        staged=staged,
+        allow_clean=allow_clean,
+        expected_content_sha256=expected_content_sha256,
+        expected_mode=expected_mode,
+    )
 
 
 def prepare(base: Path, feature: Path, root_id: str) -> dict[str, object]:
@@ -382,15 +465,36 @@ def parser() -> argparse.ArgumentParser:
     standalone.add_argument("--issue-id", required=True)
     standalone.add_argument("--baseline-commit", required=True)
     standalone.add_argument("--staged", action="store_true")
+    feature = subparsers.add_parser("verify-feature")
+    feature.add_argument("--worktree", type=Path, required=True)
+    feature.add_argument("--root-id", required=True)
+    feature.add_argument("--issue-id", required=True)
+    feature.add_argument("--baseline-commit", required=True)
+    feature.add_argument("--expected-content-sha256")
+    feature.add_argument("--expected-mode")
+    feature.add_argument("--allow-clean", action="store_true")
+    feature.add_argument("--staged", action="store_true")
     return result
 
 
 def main() -> int:
     args = parser().parse_args()
     try:
-        if args.command == "verify-standalone":
+        if args.command in {"verify-feature", "verify-standalone"}:
             worktree = validate_worktree(args.worktree)
-            output = verify_standalone(worktree, args.issue_id, args.baseline_commit, staged=args.staged)
+            if args.command == "verify-feature":
+                output = verify_feature(
+                    worktree,
+                    args.root_id,
+                    args.issue_id,
+                    args.baseline_commit,
+                    staged=args.staged,
+                    expected_content_sha256=args.expected_content_sha256,
+                    expected_mode=args.expected_mode,
+                    allow_clean=args.allow_clean,
+                )
+            else:
+                output = verify_standalone(worktree, args.issue_id, args.baseline_commit, staged=args.staged)
         else:
             base = validate_worktree(args.base_worktree)
             if args.command == "verify-post-merge":

@@ -120,6 +120,23 @@ decisions; native planned work should never reach that state. Its final response
 `/close-feature <slug>` when implementation is complete, or provide the named advisement before resuming
 `/implement-feature <slug>` when blocked.
 
+Before its startup-version note, `/implement-feature` resolves the authoritative `feat/<slug>` worktree from Git
+worktree metadata rather than trusting the process CWD, and scopes all feature Git and Beads mutations to that path. It
+requires a clean feature worktree and captures an immutable interaction baseline. It records the root note in a separate
+interaction-only audit commit when the export is tracked. It then captures a fresh baseline immediately before each
+child claim. Startup alone allows a clean tracked interval when the version note emits no interaction row; child and
+coordinator closure still require selected-work-unit evidence. Every child closure and the implementation coordinator
+closure is the final Beads mutation in its work-unit interval. The shared verifier requires append-only, valid, unstaged
+rows in the selected feature lineage, requires evidence for the selected work unit, rejects intervening interaction
+commits, metadata changes, unrelated rows, and other dirty paths, then repeats the checks against the staged index and
+the exact pre-staging interaction snapshot. Only `.beads/interactions.jsonl` enters the audit commit. The finalizer
+branches on the verified dirty result, pins the pre-commit HEAD and index tree, and verifies the resulting audit
+commit's parent, tree, path set, blob, and mode before requiring the feature worktree to be clean before the next child,
+coordinator completion, or ordinary return.
+
+These bounded local commits do not authorize remote delivery, worktree removal, or close-out. They preserve feature
+history for `/close-feature`, whose later reconciliation still verifies rows created during close-out and delivery.
+
 ### Standalone tasks
 
 Use `/implement-task <task-selector>` for exactly one open standalone `task`, `bug`, `chore`, `spike`, or `feature`. It
