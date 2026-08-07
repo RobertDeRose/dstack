@@ -2,6 +2,15 @@
 
 - - -
 
+## v0.8.6 — 2026-08-07
+
+### Fixed
+
+- **template:** Align packet identity assertions (`844f54a`)
+- **template:** Trim Copier answers whitespace (`80bebd0`)
+
+- - -
+
 ## v0.8.5 — 2026-08-07
 
 ### Fixed
