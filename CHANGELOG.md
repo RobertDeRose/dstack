@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.8.8 — 2026-08-07
+
+### Fixed
+
+- **workflow:** Finalize feature interaction boundaries (`1afae21`)
+
+- - -
+
 ## v0.8.7 — 2026-08-07
 
 ### Fixed
