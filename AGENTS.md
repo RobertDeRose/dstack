@@ -133,6 +133,14 @@ context builder; `/start-feature` uses one context builder plus four reviewers; 
 builder plus two reviewers. Do not add confidence reviewers without a distinct uncovered risk or an explicit user
 request.
 
+The optional Pi reviewer adapter maps `context-builder` to `dstack-context-builder`; `architecture`, `simplicity`,
+`documentation`, and `execution` to their matching `dstack-*-reviewer` definitions; `task` to `dstack-task-reviewer`;
+and `delivery`/`drift` to `dstack-delivery-reviewer`/`dstack-drift-reviewer`. It is defined in
+`skills/dstack-core/references/PI-REVIEWER-ROSTER.md`, preserves the existing counts, waits synchronously for context
+packets, and launches independent role reviewers concurrently. If a named agent is absent or unavailable, fail visibly:
+there is no silent role substitution. The adapter never installs or mutates Pi configuration, and Beads remains the
+review-evidence authority.
+
 After a fix, resume only the original reviewers whose domains changed and preserve their run IDs. Feature review beads
 and standalone selected task notes must append the durable `Review state:` record defined by the installed dstack-core
 `REVIEW-STATE.md` reference, including reviewer session, packet identity/digest, reviewed commit/diff boundary, and

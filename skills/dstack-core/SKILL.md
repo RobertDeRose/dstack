@@ -11,8 +11,10 @@ allowed-tools: Read Bash
 This support skill contains the shared contracts used by the dstack workflows.
 
 Review orchestration uses [`references/REVIEW-STATE.md`](references/REVIEW-STATE.md) for durable reviewer identity,
-packet/source boundaries, resumption, and replacement evidence, and
-[`references/REVIEW-FINDINGS.md`](references/REVIEW-FINDINGS.md) for current finding dispositions.
+packet/source boundaries, resumption, and replacement evidence,
+[`references/REVIEW-FINDINGS.md`](references/REVIEW-FINDINGS.md) for current finding dispositions, and the optional
+[`references/PI-REVIEWER-ROSTER.md`](references/PI-REVIEWER-ROSTER.md) adapter for mapping logical roles to named Pi
+reviewer definitions without changing the tool-agnostic contract.
 
 Lifecycle startup uses [`references/SKILL-VERSION.md`](references/SKILL-VERSION.md) to record the executing installed
 skill version and compare it with trustworthy local canonical evidence before mutation.

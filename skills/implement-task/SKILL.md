@@ -99,6 +99,12 @@ Run focused checks while iterating. After review fixes stabilize, run the task-s
 when docs changed, and the repository-standard suite once before committing. Record exact commands, outcomes, skipped
 checks, and limitations. Do not reuse validation from before the final fix.
 
+The optional Pi adapter is defined in
+[`../dstack-core/references/PI-REVIEWER-ROSTER.md`](../dstack-core/references/PI-REVIEWER-ROSTER.md); it maps the
+logical `task` role to `dstack-task-reviewer`. It preserves exactly one fresh reviewer and no context builder. If the
+named agent is absent or unavailable, fail visibly with no silent role substitution or review-count change. Follow the
+shared reference for Pi discovery, resumption, replacement, and Beads evidence ownership.
+
 Launch exactly one fresh, read-only reviewer for correctness, security, maintainability, test adequacy, and compliance
 with the selected issue. A context builder is unnecessary. Give the reviewer the issue metadata, intended boundary,
 changed paths, validation evidence, and diff.

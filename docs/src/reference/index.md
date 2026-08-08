@@ -210,16 +210,17 @@ Exact globs, manifest commands, hook placement, and prerequisite messages are pu
 
 ## Workflow paths
 
-| Path                                             | Contract                                               |
-|--------------------------------------------------|--------------------------------------------------------|
-| `skills/<name>/SKILL.md`                         | Canonical installed workflow instructions and version. |
-| `skills/dstack-core/references/SKILL-VERSION.md` | Startup version evidence and local freshness contract. |
-| `skills/setup-project/template/`                 | Bundled generated-project scaffold.                    |
-| `.beads/formulas/dstack-feature.formula.toml`    | Project-local feature lifecycle graph.                 |
-| `docs/src/features/<slug>/design.md`             | Intended behavior and design decisions.                |
-| `docs/src/features/<slug>/index.md`              | Delivered feature reconciliation and evidence.         |
-| `docs/src/planned-features.md`                   | Human roadmap; not executable state.                   |
-| `.copier-answers.yml`                            | Copier-managed template source, revision, and answers. |
+| Path                                                  | Contract                                               |
+|-------------------------------------------------------|--------------------------------------------------------|
+| `skills/<name>/SKILL.md`                              | Canonical installed workflow instructions and version. |
+| `skills/dstack-core/references/SKILL-VERSION.md`      | Startup version evidence and local freshness contract. |
+| `skills/dstack-core/references/PI-REVIEWER-ROSTER.md` | Optional Pi mapping for logical review roles.          |
+| `skills/setup-project/template/`                      | Bundled generated-project scaffold.                    |
+| `.beads/formulas/dstack-feature.formula.toml`         | Project-local feature lifecycle graph.                 |
+| `docs/src/features/<slug>/design.md`                  | Intended behavior and design decisions.                |
+| `docs/src/features/<slug>/index.md`                   | Delivered feature reconciliation and evidence.         |
+| `docs/src/planned-features.md`                        | Human roadmap; not executable state.                   |
+| `.copier-answers.yml`                                 | Copier-managed template source, revision, and answers. |
 
 ## Release contract
 

@@ -131,6 +131,14 @@ bd update <feature-root> --claim
 
 ## 4. Build Context Once, Then Run Four Reviews
 
+The optional Pi adapter is defined in
+[`../dstack-core/references/PI-REVIEWER-ROSTER.md`](../dstack-core/references/PI-REVIEWER-ROSTER.md). For this workflow
+it maps `context-builder` to `dstack-context-builder`, `architecture` to `dstack-architecture-reviewer`, `simplicity` to
+`dstack-simplicity-reviewer`, `documentation` to `dstack-documentation-reviewer`, and `execution` to
+`dstack-execution-reviewer`. The adapter preserves one context builder plus four role reviewers: the context builder
+completes synchronously before the four independent reviewers launch concurrently with the same packet. If any named
+agent is absent or unavailable, fail visibly; there is no silent role substitution or change to the review count.
+
 Launch exactly one fresh, read-only context builder before any reviewer. Store its packet in the subagent run's
 ephemeral artifact directory, never in the repository. The packet must contain factual evidence only: feature authority
 and identity, reviewed requirements, relevant architecture and prior decisions, changed/current source paths, Beads

@@ -47,6 +47,7 @@ REQUIRED_SKILL_SUPPORT = (
     "skills/dstack-core/references/TRUST-AND-AUTHORITY.md",
     "skills/dstack-core/references/REVIEW-STATE.md",
     "skills/dstack-core/references/REVIEW-FINDINGS.md",
+    "skills/dstack-core/references/PI-REVIEWER-ROSTER.md",
     "skills/dstack-core/scripts/reconcile-beads-interactions.py",
     "skills/dstack-core/scripts/resolve-feature.py",
     "skills/dstack-core/scripts/verify-delivery-state.py",
@@ -779,6 +780,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "dstack-core evidence contract" in normalized_agents
         assert "normal feature planning" in normalized_agents
         assert "incoherent coordinator" in normalized_agents
+        assert "optional Pi reviewer adapter" in normalized_agents
+        assert "dstack-context-builder" in agents
+        assert "dstack-task-reviewer" in agents
+        assert "dstack-delivery-reviewer" in agents
+        assert "dstack-drift-reviewer" in agents
+        assert "no silent role substitution" in normalized_agents
     root_agents = (repository_root / "AGENTS.md").read_text(encoding="utf-8")
     assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in root_agents
     assert "Omitted internal types may be unscoped" in root_agents
@@ -825,6 +832,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "exactly one initial reviewer with `context: fresh`" in normalized_implementation
     assert "Resume the same reviewer" in implementation
     assert "A separate context builder is unnecessary" in implementation
+    assert "PI-REVIEWER-ROSTER.md" in implementation
+    assert "dstack-task-reviewer" in implementation
     assert "Use a fresh replacement only if the original" in normalized_implementation
     assert "distinct uncovered risk or an explicit user request" in normalized_implementation
     assert "specific no-commit justification" in implementation
@@ -889,6 +898,10 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "never fall back to a merge commit" in closeout
     assert "Launch exactly one fresh, read-only context builder" in closeout
     assert "launch exactly two reviewers with `context: fresh`" in closeout
+    assert "PI-REVIEWER-ROSTER.md" in closeout
+    assert "dstack-context-builder" in closeout
+    assert "dstack-delivery-reviewer" in closeout
+    assert "dstack-drift-reviewer" in closeout
     assert "Resume only the reviewer whose domain changed" in normalized_closeout
     assert "no findings, recommendations, or verdict" in normalized_closeout
     assert "reads additional source only when needed" in normalized_closeout
@@ -946,7 +959,29 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "replacement run preserves the existing `replacement_count`" in normalized_task
     assert "ordinary unavailability does not consume the redesign-replacement allowance" in normalized_task
     assert "replacement itself is unavailable" in normalized_task
+    assert "PI-REVIEWER-ROSTER.md" in task
+    assert "dstack-task-reviewer" in task
     assert 'test -z "$(git status --porcelain)"' in task
+
+    pi_roster = (repository_root / "skills/dstack-core/references/PI-REVIEWER-ROSTER.md").read_text(encoding="utf-8")
+    normalized_pi_roster = " ".join(pi_roster.split())
+    assert "dstack.pi-reviewer-roster.v1" in pi_roster
+    assert "tool-agnostic" in normalized_pi_roster
+    assert "optional adapter" in normalized_pi_roster
+    assert "synchronous" in normalized_pi_roster
+    assert "concurrently" in normalized_pi_roster
+    assert "no silent role substitution" in normalized_pi_roster
+    for agent_name in (
+        "dstack-context-builder",
+        "dstack-architecture-reviewer",
+        "dstack-simplicity-reviewer",
+        "dstack-documentation-reviewer",
+        "dstack-execution-reviewer",
+        "dstack-task-reviewer",
+        "dstack-delivery-reviewer",
+        "dstack-drift-reviewer",
+    ):
+        assert agent_name in pi_roster
 
     start = skill("start-feature")
     assert "git show-ref --verify --quiet refs/heads/feat/<slug>" in start
@@ -959,7 +994,16 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Launch exactly one fresh, read-only context builder" in start
     assert "Launch exactly four role reviewers with `context: fresh`" in start
     assert "resume only its original reviewer" in start
+    assert "PI-REVIEWER-ROSTER.md" in start
+    assert "dstack-context-builder" in start
+    assert "dstack-architecture-reviewer" in start
+    assert "dstack-simplicity-reviewer" in start
+    assert "dstack-documentation-reviewer" in start
+    assert "dstack-execution-reviewer" in start
     normalized_start = " ".join(start.split())
+    assert "synchronous" in normalized_start
+    assert "concurrently" in normalized_start
+    assert "no silent role substitution" in normalized_start
     assert "must not contain findings, recommendations, or a verdict" in normalized_start
     assert "reads additional source only when needed" in normalized_start
     assert "Refresh the shared packet only after broad" in normalized_start
@@ -997,6 +1041,16 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "every child closure and the implementation coordinator closure" in lifecycle.casefold()
         assert "selected feature lineage" in lifecycle.casefold()
         assert "remote delivery" in lifecycle
+        assert "Optional Pi reviewer adapter" in lifecycle
+        assert "dstack-context-builder" in lifecycle
+        assert "dstack-architecture-reviewer" in lifecycle
+        assert "dstack-simplicity-reviewer" in lifecycle
+        assert "dstack-documentation-reviewer" in lifecycle
+        assert "dstack-execution-reviewer" in lifecycle
+        assert "dstack-task-reviewer" in lifecycle
+        assert "dstack-delivery-reviewer" in lifecycle
+        assert "dstack-drift-reviewer" in lifecycle
+        assert "no silent role substitution" in lifecycle.casefold()
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update
