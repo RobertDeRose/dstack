@@ -2,6 +2,19 @@
 
 - - -
 
+## v0.9.0 — 2026-08-08
+
+### Added
+
+- **skill:** Add opt-in Pi reviewer sync (`d3f90b5`)
+- **workflow:** Add optional Pi reviewer roster contract (`8a2e41c`)
+
+### Fixed
+
+- **skill:** Improve migrate-workflow adoption (`0ada6e6`)
+
+- - -
+
 ## v0.8.9 — 2026-08-08
 
 ### Fixed
