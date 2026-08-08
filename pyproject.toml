@@ -1,6 +1,6 @@
 [project]
 name = "dstack-workflow"
-version = "0.8.8"
+version = "0.8.9"
 description = "Documentation-first, Beads-backed workflow skills and Copier template"
 requires-python = ">=3.13"
 dependencies = []

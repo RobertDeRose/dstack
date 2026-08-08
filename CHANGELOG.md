@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.8.9 — 2026-08-08
+
+### Fixed
+
+- **workflow:** Define standalone review evidence contract (`e9859d1`)
+
+- - -
+
 ## v0.8.8 — 2026-08-07
 
 ### Fixed
