@@ -27,6 +27,16 @@ the skill for mutations, but do not expose an opaque hash as the primary workflo
 - **`docs/src/planned-features.md`** is the human roadmap; Beads remains authoritative for live state.
 - **Code and tests** provide implementation evidence.
 
+### Project context
+
+- **Purpose:** Keep product intent, work, documentation, evidence, and delivery aligned.
+- **Intended users:** Maintainers, coding agents, and teams delivering software through the dstack workflow.
+- **Current supported scope:** Skills, Copier templates, Beads lifecycles, workflow helpers, validation, and delivery
+  docs.
+- **Boundaries:** Workflow and documentation contracts; no application framework or universal build system.
+- **Project kind:** `other`
+- **Language profiles:** `python`
+
 Use Beads instead of Markdown TODO lists for executable work. Use `bd remember` for durable cross-feature knowledge.
 
 ### Feature identity

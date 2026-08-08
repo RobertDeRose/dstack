@@ -208,10 +208,19 @@ history as sufficient evidence.
 ## Contextual migration questions
 
 Before asking for a project brief, project kind, feature classification, or missing design intent, inspect current
-reader-facing docs and stable repository metadata first: `README*`, `docs/src/**/*.md`, existing architecture/usage
-pages, package manifests, CLI/service metadata, and current Copier answers when present. Exclude generated migration
-reports, legacy task files, and roadmap/task prose as sole authority. Use those sources to draft a recommended answer
-when they contain relevant evidence. The recommendation is a proposal for user confirmation, not an agent-authored fact.
+reader-facing docs and stable repository metadata first: `README*`, `docs/src/**/*.md`, `AGENTS.md`, existing
+architecture/usage pages, package manifests, CI workflows, CLI/service metadata, and current Copier answers when
+present. Exclude generated migration reports, legacy task files, and roadmap/task prose as sole authority.
+
+For migration brief fields (`project_purpose`, `project_users`, `project_scope`, and `project_boundaries`), reuse an
+explicit current value when the sources contain one clear answer. The adoption helper extracts labeled or heading-based
+values and records their source. Prompt only when a value is missing, stale, or conflicting; do not ask the user to
+restate text already established by current documentation. These fields are structured Copier context: they render a
+concise reader-facing overview and roadmap direction, while the same context is also placed in `AGENTS.md` for agents.
+They do not determine Beads state or implementation behavior. Reuse an explicitly documented project kind; otherwise
+project kind remains a documentation-taxonomy decision that requires an evidence-backed recommendation when metadata is
+ambiguous. Language profiles are inferred from manifests and CI when evidence is clear and require a prompt only when
+inference is not possible or conflicts with recorded Copier state.
 
 Ask one decision at a time with this reusable contract:
 
@@ -274,7 +283,9 @@ run strict docs normally.
 
 Adoption renders the current tagged **new-project** template into a temporary directory first. It does not depend on a
 migration script copied into the target project. Commit the reconciled Copier adoption before initializing Beads so the
-framework and workflow-state boundaries remain distinct.
+framework and workflow-state boundaries remain distinct. The adoption helper accepts repeatable `--language-profile`
+arguments; when omitted, it infers profiles from project manifests and CI and fails with an explicit request when no
+recognized profile can be established.
 
 Default adoption requires explicit identity and a structured brief unless current Copier state already records
 individual values:
@@ -288,15 +299,15 @@ uv run <skill-dir>/scripts/adopt-template.py '<canonical project name>' \
   --scope '<current supported scope>' \
   --boundaries '<key exclusions and ownership boundaries>' \
   --project-kind <library|cli|service|application|infrastructure|documentation|other> \
+  --language-profile <profile> \
   --json
 ```
 
-Collect missing values from the user one at a time using evidence-backed recommendations from current docs when
-available. A legacy `project_description` is not authoritative for any new brief field and must not be converted or
-supplemented with generic defaults, but current reader-facing docs may support a recommendation that the user can accept
-or edit. The installed skill defaults to `gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies
-it before Copier runs. If tags cannot be discovered, supply an explicitly reviewed revision; never silently use GitHub
-`HEAD`.
+Collect only missing or conflicting values from the user one at a time using evidence-backed recommendations from
+current docs when available. A legacy `project_description` is not authoritative for any new brief field and must not be
+converted or supplemented with generic defaults; clear current reader-facing values are reused directly. The installed
+skill defaults to `gh:RobertDeRose/dstack`, discovers the latest stable release tag, and verifies it before Copier runs.
+If tags cannot be discovered, supply an explicitly reviewed revision; never silently use GitHub `HEAD`.
 
 For a fork, local repository, branch, or commit:
 
@@ -309,6 +320,7 @@ uv run <skill-dir>/scripts/adopt-template.py '<canonical project name>' \
   --scope '<current supported scope>' \
   --boundaries '<key exclusions and ownership boundaries>' \
   --project-kind <library|cli|service|application|infrastructure|documentation|other> \
+  --language-profile <profile> \
   --template-source <git-url-or-path> \
   --vcs-ref <tag-branch-or-commit> \
   --json
@@ -320,6 +332,12 @@ then rebased to the tagged template that was rendered so later updates start fro
 project scaffold files are copied. Existing project-owned files are preserved; the generated alternatives are placed
 under `migration/template-adoption-candidates/` for explicit manual reconciliation. Replaced dstack framework files are
 backed up under `migration/template-adoption-backup/`.
+
+`hk.pkl` is project-owned. Preserve its baseline policy during migration; do not merge a generated strict `docs` step
+while legacy task files remain. When no hook exists yet, adoption stages the generated policy as a candidate instead of
+activating it; review it after archival or make the step explicitly migration-aware. A docs-only hook exception is a
+fallback for an existing policy, not permission to activate a template addition that makes an intermediate checkpoint
+fail.
 
 Treat the adoption command's JSON `manual_merge[]` as the complete candidate inventory; do not rediscover candidates
 with a repository-wide scan. Save the JSON outside the repository and select one indexed path per review command:

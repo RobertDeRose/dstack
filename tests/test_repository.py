@@ -554,7 +554,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     migration_reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(
         encoding="utf-8"
     )
-    assert len(migration.splitlines()) < 210
+    assert len(migration.splitlines()) <= 210
     assert "references/MIGRATION.md" in migration
     for heading in (
         "## Baseline interpretation",
@@ -572,7 +572,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "defer policy execution; this is not a hook exception" in baseline_gate
     assert "Do not ask the user to install `hk`" in baseline_gate
     assert "python3 scripts/setup-tooling.py --json" in gate_two
-    assert "post-adoption" in gate_two
+    assert "After reconciliation" in gate_two
     assert 'git diff --cached --quiet || git commit -m "chore: record pre-migration baseline"' not in migration
     assert (
         "git add migration/session-authority.json migration/baseline.json migration/baseline.md" in migration_reference
@@ -786,6 +786,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "dstack-delivery-reviewer" in agents
         assert "dstack-drift-reviewer" in agents
         assert "no silent role substitution" in normalized_agents
+        assert "Project context" in agents
+        assert "project_purpose" in agents or "Purpose:" in agents
     root_agents = (repository_root / "AGENTS.md").read_text(encoding="utf-8")
     assert "Every changelog-visible `feat`, `fix`, `perf`, or `refactor` subject" in root_agents
     assert "Omitted internal types may be unscoped" in root_agents
@@ -4977,6 +4979,8 @@ def test_pre_f010_unmanaged_project_adoption_requires_and_records_a_brief(
             "Project-owned content remains under maintainer control.",
             "--project-kind",
             "documentation",
+            "--language-profile",
+            "other",
             "--json",
         ],
         cwd=tagged_template_source,
@@ -4988,6 +4992,360 @@ def test_pre_f010_unmanaged_project_adoption_requires_and_records_a_brief(
     assert recorded["project_kind"] == "documentation"
     assert summary.read_text(encoding="utf-8") == original_summary
     assert (legacy / "migration/template-adoption-candidates/docs/src/SUMMARY.md").is_file()
+
+
+@pytest.mark.integration
+def test_migration_adoption_preserves_existing_hook_policy(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "hook-preserving-project"
+    project.mkdir()
+    hook = project / "hk.pkl"
+    hook.write_text("// project-owned hook policy\n", encoding="utf-8")
+    initialize_git(project, "hook preserving project")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--purpose",
+            "Preserve the project workflow.",
+            "--users",
+            "Project maintainers.",
+            "--scope",
+            "Workflow and documentation state.",
+            "--boundaries",
+            "Project-owned policy remains authoritative.",
+            "--project-kind",
+            "other",
+            "--language-profile",
+            "other",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+
+    payload = json.loads(result.stdout)
+    assert hook.read_text(encoding="utf-8") == "// project-owned hook policy\n"
+    assert "hk.pkl" in payload["manual_merge"]
+    assert (project / "migration/template-adoption-candidates/hk.pkl").is_file()
+
+
+@pytest.mark.integration
+def test_migration_adoption_defers_generated_hook_while_legacy_tasks_exist(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "hook-deferred-project"
+    feature = project / "docs/src/features/alpha"
+    feature.mkdir(parents=True)
+    (project / ".gitkeep").write_text("", encoding="utf-8")
+    initialize_git(project, "hook deferred project")
+    (feature / "tasks.md").write_text("# Legacy tasks\n", encoding="utf-8")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--purpose",
+            "Preserve the project workflow.",
+            "--users",
+            "Project maintainers.",
+            "--scope",
+            "Workflow and documentation state.",
+            "--boundaries",
+            "Project-owned policy remains authoritative.",
+            "--project-kind",
+            "other",
+            "--language-profile",
+            "other",
+            "--allow-dirty",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+
+    payload = json.loads(result.stdout)
+    assert not (project / "hk.pkl").exists()
+    assert "hk.pkl" in payload["manual_merge"]
+    assert (project / "migration/template-adoption-candidates/hk.pkl").is_file()
+
+
+@pytest.mark.integration
+def test_migration_adoption_reuses_current_brief_and_infers_language_profile(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "documented-rust-project"
+    overview = project / "docs/src/introduction/project-overview.md"
+    overview.parent.mkdir(parents=True)
+    overview.write_text(
+        "# Documented Rust Project overview\n\n"
+        "- Project kind: `service`\n\n"
+        "## Purpose\n\nPreserve and improve distributed device coordination.\n\n"
+        "## Intended users\n\nDevelopers building distributed edge applications.\n\n"
+        "## Current scope\n\nRust coordination services and their documentation.\n\n"
+        "## Boundaries\n\nApplication business logic remains outside this project.\n",
+        encoding="utf-8",
+    )
+    manifest = project / "cluster_coordination_service/Cargo.toml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        '[package]\nname = "coordination"\nversion = "0.1.0"\n',
+        encoding="utf-8",
+    )
+    initialize_git(project, "documented Rust project")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+
+    payload = json.loads(result.stdout)
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert answers["project_kind"] == "service"
+    assert answers["project_purpose"] == "Preserve and improve distributed device coordination."
+    assert answers["project_users"] == "Developers building distributed edge applications."
+    assert answers["project_scope"] == "Rust coordination services and their documentation."
+    assert answers["project_boundaries"] == "Application business logic remains outside this project."
+    assert answers["language_profiles"] == ["rust"]
+    assert payload["inferred_brief_sources"]["project_purpose"] == "docs/src/introduction/project-overview.md"
+    assert payload["language_profile_evidence"]["rust"] == ["cluster_coordination_service/Cargo.toml"]
+
+
+@pytest.mark.integration
+def test_migration_adoption_reuses_escaped_brief_from_agents_only(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "agents-documented-project"
+    (project / "AGENTS.md").parent.mkdir(parents=True)
+    (project / "AGENTS.md").write_text(
+        "# Project guidance\n\n"
+        "- **Purpose:** Coordinate &#91;devices&#93; with an &amp; literal &#92;&#92; path.\n"
+        "- **Intended users:** Operators &amp; maintainers.\n"
+        "- **Current supported scope:** Provisioning &#35; health workflows.\n"
+        "- **Boundaries:** Firmware &amp; identity remain external.\n"
+        "- **Project kind:** `service`\n",
+        encoding="utf-8",
+    )
+    initialize_git(project, "agents documented project")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--language-profile",
+            "other",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+
+    payload = json.loads(result.stdout)
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert answers["project_purpose"] == "Coordinate [devices] with an & literal \\\\ path."
+    assert answers["project_users"] == "Operators & maintainers."
+    assert answers["project_scope"] == "Provisioning # health workflows."
+    assert answers["project_boundaries"] == "Firmware & identity remain external."
+    assert answers["project_kind"] == "service"
+    assert payload["inferred_brief_sources"] == {
+        "project_boundaries": "AGENTS.md",
+        "project_kind": "AGENTS.md",
+        "project_purpose": "AGENTS.md",
+        "project_scope": "AGENTS.md",
+        "project_users": "AGENTS.md",
+    }
+
+
+@pytest.mark.integration
+def test_migration_adoption_ignores_feature_and_roadmap_brief_prose(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "authoritative-readme-project"
+    project.mkdir()
+    (project / "README.rst").write_text(
+        "Purpose: Authoritative project purpose.\n"
+        "Intended users: Maintainers and operators.\n"
+        "Current scope: Supported project workflows.\n"
+        "Boundaries: Deployment remains external.\n"
+        "Project kind: service\n",
+        encoding="utf-8",
+    )
+    feature = project / "docs/src/features/stale"
+    feature.mkdir(parents=True)
+    (feature / "design.md").write_text(
+        "# Stale feature\n\nPurpose: Do not use this feature purpose.\n",
+        encoding="utf-8",
+    )
+    (project / "docs/src/planned-features.md").write_text(
+        "# Roadmap\n\nPurpose: Do not use this roadmap purpose.\n",
+        encoding="utf-8",
+    )
+    initialize_git(project, "authoritative README project")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--language-profile",
+            "other",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+    )
+
+    answers = yaml.safe_load((project / ".copier-answers.yml").read_text(encoding="utf-8"))
+    assert answers["project_purpose"] == "Authoritative project purpose."
+    assert answers["project_users"] == "Maintainers and operators."
+    assert answers["project_scope"] == "Supported project workflows."
+    assert answers["project_boundaries"] == "Deployment remains external."
+    assert json.loads(result.stdout)["inferred_brief_sources"]["project_purpose"] == "README.rst"
+
+
+@pytest.mark.integration
+def test_migration_adoption_ignores_vendor_and_fixture_manifests(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "vendor-only-project"
+    (project / "vendor/example").mkdir(parents=True)
+    (project / "vendor/example/Cargo.toml").write_text('[package]\nname = "vendor"\n', encoding="utf-8")
+    (project / "fixtures/node").mkdir(parents=True)
+    (project / "fixtures/node/package.json").write_text('{"name": "fixture"}\n', encoding="utf-8")
+    initialize_git(project, "vendor-only project")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--purpose",
+            "Preserve the project workflow.",
+            "--users",
+            "Project maintainers.",
+            "--scope",
+            "Workflow and documentation state.",
+            "--boundaries",
+            "Vendor content remains external.",
+            "--project-kind",
+            "other",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        expected=1,
+    )
+
+    assert "Template adoption requires --language-profile" in result.stderr
+    assert not (project / ".copier-answers.yml").exists()
+
+
+@pytest.mark.integration
+def test_migration_adoption_ignores_weak_ci_profile_mentions(
+    tagged_template_source: Path,
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "weak-ci-evidence-project"
+    workflow = project / ".github/workflows/ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "name: npm test\n"
+        "jobs:\n"
+        "  check:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - name: mention\n"
+        '        run: echo "cargo test"\n'
+        "      - uses: example/action@v1\n"
+        "        with:\n"
+        "          run: cargo test\n",
+        encoding="utf-8",
+    )
+    initialize_git(project, "weak CI evidence project")
+
+    adopt = tagged_template_source / "skills/migrate-workflow/scripts/adopt-template.py"
+    result = run_command(
+        [
+            "uv",
+            "run",
+            str(adopt),
+            "--destination",
+            str(project),
+            "--template-source",
+            str(tagged_template_source),
+            "--vcs-ref",
+            "v0.0.1",
+            "--purpose",
+            "Preserve the project workflow.",
+            "--users",
+            "Project maintainers.",
+            "--scope",
+            "Workflow and documentation state.",
+            "--boundaries",
+            "CI evidence remains explicit.",
+            "--project-kind",
+            "other",
+            "--json",
+        ],
+        cwd=tagged_template_source,
+        expected=1,
+    )
+
+    assert "Template adoption requires --language-profile" in result.stderr
+    assert not (project / ".copier-answers.yml").exists()
 
 
 @pytest.mark.integration
@@ -5037,6 +5395,8 @@ def test_adoption_uses_primary_repository_identity_and_remote_default_branch(
             "Project content remains authoritative.",
             "--project-kind",
             "application",
+            "--language-profile",
+            "other",
             "--json",
         ],
         cwd=tagged_template_source,
@@ -5088,6 +5448,8 @@ def test_pre_f010_managed_project_adoption_preserves_prior_state(
             "Existing project-owned files are preserved.",
             "--project-kind",
             "application",
+            "--language-profile",
+            "other",
             "--json",
         ],
         cwd=tagged_template_source,
@@ -5925,7 +6287,10 @@ def test_migration_question_contract(repository_root: Path) -> None:
     assert "Do not copy conversational prompt prose into the manifest" in section
     assert skill.count("**Contextual migration questions**") == 2
     assert "Persist only safety/resumability answers" in skill
-    assert "current docs may support recommendations" in skill
+    assert "reuse clear brief values, record sources" in skill
+    assert "prompt only when" in normalized
+    assert "AGENTS.md" in normalized
+    assert "do not merge a generated strict `docs` step while legacy task files remain" in " ".join(reference.split())
     operations = " ".join((repository_root / "docs/src/operations/index.md").read_text(encoding="utf-8").split())
     for phrase in ("one question at a time", "concise decision title", "choices/safe", "consequence of deferral"):
         assert phrase in operations

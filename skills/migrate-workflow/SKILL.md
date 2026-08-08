@@ -71,20 +71,23 @@ evaluation needs review; never claim equivalence. See **Baseline interpretation*
 
 ## Gate 2: Render, manually reconcile, checkpoint, then initialize Beads
 
-Collect the structured brief before rendering. Reuse current Copier state when present. For each missing value, review
-current docs/metadata, then ask one **Contextual migration questions** prompt with a recommendation to accept, edit, or
-defer. Never silently persist legacy-derived facts; current docs may support recommendations, but user confirms them.
+Collect the structured brief before rendering. Reuse current Copier state when present. For migration, inspect
+README/docs, `AGENTS.md`, manifests, and CI; reuse clear brief values, record sources, and do not ask the user to
+restate them. Use **Contextual migration questions** only for missing/conflicting/stale values, explaining their
+rendered effect. Infer language profiles when evidence is clear; ask only if evidence is absent or contradictory; never
+silently persist legacy-derived facts or choose between conflicting current sources.
 
 The adoption helper updates only dstack-owned framework files, merges marked blocks, and preserves differing
-project-owned files under `migration/template-adoption-candidates/<same-relative-path>`. Review each exact
-`manual_merge` with **Template source and revision**; preserve baseline hooks through **Additive hk reconciliation**;
-resolve candidates and backup lifecycle; never replace project documentation wholesale. After post-adoption
-reconciliation, run `python3 scripts/setup-tooling.py --json`, require success; verify Pkl, hooks, and pre-commit.
+project-owned files under `migration/template-adoption-candidates/<same-relative-path>`. Review each `manual_merge` with
+**Template source and revision**; preserve baseline hooks through **Additive hk reconciliation**. Never activate a
+strict generated `docs` hook before archival: preserve project `hk.pkl` or defer incompatible additions. Resolve
+candidates and backup lifecycle; never replace project docs. After reconciliation, run
+`python3 scripts/setup-tooling.py --json`, require success; verify Pkl, hooks, and pre-commit.
 
-Validate migration-mode docs, format, stage, and use an ordinary verified commit. Only the exact user response
-`APPROVE HK_SKIP_STEPS=docs` authorizes a docs-only exception. Record it once; that approval remains valid for the Gate
-2–4 migration checkpoints while migration-mode docs continue to report zero errors. Do not ask again for the same
-bounded exception. A different step, an error, or use after Gate 4 requires a new decision. Never skip a whole hook:
+Validate migration-mode docs, format, stage, and commit normally. A docs-only exception is a fallback only for an
+existing hook; it never authorizes a template-induced failure. Only `APPROVE HK_SKIP_STEPS=docs` authorizes it; record
+it once and reuse it through Gate 2–4 while migration-mode docs have zero errors. Do not ask again; a different step,
+error, or post-Gate-4 use requires a new decision. Never skip a whole hook:
 
 ```bash
 git add -A

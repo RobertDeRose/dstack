@@ -74,17 +74,22 @@ step or changed same-key definition blocks verification until restored or explic
 reason. If the legacy config cannot be evaluated, migration stops for manual inventory confirmation rather than treating
 the generated policy as equivalent. Durable manifests, reports, baselines, and legacy-task archives must be committed;
 temporary candidates must be removed. Conditional adoption backups require an explicit retain/remove disposition.
-Repeated unchanged scans do not churn committed migration evidence. For project brief and semantic questions, migration
-reviews current reader-facing docs and repository metadata first, then offers an evidence-backed recommendation for the
-user to accept, edit, or defer. Migration asks one question at a time with a concise decision title, why it is needed,
-current evidence/uncertainty, controlled behavior, a concrete example, choices/safe default, and the consequence of
-deferral. After reconciliation, the rendered project provisioner must install the locked tools and Git hooks before an
-ordinary checkpoint commit. Failures stop with exact reproduction/recovery. A user-approved intermediate exception may
-skip only the strict docs step after migration-mode docs pass and the decision, equivalent evidence, and risk are
-recorded. The exact response `APPROVE HK_SKIP_STEPS=docs` applies to the bounded Gate 2–4 checkpoints and is not
-repeatedly requested while migration-mode docs remain error-free. Acknowledgement is insufficient, a different exception
-needs a new decision, and whole-hook bypass is never allowed. After final verification, migration reports that the
-branch is complete but unmerged and asks whether to merge now, create a PR, or leave it complete but undelivered.
+Repeated unchanged scans do not churn committed migration evidence. For migration brief fields, the helper first
+extracts clear current values from README/docs, `AGENTS.md`, manifests, and CI. It prompts only for missing, stale, or
+conflicting values; it does not ask the user to restate documented context. Project purpose, users, scope, and
+boundaries remain structured Copier context rendered into the reader overview and roadmap, and are also available to
+agents through `AGENTS.md`. Language profiles are inferred from manifests and CI when possible. Project brief and
+semantic questions still use an evidence-backed recommendation when a decision is genuinely unresolved, with a concise
+decision title, why it is needed, current evidence/uncertainty, controlled behavior, a concrete example, choices/safe
+default, and the consequence of deferral. After reconciliation, the rendered project provisioner must install the locked
+tools and Git hooks before an ordinary checkpoint commit. Preserve the existing project hook policy and do not activate
+a generated strict `docs` step while legacy task files remain; defer it until archival or make it migration-aware. A
+user-approved intermediate exception is only a fallback for an already-existing policy, after migration-mode docs pass
+and the decision, equivalent evidence, and risk are recorded. The exact response `APPROVE HK_SKIP_STEPS=docs` applies to
+bounded Gate 2–4 checkpoints and is not permission to accept a template-induced failure. Acknowledgement is
+insufficient, a different exception needs a new decision, and whole-hook bypass is never allowed. After final
+verification, migration reports that the branch is complete but unmerged and asks whether to merge now, create a PR, or
+leave it complete but undelivered.
 
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
 database location/name, project ID, repository root, and issue prefix. Uninitialized migrations use the primary checkout

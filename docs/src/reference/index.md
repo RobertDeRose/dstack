@@ -154,7 +154,14 @@ required.
 | `project_kind`       | `--project-kind` | One of `library`, `cli`, `service`, `application`, `infrastructure`, `documentation`, or `other`. |
 
 The helper rejects NUL, CR, and LF in brief values. It preserves Unicode, quotes, backslashes, and Markdown punctuation.
-The result JSON and `.copier-answers.yml` record all five values.
+The result JSON and `.copier-answers.yml` record all five values. New-project setup still requires these fields because
+there is no existing project context to reuse.
+
+Migration adoption reuses explicit current values from README/docs and `AGENTS.md` when they are unambiguous, and
+prompts only for missing, stale, or conflicting values. It also infers language profiles from manifests and CI when
+possible; pass repeatable `--language-profile` arguments when evidence is absent or ambiguous. Existing project hook
+policies remain authoritative during migration, so generated strict documentation checks are deferred until legacy task
+archival rather than bypassed with a template-induced docs exception.
 
 ## Template channels
 
