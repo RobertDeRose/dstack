@@ -22,6 +22,21 @@ npx skills@latest add RobertDeRose/dstack --all
 
 Supporting scripts, references, and the complete Copier template are installed recursively with their owning skills.
 
+### Optional Pi reviewer definitions
+
+The optional Pi adapter's versioned reviewer definitions are bundled with `dstack-core` but are not copied into Pi
+configuration automatically. When a review workflow reports missing named reviewers, offer an explicit project-local
+sync first:
+
+```bash
+uv run .agents/skills/dstack-core/scripts/sync-pi-reviewers.py \
+  --target project --project-root "$PWD" --json
+```
+
+Use `--target global` or an explicit agent directory only after the user chooses that destination. The sync command
+writes only the selected agent directory, records hashes in `.dstack-pi-reviewers.json`, and preserves conflicts. Use
+`--check` to validate discovery without writing and `--remove` to remove only unchanged dstack-owned files.
+
 ## Create a New Project
 
 From the target directory:
@@ -141,8 +156,10 @@ skills/
     SKILL.md
     references/TRUST-AND-AUTHORITY.md
     references/SKILL-VERSION.md      # installed-version authority and local freshness evidence
-    scripts/resolve-feature.py       # human feature selector and next-ready resolver
-    scripts/check-skill-version.py   # startup version diagnostic
+    assets/pi-reviewers/              # versioned optional Pi reviewer definitions
+    scripts/resolve-feature.py        # human feature selector and next-ready resolver
+    scripts/check-skill-version.py    # startup version diagnostic
+    scripts/sync-pi-reviewers.py      # explicit Pi reviewer installation/sync
   setup-project/
     SKILL.md
     copier.yml                     # bundled/local Copier entry point

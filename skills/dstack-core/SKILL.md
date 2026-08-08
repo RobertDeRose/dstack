@@ -14,7 +14,8 @@ Review orchestration uses [`references/REVIEW-STATE.md`](references/REVIEW-STATE
 packet/source boundaries, resumption, and replacement evidence,
 [`references/REVIEW-FINDINGS.md`](references/REVIEW-FINDINGS.md) for current finding dispositions, and the optional
 [`references/PI-REVIEWER-ROSTER.md`](references/PI-REVIEWER-ROSTER.md) adapter for mapping logical roles to named Pi
-reviewer definitions without changing the tool-agnostic contract.
+reviewer definitions without changing the tool-agnostic contract. Use `scripts/sync-pi-reviewers.py` only through its
+explicit user-selected target; normal skill installation never mutates Pi agent directories.
 
 Lifecycle startup uses [`references/SKILL-VERSION.md`](references/SKILL-VERSION.md) to record the executing installed
 skill version and compare it with trustworthy local canonical evidence before mutation.

@@ -112,8 +112,10 @@ The optional Pi adapter is defined in
 [`../dstack-core/references/PI-REVIEWER-ROSTER.md`](../dstack-core/references/PI-REVIEWER-ROSTER.md). For this workflow
 it maps `context-builder` to `dstack-context-builder`, `delivery` to `dstack-delivery-reviewer`, and `drift` to
 `dstack-drift-reviewer`. The adapter preserves one context builder plus two independent reviewers: the context builder
-completes synchronously before delivery and drift launch concurrently with the same packet. If any named agent is absent
-or unavailable, fail visibly; there is no silent role substitution or change to the review count.
+completes synchronously before delivery and drift launch concurrently with the same packet. If any named agent is
+absent, offer the explicit project-local Pi reviewer sync documented in `PI-REVIEWER-ROSTER.md`; after a declined or
+failed sync, fail visibly. If an agent is unavailable, fail visibly; there is no silent role substitution or change to
+the review count.
 
 Launch exactly one fresh, read-only context builder. Store its packet in the subagent run's ephemeral artifact
 directory, never in the repository. The factual packet covers feature authority, reviewed requirements, implementation

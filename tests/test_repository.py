@@ -65,6 +65,7 @@ REQUIRED_SKILL_SUPPORT = (
     "skills/setup-project/scripts/setup-project.py",
     "skills/dstack-core/scripts/beads_hooks.py",
     "skills/dstack-core/scripts/run-workflow.py",
+    "skills/dstack-core/scripts/sync-pi-reviewers.py",
     "skills/setup-project/template/docs/src/features/_template/design.md",
     "skills/update-project/scripts/update-project.py",
 )

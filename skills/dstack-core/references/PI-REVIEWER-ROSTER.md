@@ -38,13 +38,37 @@ or project `.pi/agents`; skill assets are not automatically discovered as agent 
 | `delivery`        | `dstack-delivery-reviewer`      | `/close-feature`                        |
 | `drift`           | `dstack-drift-reviewer`         | `/close-feature`                        |
 
+## Explicit installation and synchronization
+
+The versioned definitions are bundled under `skills/dstack-core/assets/pi-reviewers/`; the Pi loader does not discover
+skill assets there automatically. When a selected Pi review is missing required names, offer this explicit project-local
+sync first:
+
+```bash
+uv run <core-dir>/scripts/sync-pi-reviewers.py \
+  --target project --project-root <repository> --json
+```
+
+A user may instead choose `--target global` (using `PI_CODING_AGENT_DIR/agents`) or an explicit agent-directory path.
+The sync command copies definitions, writes `.dstack-pi-reviewers.json` (`dstack.pi-reviewer-install.v1`) with
+source/version/hash ownership, validates frontmatter and discovery, and never changes Pi settings. Definitions require
+interactive, cmux-capable Pi sessions; context-builder and task reviewers are synchronous, other mapped reviewers are
+asynchronous, and model/thinking fields are omitted so they inherit the parent. `--check` is read-only; `--remove`
+removes only unchanged files previously installed by dstack. Conflicts are reported without overwriting user files.
+Normal `npx skills add` and `npx skills update` remain non-mutating with respect to Pi agent directories.
+
+The interactive workflow offer names the missing logical roles and exact definitions, defaults to project-local sync,
+and requires explicit confirmation for every write target. A declined or failed sync returns to the visible
+missing-agent failure below; non-interactive controllers print the exact command instead of prompting.
+
 ## Adapter invocation rules
 
-1. **Opt in without mutation.** A Pi-based controller may use this mapping when the named definitions are available. The
-   adapter must not install, overwrite, copy, or modify global or project Pi configuration. A non-Pi controller uses the
-   same logical contract through its own reviewer mechanism.
+1. **Use without mutation.** A Pi-based controller may use this mapping when the named definitions are available. The
+   adapter itself must not install, overwrite, copy, or modify global or project Pi configuration. A non-Pi controller
+   uses the same logical contract through its own reviewer mechanism.
 2. **Resolve before launch.** Resolve every required exact name for the selected workflow before starting its review. If
-   a named agent is absent or unavailable, fail visibly with the logical role and exact name; there is no silent role
+   a named agent is absent, offer the explicit sync operation above; after a decline or failed sync, fail visibly with
+   the logical role and exact name. If an agent is unavailable, fail visibly as well; there is no silent role
    substitution. Do not substitute another agent, reduce or increase the count, or continue with incomplete evidence.
 3. **Build packets synchronously.** For `/start-feature` and `/close-feature`, run `dstack-context-builder` to
    completion and verify the supplied packet identity before launching any role reviewer. Do not launch role reviewers

@@ -215,13 +215,31 @@ project checks require the root ecosystem manifest. Language profiles do not cha
 Exact globs, manifest commands, hook placement, and prerequisite messages are published in each generated project's
 `docs/src/reference/tooling.md`.
 
+## Optional Pi reviewer synchronization
+
+The Pi reviewer roster is optional. Its versioned definitions ship with `dstack-core`, but Pi discovers definitions only
+from the global `PI_CODING_AGENT_DIR/agents` directory or the active project's `.pi/agents`. After a workflow reports
+missing named reviewers, use the explicit, project-local sync first:
+
+```bash
+uv run <core-dir>/scripts/sync-pi-reviewers.py \
+  --target project --project-root <repository> --json
+```
+
+Choose `--target global` or an explicit agent directory only after user confirmation. `--check` validates the exact
+frontmatter, source hashes, and discovered roster without writing; `--remove` removes only unchanged files recorded as
+dstack-owned in `.dstack-pi-reviewers.json`. Conflicts are reported without overwriting user-authored definitions.
+Normal `npx skills add` and `npx skills update` do not mutate Pi agent directories.
+
 ## Workflow paths
 
 | Path                                                  | Contract                                               |
 |-------------------------------------------------------|--------------------------------------------------------|
 | `skills/<name>/SKILL.md`                              | Canonical installed workflow instructions and version. |
 | `skills/dstack-core/references/SKILL-VERSION.md`      | Startup version evidence and local freshness contract. |
-| `skills/dstack-core/references/PI-REVIEWER-ROSTER.md` | Optional Pi mapping for logical review roles.          |
+| `skills/dstack-core/references/PI-REVIEWER-ROSTER.md` | Optional Pi mapping, install, and discovery contract.  |
+| `skills/dstack-core/scripts/sync-pi-reviewers.py`     | Explicit opt-in Pi reviewer asset synchronization.     |
+| `skills/dstack-core/assets/pi-reviewers/`             | Versioned named Pi reviewer definitions.               |
 | `skills/setup-project/template/`                      | Bundled generated-project scaffold.                    |
 | `.beads/formulas/dstack-feature.formula.toml`         | Project-local feature lifecycle graph.                 |
 | `docs/src/features/<slug>/design.md`                  | Intended behavior and design decisions.                |

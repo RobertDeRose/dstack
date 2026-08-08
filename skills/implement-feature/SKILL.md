@@ -225,9 +225,10 @@ failed or a subsequent fix affects broad/shared behavior; otherwise rerun only i
 The optional Pi adapter is defined in
 [`../dstack-core/references/PI-REVIEWER-ROSTER.md`](../dstack-core/references/PI-REVIEWER-ROSTER.md); it maps the
 logical `task` role to `dstack-task-reviewer`. It preserves exactly one fresh reviewer per selected child and does not
-add a context builder. If the named agent is absent or unavailable, fail visibly with no silent role substitution or
-review-count change. Follow the shared reference for Pi discovery, resumption, replacement, and Beads evidence
-ownership.
+add a context builder. If the named agent is absent, offer the explicit project-local sync documented in
+`PI-REVIEWER-ROSTER.md`; after a declined or failed sync, fail visibly. If it is unavailable, fail visibly with no
+silent role substitution or review-count change. Follow the shared reference for Pi discovery, resumption, replacement,
+and Beads evidence ownership.
 
 Launch exactly one initial reviewer with `context: fresh`, focused on correctness, security, maintainability, test
 adequacy, and compliance with the selected task and design. A separate context builder is unnecessary for this single

@@ -147,8 +147,9 @@ The optional Pi reviewer adapter maps `context-builder` to `dstack-context-build
 `documentation`, and `execution` to their matching `dstack-*-reviewer` definitions; `task` to `dstack-task-reviewer`;
 and `delivery`/`drift` to `dstack-delivery-reviewer`/`dstack-drift-reviewer`. It is defined in
 `skills/dstack-core/references/PI-REVIEWER-ROSTER.md`, preserves the existing counts, waits synchronously for context
-packets, and launches independent role reviewers concurrently. If a named agent is absent or unavailable, fail visibly:
-there is no silent role substitution. The adapter never installs or mutates Pi configuration, and Beads remains the
+packets, and launches independent role reviewers concurrently. If a named agent is absent, offer the explicit
+project-local sync documented in that reference; a declined or failed sync, or an unavailable agent, fails visibly.
+There is no silent role substitution. The adapter itself never mutates Pi configuration, and Beads remains the
 review-evidence authority.
 
 After a fix, resume only the original reviewers whose domains changed and preserve their run IDs. Feature review beads

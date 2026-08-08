@@ -63,7 +63,9 @@ independently cover:
 ### Optional Pi reviewer adapter
 
 The dstack review contract is tool-agnostic. A Pi-based controller may opt into the exact roster in
-`skills/dstack-core/references/PI-REVIEWER-ROSTER.md` without installing or mutating user Pi configuration:
+`skills/dstack-core/references/PI-REVIEWER-ROSTER.md` without installing or mutating user Pi configuration. If required
+names are missing, offer the explicit project-local sync documented by that reference; the adapter itself remains
+non-mutating:
 
 | Logical role      | Pi agent definition             |
 |-------------------|---------------------------------|
@@ -77,8 +79,9 @@ The dstack review contract is tool-agnostic. A Pi-based controller may opt into 
 | `drift`           | `dstack-drift-reviewer`         |
 
 The adapter preserves the workflow counts: context packets are built synchronously, then independent role reviewers
-launch concurrently with the same packet. Missing or unavailable named agents fail visibly; there is no silent role
-substitution. Beads review beads or standalone task notes remain the authoritative `Review state:`/`Finding:` owner.
+launch concurrently with the same packet. A declined or failed sync, or an unavailable named agent, fails visibly; there
+is no silent role substitution. Beads review beads or standalone task notes remain the authoritative
+`Review state:`/`Finding:` owner.
 
 The packet contains factual source locations but no findings, recommendations, or verdict. Reviewers read extra source
 when it is insufficient. Feature workflows persist the durable `Review state:` record from the installed dstack-core
