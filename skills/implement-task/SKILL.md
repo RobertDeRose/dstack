@@ -101,11 +101,37 @@ checks, and limitations. Do not reuse validation from before the final fix.
 
 Launch exactly one fresh, read-only reviewer for correctness, security, maintainability, test adequacy, and compliance
 with the selected issue. A context builder is unnecessary. Give the reviewer the issue metadata, intended boundary,
-changed paths, validation evidence, and diff. Follow `../dstack-core/references/REVIEW-STATE.md` and
-`../dstack-core/references/REVIEW-FINDINGS.md`; persist the review bead's run ID, reviewer session, packet
-identity/digest, reviewed commit/diff boundary, current disposition, and current open findings before launch. Resume the
-same reviewer and run ID after fixes; use a replacement only when the original is unavailable or the fix materially
-changes scope. Do not add confidence reviewers without a distinct uncovered risk or explicit user request.
+changed paths, validation evidence, and diff.
+
+### Standalone review evidence
+
+The selected standalone issue's Beads notes are the authoritative review record. Do not create or claim a separate
+review bead. Append all machine-readable `Review state:` and `Finding:` records to the selected issue's notes, using the
+shared schemas in `../dstack-core/references/REVIEW-STATE.md` and `../dstack-core/references/REVIEW-FINDINGS.md`. The
+last `Review state:` line is the current review state; the last record for each `finding_id` is its current finding
+projection. Do not treat the packet, reviewer transcript, controller memory, or prose note as a substitute.
+
+Before launching the reviewer, append an `active` state containing the run ID, reviewer session ID supplied by the
+harness, packet ID/path/digest, reviewed commit and diff boundary, review round, finding domains, and review boundary.
+Use `status: active` and `disposition: pending`. After review, append each `Finding:` record and a new current state.
+Use `status: verified` and `disposition: approved` only after actionable findings are resolved and affected checks pass.
+An unresolved review remains `status: findings` with `disposition: changes_required` and current open `Finding:`
+records; do not close the issue. Resume the same reviewer and run ID after fixes, preserving the packet identity and
+updating the reviewed commit/diff boundary.
+
+If the reviewer harness is unavailable before any reviewer session launches, append `status: unavailable` with
+`disposition: pending` and a concrete `unavailable_reason`, then stop; the controller must not substitute self-review,
+omit evidence, or close the issue. If an already-launched reviewer becomes unavailable or cannot be resumed after a fix,
+preserve its unavailable record. At most one replacement is allowed: the original run's existing `supersedes_run_id` is
+preserved (`null` only for an initial run); mark that run `status: replaced` with `disposition: replaced` and
+`replacement_reason`, then create a new replacement run with a new run ID, `status: active`, `disposition: pending`,
+`supersedes_run_id` pointing to the original run. The replacement run preserves the existing `replacement_count`; this
+field counts only bounded redesign replacements, so ordinary unavailability does not consume the redesign-replacement
+allowance. Record the replacement reason on both runs and pass the replacement the original packet identity, findings
+ledger, resolutions, and post-fix diff. If the replacement itself is unavailable, append its `status: unavailable` state
+and stop; do not launch a second replacement. If a fix materially changes the reviewed boundary, stop and reconcile the
+scope rather than using reviewer replacement. Do not add confidence reviewers without a distinct uncovered risk or
+explicit user request.
 
 Record evidence before closure:
 

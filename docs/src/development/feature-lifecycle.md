@@ -61,16 +61,17 @@ independently cover:
 4. execution-graph readiness.
 
 The packet contains factual source locations but no findings, recommendations, or verdict. Reviewers read extra source
-when it is insufficient. Every review bead persists the durable `Review state:` record from the installed dstack-core
-`REVIEW-STATE.md` reference, including reviewer session, packet identity/digest, reviewed commit/diff boundary, and
-disposition. Supply reviewers the current open projection from `REVIEW-FINDINGS.md`; retain historical findings for
-audit. Do not add confidence reviewers without a distinct uncovered risk or user request. Fix verification resumes only
-affected reviewers and their run IDs; fresh replacements are used only when an original is unavailable. A material scope
-change invalidates the whole review run; reopen specification reconciliation, commit the redesigned boundary, and run
-one new bounded review with a new packet. Refresh a shared packet only after broad design, architecture, task-graph, or
-documentation-structure changes. Two unresolved review rounds in the same domain are a convergence stop: record
-`redesign_required`, do not launch another reviewer, and return through specification redesign or decomposition before
-creating a new packet.
+when it is insufficient. Feature workflows persist the durable `Review state:` record from the installed dstack-core
+`REVIEW-STATE.md` reference on their review beads. A standalone workflow has no separate review bead: its selected task
+notes are the authoritative review ledger for `Review state:` and `Finding:` records, including reviewer session, packet
+identity/digest, reviewed commit/diff boundary, and disposition. Supply reviewers the current open projection from
+`REVIEW-FINDINGS.md`; retain historical findings for audit. Do not add confidence reviewers without a distinct uncovered
+risk or user request. Fix verification resumes only affected reviewers and their run IDs; fresh replacements are used
+only when an original is unavailable. A material scope change invalidates the whole review run; reopen specification
+reconciliation, commit the redesigned boundary, and run one new bounded review with a new packet. Refresh a shared
+packet only after broad design, architecture, task-graph, or documentation-structure changes. Two unresolved review
+rounds in the same domain are a convergence stop: record `redesign_required`, do not launch another reviewer, and return
+through specification redesign or decomposition before creating a new packet.
 
 Open review tasks and `spec-reconcile` are expected during review and are not findings by themselves. Reviewers report
 stale dependency direction, missing tasks, and other graph defects; the controller verifies gate closure only after

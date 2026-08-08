@@ -631,6 +631,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "unavailable" in review_state
     assert "redesign_required" in review_state
     assert "REVIEW-FINDINGS.md" in review_state
+    assert "selected standalone task" in normalized_review_state
+    assert "selected standalone task's notes" in normalized_review_state
     findings = (repository_root / "skills/dstack-core/references/REVIEW-FINDINGS.md").read_text(encoding="utf-8")
     normalized_findings = " ".join(findings.split())
     for field in (
@@ -927,6 +929,23 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "chore: Record standalone task evidence" in task
     assert "one interaction-evidence audit commit" in normalized_task
     assert "does not authorize pushes, pull requests, merges, or remote delivery" in normalized_task
+    assert "selected standalone issue's Beads notes are the authoritative review record" in normalized_task
+    assert "Do not create or claim a separate review bead" in normalized_task
+    assert "persist the review bead's run ID" not in task
+    assert "last `Review state:` line" in normalized_task
+    assert "last record for each `finding_id`" in normalized_task
+    assert "`status: unavailable`" in normalized_task
+    assert "must not substitute self-review" in normalized_task
+    assert "`status: replaced`" in normalized_task
+    assert "`status: findings` with `disposition: changes_required`" in normalized_task
+    assert "reviewer harness is unavailable" in normalized_task
+    assert "original run's existing `supersedes_run_id` is preserved" in normalized_task
+    assert "`null` only for an initial run" in normalized_task
+    assert "new replacement run" in normalized_task
+    assert "at most one replacement" in normalized_task.casefold()
+    assert "replacement run preserves the existing `replacement_count`" in normalized_task
+    assert "ordinary unavailability does not consume the redesign-replacement allowance" in normalized_task
+    assert "replacement itself is unavailable" in normalized_task
     assert 'test -z "$(git status --porcelain)"' in task
 
     start = skill("start-feature")

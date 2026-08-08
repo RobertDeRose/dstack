@@ -1,12 +1,14 @@
 # Durable review state
 
-Review sessions are ephemeral, but review authority is durable Beads state. Every review bead—architecture, execution,
-implementation, delivery, drift, or a standalone-task review—must append a machine-readable current-state record before
-launching its reviewer and after every material transition.
+Review sessions are ephemeral, but review authority is durable Beads state. Every feature review bead and every
+standalone task's selected Beads record must append a machine-readable current-state record before launching its
+reviewer and after every material transition. A standalone task has no separate review bead: its selected issue notes
+are the authoritative review ledger.
 
 ## State record
 
-Append one single-line JSON record to the review bead's notes with the `Review state:` prefix:
+Append one single-line JSON record to the review bead's notes, or to the selected standalone task's notes, with the
+`Review state:` prefix:
 
 ```text
 Review state: {"schema":"dstack.review-state.v1","run_id":"run-...","reviewer_session_id":"session-...","packet_id":"packet-...","packet_path":"/ephemeral/...","packet_digest":"sha256:...","reviewed_commit":"<sha>","reviewed_diff_base":"<sha>","reviewed_diff_digest":"sha256:...","review_round":1,"finding_domains":["architecture"],"review_boundary_id":"boundary-...","replacement_count":0,"status":"active","disposition":"pending","replacement_reason":null,"supersedes_run_id":null,"unavailable_reason":null}
@@ -61,19 +63,28 @@ not consume the redesign replacement allowance.
 
 ## Required lifecycle
 
-1. Claim the review bead and append an `active` record before launching the reviewer.
+1. Claim the review bead and append an `active` record before launching the reviewer. For a standalone task, the
+   selected task is already the claimed record; append its `active` state before launching the reviewer instead of
+   creating or claiming another review bead.
 2. Capture the exact packet identity and source boundary before the reviewer reads it. A packet path may be ephemeral,
    but its ID and digest must remain durable.
 3. Append `findings` with the current disposition and verification boundary after review. Append `verified` only after
    actionable findings are resolved and the affected checks pass.
 4. After a fix, resume the original `run_id`; append its new reviewed commit/diff boundary rather than creating a fresh
    run. Do not relaunch a reviewer merely because the controller lost conversational context.
-5. If the original reviewer cannot be resumed, append `unavailable` with a concrete reason before launching a
-   replacement. Create a new run with `supersedes_run_id`, pass the prior packet identity, findings ledger, resolutions,
-   and post-review diff to the replacement, and record the replacement reason on both review beads.
+5. If the original reviewer cannot be resumed, append `unavailable` with a concrete reason before launching at most one
+   replacement. Preserve the original run's existing `supersedes_run_id`; it is null only for an initial run. Mark its
+   terminal history `replaced`, then create a new run with a new ID, `supersedes_run_id` pointing to the original, the
+   prior packet identity, findings ledger, resolutions, and post-review diff. Preserve the existing `replacement_count`:
+   it counts only bounded redesign replacements, so ordinary unavailability does not consume the redesign-replacement
+   allowance. Append `status: replaced` and `disposition: replaced` to the original, and record the replacement reason
+   on both review records. For a standalone task, retain both records in the selected task's append-only notes ledger.
+   If the replacement is also unavailable, append its `unavailable` state and stop without a second replacement.
 6. A replacement must not erase the original record or silently reuse its approval. The controller closes the review
-   bead only after its canonical state is `verified` or an explicitly recorded terminal disposition.
+   record—or the review bead for feature workflows—only after its canonical state is `verified` or an explicitly
+   recorded terminal disposition.
 
-Use Beads notes for the durable record; do not store the authoritative state only in an ephemeral packet, transcript, or
-controller memory. The replacement reviewer receives the prior findings ledger and resolutions as input. Finding IDs and
-current dispositions follow [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md).
+Use Beads notes for the durable record; for standalone work, use the selected task's notes and do not create a separate
+review bead. Do not store the authoritative state only in an ephemeral packet, transcript, or controller memory. The
+replacement reviewer receives the prior findings ledger and resolutions as input. Finding IDs and current dispositions
+follow [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md).
