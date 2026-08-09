@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.9.1 — 2026-08-09
+
+### Fixed
+
+- **skill:** Remove migration docs skip path (`e56ec75`)
+
+- - -
+
 ## v0.9.0 — 2026-08-08
 
 ### Added
