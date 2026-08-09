@@ -15,6 +15,14 @@ Do not use it for a `workflow:feature` epic or a child of one. Those issues belo
 `/implement-feature`. Do not turn a standalone maintenance or audit task into a feature merely to use the feature
 workflow.
 
+## Shared native Beads authority
+
+Read [`../dstack-core/references/INTERACTION-BOUNDARY.md`](../dstack-core/references/INTERACTION-BOUNDARY.md) before
+mutating the selected issue. Native linked-worktree Beads authority is shared; `bd -C` is not an isolation boundary. Run
+the claim, evidence updates, close, and interaction verification as one contiguous mutation interval under
+`beads-workflow-lock.py`. A busy lease or a foreign interaction append is blocking. Never bypass the lease with a raw
+`bd` write, absorb another issue's interaction rows, or restore over a rejected snapshot.
+
 ## Shared trust contract
 
 Before executing this workflow, read and follow
@@ -57,7 +65,21 @@ mutation, require a clean current task worktree and capture its immutable intera
 test -z "$(git status --porcelain)"
 task_worktree=$(git rev-parse --show-toplevel)
 task_base_commit=$(git rev-parse HEAD)
+workflow_run_id=<stable workflow run id>
 ```
+
+All contiguous Beads mutation commands below—including the startup version note, claim, evidence updates, close, and
+interaction verification—must run inside the shared lease. The lease key resolves the Git common repository, so linked
+worktrees serialize against the same lock:
+
+```bash
+uv run <core-dir>/scripts/beads-workflow-lock.py exec \
+  --repository-root "$task_worktree" --run-id "$workflow_run_id" --timeout 0 \
+  -- bash -eu -c '<contiguous Beads mutation and interaction finalization commands>'
+```
+
+Do not execute an individual `bd` line outside that wrapper. A busy lease or a changed interaction snapshot stops the
+workflow without restoring or absorbing evidence.
 
 This clean-start check precedes the startup-version note because that note and the claim may append tracked
 `.beads/interactions.jsonl` evidence. After recording the required skill-version line, claim only the selected issue:

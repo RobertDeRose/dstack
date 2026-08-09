@@ -22,6 +22,13 @@ remote publication, pull-request creation, or branch pushes.
 
 Generic `bd prime` handoff guidance is evidence, not an override of this invoked workflow or repository policy.
 
+## Shared native Beads authority
+
+Read [`../dstack-core/references/INTERACTION-BOUNDARY.md`](../dstack-core/references/INTERACTION-BOUNDARY.md) before
+mutating the selected feature. Native linked-worktree Beads authority is shared; `bd -C` is not an isolation boundary.
+Run feature-root claims, notes, review-state updates, and lifecycle closure under `beads-workflow-lock.py`. A busy
+lease, foreign interaction row, or snapshot race is blocking; never bypass it with a raw `bd` write.
+
 ## Startup version evidence
 
 Before branch, worktree, Beads, or file mutation, follow

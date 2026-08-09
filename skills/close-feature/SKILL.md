@@ -41,6 +41,15 @@ Delivery authority:
   `discovered-from` or `parent-child` edges, and the two interaction-only workflow commits described below. It never
   authorizes discarding, including, or rewriting unrelated rows or paths.
 
+## Shared native Beads authority
+
+Read [`../dstack-core/references/INTERACTION-BOUNDARY.md`](../dstack-core/references/INTERACTION-BOUNDARY.md) before any
+delivery mutation. Native linked-worktree Beads authority is shared; `bd -C` is not an isolation boundary. Run
+contiguous Beads reconciliation and delivery mutations under `beads-workflow-lock.py`. Before any close-out Beads
+mutation in the base worktree, run `reconcile-beads-interactions.py preflight`; inspect foreign rows without mutation
+when it fails. A busy lease, foreign interaction row, or snapshot race blocks delivery. Do not close delivery/root until
+the guarded post-merge finalizer has passed.
+
 ## Supported Actions
 
 - `pr`: create a pull request after successful close-out.
@@ -69,7 +78,14 @@ root metadata. Query the full molecule or child list only to repair missing meta
 Inspect commits, implementation, tests, and changed files before deciding whether documentation is accurate.
 
 Continue only after all lifecycle IDs resolve, the active worktree is `feat/<slug>`, the implementation coordinator is
-closed, and no open `migration:reconciliation` task blocks close-out.
+closed, and no open `migration:reconciliation` task blocks close-out. Before the startup-version note or any other
+close-out Beads mutation, resolve the canonical base worktree and run the shared interaction preflight. If it fails,
+inspect the appended rows without mutation and stop with delivery/root open:
+
+```bash
+uv run <core-dir>/scripts/reconcile-beads-interactions.py preflight \
+  --worktree <base-worktree> --root-id <root-id>
+```
 
 ## 2. Reconcile Documentation
 
@@ -158,7 +174,31 @@ Run `git status --short`; identify pre-existing or out-of-scope changes and excl
 code, tests, documentation, and audit-record changes. Include the feature root ID in the commit message. Record the
 commit SHA and review outcomes in Beads. Close-out is ready when the delivery step is the next ready item.
 
-## 6. Choose Delivery Action
+## 6. Finalize the close-out interaction boundary
+
+Before asking for or executing the delivery action, finalize every Beads interaction emitted during documentation
+reconciliation, validation, and close-out review. Under the repository-scoped `beads-workflow-lock.py` lease, copy only
+selected-lineage rows to the feature branch, commit the interaction-only audit commit, and restore the base copy:
+
+```bash
+uv run <core-dir>/scripts/reconcile-beads-interactions.py prepare \
+  --base-worktree <base-worktree> --feature-worktree <feature-worktree> --root-id <root-id>
+git -C <feature-worktree> add .beads/interactions.jsonl
+cat > /tmp/dstack-close-interactions-message <<'EOF'
+chore(beads): record <slug> close-out state
+
+Beads: <root-id>
+EOF
+git -C <feature-worktree> commit -F /tmp/dstack-close-interactions-message
+uv run <core-dir>/scripts/reconcile-beads-interactions.py finalize \
+  --base-worktree <base-worktree> --feature-worktree <feature-worktree> --root-id <root-id>
+```
+
+Skip this boundary only when the base interaction export is clean and no close-out Beads mutation emitted a row. If
+`prepare` or the inspector reports foreign rows, stop without restoring or closing delivery/root. The base must be clean
+before the user chooses `pr`, `merge`, or `ready`; a later delivery action must reacquire the lease and recheck it.
+
+## 7. Choose Delivery Action
 
 When no action was supplied, ask exactly one question:
 
@@ -183,6 +223,21 @@ Read the target repository's `AGENTS.md` merge policy. Resolve the worktree that
 `git worktree list --porcelain`; do not assume the current directory is the base worktree. Verify its branch. Require a
 clean worktree without stashing, deleting, or including unrelated changes, with one bounded exception: native Beads may
 have appended tracked interaction evidence for the selected feature molecule in the base worktree.
+
+Before the first delivery mutation, require the canonical base worktree to be clean. This preflight must run before
+closing delivery or the feature root:
+
+```bash
+uv run <core-dir>/scripts/reconcile-beads-interactions.py preflight \
+  --worktree <base-worktree> --root-id <root-id>
+```
+
+If it fails, inspect without mutation and leave delivery/root open:
+
+```bash
+uv run <core-dir>/scripts/reconcile-beads-interactions.py inspect \
+  --worktree <base-worktree> --root-id <root-id>
+```
 
 When the base is dirty only because `.beads/interactions.jsonl` has append-only rows whose `issue_id` is the selected
 root ID, its dotted descendant, or separately identified work connected back to that molecule by a local Beads
@@ -264,14 +319,28 @@ Beads: <root-id>
 EOF
 git -C <base-worktree> commit -F /tmp/dstack-post-merge-finalizer-message
 finalizer_sha=$(git -C <base-worktree> rev-parse HEAD)
-bd update <delivery-id> --append-notes "Post-merge delivery SHA: ${merge_sha}; finalizer commit: ${finalizer_sha}"
+# The guarded delivery finalizer records both SHAs in the Beads close reason.
 ```
 
-If the verifier, documentation check, finalizer commit, or Beads evidence update fails, report
+If the verifier, documentation check, finalizer commit, or guarded Beads closure fails, report
 `blocked by post-merge reconciliation` and preserve both worktrees. Do not close delivery/root or claim completion.
 
-Only after the finalizer passes, close delivery and the feature root. These final Beads mutations may append new
-selected-feature interaction rows in the now-merged base worktree. Verify and commit only that evidence:
+Only after the finalizer passes, use the guarded delivery finalizer to close delivery and the feature root. It rechecks
+the merge/finalizer evidence and the clean base boundary under the repository-scoped lease. Do not close delivery/root
+with direct `bd close` commands. The guard records
+`Post-merge delivery SHA: <merge-sha>; finalizer commit: <finalizer-sha>` in the Beads close reason:
+
+```bash
+uv run <core-dir>/scripts/finalize-feature-delivery.py \
+  --base-worktree <base-worktree> --base-branch <base-branch> \
+  --record docs/src/features/<slug>/index.md --merge-sha <merge-sha> \
+  --finalizer-sha <finalizer-sha> \
+  --path <reader-facing-path> --path <another-reader-facing-path> \
+  --delivery-id <delivery-id> --root-id <root-id>
+```
+
+These final Beads mutations may append new selected-feature interaction rows in the now-merged base worktree. Verify and
+commit only that evidence:
 
 ```bash
 uv run <core-dir>/scripts/reconcile-beads-interactions.py verify-post-merge \

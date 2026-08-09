@@ -18,6 +18,13 @@ Invocation authorizes bounded local implementation commits, one startup interact
 root when needed, and one interaction-only audit commit after every child and the implementation coordinator. It does
 not authorize pushes, pull requests, merges, or worktree removal, and it does not authorize remote delivery.
 
+## Shared native Beads authority
+
+Read [`../dstack-core/references/INTERACTION-BOUNDARY.md`](../dstack-core/references/INTERACTION-BOUNDARY.md) before
+mutating the feature. Native linked-worktree Beads authority is shared; `bd -C` is not an isolation boundary. Run each
+claim/close/evidence/finalization interval under `beads-workflow-lock.py`, and stop on a busy lease, foreign interaction
+row, or snapshot race. Never use a raw `bd` write to bypass the lease or copy another feature's audit evidence.
+
 ## Startup version evidence
 
 Before claiming a child or mutating the feature, follow
@@ -99,6 +106,18 @@ immutable baseline commit from the resolved feature worktree:
 ```bash
 test -z "$(git -C "$task_worktree" status --porcelain)"
 startup_base_commit=$(git -C "$task_worktree" rev-parse HEAD)
+workflow_run_id=<stable workflow run id>
+```
+
+All contiguous Beads mutation commands below—including the startup note, claims, review/evidence updates, closures, and
+interaction finalization—must run inside the shared `beads-workflow-lock.py` lease using the canonical repository root.
+`bd -C "$task_worktree"` selects the feature context but does not create an isolated lock or database. A busy lease or
+changed interaction snapshot is blocking; never bypass it with a raw `bd` write.
+
+```bash
+uv run <core-dir>/scripts/beads-workflow-lock.py exec \
+  --repository-root "$repository_root" --run-id "$workflow_run_id" --timeout 0 \
+  -- bash -eu -c '<contiguous Beads mutation and interaction finalization commands>'
 ```
 
 Use this fail-closed procedure for the startup root, every closed child, and the closed implementation coordinator. The

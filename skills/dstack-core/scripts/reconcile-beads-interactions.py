@@ -164,6 +164,40 @@ def parse_records(data: bytes, *, source: str) -> tuple[list[tuple[str, str, byt
     return records, by_id
 
 
+def classify_records(
+    worktree: Path,
+    additions: list[tuple[str, str, bytes]],
+    root_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    lineage_cache: dict[str, bool] = {}
+    selected: list[dict[str, Any]] = []
+    foreign: list[dict[str, Any]] = []
+    for interaction_id, issue_id, raw in additions:
+        try:
+            value: Any = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ReconciliationError(f"interaction {interaction_id} is not valid JSON") from error
+        issue = bd_show(worktree, issue_id)
+        row = {
+            "interaction_id": interaction_id,
+            "issue_id": issue_id,
+            "title": issue.get("title", issue_id),
+            "actor": value.get("actor"),
+            "created_at": value.get("created_at"),
+        }
+        if belongs_to_feature_lineage(
+            worktree,
+            issue_id,
+            root_id,
+            cache=lineage_cache,
+            visiting=set(),
+        ):
+            selected.append(row)
+        else:
+            foreign.append(row)
+    return selected, foreign
+
+
 def appended_records(worktree: Path, root_id: str) -> tuple[list[tuple[str, str, bytes]], bytes]:
     require_interaction_only_status(worktree, allow_clean=False)
     head = git(worktree, "show", f"HEAD:{INTERACTIONS.as_posix()}")
@@ -173,19 +207,56 @@ def appended_records(worktree: Path, root_id: str) -> tuple[list[tuple[str, str,
     additions, _ = parse_records(current[len(head) :], source=f"{worktree}/{INTERACTIONS} additions")
     if not additions:
         raise ReconciliationError(f"{INTERACTIONS} has no appended records in {worktree}")
-    lineage_cache: dict[str, bool] = {}
-    for interaction_id, issue_id, _raw in additions:
-        if not belongs_to_feature_lineage(
-            worktree,
-            issue_id,
-            root_id,
-            cache=lineage_cache,
-            visiting=set(),
-        ):
-            raise ReconciliationError(
-                f"interaction {interaction_id} references {issue_id}, outside selected feature lineage {root_id}"
-            )
+    _selected, foreign = classify_records(worktree, additions, root_id)
+    if foreign:
+        details = "; ".join(f"{row['interaction_id']} references {row['issue_id']} ({row['title']})" for row in foreign)
+        raise ReconciliationError(f"foreign interaction records outside selected feature lineage {root_id}: {details}")
     return additions, current
+
+
+def inspect_worktree(worktree: Path, root_id: str) -> dict[str, Any]:
+    entries = status_entries(worktree)
+    if not entries:
+        return {
+            "clean": True,
+            "foreign": [],
+            "root_id": root_id,
+            "selected": [],
+        }
+    require_interaction_only_status(worktree, allow_clean=False)
+    path = worktree / INTERACTIONS
+    head = git(worktree, "show", f"HEAD:{INTERACTIONS.as_posix()}")
+    current = path.read_bytes()
+    if not current.startswith(head):
+        raise ReconciliationError(f"{INTERACTIONS} is not an append-only change in {worktree}")
+    additions, _ = parse_records(current[len(head) :], source=f"{worktree}/{INTERACTIONS} additions")
+    if not additions:
+        raise ReconciliationError(f"{INTERACTIONS} has no appended records in {worktree}")
+    selected, foreign = classify_records(worktree, additions, root_id)
+    return {
+        "clean": False,
+        "foreign": foreign,
+        "root_id": root_id,
+        "selected": selected,
+        "snapshot_sha256": hashlib.sha256(current).hexdigest(),
+        "snapshot_mode": interaction_worktree_mode(worktree),
+    }
+
+
+def preflight(worktree: Path, root_id: str) -> dict[str, Any]:
+    entries = status_entries(worktree)
+    if entries:
+        if entries == [(" M", INTERACTIONS.as_posix())]:
+            report = inspect_worktree(worktree, root_id)
+            details = "; ".join(
+                f"{row['interaction_id']} -> {row['issue_id']}" for row in [*report["selected"], *report["foreign"]]
+            )
+            raise ReconciliationError(
+                f"preflight requires a clean worktree before closeout; uncommitted interaction records: {details}"
+            )
+        rendered = ", ".join(f"{status} {path}" for status, path in entries)
+        raise ReconciliationError(f"preflight requires a clean worktree before closeout; found: {rendered}")
+    return {"clean": True, "root_id": root_id}
 
 
 def resolve_baseline_commit(worktree: Path, revision: str) -> str:
@@ -457,6 +528,12 @@ def parser() -> argparse.ArgumentParser:
         subparser.add_argument("--base-worktree", type=Path, required=True)
         subparser.add_argument("--feature-worktree", type=Path, required=True)
         subparser.add_argument("--root-id", required=True)
+    inspect = subparsers.add_parser("inspect")
+    inspect.add_argument("--worktree", type=Path, required=True)
+    inspect.add_argument("--root-id", required=True)
+    preflight_parser = subparsers.add_parser("preflight")
+    preflight_parser.add_argument("--worktree", type=Path, required=True)
+    preflight_parser.add_argument("--root-id", required=True)
     post_merge = subparsers.add_parser("verify-post-merge")
     post_merge.add_argument("--base-worktree", type=Path, required=True)
     post_merge.add_argument("--root-id", required=True)
@@ -480,9 +557,13 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = parser().parse_args()
     try:
-        if args.command in {"verify-feature", "verify-standalone"}:
+        if args.command in {"inspect", "preflight", "verify-feature", "verify-standalone"}:
             worktree = validate_worktree(args.worktree)
-            if args.command == "verify-feature":
+            if args.command == "inspect":
+                output = inspect_worktree(worktree, args.root_id)
+            elif args.command == "preflight":
+                output = preflight(worktree, args.root_id)
+            elif args.command == "verify-feature":
                 output = verify_feature(
                     worktree,
                     args.root_id,

@@ -2,21 +2,24 @@
 
 ## Files
 
-| File                                | Contract                                                                       |
-|-------------------------------------|--------------------------------------------------------------------------------|
-| `mise.toml`                         | Declares project tools, environment, and named tasks.                          |
-| `mise.lock`                         | Project-owned resolved downloads; commit it.                                   |
-| `hk.pkl`                            | Defines the shared check/fix/pre-commit step map.                              |
-| `.config/rumdl.toml`                | Configures Markdown linting and deterministic fixes.                           |
-| `.editorconfig`                     | Keeps editor output on UTF-8, LF, final newlines, and no trailing spaces.      |
-| `_typos.toml`                       | Ignores hash-like identifiers while retaining typo checks elsewhere.           |
-| `contextlint.config.json`           | Checks documentation links, anchors, and image targets.                        |
-| `cog.toml`                          | Configures Conventional Commits and concise changelogs.                        |
-| `.config/cog-changelog.tera`        | Renders plain Markdown changelogs without author noise.                        |
-| `scripts/setup-tooling.py`          | Resolves the lock, installs tools, installs hk hooks, and returns JSON status. |
-| `scripts/enable-docs-deployment.py` | Configures workflow-built Pages through external `gh`.                         |
-| `.github/workflows/validate.yml`    | Runs locked `mise run check` on pushes and pull requests.                      |
-| `.github/workflows/docs.yml`        | Builds gated docs from the default branch or manual dispatch.                  |
+| File                                                         | Contract                                                                       |
+|--------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `mise.toml`                                                  | Declares project tools, environment, and named tasks.                          |
+| `mise.lock`                                                  | Project-owned resolved downloads; commit it.                                   |
+| `hk.pkl`                                                     | Defines the shared check/fix/pre-commit step map.                              |
+| `.config/rumdl.toml`                                         | Configures Markdown linting and deterministic fixes.                           |
+| `.editorconfig`                                              | Keeps editor output on UTF-8, LF, final newlines, and no trailing spaces.      |
+| `_typos.toml`                                                | Ignores hash-like identifiers while retaining typo checks elsewhere.           |
+| `contextlint.config.json`                                    | Checks documentation links, anchors, and image targets.                        |
+| `cog.toml`                                                   | Configures Conventional Commits and concise changelogs.                        |
+| `.config/cog-changelog.tera`                                 | Renders plain Markdown changelogs without author noise.                        |
+| `scripts/setup-tooling.py`                                   | Resolves the lock, installs tools, installs hk hooks, and returns JSON status. |
+| `scripts/enable-docs-deployment.py`                          | Configures workflow-built Pages through external `gh`.                         |
+| `skills/dstack-core/scripts/reconcile-beads-interactions.py` | Verifies and reconciles append-only Beads interaction evidence.                |
+| `skills/dstack-core/scripts/beads-workflow-lock.py`          | Serializes dstack Beads mutation intervals outside Git.                        |
+| `skills/dstack-core/scripts/finalize-feature-delivery.py`    | Guards delivery/root closure with post-merge evidence.                         |
+| `.github/workflows/validate.yml`                             | Runs locked `mise run check` on pushes and pull requests.                      |
+| `.github/workflows/docs.yml`                                 | Builds gated docs from the default branch or manual dispatch.                  |
 
 ## Tools
 
@@ -84,6 +87,10 @@ bd hooks list --json
 The universal tool count remains ten; `gh` is an external administrative prerequisite, not a mise tool. Pages requires
 `build_type=workflow` plus `DOCS_DEPLOYMENT_ENABLED=true`. The build job has `contents: read`; only the deploy job has
 `pages: write` and `id-token: write`.
+
+Beads interaction authority is shared across linked worktrees. dstack mutation intervals use the repository-scoped lease
+in `skills/dstack-core/references/INTERACTION-BOUNDARY.md`; the lease is outside Git and is not a replacement for
+lineage validation. Foreign rows remain blocking and must be finalized by their owning work unit.
 
 The project provisioner reports separate mise availability, lock, install, and hk hook states. Overall status is
 `succeeded`, `degraded`, or `skipped`; failed or skipped stages include exact recovery commands.

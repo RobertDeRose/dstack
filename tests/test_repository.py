@@ -45,10 +45,14 @@ EXPECTED_SKILLS = {
 
 REQUIRED_SKILL_SUPPORT = (
     "skills/dstack-core/references/TRUST-AND-AUTHORITY.md",
+    "skills/dstack-core/references/INTERACTION-BOUNDARY.md",
     "skills/dstack-core/references/REVIEW-STATE.md",
     "skills/dstack-core/references/REVIEW-FINDINGS.md",
     "skills/dstack-core/references/PI-REVIEWER-ROSTER.md",
     "skills/dstack-core/scripts/reconcile-beads-interactions.py",
+    "skills/dstack-core/scripts/beads-workflow-lock.py",
+    "skills/dstack-core/scripts/beads_workflow_lock.py",
+    "skills/dstack-core/scripts/finalize-feature-delivery.py",
     "skills/dstack-core/scripts/resolve-feature.py",
     "skills/dstack-core/scripts/verify-delivery-state.py",
     "skills/gh-pr-review/scripts/review_state.py",

@@ -145,7 +145,9 @@ decisions; native planned work should never reach that state. Its final response
 `/implement-feature <slug>` when blocked.
 
 Before its startup-version note, `/implement-feature` resolves the authoritative `feat/<slug>` worktree from Git
-worktree metadata rather than trusting the process CWD, and scopes all feature Git and Beads mutations to that path. It
+worktree metadata rather than trusting the process CWD. Native linked-worktree Beads authority is shared, so `bd -C` is
+not an isolation boundary. Every Beads mutation interval uses the repository-scoped interaction lease from
+`dstack-core/references/INTERACTION-BOUNDARY.md`; the lease is outside Git and prevents concurrent mutation races. It
 requires a clean feature worktree and captures an immutable interaction baseline. It records the root note in a separate
 interaction-only audit commit when the export is tracked. It then captures a fresh baseline immediately before each
 child claim. Startup alone allows a clean tracked interval when the version note emits no interaction row; child and
@@ -186,6 +188,11 @@ Add a blocking edge only when the discovery is required for safe completion.
 
 ## Close
 
+`/close-feature` starts with a clean base-worktree interaction preflight and uses the repository-scoped interaction
+lease for every contiguous Beads mutation interval. Native linked-worktree Beads authority is shared; `bd -C` is not an
+isolation boundary. Close-out interaction evidence is inspected before restoration, and foreign interaction rows are
+reported without mutation or absorption.
+
 `/close-feature` compares delivered code with the design and reader-facing docs, creates a standalone
 implemented-feature record, and runs validation. One fresh context builder supplies a factual packet to two fresh
 holistic reviewers for delivery and drift. They follow the neutrality, extra-source, refresh, confidence-review, and
@@ -193,14 +200,19 @@ replacement rules above; fixes resume only the affected reviewer. The workflow t
 or `ready` action. With no mode, it asks which action to take. Merge mode uses `git merge --ff-only` unless the target
 repository's `AGENTS.md` explicitly permits merge commits; it never falls back to a merge commit after a failed
 fast-forward. Native Beads can append selected-feature rows to the tracked `.beads/interactions.jsonl` in the base
-worktree during close-out. Merge mode verifies that this is the only dirty path and that every change is append-only and
-belongs to the selected feature molecule or separately identified work with a `discovered-from` or `parent-child` path
-back to it, commits those rows on the feature branch, and restores the base copy only after committed preservation.
-Delivery and root closures happen after the merge; their interaction rows receive a separate interaction-only commit on
-the base branch. Malformed, rewritten, foreign, or mixed dirty state remains blocking. After a confirmed merge,
-`/close-feature` runs a mandatory post-merge finalizer: it records the actual merge SHA in the implemented record,
-reconciles reader-facing delivery claims, runs `verify-delivery-state.py` and documentation validation, commits the
-finalizer, and only then closes delivery and the feature root. A stale merge-pending claim blocks completion.
+worktree during close-out. A repository-scoped interaction lease serializes each mutation interval. Close-out runs the
+clean preflight before any delivery/root mutation and uses the read-only inspector to enumerate foreign interaction rows
+when it fails. Merge mode verifies that this is the only dirty path and that every change is append-only and belongs to
+the selected feature molecule or separately identified work with a `discovered-from` or `parent-child` path back to it,
+commits those rows on the feature branch, and restores the base copy only after committed preservation. Foreign
+interaction rows remain with their originating work unit; `blocks` and `related` edges do not grant ownership. Delivery
+and root closures happen after the merge; their interaction rows receive a separate interaction-only commit on the base
+branch. Malformed, rewritten, foreign, or mixed dirty state remains blocking. After a confirmed merge, `/close-feature`
+runs a mandatory post-merge finalizer: it records the actual merge SHA in the implemented record, reconciles
+reader-facing delivery claims, runs `verify-delivery-state.py` and documentation validation, commits the finalizer, and
+only then invokes `finalize-feature-delivery.py` to close delivery and the feature root. The guarded finalizer verifies
+the merge SHA, finalizer commit, clean base boundary, and Beads statuses under the repository-scoped lease. `ready` and
+no-action close-out leave delivery/root open. A stale merge-pending claim blocks completion.
 
 ## Audit
 

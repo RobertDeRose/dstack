@@ -18,7 +18,10 @@ reviewer definitions without changing the tool-agnostic contract. Use `scripts/s
 explicit user-selected target; normal skill installation never mutates Pi agent directories.
 
 Lifecycle startup uses [`references/SKILL-VERSION.md`](references/SKILL-VERSION.md) to record the executing installed
-skill version and compare it with trustworthy local canonical evidence before mutation.
+skill version and compare it with trustworthy local canonical evidence before mutation. Beads writes and delivery
+closure follow [`references/INTERACTION-BOUNDARY.md`](references/INTERACTION-BOUNDARY.md): native linked-worktree
+authority is shared, mutation intervals use a repository-scoped lease, and foreign interaction evidence remains
+fail-closed.
 
 Before executing a dstack workflow that links to a reference in this directory, read that reference completely. The
 calling skill remains responsible for its workflow-specific authority and completion rules.

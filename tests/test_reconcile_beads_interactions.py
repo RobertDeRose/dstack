@@ -33,6 +33,7 @@ def interaction(interaction_id: str, issue_id: str) -> str:
             "id": interaction_id,
             "kind": "field_change",
             "created_at": "2026-07-29T12:00:00Z",
+            "actor": "Test Agent",
             "issue_id": issue_id,
         },
         separators=(",", ":"),
@@ -53,7 +54,9 @@ issue_id = sys.argv[2]
 dependencies = []
 if issue_id == "project-discovered":
     dependencies = [{"id": "project-a.1", "dependency_type": "discovered-from"}]
-print(json.dumps([{"id": issue_id, "dependencies": dependencies}]))
+if issue_id in ("project-blocked", "project-related"):
+    dependencies = [{"id": "project-a.1", "dependency_type": "blocks" if issue_id == "project-blocked" else "related"}]
+print(json.dumps([{"id": issue_id, "title": f"Issue {issue_id}", "dependencies": dependencies}]))
 """,
         encoding="utf-8",
     )
@@ -592,6 +595,130 @@ def test_rejects_unsafe_standalone_interactions_without_mutation(
     assert run("git", "-C", worktree, "rev-parse", "HEAD").stdout == before["head"]
     assert run("git", "-C", worktree, "status", "--porcelain=v1").stdout == before["status"]
     assert path.read_bytes() == before["interactions"]
+
+
+def test_inspect_reports_selected_and_foreign_appends_without_mutation(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    base, _feature = interaction_worktrees
+    path = base / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + interaction("int-foreign-a", "project-b.1")
+        + "\n"
+        + interaction("int-foreign-b", "project-b.2")
+        + "\n",
+        encoding="utf-8",
+    )
+    before = path.read_bytes()
+    result = run(
+        sys.executable,
+        repository_root / SCRIPT,
+        "inspect",
+        "--worktree",
+        base,
+        "--root-id",
+        "project-a",
+    )
+
+    report = json.loads(result.stdout)
+
+    assert [row["interaction_id"] for row in report["selected"]] == ["int-close", "int-discovered"]
+    assert [row["interaction_id"] for row in report["foreign"]] == ["int-foreign-a", "int-foreign-b"]
+    assert all(row["title"].startswith("Issue ") for row in report["foreign"])
+    assert {row["actor"] for row in report["foreign"]} == {"Test Agent"}
+    assert {row["created_at"] for row in report["foreign"]} == {"2026-07-29T12:00:00Z"}
+    assert path.read_bytes() == before
+    assert run("git", "-C", base, "status", "--porcelain=v1").stdout == " M .beads/interactions.jsonl\n"
+
+
+def test_inspect_does_not_promote_blocks_or_related_edges_to_ownership(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    base, _feature = interaction_worktrees
+    path = base / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + interaction("int-blocked", "project-blocked")
+        + "\n"
+        + interaction("int-related", "project-related")
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run(
+        sys.executable,
+        repository_root / SCRIPT,
+        "inspect",
+        "--worktree",
+        base,
+        "--root-id",
+        "project-a",
+    )
+    report = json.loads(result.stdout)
+
+    assert [row["issue_id"] for row in report["foreign"]] == ["project-blocked", "project-related"]
+
+
+def test_prepare_reports_all_foreign_appends_without_mutation(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    base, feature = interaction_worktrees
+    path = base / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + interaction("int-foreign-a", "project-b.1")
+        + "\n"
+        + interaction("int-foreign-b", "project-b.2")
+        + "\n",
+        encoding="utf-8",
+    )
+    before_base = path.read_bytes()
+    before_feature = (feature / INTERACTIONS).read_bytes()
+
+    result = run(
+        sys.executable,
+        repository_root / SCRIPT,
+        "prepare",
+        "--base-worktree",
+        base,
+        "--feature-worktree",
+        feature,
+        "--root-id",
+        "project-a",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "int-foreign-a" in result.stderr
+    assert "int-foreign-b" in result.stderr
+    assert path.read_bytes() == before_base
+    assert (feature / INTERACTIONS).read_bytes() == before_feature
+
+
+def test_preflight_requires_a_clean_worktree_before_closeout(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    base, _feature = interaction_worktrees
+
+    result = run(
+        sys.executable,
+        repository_root / SCRIPT,
+        "preflight",
+        "--worktree",
+        base,
+        "--root-id",
+        "project-a",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "preflight requires a clean worktree" in result.stderr
+    assert run("git", "-C", base, "status", "--porcelain=v1").stdout == " M .beads/interactions.jsonl\n"
 
 
 def test_reconciles_only_committed_feature_interactions(

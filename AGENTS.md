@@ -114,6 +114,12 @@ Use dependency types intentionally:
 - `related`: contextual association;
 - `discovered-from`: provenance for work found during execution.
 
+Native linked-worktree Beads authority is shared. `bd -C` is not an interaction-isolation boundary. All dstack Beads
+mutation intervals use `skills/dstack-core/references/INTERACTION-BOUNDARY.md` and the repository-scoped lease from
+`skills/dstack-core/scripts/beads-workflow-lock.py`. Foreign interaction rows remain blocking and must stay with their
+owning work unit; never broaden lineage, discard rows, or restore over a rejected snapshot. Delivery and feature-root
+issues remain open until the guarded post-merge finalizer verifies the merge and documentation evidence.
+
 Use issue types intentionally. Feature roots are `epic`; lifecycle gates and ordinary bounded work are `task`; known
 defects are `bug`; timeboxed fact-finding with explicit exit criteria is `spike`; durable architecture or product
 choices are `decision`; and maintenance is `chore`. Use `feature` for standalone enhancements outside a feature epic.
