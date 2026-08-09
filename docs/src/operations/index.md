@@ -86,9 +86,10 @@ tools and Git hooks before an ordinary checkpoint commit. Preserve the existing 
 a generated strict `docs` step while legacy task files remain; defer it until archival or make it migration-aware.
 Documentation-step skips are not a migration path. Rerun the actual strict hook after each fix; a plan-only invocation
 is not validation. If the existing policy cannot be sequenced or made migration-aware, stop with the named blocking step
-instead of requesting approval to skip it. Whole-hook bypass is never allowed. After final verification, migration
-reports that the branch is complete but unmerged and asks whether to merge now, create a PR, or leave it complete but
-undelivered.
+instead of requesting approval to skip it. Whole-hook bypass is never allowed. Final verification requires durable
+passed checkpoint evidence and treats migration markers as provenance only; they do not weaken normal documentation
+validation after finalization. After final verification, migration reports that the branch is complete but unmerged and
+asks whether to merge now, create a PR, or leave it complete but undelivered.
 
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
 database location/name, project ID, repository root, and issue prefix. Uninitialized migrations use the primary checkout

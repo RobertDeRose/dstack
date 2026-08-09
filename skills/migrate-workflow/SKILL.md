@@ -201,7 +201,7 @@ bd ready --json
 
 The verifier checks the manifest graph and, with `--beads`, imported root relationships. `bd dep cycles` checks only
 blocking cycles. Run repository-native formatting, linting, docs, tests, and feature checks; no tests is an explicit
-limitation, not a failed suite. See **Verification and completion** and **Delivery and merging**.
+limitation, not a failed suite; verification requires checkpoint evidence. See **Delivery and merging**.
 
 ## Return
 

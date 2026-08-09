@@ -266,7 +266,8 @@ approve a skip. Defer those steps in the project hook policy until archival, or 
 migration-aware check that reports zero errors and the expected legacy warnings. If the existing policy cannot be
 sequenced or made migration-aware without an unresolved ownership decision, stop and report the named blocking step.
 Record ordinary passed or failed hook evidence without approval fields. Final checkpoints run strict documentation
-normally.
+normally. A finalized manifest must contain at least one durable checkpoint entry with `status: passed`; `verify`
+rejects completion claims that lack this evidence or contain only malformed entries.
 
 ## Template source and revision
 
@@ -628,7 +629,8 @@ For each genuinely delivered feature, create a standalone `index.md` from `docs/
 must explain delivered behavior without requiring the internal design or archived task file.
 
 Do not fabricate designs or delivered records for untouched planned/deferred features. Legacy-format designs may remain
-a warning during migration, but active or delivered features must be reconciled before strict completion.
+a warning during migration, but active or delivered features must be reconciled before strict completion. The migration
+marker is provenance only; it never weakens the normal documentation checker after finalization.
 
 dstack checks required headings case-insensitively. The bundled templates use Title Case as a default, but migration
 must adapt the newly adopted `_template` files and reconciled feature records to the repository's existing Markdown
@@ -682,11 +684,11 @@ bd blocked --json
 bd ready --json
 ```
 
-`verify --beads` validates manifest relationships, the actual imported graph, and a configured native Git-origin remote.
-It emits the authoritative `Migration state:` line; quote it unchanged. Before claiming complete, push Dolt history and
-prove `bd bootstrap --dry-run --json` in a disposable fresh clone selects `refs/dolt/data`. Keep `bd dep cycles` as a
-diagnostic, but do not use it as the sole graph-safety check because it does not report mixed `blocks`/`related`
-traversal cycles.
+`verify --beads` validates manifest relationships, the actual imported graph, a configured native Git-origin remote, and
+finalized checkpoint evidence. It emits the authoritative `Migration state:` line; quote it unchanged. Before claiming
+complete, push Dolt history and prove `bd bootstrap --dry-run --json` in a disposable fresh clone selects
+`refs/dolt/data`. Keep `bd dep cycles` as a diagnostic, but do not use it as the sole graph-safety check because it does
+not report mixed `blocks`/`related` traversal cycles.
 
 Run repository-native formatting, linting, documentation build, tests, and feature-specific checks. If no tests exist,
 record that limitation instead of treating pytest exit code 5 as a failed suite. After any fix, rerun every affected

@@ -61,7 +61,6 @@ SHORTCUT_LINK_RE = re.compile(r"(?<!!)\[([^\]]+)\](?![\[(])")
 HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
 SUMMARY_START = "<!-- BEGIN IMPLEMENTED FEATURES -->"
 SUMMARY_END = "<!-- END IMPLEMENTED FEATURES -->"
-MIGRATION_MARKER = "<!-- workflow-migration:legacy-markdown-to-beads -->"
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,7 +315,7 @@ def validate_feature_files(root: Path, *, migration_mode: bool) -> list[Finding]
             if missing:
                 add(
                     findings,
-                    severity=("warning" if migration_mode or MIGRATION_MARKER in design_text else "error"),
+                    severity="warning" if migration_mode else "error",
                     code="legacy-or-incomplete-design",
                     path=design,
                     message="Missing current design sections: " + ", ".join(missing),
@@ -360,7 +359,7 @@ def validate_feature_files(root: Path, *, migration_mode: bool) -> list[Finding]
         if missing:
             add(
                 findings,
-                severity=("warning" if migration_mode or MIGRATION_MARKER in implemented_text else "error"),
+                severity="warning" if migration_mode else "error",
                 code="legacy-or-incomplete-implemented-record",
                 path=implemented,
                 message="Missing current implemented-feature sections: " + ", ".join(missing),

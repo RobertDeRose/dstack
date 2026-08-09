@@ -1156,6 +1156,29 @@ def render_report(manifest: Mapping[str, Any]) -> str:
             )
         lines.append("")
 
+    candidates = [
+        candidate for candidate in manifest.get("delivered_record_candidates", []) if isinstance(candidate, Mapping)
+    ]
+    if candidates:
+        lines.extend(["## Delivered-Record Reviews", ""])
+        for candidate in candidates:
+            reviewed = bool(candidate.get("reviewed"))
+            lines.extend(
+                [
+                    f"- **Feature:** `{candidate.get('slug', '')}`",
+                    f"  - Candidate: `{candidate.get('path', '')}`",
+                    f"  - Status: `{'reviewed' if reviewed else 'pending'}`",
+                ]
+            )
+            if reviewed:
+                lines.append(f"  - Reviewed at: `{candidate.get('reviewed_at', '')}`")
+                reason = " ".join(str(candidate.get("review_reason", "")).split())
+                summary = " ".join(str(candidate.get("semantic_summary", "")).split())
+                if reason:
+                    lines.append(f"  - Review reason: {reason}")
+                if summary:
+                    lines.append(f"  - Semantic summary: {summary}")
+
     lines.extend(
         [
             "## Migration Stages",
@@ -1174,8 +1197,22 @@ def render_report(manifest: Mapping[str, Any]) -> str:
 
 
 def save_manifest_and_report(root: Path, manifest_path: Path, report_path: Path, manifest: Mapping[str, Any]) -> None:
-    dump_compact_json(root / manifest_path, manifest)
-    write_text(root / report_path, render_report(manifest))
+    current = dict(manifest)
+    existing = load_json(root / manifest_path)
+    if existing is None:
+        current["generated_at"] = current.get("generated_at") or utc_now()
+    else:
+        existing_semantics = {key: value for key, value in existing.items() if key != "generated_at"}
+        current_semantics = {key: value for key, value in current.items() if key != "generated_at"}
+        if current_semantics != existing_semantics:
+            current["generated_at"] = utc_now()
+        else:
+            current["generated_at"] = existing.get("generated_at") or current.get("generated_at") or utc_now()
+    if isinstance(manifest, dict):
+        manifest.clear()
+        manifest.update(current)
+    dump_compact_json(root / manifest_path, current)
+    write_text(root / report_path, render_report(current))
 
 
 def print_scan_summary(manifest: Mapping[str, Any]) -> None:

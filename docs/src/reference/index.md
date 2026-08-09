@@ -45,7 +45,9 @@ Documentation-step skips are not supported during migration. If strict documenta
 files remain, defer the steps in the project hook policy or use an explicit migration-aware command; rerun the actual
 hook after fixes, because `-P`/`--plan` is only a selection preview. `checkpoint-evidence --hook <hook> --status
 <passed|failed> --command <command>` appends ordinary `checkpoint_evidence[]`; unresolved documentation validation
-blocks the checkpoint rather than requesting a skip approval.
+blocks the checkpoint rather than requesting a skip approval. A finalized migration must contain at least one durable
+`status: passed` checkpoint entry, and normal documentation validation treats migration markers as provenance rather
+than an exemption.
 
 `beads-authority --init` treats formula-only state as uninitialized and requires the primary checkout on the dedicated
 migration branch. It runs native non-stealth `bd init`, which commits `.beads/.gitignore`, `README.md`, `config.yaml`,

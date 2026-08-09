@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -137,8 +138,46 @@ def finalized_inventory_errors(root: Path, manifest: Mapping[str, Any]) -> list[
     return errors
 
 
+def finalized_checkpoint_errors(manifest: Mapping[str, Any]) -> list[str]:
+    evidence = manifest.get("checkpoint_evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return [
+            "Finalized migration requires durable passed checkpoint evidence; record checkpoint-evidence before "
+            "claiming completion"
+        ]
+
+    def nonempty_text(value: Any) -> bool:
+        return isinstance(value, str) and bool(value.strip())
+
+    def valid_timestamp(value: Any) -> bool:
+        if not nonempty_text(value):
+            return False
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return False
+        return parsed.tzinfo is not None
+
+    valid_passed = any(
+        isinstance(item, Mapping)
+        and item.get("status") == "passed"
+        and nonempty_text(item.get("hook"))
+        and nonempty_text(item.get("command"))
+        and valid_timestamp(item.get("recorded_at"))
+        for item in evidence
+    )
+    if not valid_passed:
+        return [
+            "Finalized migration requires at least one durable checkpoint evidence entry with status passed, "
+            "hook, command, and recorded_at"
+        ]
+    return []
+
+
 def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: bool) -> tuple[list[str], list[str]]:
     errors = finalized_inventory_errors(root, manifest) if manifest.get("migration_finalized") else []
+    if manifest.get("migration_finalized"):
+        errors.extend(finalized_checkpoint_errors(manifest))
     features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]
     if verify_beads:
         try:

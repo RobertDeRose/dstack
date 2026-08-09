@@ -679,6 +679,28 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
     run_migrator(legacy_project, "finalize", "--apply", env=env)
     assert (legacy_project / "migration/workflow-migration.json").read_bytes() == finalized
     commit_repository(legacy_project, "finalize migration fixture")
+    missing_checkpoint = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)
+    assert "passed checkpoint evidence" in missing_checkpoint.stderr.casefold()
+    manifest_path = legacy_project / "migration/workflow-migration.json"
+    malformed = json.loads(manifest_path.read_text(encoding="utf-8"))
+    malformed["checkpoint_evidence"] = [{"status": "passed", "hook": None, "command": None, "recorded_at": None}]
+    manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+    malformed_checkpoint = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)
+    assert "status passed, hook, command, and recorded_at" in malformed_checkpoint.stderr.casefold()
+    malformed["checkpoint_evidence"] = []
+    manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+    run_migrator(
+        legacy_project,
+        "checkpoint-evidence",
+        "--hook",
+        "pre-commit",
+        "--status",
+        "passed",
+        "--command",
+        "bin/hk run pre-commit -a",
+        "--reason",
+        "Strict checkpoint passed after finalization.",
+    )
     run_migrator(legacy_project, "verify")
 
     (legacy_project / "migration/legacy-tasks/alpha.md").write_text("substituted archive\n", encoding="utf-8")
@@ -767,8 +789,14 @@ def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -
             "--commit",
             "HEAD^",
         )
-    reviewed = json.loads(manifest_path.read_text(encoding="utf-8"))["delivered_record_candidates"]
+    reviewed_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    reviewed = reviewed_manifest["delivered_record_candidates"]
     assert all(candidate["reviewed"] for candidate in reviewed)
+    report = (legacy_project / "migration/workflow-migration.md").read_text(encoding="utf-8")
+    assert f"Generated: `{reviewed_manifest['generated_at']}`" in report
+    assert "## Delivered-Record Reviews" in report
+    assert "Maintainer reconciled the candidate with legacy and Git evidence" in report
+    assert "delivery is corroborated by repository documentation and Git history" in report
     candidate_path = legacy_project / reviewed[0]["path"]
     candidate_path.write_text(candidate_path.read_text(encoding="utf-8") + "\nTampered.\n", encoding="utf-8")
     tampered = run_migrator(legacy_project, "verify", "--skip-docs-check", expected=1)

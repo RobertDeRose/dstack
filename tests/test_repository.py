@@ -6731,6 +6731,29 @@ def test_documentation_checker_copies_are_identical(repository_root: Path) -> No
     ).read_bytes()
 
 
+def test_documentation_checker_does_not_relax_marked_incomplete_designs(
+    repository_root: Path,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "marked-incomplete-design"
+    write_valid_documentation_tree(repository_root, root)
+    design = root / "docs/src/features/alpha/design.md"
+    design.write_text(
+        "<!-- workflow-migration:legacy-markdown-to-beads -->\n# Alpha\n",
+        encoding="utf-8",
+    )
+    checker = repository_root / "skills/setup-project/template/scripts/check-docs.py"
+
+    strict = run_command(["python3", str(checker), "--root", str(root)], cwd=root, expected=1)
+    assert "ERROR [legacy-or-incomplete-design]" in strict.stdout
+
+    migration = run_command(
+        ["python3", str(checker), "--root", str(root), "--migration-mode"],
+        cwd=root,
+    )
+    assert "WARNING [legacy-or-incomplete-design]" in migration.stdout
+
+
 def test_documentation_checker_does_not_create_path_keyed_uv_environments(
     repository_root: Path,
     tmp_path: Path,
