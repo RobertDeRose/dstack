@@ -259,25 +259,14 @@ the adoption checkpoint. This post-adoption validation is required even when the
 
 Use an ordinary `git commit` so configured hooks are authoritative. If it fails, preserve the worktree and report the
 named hook/step, the exact commit or `mise x -- hk run <hook>` reproduction, and corrective recovery. Never bypass all
-hooks. While live legacy tasks intentionally make strict docs premature, one migration-scoped docs-step exception is
-allowed only after the user explicitly approves it and
-`uv run --no-project python scripts/check-docs.py --migration-mode` passes. Stage a durable note through:
+hooks. Run the actual strict hook after any fix; `-P`/`--plan` is only a selection preview and is not validation.
 
-```bash
-checkpoint-evidence --hook pre-commit --status exception \
-  --command '<commit command>' --reason '<approval and reason>' \
-  --equivalent-result '<migration-mode result>' --residual-risk '<risk>'
-```
-
-Before recording the exception, ask for and receive the exact standalone response `APPROVE HK_SKIP_STEPS=docs`. Pass
-`--approved-step docs --approval 'APPROVE HK_SKIP_STEPS=docs'` to `checkpoint-evidence`; "OK", approval of another
-action, or agent-authored paraphrase fails validation. As with resume, the CLI audits but cannot authenticate the
-speaker, so the controlling harness must present and receive the exact human response. This records the approval,
-equivalent result, and residual risk. The committed approval may be reused without another prompt for later Gate 2–4
-checkpoint commits when the same command still reports zero errors; record each use and its current warning result. Set
-`HK_SKIP_STEPS=docs` only for the individual commit. A different skipped step, any migration-mode error, or use after
-Gate 4 requires a new decision. Record ordinary passed/failed hook evidence without approval fields. Final checkpoints
-run strict docs normally.
+While live legacy tasks make strict documentation premature, do not skip documentation steps and do not ask the user to
+approve a skip. Defer those steps in the project hook policy until archival, or replace their command with an explicit
+migration-aware check that reports zero errors and the expected legacy warnings. If the existing policy cannot be
+sequenced or made migration-aware without an unresolved ownership decision, stop and report the named blocking step.
+Record ordinary passed or failed hook evidence without approval fields. Final checkpoints run strict documentation
+normally.
 
 ## Template source and revision
 
@@ -335,9 +324,9 @@ backed up under `migration/template-adoption-backup/`.
 
 `hk.pkl` is project-owned. Preserve its baseline policy during migration; do not merge a generated strict `docs` step
 while legacy task files remain. When no hook exists yet, adoption stages the generated policy as a candidate instead of
-activating it; review it after archival or make the step explicitly migration-aware. A docs-only hook exception is a
-fallback for an existing policy, not permission to activate a template addition that makes an intermediate checkpoint
-fail.
+activating it; review it after archival or make the step explicitly migration-aware. If an existing policy has strict
+documentation steps that fail on live legacy inputs, sequence those steps after archival or make their commands
+migration-aware; documentation-step skips are not a migration path.
 
 Treat the adoption command's JSON `manual_merge[]` as the complete candidate inventory; do not rediscover candidates
 with a repository-wide scan. Save the JSON outside the repository and select one indexed path per review command:

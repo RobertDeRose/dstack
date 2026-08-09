@@ -72,7 +72,7 @@ def test_pi_reviewer_sync_installs_and_discovers_project_roster(tmp_path: Path) 
     assert set(path.stem for path in target.glob("dstack-*.md")) == AGENT_NAMES
     manifest = json.loads((target / MANIFEST_NAME).read_text(encoding="utf-8"))
     assert manifest["schema"] == "dstack.pi-reviewer-install.v1"
-    assert manifest["source_version"] == "0.8.9"
+    assert manifest["source_version"] == installed["source_version"]
     assert manifest["files"]["dstack-task-reviewer.md"]["managed"] is True
     assert set(string_list(installed, "discovered")) == AGENT_NAMES
 

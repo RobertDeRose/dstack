@@ -84,10 +84,10 @@ strict generated `docs` hook before archival: preserve project `hk.pkl` or defer
 candidates and backup lifecycle; never replace project docs. After reconciliation, run
 `python3 scripts/setup-tooling.py --json`, require success; verify Pkl, hooks, and pre-commit.
 
-Validate migration-mode docs, format, stage, and commit normally. A docs-only exception is a fallback only for an
-existing hook; it never authorizes a template-induced failure. Only `APPROVE HK_SKIP_STEPS=docs` authorizes it; record
-it once and reuse it through Gate 2–4 while migration-mode docs have zero errors. Do not ask again; a different step,
-error, or post-Gate-4 use requires a new decision. Never skip a whole hook:
+Validate migration-mode docs, then run the real strict hook—not only its plan—and resolve its named failures before
+staging a checkpoint. Documentation-step skips are not a migration path: never set `HK_SKIP_STEPS` for documentation,
+never ask the user to approve one or record one as evidence. If legacy files make strict validation premature, defer
+docs or make validation migration-aware; otherwise stop with the named blocked step. Never skip a whole hook:
 
 ```bash
 git add -A

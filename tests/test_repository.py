@@ -574,6 +574,10 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "Do not ask the user to install `hk`" in baseline_gate
     assert "python3 scripts/setup-tooling.py --json" in gate_two
     assert "After reconciliation" in gate_two
+    documentation_skip = "HK_SKIP_STEPS=" + "docs"
+    assert documentation_skip not in migration
+    assert documentation_skip not in migration_reference
+    assert "documentation-step skips are not a migration path" in " ".join(migration_reference.split())
     assert 'git diff --cached --quiet || git commit -m "chore: record pre-migration baseline"' not in migration
     assert (
         "git add migration/session-authority.json migration/baseline.json migration/baseline.md" in migration_reference
@@ -6291,7 +6295,11 @@ def test_migration_question_contract(repository_root: Path) -> None:
     assert "reuse clear brief values, record sources" in skill
     assert "prompt only when" in normalized
     assert "AGENTS.md" in normalized
-    assert "do not merge a generated strict `docs` step while legacy task files remain" in " ".join(reference.split())
+    normalized_contract = " ".join((skill + reference).split())
+    assert "do not merge a generated strict `docs` step while legacy task files remain" in normalized_contract
+    documentation_skip = "HK_SKIP_STEPS=" + "docs"
+    assert documentation_skip not in normalized_contract
+    assert "Documentation-step skips are not a migration path" in normalized_contract
     operations = " ".join((repository_root / "docs/src/operations/index.md").read_text(encoding="utf-8").split())
     for phrase in ("one question at a time", "concise decision title", "choices/safe", "consequence of deferral"):
         assert phrase in operations
@@ -6309,8 +6317,9 @@ def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Pa
     assert "Never bypass all hooks" in normalized_reference
     assert "HK_SKIP_HOOK" not in contract
     assert "--no-verify" not in contract
-    for evidence in ("approval", "reason", "equivalent result", "residual risk"):
+    for evidence in ("reason", "migration-aware", "named blocking step"):
         assert evidence in normalized_reference
+    assert "Documentation-step skips are not a migration path" in contract
 
     project = tmp_path / "verified-checkpoint"
     (project / "scripts").mkdir(parents=True)
@@ -6328,7 +6337,7 @@ def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Pa
         " chmod +x .git/hooks/pre-commit\n"
         " exit 0\n"
         "fi\n"
-        'case " $* " in *" -P "*) echo "Plan: pre-commit; docs; unrelated"; exit 0;; esac\n'
+        'case " $* " in *" -P "*) echo "Plan: pre-commit; format; unrelated"; exit 0;; esac\n'
         'printf "skip=%s\\n" "${HK_SKIP_STEPS:-}" >> hook.log\n'
         'echo "unrelated=ran" >> hook.log\n'
         'test "${DSTACK_FAIL_HOOK:-0}" != 1 || { echo "named-step failed; run bin/hk run pre-commit" >&2; exit 1; }\n',
@@ -6376,7 +6385,7 @@ def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Pa
     assert "exec bin/hk run pre-commit" in (project / ".git/hooks/pre-commit").read_text(encoding="utf-8")
     run_command(["pkl", "eval", "hk.pkl"], cwd=project)
     plan = run_command(["bin/hk", "run", "pre-commit", "-a", "-P"], cwd=project)
-    assert "docs; unrelated" in plan.stdout
+    assert "format; unrelated" in plan.stdout
 
     (project / "tracked.txt").write_text("blocked\n", encoding="utf-8")
     run_command(["git", "add", "tracked.txt"], cwd=project)
@@ -6393,8 +6402,8 @@ def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Pa
     exception = project / "migration/checkpoint-exception.md"
     exception.parent.mkdir()
     exception.write_text(
-        "Approval: user accepted docs-step exception.\nReason: legacy tasks remain.\n"
-        "Equivalent result: migration docs passed.\nResidual risk: strict docs deferred.\n",
+        "Approval: user accepted format-step exception.\nReason: legacy tasks remain.\n"
+        "Equivalent result: migration docs passed.\nResidual risk: strict format deferred.\n",
         encoding="utf-8",
     )
     run_command(["python3", "scripts/check-docs.py", "--migration-mode"], cwd=project)
@@ -6402,14 +6411,14 @@ def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Pa
     run_command(
         ["git", "commit", "-m", "chore: approved migration checkpoint"],
         cwd=project,
-        env=merged_environment(HK_SKIP_STEPS="docs"),
+        env=merged_environment(HK_SKIP_STEPS="format"),
     )
     assert (project / "hook.log").read_text(encoding="utf-8").splitlines() == [
         "skip=",
         "unrelated=ran",
         "skip=",
         "unrelated=ran",
-        "skip=docs",
+        "skip=format",
         "unrelated=ran",
     ]
 
@@ -6473,7 +6482,7 @@ def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: 
             "--status",
             "exception",
             "--command",
-            "HK_SKIP_STEPS=docs git commit",
+            "HK_SKIP_STEPS=format git commit",
             "--reason",
             "User approved",
             "--root",
@@ -6493,17 +6502,17 @@ def test_migration_safety_resumable_end_to_end(repository_root: Path, tmp_path: 
         "--status",
         "exception",
         "--command",
-        "HK_SKIP_STEPS=docs git commit",
+        "HK_SKIP_STEPS=format git commit",
         "--reason",
         "User approved while legacy tasks remain",
         "--equivalent-result",
         "migration-mode docs passed",
         "--residual-risk",
-        "strict docs deferred until archival",
+        "strict formatting deferred until archival",
         "--approved-step",
-        "docs",
+        "format",
         "--approval",
-        "APPROVE HK_SKIP_STEPS=docs",
+        "APPROVE HK_SKIP_STEPS=format",
     )
     first = manifest_path.read_bytes()
     migrate("scan", "--write")

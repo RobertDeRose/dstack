@@ -2442,7 +2442,35 @@ def test_checkpoint_exception_requires_exact_step_approval(legacy_project: Path)
         "--status",
         "exception",
         "--command",
-        "HK_SKIP_STEPS=docs git commit",
+        "HK_SKIP_STEPS=format git commit",
+        "--reason",
+        "Legacy task links remain.",
+        "--equivalent-result",
+        "Migration-mode documentation passed.",
+        "--residual-risk",
+        "Strict formatting remains deferred.",
+        "--approved-step",
+        "format",
+        "--approval",
+        "OK",
+        expected=2,
+    )
+    assert "APPROVE HK_SKIP_STEPS=format" in refused.stderr
+
+
+@pytest.mark.integration
+def test_checkpoint_exception_rejects_documentation_step(legacy_project: Path) -> None:
+    run_migrator(legacy_project, "scan", "--write")
+    step = "docs"
+    refused = run_migrator(
+        legacy_project,
+        "checkpoint-evidence",
+        "--hook",
+        "pre-commit",
+        "--status",
+        "exception",
+        "--command",
+        f"HK_SKIP_STEPS={step} git commit",
         "--reason",
         "Legacy task links remain.",
         "--equivalent-result",
@@ -2450,12 +2478,12 @@ def test_checkpoint_exception_requires_exact_step_approval(legacy_project: Path)
         "--residual-risk",
         "Strict documentation remains deferred.",
         "--approved-step",
-        "docs",
+        step,
         "--approval",
-        "OK",
+        f"APPROVE HK_SKIP_STEPS={step}",
         expected=2,
     )
-    assert "APPROVE HK_SKIP_STEPS=docs" in refused.stderr
+    assert "Documentation-step exceptions are disabled during migration" in refused.stderr
 
 
 @pytest.mark.integration

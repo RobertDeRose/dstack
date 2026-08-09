@@ -172,14 +172,12 @@ and hook setup must succeed or stop with the provisioner's recovery commands. Mi
 routing and direct config readiness before the adoption commit, so the ordinary commit exercises the reconciled pinned
 hook rather than ambient tooling.
 
-If strict final documentation is intentionally premature because legacy task files remain, the only supported targeted
-exception is explicit user-approved `HK_SKIP_STEPS=docs git commit ...` after
-`uv run --no-project python scripts/check-docs.py --migration-mode` passes. The durable migration note records approval,
-reason, equivalent result, and residual risk; every other configured hook step still runs. That one approval covers the
-bounded Gate 2–4 checkpoint commits while migration-mode docs remain error-free, avoiding repeated decisions about the
-same temporary condition. Once finalization removes legacy inputs, ordinary commits run strict docs without that
-environment variable. A hook failure stops, names the hook/step, preserves the worktree, and gives a reproduction and
-recovery command. `HK_SKIP_HOOK` and broad bypass remain prohibited.
+If strict final documentation is intentionally premature because legacy task files remain, migration defers the
+project's documentation steps until archival or replaces their commands with explicit migration-aware validation. It
+never requests or records a documentation-step skip. The actual strict hook must be rerun after each fix; a plan-only
+invocation is not validation. Once finalization removes legacy inputs, ordinary commits run strict documentation. A hook
+failure stops, names the hook/step, preserves the worktree, and gives a reproduction and recovery command.
+`HK_SKIP_HOOK` and broad bypass remain prohibited.
 
 ### Quality Requirements
 

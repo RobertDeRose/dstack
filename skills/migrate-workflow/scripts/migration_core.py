@@ -3365,16 +3365,22 @@ def record_checkpoint_evidence(
     approval: str,
 ) -> None:
     if status == "exception":
-        if not all(value.strip() for value in (reason, equivalent_result, residual_risk, approved_step)):
+        approved_step_name = approved_step.strip()
+        if approved_step_name.casefold() in {"docs", "mdbook-lint", "rumdl"}:
+            message = (
+                "Documentation-step exceptions are disabled during migration; defer or make validation migration-aware"
+            )
+            raise MigrationError(message)
+        if not all(value.strip() for value in (reason, equivalent_result, residual_risk, approved_step_name)):
             message = (
                 "Checkpoint exceptions require reason, equivalent result, residual risk, and one exact approved step"
             )
             raise MigrationError(message)
-        expected_approval = f"APPROVE HK_SKIP_STEPS={approved_step.strip()}"
+        expected_approval = f"APPROVE HK_SKIP_STEPS={approved_step_name}"
         if approval.strip() != expected_approval:
             msg = f"Checkpoint exception requires the user's exact approval phrase: {expected_approval}"
             raise MigrationError(msg)
-        if f"HK_SKIP_STEPS={approved_step.strip()}" not in command:
+        if f"HK_SKIP_STEPS={approved_step_name}" not in command:
             msg = "Checkpoint exception command does not match the explicitly approved hk step"
             raise MigrationError(msg)
     elif approved_step.strip() or approval.strip():

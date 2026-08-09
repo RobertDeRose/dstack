@@ -83,13 +83,12 @@ semantic questions still use an evidence-backed recommendation when a decision i
 decision title, why it is needed, current evidence/uncertainty, controlled behavior, a concrete example, choices/safe
 default, and the consequence of deferral. After reconciliation, the rendered project provisioner must install the locked
 tools and Git hooks before an ordinary checkpoint commit. Preserve the existing project hook policy and do not activate
-a generated strict `docs` step while legacy task files remain; defer it until archival or make it migration-aware. A
-user-approved intermediate exception is only a fallback for an already-existing policy, after migration-mode docs pass
-and the decision, equivalent evidence, and risk are recorded. The exact response `APPROVE HK_SKIP_STEPS=docs` applies to
-bounded Gate 2–4 checkpoints and is not permission to accept a template-induced failure. Acknowledgement is
-insufficient, a different exception needs a new decision, and whole-hook bypass is never allowed. After final
-verification, migration reports that the branch is complete but unmerged and asks whether to merge now, create a PR, or
-leave it complete but undelivered.
+a generated strict `docs` step while legacy task files remain; defer it until archival or make it migration-aware.
+Documentation-step skips are not a migration path. Rerun the actual strict hook after each fix; a plan-only invocation
+is not validation. If the existing policy cannot be sequenced or made migration-aware, stop with the named blocking step
+instead of requesting approval to skip it. Whole-hook bypass is never allowed. After final verification, migration
+reports that the branch is complete but unmerged and asks whether to merge now, create a PR, or leave it complete but
+undelivered.
 
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
 database location/name, project ID, repository root, and issue prefix. Uninitialized migrations use the primary checkout

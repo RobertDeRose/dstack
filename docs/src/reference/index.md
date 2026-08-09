@@ -41,12 +41,11 @@ verification requires tracked manifests, reports, baselines, and archived legacy
 and inconsistent backup presence/disposition. Migration stores only answers required for safety/resume, such as
 classification, dependency, collision, and artifact dispositions; question prose is not schema state. Checkpoints
 require successful `scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit.
-The only intermediate exception is user-approved `HK_SKIP_STEPS=docs` after migration-mode docs. The exact response
-`APPROVE HK_SKIP_STEPS=docs`, approved step, reason, equivalent result, and risk are durable evidence. One approval
-covers Gate 2–4 checkpoint commits while migration-mode docs remain error-free; each use is recorded without another
-prompt. `checkpoint-evidence --hook <hook> --status <passed|failed|exception> --command <command>` appends
-`checkpoint_evidence[]`; exceptions additionally require `--reason`, `--equivalent-result`, `--residual-risk`,
-`--approved-step`, and the exact `--approval` phrase.
+Documentation-step skips are not supported during migration. If strict documentation is premature because live legacy
+files remain, defer the steps in the project hook policy or use an explicit migration-aware command; rerun the actual
+hook after fixes, because `-P`/`--plan` is only a selection preview. `checkpoint-evidence --hook <hook> --status
+<passed|failed> --command <command>` appends ordinary `checkpoint_evidence[]`; unresolved documentation validation
+blocks the checkpoint rather than requesting a skip approval.
 
 `beads-authority --init` treats formula-only state as uninitialized and requires the primary checkout on the dedicated
 migration branch. It runs native non-stealth `bd init`, which commits `.beads/.gitignore`, `README.md`, `config.yaml`,
