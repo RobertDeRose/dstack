@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.9.2 — 2026-08-09
+
+### Fixed
+
+- **workflow:** Harden migration completion gates (`59ce62a`)
+
+- - -
+
 ## v0.9.1 — 2026-08-09
 
 ### Fixed
