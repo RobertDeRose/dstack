@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.9.3 — 2026-08-09
+
+### Fixed
+
+- **workflow:** Serialize Beads interaction reconciliation (`cffba71`)
+
+- - -
+
 ## v0.9.2 — 2026-08-09
 
 ### Fixed
