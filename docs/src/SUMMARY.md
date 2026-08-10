@@ -34,6 +34,7 @@
   - [GitHub validation and docs deployment](features/github-validation-and-docs-deployment/design.md)
   - [hk policy simplification](features/hk-policy-simplification/design.md)
   - [Migration safety and clarity](features/migration-safety-and-clarity/design.md)
+  - [Migration artifact retirement](features/migration-artifact-retirement/design.md)
   - [Monorepo tooling layout](features/monorepo-tooling-layout/design.md)
   <!-- END FEATURE DESIGNS -->
 - [Implemented features](features/index.md)

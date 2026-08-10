@@ -14,7 +14,8 @@ base.
 The sequence establishes the smallest shared contracts first. Purposeful documentation and universal tooling are
 delivered. Language profiles and GitHub workflows extend that baseline. hk policy simplification restores native runner
 behavior before both migration preservation and monorepo composition consume the generated policy. Migration safety and
-clarity then protects existing project checks and verified history without blocking independent monorepo design review.
+clarity then protects existing project checks and verified history. Migration artifact retirement removes reviewed
+staging copies without weakening that audit trail, and monorepo composition remains independently reviewable.
 
 ## Roadmap conventions
 
@@ -37,6 +38,7 @@ clarity then protects existing project checks and verified history without block
 | `github-validation-and-docs-deployment` — GitHub validation and docs deployment | `dstack-mol-8fe` | delivered     | Purposeful project scaffold, Universal project tooling | [Design](features/github-validation-and-docs-deployment/design.md) |
 | `hk-policy-simplification` — hk policy simplification                           | `dstack-mol-5v0` | delivered     | Language quality profiles                              | [Design](features/hk-policy-simplification/design.md)              |
 | `migration-safety-and-clarity` — Migration safety and clarity                   | `dstack-mol-tki` | delivered     | hk policy simplification                               | [Design](features/migration-safety-and-clarity/design.md)          |
+| `migration-artifact-retirement` — Migration artifact retirement                 | `dstack-mol-b8d` | design        | Migration safety and clarity                           | [Design](features/migration-artifact-retirement/design.md)         |
 | `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | delivered     | Language quality profiles, hk policy simplification    | [Design](features/monorepo-tooling-layout/design.md)               |
 
 ## Cross-cutting decisions
