@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.10.0 — 2026-08-10
+
+### Added
+
+- **workflow:** Plan migration artifact retirement (`fe8cb2d`)
+
+- - -
+
 ## v0.9.3 — 2026-08-09
 
 ### Fixed
