@@ -62,24 +62,23 @@ def test_generated_pages_deployment_is_branch_restricted_and_gated(
     steps = build["steps"]
     uses = [step.get("uses") for step in steps if "uses" in step]
     assert len(uses) == 4
-    assert uses[0].startswith("actions/checkout@")
-    assert uses[1].startswith("jdx/mise-action@")
-    assert uses[2].startswith("actions/configure-pages@")
-    assert uses[3].startswith("actions/upload-pages-artifact@")
+    assert uses == [
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654",
+        "actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d",
+        "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9",
+    ]
     assert steps[0]["with"]["persist-credentials"] is False
-    assert steps[1]["with"] == {"install": False, "cache": False}
-    assert [step.get("run") for step in steps if "run" in step] == ["mise install --locked", "mise run docs:build"]
-    assert all(
-        step.get("env") == {"MISE_IGNORED_CONFIG_PATHS": "/home/runner/.config/mise/config.toml"}
-        for step in steps
-        if "run" in step
-    )
+    assert "with" not in steps[1]  # mise-action caching is enabled by default.
+    assert [step.get("run") for step in steps if "run" in step] == ["mise run docs:build"]
+    assert "mise install --locked" not in text
+    assert "MISE_IGNORED_CONFIG_PATHS" not in text
     assert steps[-1]["with"]["path"] == "docs/book"
     assert len(deploy["steps"]) == 1
     deploy_step = deploy["steps"][0]
     assert deploy_step["name"] == "Deploy Pages"
     assert deploy_step["id"] == "deployment"
-    assert deploy_step["uses"].startswith("actions/deploy-pages@")
+    assert deploy_step["uses"] == "actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128"
 
     run_command(["actionlint", str(workflow)], cwd=project)
     run_command(["zizmor", "--no-progress", str(workflow)], cwd=project)

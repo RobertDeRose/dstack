@@ -37,8 +37,9 @@ before Pages is configured.
 
 ## User-Facing Behavior
 
-Validation runs on every pull request and push. It performs an isolated `mise install --locked` and then only
-`mise run check`; hk remains the single validation policy and already validates/builds documentation.
+Validation runs on every pull request and push. The pinned `jdx/mise-action` installs the committed mise lock with its
+cache enabled, then CI runs only `mise run check`; hk remains the single validation policy and already validates/builds
+documentation.
 
 `.github/workflows/docs.yml` runs only for pushes to the rendered `repository_default_branch` and explicit
 `workflow_dispatch`. Both build and deploy jobs require `vars.DOCS_DEPLOYMENT_ENABLED == 'true'`, so an absent variable
@@ -61,8 +62,7 @@ Generate `.github/workflows/validate.yml` with:
 - triggers `push` and `pull_request`, without write permissions;
 - job-level `contents: read`;
 - checkout with persisted credentials disabled;
-- `jdx/mise-action` setup with automatic installation disabled;
-- ignore the runner's user-global mise config with `MISE_IGNORED_CONFIG_PATHS`, then run `mise install --locked`;
+- a pinned `jdx/mise-action` installs the committed mise lock using its cache;
 - `mise run check` as the sole validation command.
 
 CI never runs `mise lock`, duplicates hk policy, or separately invokes mdBook.
@@ -74,8 +74,8 @@ Generate `.github/workflows/docs.yml` with:
 - `push.branches: [repository_default_branch]` rendered from Copier answers plus `workflow_dispatch`;
 - no `pull_request` trigger and no path filter;
 - concurrency group `pages` with `cancel-in-progress: false`;
-- build job condition `vars.DOCS_DEPLOYMENT_ENABLED == 'true'`, `contents: read`, locked mise installation,
-  `mise run docs:build`, Pages configuration, and upload of `docs/book`;
+- build job condition `vars.DOCS_DEPLOYMENT_ENABLED == 'true'`, `contents: read`, locked mise installation with the mise
+  action cache enabled, `mise run docs:build`, Pages configuration, and upload of `docs/book`;
 - deploy job depending on build, carrying the same gate, only `pages: write` and `id-token: write`, and
   `environment.name: github-pages` with its URL from the deploy action output.
 
@@ -114,11 +114,11 @@ Generated workflows pin actions to these full commits, with comments naming thei
 
 | Action                          | Major    | Commit                                     |
 |---------------------------------|----------|--------------------------------------------|
-| `actions/checkout`              | `v6.0.3` | `df4cb1c069e1874edd31b4311f1884172cec0e10` |
-| `jdx/mise-action`               | `v3`     | `5228313ee0372e111a38da051671ca30fc5a96db` |
-| `actions/configure-pages`       | `v5`     | `983d7736d9b0ae728b81ab479565c72886d7745b` |
-| `actions/upload-pages-artifact` | `v4`     | `7b1f4a764d45c48632c6b24a0339c27f5614fb0b` |
-| `actions/deploy-pages`          | `v4`     | `d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e` |
+| `actions/checkout`              | `v7.0.1` | `3d3c42e5aac5ba805825da76410c181273ba90b1` |
+| `jdx/mise-action`               | `v4.2.4` | `7e36c90d9ab29c415a2384db3006f3ec8a8cc654` |
+| `actions/configure-pages`       | `v6.0.0` | `45bfe0192ca1faeb007ade9deae92b16b8254a0d` |
+| `actions/upload-pages-artifact` | `v5.0.0` | `fc324d3547104276b827a68afc52ff2a11cc49c9` |
+| `actions/deploy-pages`          | `v5.0.0` | `cd2ce8fcbc39b97be8ca5fce6e763baed58fa128` |
 
 ### Quality Requirements
 
@@ -139,8 +139,8 @@ execution. Projects without GitHub or `gh` retain the existing local tasks and r
 
 Purposeful project scaffold provides factual docs to publish. Universal project tooling provides one locked mise/hk
 interface and five stable contributor tasks. Language quality profiles composes language profiles without adding CI.
-Root repository workflows demonstrate pinned Actions, read-only validation, and `install: false`, but generated
-workflows remain separately specified product behavior.
+Root repository workflows demonstrate pinned Actions, read-only validation, and cached locked mise installation, but
+generated workflows remain separately specified product behavior.
 
 ## Proposed Design
 

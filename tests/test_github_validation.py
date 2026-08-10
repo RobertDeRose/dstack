@@ -27,7 +27,7 @@ DATA = {
 
 @pytest.mark.integration
 @pytest.mark.parametrize("entrypoint", ["repository", "bundled"])
-def test_generated_validation_reuses_locked_local_check(
+def test_generated_validation_uses_locked_mise_action(
     tagged_template_source: Path,
     tmp_path: Path,
     entrypoint: str,
@@ -49,14 +49,11 @@ def test_generated_validation_reuses_locked_local_check(
     steps = job["steps"]
     assert steps[0]["uses"].startswith("actions/checkout@")
     assert steps[0]["with"]["persist-credentials"] is False
-    assert steps[1]["uses"].startswith("jdx/mise-action@")
-    assert steps[1]["with"]["install"] is False
-    assert [step.get("run") for step in steps if "run" in step] == ["mise install --locked", "mise run check"]
-    assert all(
-        step.get("env") == {"MISE_IGNORED_CONFIG_PATHS": "/home/runner/.config/mise/config.toml"}
-        for step in steps
-        if "run" in step
-    )
+    assert steps[1]["uses"] == "jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654"
+    assert "with" not in steps[1]
+    assert [step.get("run") for step in steps if "run" in step] == ["mise run check"]
+    assert "mise install --locked" not in text
+    assert "MISE_IGNORED_CONFIG_PATHS" not in text
     assert "mise lock" not in text
     assert "GitHub validation" in (project / "docs/src/development/tooling.md").read_text(encoding="utf-8")
 

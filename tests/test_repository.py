@@ -3036,8 +3036,8 @@ def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> No
     assert "actions/setup-node" not in validate
     assert validate.count("uses: actions/checkout@") == 2
     assert validate.count("uses: jdx/mise-action@") == 2
-    assert validate.count("run: mise install --locked") == 2
-    assert validate.count("MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml") == 2
+    assert "run: mise install --locked" not in validate
+    assert "MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml" not in validate
     assert "actions/setup-python@" in validate
     assert "astral-sh/setup-uv@" in validate
 
@@ -3046,12 +3046,21 @@ def test_ci_keeps_slow_and_external_suites_separate(repository_root: Path) -> No
     assert "tags:" in external
     assert '      - "v*"' in external
     assert "pytest -m external" in external
-    assert "run: mise install --locked" in external
-    assert "MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml" in external
+    assert "run: mise install --locked" not in external
+    assert "MISE_IGNORED_CONFIG_PATHS: /home/runner/.config/mise/config.toml" not in external
     assert "actions/checkout@" in external
     assert "actions/setup-node@" in external
     assert "jdx/mise-action@" in external
-    assert "install: false" in external
+    assert "install: false" not in external
+
+    external_actions = {
+        step["uses"].split("@", 1)[0]: step
+        for step in yaml.safe_load(external)["jobs"]["skills-cli"]["steps"]
+        if "uses" in step
+    }
+    assert external_actions["astral-sh/setup-uv"]["with"]["enable-cache"] is True
+    assert external_actions["actions/setup-node"]["with"] == {"node-version": 24}
+    assert "with" not in external_actions["jdx/mise-action"]
 
     dependabot = yaml.safe_load((repository_root / ".github/dependabot.yml").read_text(encoding="utf-8"))
     actions = dependabot["updates"][0]

@@ -16,14 +16,14 @@ an administrator explicitly enables repository state through external GitHub CLI
 
 ## User-Facing Behavior
 
-`.github/workflows/validate.yml` runs on pushes and pull requests with only `contents: read`, disables automatic mise
-installation and checkout credential persistence, isolates user-global mise configuration, installs with
-`mise install --locked`, and runs only `mise run check`.
+`.github/workflows/validate.yml` runs on pushes and pull requests with only `contents: read`, disables checkout
+credential persistence, and uses the pinned mise action to install the committed lock with caching before running only
+`mise run check`.
 
 `.github/workflows/docs.yml` accepts only configured-default-branch pushes and manual dispatches. Both jobs require
-`DOCS_DEPLOYMENT_ENABLED == 'true'`. The build job receives only `contents: read`, installs locked tools, runs
-`mise run docs:build`, and uploads `docs/book`; the deploy job alone receives `pages: write` and `id-token: write` and
-targets the `github-pages` environment.
+`DOCS_DEPLOYMENT_ENABLED == 'true'`. The build job receives only `contents: read`, uses the pinned mise action to
+install locked tools with its cache enabled, runs `mise run docs:build`, and uploads `docs/book`; the deploy job alone
+receives `pages: write` and `id-token: write` and targets the `github-pages` environment.
 
 Administrators run `mise run docs:deployment:enable` with an external authenticated `gh`. The idempotent helper creates
 or updates Pages with `build_type=workflow`, sets the repository variable only after Pages configuration succeeds, and
@@ -74,9 +74,9 @@ operations documentation, both Copier entry points, and conflict-free updates ma
 ### Intentional Changes
 
 Implementation tasks were serialized after preflight confirmed that every generated file and task changes shared exact
-scaffold assertions. Default-branch interpolation uses YAML-safe JSON quoting. The Pages build disables mise caching to
-avoid runtime-artifact cache poisoning. Enablement recognizes only a terminal `(HTTP 404)` as absent Pages and publishes
-exact fallback commands on every failure.
+scaffold assertions. Default-branch interpolation uses YAML-safe JSON quoting. The Pages build enables mise caching,
+with an explicit zizmor suppression because this repository accepts the cache-poisoning risk. Enablement recognizes only
+a terminal `(HTTP 404)` as absent Pages and publishes exact fallback commands on every failure.
 
 ### Deferred Work
 
