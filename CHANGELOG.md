@@ -2,6 +2,14 @@
 
 - - -
 
+## v0.10.1 — 2026-08-11
+
+### Fixed
+
+- **workflow:** Keep migration candidates transient (`5b051f5`)
+
+- - -
+
 ## v0.10.0 — 2026-08-10
 
 ### Added
