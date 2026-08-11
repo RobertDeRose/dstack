@@ -24,5 +24,6 @@ here only during close-out.
 - [GitHub validation and docs deployment](github-validation-and-docs-deployment/index.md)
 - [hk policy simplification](hk-policy-simplification/index.md)
 - [Migration safety and clarity](migration-safety-and-clarity/index.md)
+- [Migration artifact retirement](migration-artifact-retirement/index.md)
 - [Monorepo tooling layout](monorepo-tooling-layout/index.md)
 <!-- END IMPLEMENTED FEATURES -->

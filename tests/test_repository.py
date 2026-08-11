@@ -6290,6 +6290,28 @@ def test_migration_adoption_staging_includes_untracked_managed_files(repository_
     assert not run_command(["git", "status", "--porcelain"], cwd=project).stdout
 
 
+@pytest.mark.integration
+def test_migration_adoption_staging_rejects_dangling_candidate_symlink(repository_root: Path, tmp_path: Path) -> None:
+    project = tmp_path / "dangling-candidate"
+    project.mkdir()
+    (project / "README.md").write_text("# Existing project\n", encoding="utf-8")
+    initialize_git(project, "initial project")
+    candidate_directory = project / "migration/delivered-record-candidates"
+    candidate_directory.parent.mkdir(parents=True)
+    candidate_directory.symlink_to(tmp_path / "missing-candidates", target_is_directory=True)
+
+    skill = (repository_root / "skills/migrate-workflow/SKILL.md").read_text(encoding="utf-8")
+    snippet = skill.split("# Stage each reviewed changed path", 1)[1].split("```", 1)[0]
+    run_command(
+        ["bash", "-euo", "pipefail", "-c", "# Stage each reviewed changed path" + snippet],
+        cwd=project,
+        expected=1,
+    )
+
+    assert candidate_directory.is_symlink()
+    assert not run_command(["git", "diff", "--cached", "--name-only"], cwd=project).stdout
+
+
 def test_migration_question_contract(repository_root: Path) -> None:
     skill = (repository_root / "skills/migrate-workflow/SKILL.md").read_text(encoding="utf-8")
     reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(encoding="utf-8")

@@ -2041,6 +2041,13 @@ def repair_beads_labels(
     print(f"Repaired {len(full_plan)} record(s) with {full_label_count} additive label(s).")
 
 
+def _reject_symlinked_candidate_path(root: Path, path: Path, *, description: str) -> None:
+    resolved_root = root.resolve()
+    if _path_has_symlink(resolved_root, path) or not path.resolve().is_relative_to(resolved_root):
+        message = f"Unsafe migration path for {description}: {path}"
+        raise MigrationError(message)
+
+
 def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool) -> None:
     if manifest.get("migration_finalized"):
         message = (
@@ -2048,6 +2055,14 @@ def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool
             "boundary before drafting"
         )
         raise MigrationError(message)
+    candidate_prefix = PurePosixPath(DELIVERED_CANDIDATE_DIR.as_posix())
+    _reject_symlinked_candidate_path(root, root / DELIVERED_CANDIDATE_DIR, description="delivered_record_candidates")
+    safe_repository_path(
+        root,
+        DELIVERED_CANDIDATE_DIR,
+        description="delivered_record_candidates",
+        required_prefix=candidate_prefix,
+    )
     previous = {
         str(candidate.get("slug")): candidate
         for candidate in manifest.get("delivered_record_candidates", [])
@@ -2059,6 +2074,13 @@ def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool
             continue
         slug = str(feature["slug"])
         target = root / DELIVERED_CANDIDATE_DIR / slug / "index.md"
+        _reject_symlinked_candidate_path(root, target, description=f"{slug}.delivered_candidate")
+        target = safe_repository_path(
+            root,
+            DELIVERED_CANDIDATE_DIR / slug / "index.md",
+            description=f"{slug}.delivered_candidate",
+            required_prefix=candidate_prefix,
+        )
         task_labels = ", ".join(task["label"] for task in feature.get("tasks", [])) or "none parsed"
         root_id = feature.get("beads", {}).get("root_id") or "not imported"
         evidence_paths = [str(feature["target_dir"]), *map(str, feature.get("legacy_source_dirs", []))]

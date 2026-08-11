@@ -1025,6 +1025,41 @@ def test_draft_rejects_finalized_manifest_without_mutation(tmp_path: Path) -> No
     assert manifest["delivered_record_candidates"] == [{"slug": "alpha", "reviewed": True}]
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("symlink_component", ["directory", "feature"])
+def test_draft_rejects_symlinked_candidate_path_without_writing(tmp_path: Path, symlink_component: str) -> None:
+    core = load_migration_core()
+    root = tmp_path / "project"
+    candidate_directory = root / "migration/delivered-record-candidates"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    (root / "migration").mkdir()
+    manifest: dict[str, Any] = {
+        "features": [
+            {
+                "classification": "completed",
+                "slug": "alpha",
+                "title": "Alpha",
+                "tasks": [],
+                "target_dir": "docs/src/features/alpha",
+                "legacy_source_dirs": [],
+                "design_path": "docs/src/features/alpha/design.md",
+            }
+        ],
+        "delivered_record_candidates": [],
+    }
+    if symlink_component == "directory":
+        candidate_directory.symlink_to(outside, target_is_directory=True)
+    else:
+        candidate_directory.mkdir()
+        (candidate_directory / "alpha").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(core.MigrationError, match="Unsafe migration path"):
+        core.draft_delivered_records(root, manifest, apply=True)
+
+    assert not list(tmp_path.rglob("index.md"))
+
+
 def create_heading_status_project(root: Path) -> None:
     feature = root / "docs/src/features/alpha"
     feature.mkdir(parents=True)

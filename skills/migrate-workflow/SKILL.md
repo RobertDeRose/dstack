@@ -92,9 +92,10 @@ docs or make validation migration-aware; otherwise stop with the named blocked s
 ```bash
 # Stage each reviewed changed path, excluding transient delivered-record candidates.
 test ! -e migration/delivered-record-candidates
+test ! -L migration/delivered-record-candidates
 while IFS= read -r path; do
   case "$path" in
-    migration/delivered-record-candidates/*) continue ;;
+    migration/delivered-record-candidates|migration/delivered-record-candidates/*) continue ;;
   esac
   git add -- "$path"
 done < <(
