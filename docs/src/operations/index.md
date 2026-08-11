@@ -91,8 +91,8 @@ Documentation-step skips are not a migration path. Rerun the actual strict hook 
 is not validation. If the existing policy cannot be sequenced or made migration-aware, stop with the named blocking step
 instead of requesting approval to skip it. Whole-hook bypass is never allowed. Final verification requires durable
 passed checkpoint evidence and treats migration markers as provenance only; they do not weaken normal documentation
-validation after finalization. After final verification, migration reports that the branch is complete but unmerged and
-asks whether to merge now, create a PR, or leave it complete but undelivered.
+validation after finalization. After final verification, migration reports completion and presents the configured
+delivery action: merge, create a PR, or leave it complete without delivery.
 
 Beads initialization and every import/verification command require nonsymlinked repository-local metadata, embedded
 database location/name, project ID, repository root, and issue prefix. Uninitialized migrations use the primary checkout

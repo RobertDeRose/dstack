@@ -3,9 +3,9 @@
 ## Delivery Summary
 
 - Beads feature root: `dstack-mol-b8d`
-- Status: delivery-ready
+- Status: delivered
 - Pull request: not created
-- Merge commit: pending fast-forward delivery
+- Merge commit: `1a5ebf89c4c02e25cdb66e044b334989d31c0fbc` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -68,12 +68,11 @@ single-task implementation boundary match the reviewed design.
 ### Intentional Changes
 
 The reviewed design retains manual cleanup rather than adding an automatic deletion command or retirement journal. The
-feature is delivery-ready pending the authorized fast-forward merge and post-merge record finalization.
+feature is delivered by the authorized fast-forward merge; this record is the post-merge finalizer.
 
 ### Deferred Work
 
-Post-merge reconciliation records the actual merge SHA, changes this record and roadmap state to delivered, and closes
-the delivery lifecycle. No implementation work remains deferred.
+No implementation work or delivery reconciliation remains deferred.
 
 ### Rejected or Removed Scope
 
@@ -99,4 +98,5 @@ workflow were explicitly removed from the earlier superseded design.
 - Implementation task: `dstack-mol-u15.1`; coordinator: `dstack-mol-u15`.
 - Architecture, simplicity, documentation, and execution reviews approved the redesigned boundary.
 - Final task review approved the implementation after one contract-test finding was resolved.
-- Delivery remains pending until the requested fast-forward merge and guarded post-merge finalizer complete.
+- Fast-forward delivery completed at `1a5ebf89c4c02e25cdb66e044b334989d31c0fbc`; this is the guarded post-merge
+  finalizer.
