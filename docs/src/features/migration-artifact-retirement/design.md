@@ -9,337 +9,170 @@
 - Base branch: `main`
 - Status: reviewed
 
+## Existing Context
+
+`/migrate-workflow` already records durable migration authority, manifests, reports, baselines, session approvals, and
+legacy-task archives. It also creates delivered-record candidates for review, but those files are staging material and
+must not become a second source of migration truth.
+
 ## Feature Summary
 
-Make reviewed delivered-record candidates explicitly temporary and retire them safely during `/migrate-workflow`
-finalization while preserving the audit evidence needed to reconstruct and verify the migration.
+Document and enforce the temporary lifecycle of delivered-record candidate files created by `/migrate-workflow`.
 
 ## User Intent
 
-The migration directory should not become a permanent copy of staging material. The final repository should retain
-migration evidence that explains what changed, but candidate delivered records should disappear after they are promoted
-to `docs/src/features/<slug>/index.md`.
-
-The change must preserve Git history and semantic-review evidence. It must not create a second migration workflow or
-silently delete unreviewed content.
+`migration/delivered-record-candidates/` is a local review workspace, not migration evidence that belongs in commit
+history. Agents must not stage or commit those files. After migration has passed final verification, the agent may
+remove the directory. The migration can be resumed in the same worktree while the files remain; if they are lost, the
+agent reruns candidate drafting and review rather than recovering them from Git history.
 
 ## Goals
 
-- Classify `migration/delivered-record-candidates/` as temporary reconciliation state.
-- Preserve each reviewed candidate's digest, review metadata, and Git object location in the migration manifest.
-- Remove reviewed candidates transactionally during finalization after the promoted record is verified.
-- Provide an explicit, idempotent retirement command for migrations completed by older dstack versions.
-- Keep verification useful after candidate files are removed from the working tree.
-- Preserve compatibility with manifests that still contain live reviewed candidates.
+- Tell `/migrate-workflow` agents exactly which candidate files are transient.
+- Keep candidate files out of ordinary migration commits by using explicit durable staging paths.
+- Permit a successfully finalized migration to verify after the transient candidate directory is removed.
+- Keep the change to one small implementation task covering the procedure, verifier behavior, and regression test.
 
 ## Non-Goals
 
-- Remove the migration manifest, report, baseline, session-authority audit, or legacy task archive by default.
-- Change Beads issue state, feature semantics, or reader-facing delivered records.
-- Replace human semantic review with generated-record acceptance.
-- Generalize cleanup to arbitrary files under `migration/`.
-- Rewrite or force-push Git history.
+- Do not remove or make transient the baseline, manifest, report, session-authority, resume-approval, or legacy-task
+  archive artifacts. Those records explain and validate the migration.
+- Do not add candidate dispositions, historical Git-blob fields, retirement journals, a compatibility command, or a new
+  migration workflow.
+- Do not change Beads import, semantic review, feature records, finalization transactions, or remote Git behavior.
+- Do not automatically delete candidate files before final verification.
+- Do not generalize cleanup to arbitrary files under `migration/`.
 
-## User-Facing Behavior
+## Artifact Policy
 
-A normal migration continues to draft and review one delivered record at a time. After all completed features are
-reviewed, the operator creates an ordinary verified checkpoint containing the reviewed candidate bytes, promoted
-implemented-feature records, and updated migration manifest/report. `finalize --apply` runs only from that clean,
-authorized worktree with the checkpoint reachable in Git. It preflights every candidate, stages the temporary candidate
-removals through the journal, and leaves the retired manifest/report ready for the next ordinary verified checkpoint;
-finalization never creates an implicit commit.
+| Artifact                                                | Lifecycle                                  | Commit policy                                 |
+|---------------------------------------------------------|--------------------------------------------|-----------------------------------------------|
+| `migration/baseline.json` and `migration/baseline.md`   | durable migration evidence                 | commit                                        |
+| `migration/workflow-migration.json` and `.md`           | durable migration state and report         | commit                                        |
+| `migration/session-authority.json` and resume approvals | durable authority audit                    | commit                                        |
+| `migration/legacy-tasks/`                               | durable legacy intent archive              | commit                                        |
+| `migration/delivered-record-candidates/`                | transient review workspace                 | never commit; remove after final verification |
+| `migration/template-adoption-candidates/` and backup    | conditional temporary reconciliation state | follow their existing disposition procedure   |
 
-The final report distinguishes durable audit artifacts from retired temporary candidates. Verification reports a retired
-candidate as valid when its recorded historical Git blob matches the reviewed digest and the promoted record matches its
-recorded digest.
-
-For an already-completed migration, the canonical compatibility command is
-`migrate-legacy-workflow.py retire-delivered-record-candidates [--apply]`. It first performs the complete read-only
-migration verification and requires the immutable session-authority contract, current authorized branch/worktree, and a
-clean worktree. It does not infer authority from `migration_finalized`, reopen Beads import, mutate Beads, or publish
-Git history. It refuses unreviewed candidates, changed candidate bytes, missing or ambiguous historical matches,
-incomplete migration evidence, and an unavailable original migration authority.
-
-## Requirements
-
-### Functional Requirements
-
-- The manifest adds `candidate_disposition: present|retired`; manifests without the field remain `present`. Retired
-  entries also record the reviewed candidate digest, promoted-record digest, `historical_git_commit`,
-  `historical_git_path`, and exact `historical_git_blob` object ID.
-- A reviewed candidate and its promoted record must be committed through an ordinary verified checkpoint before
-  `finalize --apply` may remove the working-tree candidate.
-- Historical lookup is restricted to commits reachable from the immutable authorized migration history between the
-  recorded base SHA and current HEAD. It walks the candidate path with Git rename history, hashes each exact blob, and
-  accepts exactly one commit/path/blob match; zero or multiple matches fail closed.
-- The complete-migration preflight validates the native Beads graph, exact feature/design/task/archive inventory,
-  checkpoint evidence, reviewed semantic evidence, durable artifacts, strict documentation, path safety, and the
-  session-authority boundary. `migration_finalized` is evidence to inspect, never authorization by itself.
-- Finalization stages candidate removals through typed journal operations and rolls them back if strict documentation
-  validation or any preflight fails. The journal records operation kind, expected digest, manifest/report pre-state, and
-  recovery state for both task archival and candidate retirement.
-- Retirement is idempotent. Repeating it after successful cleanup changes no candidate content and produces stable
-  manifest/report evidence.
-- `verify` accepts legacy live candidates and new retired candidates. It rejects missing or changed historical blobs,
-  changed promoted records, unreviewed candidates, unexpected candidate files, and incomplete retired-state evidence.
-- Rescans preserve retired entries, and `draft-delivered-records` refuses finalized manifests or retired entries. No
-  implicit unretire transition exists; reopening requires a new explicit migration boundary and review.
-- The cleanup command does not mutate Beads or remote Git state and does not support an inferred post-merge or deleted-
-  branch authority.
-
-### Quality Requirements
-
-- Candidate content is never lost without a matching reachable Git object and an explicit fail-closed error.
-- The reviewed-record checkpoint and finalization checkpoint are ordinary verified commits; neither workflow step
-  bypasses hooks or creates an implicit commit.
-- Interrupted mixed cleanup leaves a recoverable typed journal and never guesses whether a task archive or candidate
-  deletion completed.
-- The implementation uses the existing migration authority, path-safety, strict-documentation, ordinary-commit, and
-  report-generation patterns.
-- Repeated finalization and retirement are byte-stable when semantic inputs are unchanged.
-- Error messages name the candidate slug, expected disposition, digest or Git object, authority failure, and recovery
-  command.
-
-### Compatibility and Migration Requirements
-
-- Existing completed manifests with live candidates continue to verify until the explicit retirement command is run.
-- Existing manifests without candidate disposition fields remain readable as `present` and are not silently rewritten as
-  retired.
-- The retirement command supports the current Conduit-shaped manifest, including candidates whose content exists in an
-  earlier reachable migration checkpoint commit; missing, shallow, rewritten, or ambiguous history fails closed.
-- The command requires the original immutable session authority and does not support an inferred authority after a
-  migration branch or worktree is merged or deleted.
-- No candidate cleanup is performed for unreviewed or partially reconciled migrations, incomplete Beads state, or a
-  manifest whose retired evidence is incomplete.
-
-## Existing Context
-
-`skills/migrate-workflow/scripts/migration_core.py` drafts and reviews delivered-record candidates, while
-`migration_verification.py` currently requires reviewed candidate files to remain in the working tree. The target
-implemented records live under `docs/src/features/<slug>/index.md`; candidate files are staging copies containing
-historical summaries and provenance.
-
-The completed `migration-safety-and-clarity` feature already defines candidate directories as temporary and requires
-durable manifests, reports, baselines, and legacy-task archives. This feature closes the implementation gap for reviewed
-delivered-record candidates without changing that artifact policy.
-
-The workflow already has journaled finalization for legacy task archival, strict post-archival documentation checks,
-path validation, and digest sealing. The design reuses those boundaries rather than adding a separate cleanup system,
-extending the journal with typed candidate operations and the existing immutable session-authority contract.
+Candidate files are useful for same-worktree interruption and review, but they are not the authority for resume. The
+manifest, Beads state, committed checkpoints, and explicit migration authority remain the workflow evidence. A new
+worktree or a missing candidate directory before finalization requires rerunning `draft-delivered-records` and semantic
+review; a finalized migration intentionally permits the directory to be absent.
 
 ## Proposed Design
 
-Extend each reviewed delivered-record manifest entry with a monotonic candidate lifecycle state. The existing
-`evidence_digest` and candidate path remain the review identity. Retired entries add `historical_git_commit`,
-`historical_git_path`, and `historical_git_blob`; the latter is checked against the exact candidate bytes and
-`evidence_digest`.
+Keep delivered-record candidates local through review and finalization. Enforce the pre-finalization presence and digest
+checks in the migration core, preserve finalized verification after intentional cleanup, and reject any attempt to
+redraft a finalized migration.
 
-Before finalization, the normal workflow stages and commits the candidate files, promoted records, manifest, and report
-through the repository's ordinary verified checkpoint. The checkpoint is the only source from which retirement may prove
-historical reachability. `finalize --apply` then requires a clean worktree and exact session authority, preflights the
-complete migration, and records typed `candidate-retirement` operations beside any `task-archive` operations. Each
-operation stores source/staging/destination, expected digest, manifest/report pre-state, and rollback state. Strict
-documentation validation runs against the staged result; failures restore both task and candidate operations and the
-pre-finalization manifest.
+## User-Facing Behavior
 
-The compatibility command uses the same preflight and journal machinery, requires `migration_finalized: true` only as
-one input to complete-state validation, and requires the original authorized branch/worktree. It does not support merged
-or deleted migration authorities. Its dry-run reports each candidate disposition, exact historical commit/path/blob
-match, complete-state evidence, and planned deletion before `--apply` is accepted.
-
-For legacy entries without historical fields, the command enumerates the authorized ancestry from the recorded base SHA
-to current HEAD, follows the candidate path through Git rename history, and hashes every matching blob. Exactly one
-matching commit/path/blob tuple is required; zero matches, duplicate matches, shallow history, rewritten history, or
-ambiguous path resolution stops without mutation. Verification resolves a retired candidate's historical blob with Git
-plumbing and hashes the exact bytes. It continues to validate present candidates for older manifests, allowing
-repositories to migrate incrementally without a schema rewrite or forced cleanup.
-
-`draft-delivered-records` refuses a finalized manifest or any retired entry, while read-only rescans preserve the
-retired state and historical fields. Reopening is intentionally outside this feature and requires a new explicit
-migration boundary and semantic review.
-
-## Architecture Consistency
-
-### Existing Patterns Reused
-
-- Beads remains live work authority; the migration manifest is resumable evidence only.
-- Git commits remain the checkpoint and historical recovery authority.
-- Existing journaled finalization and path-safety guards own filesystem mutation.
-- Strict documentation validation runs after transitional artifacts are removed.
-- Existing compact JSON plus human-readable Markdown report remains the evidence format.
-- The original immutable session authority remains the boundary for compatibility cleanup; a finalized manifest never
-  authorizes a new branch, worktree, or repository.
-
-### Invariants Preserved
-
-- Legacy text and generated candidates never establish product truth without human review.
-- Reader-facing implemented records remain under `docs/src/features/<slug>/index.md`.
-- No destructive cleanup occurs without a clean worktree, reviewed digest, historical recovery proof, and a recoverable
-  transaction journal.
-- Old manifests remain readable and are never silently treated as fully retired.
-- Remote repositories and Beads databases are not mutated by candidate retirement.
-
-### New Decisions Introduced
-
-- Delivered-record candidates are temporary, while migration reports, manifests, baselines, authority audits, and legacy
-  archives remain durable by default.
-- Candidate retirement is represented explicitly in the manifest rather than inferred from a missing file.
-- Git history is the retained source for an approved candidate after its working-tree copy is removed.
-- A reviewed-record checkpoint is mandatory before destructive finalization; retirement never creates an implicit
-  commit.
-- The candidate state machine is monotonic (`present` → `retired`); drafts cannot silently resurrect retired evidence.
-- Compatibility cleanup uses the existing session-authority contract and fails closed when the original authority is
-  gone.
-
-### Architecture Documentation Changes
-
-Update the migration boundary in `docs/src/architecture/index.md` to distinguish durable migration evidence from retired
-temporary delivered-record candidates and to document historical Git-blob verification.
+1. `draft-delivered-records --apply` writes candidates under `migration/delivered-record-candidates/`.
+2. The agent reviews each candidate and promotes the actual implemented record. Candidate files remain available for
+   review until final verification.
+3. Checkpoints stage only durable migration paths and promoted records. Commands must not use `git add -A` when
+   candidate files are present.
+4. `finalize --apply` performs a preflight that every reviewed candidate path exists and still matches its recorded
+   digest before it sets `migration_finalized`. A missing or changed candidate fails finalization and leaves the
+   migration unfinished. Finalization does not delete candidate files automatically.
+5. After `finalize --apply` succeeds and `verify --beads` reports completion for a manifest with
+   `migration_finalized: true`, the user may explicitly authorize removal of `migration/delivered-record-candidates/`.
+   The agent then removes the directory and reruns verification. A finalized manifest does not fail merely because this
+   transient directory is absent.
+6. If candidates disappear before finalization, verification and finalization fail. Redrafting a missing candidate
+   clears its prior review metadata even when regenerated bytes have the same digest, so semantic review must run again.
+   After finalization, candidate absence is intentional and does not trigger redrafting.
 
 ## Operational Considerations
 
-Operators should run the dry-run form of the retirement command first when upgrading an already-completed migration. The
-command must be run from the repository authority with a clean worktree. If a candidate's historical commit is missing
-because history was shallow-copied or rewritten, the command stops and reports the exact candidate and required
-recovery; it does not reconstruct or discard the record.
+Agents use explicit durable staging paths and never use `git add -A` while delivered candidates exist. Candidate cleanup
+is manual: it follows successful `finalize --apply`, completed `verify --beads` with `migration_finalized: true`, and
+explicit user approval. Cleanup is followed by verification; cleanup is never an automatic finalization side effect.
 
-After successful finalization or retirement, `migration/` still contains audit artifacts. The absence of
-`migration/delivered-record-candidates/` is expected and is not evidence that semantic review was skipped.
+## Requirements
 
-## Documentation Impact
+- The migration skill and reference procedure explicitly classify delivered-record candidates as transient and prohibit
+  staging or committing them.
+- Migration commit examples use explicit durable paths and explicitly exclude the candidate directory.
+- Verification requires reviewed candidate files while `migration_finalized` is false.
+- Finalization rejects a missing or changed reviewed candidate before setting `migration_finalized`.
+- Redrafting after candidate loss clears review metadata and requires fresh semantic review.
+- Verification permits a missing reviewed candidate path after `migration_finalized` is true, while continuing to
+  validate the manifest's semantic evidence and promoted implemented record.
+- Regression tests cover deletion before finalization, redrafting after deletion, and finalized verification after
+  explicit candidate deletion.
+- The implementation is one self-contained task and one commit.
 
-| Documentation concern      | Exact page                                                                               | Create or update        | Planned change                                                                                                                       | Owning Beads task  |
-|----------------------------|------------------------------------------------------------------------------------------|-------------------------|--------------------------------------------------------------------------------------------------------------------------------------|--------------------|
-| Architecture               | `docs/src/architecture/index.md`                                                         | Update                  | Document durable migration evidence, temporary delivered-record candidates, Git-blob verification, and authority.                    | `dstack-mol-u15.1` |
-| Usage / Operations         | `docs/src/operations/index.md`                                                           | Update                  | Explain finalization cleanup, the canonical retirement command, complete-state preflight, dry-run output, and recovery.              | `dstack-mol-u15.2` |
-| Development                | `docs/src/development/index.md`                                                          | Update                  | Update the canonical migration lifecycle, checkpoint ordering, retired state, and compatibility behavior.                            | `dstack-mol-u15.1` |
-| Reference                  | `docs/src/reference/index.md`                                                            | Update                  | Document candidate disposition fields, command syntax, states, authority, history lookup, and validation contracts.                  | `dstack-mol-u15.1` |
-| Skill procedure            | `skills/migrate-workflow/SKILL.md` and `skills/migrate-workflow/references/MIGRATION.md` | Update                  | Define the reviewed-record checkpoint, typed retirement journal, complete preflight, and recovery.                                   | `dstack-mol-u15.2` |
-| State tests                | `tests/test_migrate_legacy_workflow.py`                                                  | Update                  | Test disposition, historical Git verification, live/retired compatibility, draft/rescan monotonicity, and test-first state behavior. | `dstack-mol-u15.1` |
-| Finalization tests         | `tests/test_migrate_legacy_workflow.py`                                                  | Update                  | Test checkpoint gating, complete-state validation, typed journal rollback, command cleanup, and idempotence.                         | `dstack-mol-u15.2` |
-| Cross-slice tests          | `tests/test_migrate_legacy_workflow.py`                                                  | Update                  | Test current Conduit-shaped manifests, earlier checkpoints, mixed failures, and stable report evidence.                              | `dstack-mol-u15.3` |
-| Design navigation          | `docs/src/SUMMARY.md`                                                                    | Update                  | Keep design registration in the feature-design marker.                                                                               | `dstack-mol-u15.1` |
-| Roadmap reconciliation     | `docs/src/planned-features.md`                                                           | Update during close-out | Reconcile planned/delivered state.                                                                                                   | `dstack-mol-42a`   |
-| Implemented index          | `docs/src/features/index.md`                                                             | Update during close-out | Register the standalone implemented record.                                                                                          | `dstack-mol-42a`   |
-| Implemented navigation     | `docs/src/SUMMARY.md`                                                                    | Update during close-out | Register the standalone implemented record in the implemented-feature marker.                                                        | `dstack-mol-42a`   |
-| Implemented Feature Record | `docs/src/features/migration-artifact-retirement/index.md`                               | Create during close-out | Preserve delivery and audit history.                                                                                                 | `dstack-mol-42a`   |
+## Architecture Consistency
 
-## Validation Strategy
+This is a small correction to the existing migration artifact contract. Durable migration records remain the audit and
+resume evidence. Candidate Markdown is staging material only, so it is intentionally not copied into Git history and is
+recreated when needed. The verifier already distinguishes pre-finalization from finalized state; finalization now proves
+candidate presence and digest before setting that flag, and post-finalization verification permits intentional absence.
+Redrafting treats a missing prior candidate as a loss of review state, even when regenerated bytes are identical.
 
-- Each implementation child writes its behavior tests first, observes the expected failure, then implements the smallest
-  change and keeps tests, code, and assigned documentation in one commit boundary.
-- State tests cover candidate disposition, live/retired verification, promoted-record digests, old manifests, exact
-  historical Git matching, zero/multiple matches, shallow or rewritten history, and draft/rescan monotonicity.
-- Finalization tests cover the reviewed-record checkpoint gate, complete native Beads/inventory/checkpoint preflight,
-  authority failures, typed mixed journal operations, rollback, documentation failure, dirty worktrees, and no remote
-  mutation.
-- Cross-slice tests cover the current Conduit-shaped manifest, candidates committed in earlier checkpoints, changed and
-  missing evidence, repeated dry-run/apply retirement, exact candidate inventory, and stable manifest/report bytes.
-- Run the migration verifier against both old live-candidate and new retired-candidate manifests.
-- Run `uv run pytest`, `uv run scripts/check-docs.py`, `mise run check`, and `mise run docs:check` before delivery.
-
-## Implementation Decomposition
-
-1. `dstack-mol-u15.1` adds test-first candidate disposition, historical Git-blob proof, backward-compatible
-   verification, retired-state monotonicity, and state/reference/architecture/development documentation.
-2. `dstack-mol-u15.2` adds test-first reviewed-checkpoint and complete-state preflight, typed journaled finalization,
-   the canonical compatibility command, and operations/skill/recovery documentation.
-3. `dstack-mol-u15.3` adds test-first cross-slice/current-Conduit fixtures, earlier-checkpoint compatibility, stable
-   report evidence, and remaining failure-injection/idempotence coverage. It does not own final documentation
-   reconciliation; that remains `dstack-mol-42a`.
+No new authority, state machine, journal, command, Beads schema, or Git-history lookup is introduced.
 
 ## Dependencies and Parallelism
 
-The state/verification task is the prerequisite for cleanup, and the cleanup command is the prerequisite for cross-slice
-compatibility tests. Each implementation child depends on `spec-reconcile` and owns its tests before its code. State and
-command documentation are assigned to their implementation owners; delivered-record, roadmap, feature-index, and
-implemented-navigation reconciliation remains the close-out task. No external service or Beads schema change is
-required.
+The single implementation task depends on this reviewed specification and owns the migration runtime, assigned
+reader-facing documentation, tests, and one commit. No parallel implementation task, new command, or external service is
+required. Close-out remains responsible for the delivered record and roadmap/navigation reconciliation.
 
-## Rollout and Migration
+## Documentation Impact
 
-New migrations retire candidates during finalization. Existing complete migrations remain valid with candidates present
-and can opt into explicit retirement after upgrading the workflow. No automatic cleanup runs during skill installation
-or project update.
+| Documentation concern          | Exact page                                                 | Change                                                                                                                | Owner              |
+|--------------------------------|------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|--------------------|
+| Migration procedure            | `skills/migrate-workflow/SKILL.md`                         | Mark delivered candidates transient, use explicit durable staging paths, and document post-verification deletion.     | `dstack-mol-u15.1` |
+| Migration reference            | `skills/migrate-workflow/references/MIGRATION.md`          | Record artifact lifecycles, resume limits, and candidate deletion procedure.                                          | `dstack-mol-u15.1` |
+| Operations                     | `docs/src/operations/index.md`                             | Clarify transient candidate material, explicit deletion authority, finalization boundary, and recovery.               | `dstack-mol-u15.1` |
+| Migration reference            | `docs/src/reference/index.md`                              | Distinguish delivered-record candidates from template candidates and document finalization, deletion, and redrafting. | `dstack-mol-u15.1` |
+| Verification tests             | `tests/test_migrate_legacy_workflow.py`                    | Cover missing candidates before finalization, redrafting after loss, and finalized verification after deletion.       | `dstack-mol-u15.1` |
+| Feature design navigation      | `docs/src/SUMMARY.md`                                      | Preserve the existing feature-design entry.                                                                           | `dstack-mol-u15.1` |
+| Roadmap reconciliation         | `docs/src/planned-features.md`                             | Update the feature from `design` to `delivered` only during close-out after delivery.                                 | `dstack-mol-42a`   |
+| Implemented feature index      | `docs/src/features/index.md`                               | Add the delivered record to the implemented-feature index during close-out.                                           | `dstack-mol-42a`   |
+| Implemented SUMMARY navigation | `docs/src/SUMMARY.md`                                      | Add the delivered record to the implemented-feature marker during close-out.                                          | `dstack-mol-42a`   |
+| Delivered-record page          | `docs/src/features/migration-artifact-retirement/index.md` | Create the standalone delivered record during close-out.                                                              | `dstack-mol-42a`   |
 
 ## Risks and Tradeoffs
 
-Retaining a historical Git-blob reference adds manifest fields and makes shallow or rewritten history visible as a
-migration limitation. This is preferable to silently retaining redundant staging files or silently losing reviewed
-content. A one-time compatibility command adds surface area, but avoids reopening completed Beads migrations. Requiring
-the original session authority intentionally prevents cleanup from becoming an inferred post-merge workflow.
+- Losing candidates before finalization loses review state and requires redrafting and fresh semantic review.
+- Keeping candidates local avoids permanent staging clutter but means they cannot be recovered from migration Git
+  history; durable migration evidence remains available for resume.
+- A finalized manifest tolerates candidate absence only after semantic and promoted-record verification remains valid.
 
-## Rejected Alternatives
+## Validation Strategy
 
-- Keep all candidate files forever: simple, but contradicts the documented temporary-artifact contract and duplicates
-  promoted records.
-- Delete candidates without historical verification: smaller repositories, but unsafe and unauditable.
-- Create a separate top-level workflow: unnecessary; this is a lifecycle correction within `/migrate-workflow`.
-- Rely only on Git history without manifest digests: difficult to verify and easy to misattribute across candidates.
+- Write tests first for deletion before finalization, redrafting after candidate loss, and finalized verification after
+  deletion.
+- Run the focused migration tests and the existing migration regression suite.
+- Run `uv run --no-project python scripts/check-docs.py`, `mise run check`, `mise run docs:check`, and the full
+  repository test suite before the task commit.
+- Existing unrelated baseline failures must be reported separately rather than broaden this task.
+
+## Implementation Decomposition
+
+One implementation task only: `dstack-mol-u15.1` updates the migration skill/reference/operations text, adjusts the
+finalized verification boundary, adds the three behavior tests, and commits the complete change.
+
+No follow-up command, compatibility, cross-slice, or historical-proof tasks are required.
 
 ## Open Questions
 
-None blocking implementation. The canonical cleanup command is `retire-delivered-record-candidates`; its authority,
-complete-state, history-match, monotonic-state, and journal contracts are fixed by this design.
-
-## Deferred Decisions
-
-None.
+There are no unresolved product or safety questions. The user explicitly selected transient candidates, manual
+post-verification cleanup, and one implementation task; template-adoption candidate cleanup continues to use its
+existing disposition procedure.
 
 ## Planning Record
 
 ### Questions Asked and Answers
 
-- **Question:** Should this be a new workflow? **Answer:** No. It is a follow-up feature that corrects the existing
-  `/migrate-workflow` artifact lifecycle.
-- **Question:** Which artifacts remain durable? **Answer:** Keep migration reports, manifests, baselines, authority
-  audits, and legacy task archives by default; retire delivered-record staging candidates after review.
-- **Question:** How is candidate content preserved? **Answer:** Record its digest and historical Git blob, then remove
-  only the working-tree copy after verification.
+- **Question:** Should delivered-record candidate files be transient, excluded from commits, and removable after a
+  successful migration? **Answer:** Yes.
+- **Question:** Should this be one small task rather than a multi-stage retirement feature? **Answer:** Yes.
 
-### Assumptions
+### Scope Reset
 
-- Candidate content is committed in an ordinary verified checkpoint before finalization or can be located in the
-  authorized repository history for a completed older migration.
-- Existing journaled finalization is the correct mutation boundary for candidate removal when extended with typed
-  candidate operations and manifest/report rollback state.
-- A complete old migration can be cleaned without reopening Beads lifecycle state when its original session authority
-  remains available; merged or deleted authorities fail closed.
-
-### Specification Review Changes
-
-- Added an ordinary reviewed-record checkpoint before destructive finalization and made its reachable Git history the
-  only historical source for retirement.
-- Defined complete-migration preflight, immutable session-authority requirements, deterministic single-match history
-  lookup, and monotonic `present` → `retired` behavior.
-- Extended the journal contract to typed mixed operations with manifest/report rollback state.
-- Recomposed implementation ownership so state and command children write tests first, while cross-slice tests remain in
-  the final child and close-out documentation owns delivered-record/navigation reconciliation.
-- Corrected documentation ownership to the canonical development and reference pages and named roadmap/index/navigation
-  close-out paths explicitly.
-
-### Design Changes During Planning
-
-- The proposal was narrowed from removing the entire `migration/` directory to retiring only temporary delivered-record
-  candidates.
-- Compatibility for already-completed migrations was added so cleanup does not require a new migration run.
-
-### Source Material
-
-- `docs/src/features/migration-safety-and-clarity/design.md`
-- `docs/src/architecture/index.md`
-- `docs/src/operations/index.md`
-- `docs/src/development/index.md`
-- `docs/src/reference/index.md`
-- `skills/migrate-workflow/SKILL.md`
-- `skills/migrate-workflow/references/MIGRATION.md`
-- User decision in planning conversation
-- Skill version evidence:
-
-  <!-- rumdl-disable MD013 -->
-
-  ```text
-  Skill version evidence: schema=dstack.skill-version.v1 skill=plan-features installed=0.9.2 canonical=0.9.3 status=stale installed_source=/Users/DeRoseR/.agents/skills/plan-features/SKILL.md checked_at=2026-08-10T16:00:49.012745Z canonical_source=/Users/DeRoseR/workspace/personal/dstack canonical_commit=f99f38272f7681aaa25eb9a96af993157b4b2237 action=npx skills update
-  ```
-
-  <!-- rumdl-enable MD013 -->
+The earlier design proposed candidate dispositions, historical Git-blob verification, transactional retirement journals,
+and a compatibility command. That boundary was rejected as unnecessarily complex. The current design supersedes it with
+one procedure-and-verifier change.
