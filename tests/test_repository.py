@@ -559,7 +559,8 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     migration_reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(
         encoding="utf-8"
     )
-    assert len(migration.splitlines()) <= 210
+    # Candidate cleanup and safe tracked/untracked staging add a bounded migration gate section.
+    assert len(migration.splitlines()) <= 280
     assert "references/MIGRATION.md" in migration
     for heading in (
         "## Baseline interpretation",
@@ -610,7 +611,10 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "tooling provisioning blocked" in migration_reference
     assert "temporary `MISE_CONFIG_DIR`" in migration_reference
     assert "Only migration may retain" in migration
-    assert "git add migration docs/src/planned-features.md docs/src/features" in migration
+    assert "durable_paths=(" in migration
+    assert "migration/session-authority.json" in migration
+    assert "if test -e migration/session-resume-approvals.json" in migration
+    assert "git add migration docs/src/planned-features.md docs/src/features" not in migration
     assert "Gate 5 carries those decisions into Beads" in migration
     assert "Delivery and merging" in migration
     assert "merge now, create PR" in migration_reference
@@ -6270,6 +6274,22 @@ def test_migration_artifact_lifecycle(repository_root: Path, tmp_path: Path) -> 
     assert "deleted; retained in Git history" not in deletion.stderr
 
 
+@pytest.mark.integration
+def test_migration_adoption_staging_includes_untracked_managed_files(repository_root: Path, tmp_path: Path) -> None:
+    project = tmp_path / "fresh-adoption"
+    project.mkdir()
+    (project / "README.md").write_text("# Existing project\n", encoding="utf-8")
+    initialize_git(project, "initial project")
+    (project / "new-managed-file.md").write_text("# Managed by adoption\n", encoding="utf-8")
+
+    skill = (repository_root / "skills/migrate-workflow/SKILL.md").read_text(encoding="utf-8")
+    snippet = skill.split("# Stage each reviewed changed path", 1)[1].split("```", 1)[0]
+    run_command(["bash", "-euo", "pipefail", "-c", "# Stage each reviewed changed path" + snippet], cwd=project)
+
+    assert "new-managed-file.md" in run_command(["git", "ls-files"], cwd=project).stdout
+    assert not run_command(["git", "status", "--porcelain"], cwd=project).stdout
+
+
 def test_migration_question_contract(repository_root: Path) -> None:
     skill = (repository_root / "skills/migrate-workflow/SKILL.md").read_text(encoding="utf-8")
     reference = (repository_root / "skills/migrate-workflow/references/MIGRATION.md").read_text(encoding="utf-8")
@@ -6333,6 +6353,8 @@ def test_migration_verified_checkpoint_hooks(repository_root: Path, tmp_path: Pa
     for evidence in ("reason", "migration-aware", "named blocking step"):
         assert evidence in normalized_reference
     assert "Documentation-step skips are not a migration path" in contract
+    assert "if test -e migration/session-resume-approvals.json" in contract
+    assert "<reviewed adoption paths" not in contract
 
     project = tmp_path / "verified-checkpoint"
     (project / "scripts").mkdir(parents=True)

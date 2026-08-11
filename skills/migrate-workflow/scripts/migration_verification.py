@@ -213,11 +213,13 @@ def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: b
         slug = str(candidate.get("slug", ""))
         path = root / str(candidate.get("path", ""))
         if not path.is_file():
-            errors.append(f"Reviewed delivered-record candidate is missing: {slug}")
-            continue
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        if digest != candidate.get("evidence_digest"):
-            errors.append(f"Reviewed delivered-record candidate changed after approval: {slug}")
+            if not manifest.get("migration_finalized"):
+                errors.append(f"Reviewed delivered-record candidate is missing: {slug}")
+                continue
+        else:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest != candidate.get("evidence_digest"):
+                errors.append(f"Reviewed delivered-record candidate changed after approval: {slug}")
         summary = " ".join(str(candidate.get("semantic_summary", "")).split()).casefold()
         if not summary or not candidate.get("semantic_evidence") or not candidate.get("semantic_commits"):
             errors.append(f"Reviewed semantic reconciliation lacks feature-specific evidence: {slug}")

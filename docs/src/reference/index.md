@@ -37,17 +37,21 @@ evaluation is unavailable. `reconcile-hk <hook> <step> <remove|replace> --reason
 loss/collision disposition, including the specifically approved existing and candidate behavior. `verify` re-evaluates
 current hk and rejects stale scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed
 manual baseline. `backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup state. Final
-verification requires tracked manifests, reports, baselines, and archived legacy tasks; it rejects candidate directories
-and inconsistent backup presence/disposition. Migration stores only answers required for safety/resume, such as
-classification, dependency, collision, and artifact dispositions; question prose is not schema state. Checkpoints
-require successful `scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit.
-Documentation-step skips are not supported during migration. If strict documentation is premature because live legacy
-files remain, defer the steps in the project hook policy or use an explicit migration-aware command; rerun the actual
-hook after fixes, because `-P`/`--plan` is only a selection preview. `checkpoint-evidence --hook <hook> --status
+verification requires tracked manifests, reports, baselines, and archived legacy tasks; it rejects temporary
+`migration/template-adoption-candidates/` directories and inconsistent backup presence/disposition. The
+`migration/delivered-record-candidates/` directory is separate transient review material: it is required before
+finalization, is not committed, and may be removed only after successful finalization, completed verification, and
+explicit user approval. Migration stores only answers required for safety/resume, such as classification, dependency,
+collision, and artifact dispositions; question prose is not schema state. Checkpoints require successful
+`scripts/setup-tooling.py --json`, Pkl evaluation, installed hook routing, and an ordinary commit. Documentation-step
+skips are not supported during migration. If strict documentation is premature because live legacy files remain, defer
+the steps in the project hook policy or use an explicit migration-aware command; rerun the actual hook after fixes,
+because `-P`/`--plan` is only a selection preview. `checkpoint-evidence --hook <hook> --status
 <passed|failed> --command <command>` appends ordinary `checkpoint_evidence[]`; unresolved documentation validation
 blocks the checkpoint rather than requesting a skip approval. A finalized migration must contain at least one durable
 `status: passed` checkpoint entry, and normal documentation validation treats migration markers as provenance rather
-than an exemption.
+than an exemption. The completion phrase from `verify --beads` is not deletion authority by itself; inspect
+`migration/workflow-migration.json` and require `migration_finalized: true` after successful `finalize --apply`.
 
 `beads-authority --init` treats formula-only state as uninitialized and requires the primary checkout on the dedicated
 migration branch. It runs native non-stealth `bd init`, which commits `.beads/.gitignore`, `README.md`, `config.yaml`,
@@ -78,18 +82,23 @@ design import as a completed root-only record; planned roots direct future activ
 manifest's finalized flag.
 
 `prepare --apply` replaces implemented-feature marker bodies from completed features with standalone `index.md` records.
-`draft-delivered-records` previews; with `--apply` it writes candidates under
+`draft-delivered-records` previews; with `--apply` it writes transient candidates under
 `migration/delivered-record-candidates/<slug>/index.md` and records `delivered_record_candidates[]` with
-`reviewed: false`. `review-delivered-record <slug>` requires `--summary`, at least one `--evidence` path, at least one
-`--commit`, and `--reason`; it digests the actual implemented record and evidence. Every evidence path must be touched
-by a supplied commit. `verify` recomputes commit paths and rejects any completed feature without review,
-substituted/duplicate summaries, reused/generated/self evidence, unrelated commits, and missing or changed evidence.
-Finalization first reconciles the complete live Beads graph, preflights every destination, journals and stages all
-moves, rolls back failed strict documentation validation, and durably saves state before deleting staged evidence.
-Manifest/report/baseline paths must be distinct safe migration files and cannot overlap reserved evidence. Finalization
-seals archive digests and parsed task identity; final verification recursively compares the exact current archive set
-plus feature, design, and legacy-task inventory rather than trusting a finalized manifest alone. Recursive archive
-sealing rejects file and directory symlink aliases before reading any candidate bytes.
+`reviewed: false`. Do not stage or commit that directory. `review-delivered-record <slug>` requires `--summary`, at
+least one `--evidence` path, at least one `--commit`, and `--reason`; it digests the actual implemented record and
+evidence. Every evidence path must be touched by a supplied commit. Before finalization, `verify` and `finalize --apply`
+require reviewed candidate files to exist with their recorded digest. If a candidate disappears before finalization,
+redrafting clears its prior review metadata and semantic review must run again. After successful finalization and
+verification with `migration_finalized: true`, explicit user approval permits deleting the transient directory; rerun
+verification afterward, which continues checking semantic evidence and the promoted record. `verify` recomputes commit
+paths and rejects any completed feature without review, substituted/duplicate summaries, reused/generated/self evidence,
+unrelated commits, and missing or changed evidence. Finalization first reconciles the complete live Beads graph,
+preflights every destination, journals and stages all moves, rolls back failed strict documentation validation, and
+durably saves state before deleting staged evidence. Manifest/report/baseline paths must be distinct safe migration
+files and cannot overlap reserved evidence. Finalization seals archive digests and parsed task identity; final
+verification recursively compares the exact current archive set plus feature, design, and legacy-task inventory rather
+than trusting a finalized manifest alone. Recursive archive sealing rejects file and directory symlink aliases before
+reading any candidate bytes.
 
 ## Migration repository identity
 

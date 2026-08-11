@@ -72,18 +72,21 @@ user's exact generated phrase and writes a separate audit record rather than mut
 Migration captures the legacy hk hook/step inventory before adoption. Candidate reconciliation is additive: a removed
 step or changed same-key definition blocks verification until restored or explicitly approved with both behaviors and a
 reason. If the legacy config cannot be evaluated, migration stops for manual inventory confirmation rather than treating
-the generated policy as equivalent. Durable manifests, reports, baselines, and legacy-task archives must be committed;
-temporary candidates must be removed. Conditional adoption backups require an explicit retain/remove disposition.
-Repeated unchanged scans do not churn committed migration evidence. For migration brief fields, the helper first
-extracts clear current values from README/docs, `AGENTS.md`, manifests, and CI. It prompts only for missing, stale, or
-conflicting values; it does not ask the user to restate documented context. Project purpose, users, scope, and
-boundaries remain structured Copier context rendered into the reader overview and roadmap, and are also available to
-agents through `AGENTS.md`. Language profiles are inferred from manifests and CI when possible. Project brief and
-semantic questions still use an evidence-backed recommendation when a decision is genuinely unresolved, with a concise
-decision title, why it is needed, current evidence/uncertainty, controlled behavior, a concrete example, choices/safe
-default, and the consequence of deferral. After reconciliation, the rendered project provisioner must install the locked
-tools and Git hooks before an ordinary checkpoint commit. Preserve the existing project hook policy and do not activate
-a generated strict `docs` step while legacy task files remain; defer it until archival or make it migration-aware.
+the generated policy as equivalent. Durable manifests, reports, baselines, session-authority audits, and legacy-task
+archives must be committed. Delivered-record candidates under `migration/delivered-record-candidates/` are transient
+local review material: never stage or commit them. Template-adoption candidates under
+`migration/template-adoption-candidates/` are separate adoption conflicts; reconcile each one and remove that directory
+before the adoption checkpoint. Conditional adoption backups require an explicit retain/remove disposition. Repeated
+unchanged scans do not churn committed migration evidence. For migration brief fields, the helper first extracts clear
+current values from README/docs, `AGENTS.md`, manifests, and CI. It prompts only for missing, stale, or conflicting
+values; it does not ask the user to restate documented context. Project purpose, users, scope, and boundaries remain
+structured Copier context rendered into the reader overview and roadmap, and are also available to agents through
+`AGENTS.md`. Language profiles are inferred from manifests and CI when possible. Project brief and semantic questions
+still use an evidence-backed recommendation when a decision is genuinely unresolved, with a concise decision title, why
+it is needed, current evidence/uncertainty, controlled behavior, a concrete example, choices/safe default, and the
+consequence of deferral. After reconciliation, the rendered project provisioner must install the locked tools and Git
+hooks before an ordinary checkpoint commit. Preserve the existing project hook policy and do not activate a generated
+strict `docs` step while legacy task files remain; defer it until archival or make it migration-aware.
 Documentation-step skips are not a migration path. Rerun the actual strict hook after each fix; a plan-only invocation
 is not validation. If the existing policy cannot be sequenced or made migration-aware, stop with the named blocking step
 instead of requesting approval to skip it. Whole-hook bypass is never allowed. Final verification requires durable
@@ -115,17 +118,20 @@ exclusion, and amend it through ordinary hooks. Keep embedded Dolt storage, cred
 runtime state ignored. Once initialization is committed, native Beads shares the authority with linked worktrees.
 
 `prepare --apply` regenerates implemented-feature navigation from standalone completed records.
-`draft-delivered-records --apply` can create historical record candidates from legacy tasks, design paths, and imported
-Beads identities, but candidates do not establish truth. Inspect one feature at a time, reconcile its actual implemented
-record, then supply a unique feature-naming summary, non-generated corroborating path, related Git commit, and rationale
-to `review-delivered-record`. Verification and finalization block missing completed-feature reviews, reused summaries,
-unrelated commits, commits that do not touch each evidence path, and changed evidence. Bulk generic reconciliation is
-invalid. Finalization derives and verifies the exact live Beads graph, including absence of unexpected migrated records,
-rejects artifact-path collisions, preflights all archive paths, stages and journals every move, rolls back validation
-failure, seals archive digests/task identities, and persists state before deletion. A leftover journal requires explicit
-recovery rather than guessed continuation. Final verification compares the exact recursive archive and feature
-inventory; manifest booleans alone cannot authorize evidence removal. It requires a native Git-origin remote and emits
-one authoritative state: complete or mechanically complete with semantic reconciliation pending.
+`draft-delivered-records --apply` can create transient historical record candidates from legacy tasks, design paths, and
+imported Beads identities, but candidates do not establish truth or belong in commit history. Inspect one feature at a
+time, reconcile its actual implemented record, then supply a unique feature-naming summary, non-generated corroborating
+path, related Git commit, and rationale to `review-delivered-record`. Before finalization, candidate files must exist
+and match their recorded digests; if one disappears, redrafting clears its prior review metadata and semantic review
+must be repeated. Finalization derives and verifies the exact live Beads graph, including absence of unexpected migrated
+records, rejects artifact-path collisions, preflights all archive paths and reviewed candidates, stages and journals
+every move, rolls back validation failure, seals archive digests/task identities, and persists state before deletion. A
+leftover journal requires explicit recovery rather than guessed continuation. Only after `finalize --apply` succeeds,
+`verify --beads` confirms `migration_finalized: true`, and the user explicitly authorizes cleanup may the agent delete
+`migration/delivered-record-candidates/`; rerun verification afterward. Final verification compares the exact recursive
+archive and feature inventory; manifest booleans alone cannot authorize evidence removal. It requires a native
+Git-origin remote and emits one authoritative state: complete or mechanically complete with semantic reconciliation
+pending.
 
 Legacy managed projects keep their recorded profiles. When none are recorded, update preflight inspects only root
 `pyproject.toml`, `tsconfig.json`/`package.json`, `Cargo.toml`, `go.mod`, `mix.exs`, and `flake.nix`, then presents

@@ -194,16 +194,26 @@ same-key collision, and a replacement disposition cannot approve deletion.
 
 ## Artifact lifecycle
 
-Migration treats the manifest, report, baseline, and `migration/legacy-tasks/*.md` as durable committed evidence. The
-manifest uses deterministic compact JSON to avoid inflating generated evidence past ordinary large-file hooks; the
-Markdown report remains the human-readable view. `migration/template-adoption-candidates/` is temporary and must be
-removed. A created `migration/template-adoption-backup/` defaults to unresolved, including when resuming an older
-manifest. Record `backup-disposition retain|remove --reason <evidence>`; retained evidence must exist, while removed
-evidence must be deleted. Final verification rejects untracked durable artifacts and every inconsistent
-temporary/conditional state.
+Migration treats the manifest, report, baseline, session-authority audit, and `migration/legacy-tasks/*.md` as durable
+committed evidence. The manifest uses deterministic compact JSON to avoid inflating generated evidence past ordinary
+large-file hooks; the Markdown report remains the human-readable view.
+
+`migration/delivered-record-candidates/` is a transient local review workspace. It must not be staged or committed. It
+can remain in the same worktree while semantic review is in progress, but it is not resume authority. If it disappears
+before finalization, rerun `draft-delivered-records --apply` and semantic review; redrafting clears prior review
+metadata when the previous reviewed file was missing. After `finalize --apply` succeeds and `verify --beads` reports
+completion for a manifest with `migration_finalized: true`, obtain explicit user approval, remove the directory, and
+rerun verification. A finalized verification accepts the intentional absence while continuing to check semantic evidence
+and promoted implemented records.
+
+`migration/template-adoption-candidates/` is temporary and must be removed. A created
+`migration/template-adoption-backup/` defaults to unresolved, including when resuming an older manifest. Record
+`backup-disposition retain|remove --reason <evidence>`; retained evidence must exist, while removed evidence must be
+deleted. Final verification rejects untracked durable artifacts and every inconsistent temporary/conditional state.
 
 `finalize` archives legacy task files by default. `--delete-tasks` is the explicit alternative when the user accepts Git
-history as sufficient evidence.
+history as sufficient evidence. Before finalization, stage durable paths explicitly; do not use `git add -A` while
+`migration/delivered-record-candidates/` exists.
 
 ## Contextual migration questions
 

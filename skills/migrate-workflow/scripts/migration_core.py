@@ -2042,6 +2042,12 @@ def repair_beads_labels(
 
 
 def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool) -> None:
+    if manifest.get("migration_finalized"):
+        message = (
+            "Cannot draft delivered-record candidates from a finalized migration; start a new explicit migration "
+            "boundary before drafting"
+        )
+        raise MigrationError(message)
     previous = {
         str(candidate.get("slug")): candidate
         for candidate in manifest.get("delivered_record_candidates", [])
@@ -2077,23 +2083,28 @@ def draft_delivered_records(root: Path, manifest: dict[str, Any], *, apply: bool
         )
         digest = hashlib.sha256(text.encode()).hexdigest()
         prior = previous.get(slug, {})
+        prior_path = root / str(prior.get("path", ""))
+        preserve_review = (
+            bool(prior.get("reviewed")) and prior_path.is_file() and prior.get("evidence_digest") == digest
+        )
         candidate = {
             "slug": slug,
             "path": str(target.relative_to(root)),
             "evidence_digest": digest,
-            "reviewed": bool(prior.get("reviewed")) and prior.get("evidence_digest") == digest,
+            "reviewed": preserve_review,
         }
-        for key in (
-            "review_reason",
-            "reviewed_at",
-            "semantic_summary",
-            "semantic_evidence",
-            "semantic_commits",
-            "record_path",
-            "record_digest",
-        ):
-            if key in prior:
-                candidate[key] = prior[key]
+        if preserve_review:
+            for key in (
+                "review_reason",
+                "reviewed_at",
+                "semantic_summary",
+                "semantic_evidence",
+                "semantic_commits",
+                "record_path",
+                "record_digest",
+            ):
+                if key in prior:
+                    candidate[key] = prior[key]
         candidates.append(candidate)
         if apply:
             write_text(target, text)
@@ -2290,6 +2301,37 @@ def finalize_migration(
             sorted(unreviewed)
         )
         raise MigrationError(message)
+    if not manifest.get("migration_finalized"):
+        missing_reviewed: list[str] = []
+        changed_reviewed: list[str] = []
+        for candidate in candidate_by_slug.values():
+            if not candidate.get("reviewed"):
+                continue
+            slug = str(candidate.get("slug", ""))
+            try:
+                candidate_path = safe_repository_path(
+                    root,
+                    candidate.get("path", ""),
+                    description=f"{slug}.delivered_candidate",
+                    required_prefix=PurePosixPath(DELIVERED_CANDIDATE_DIR.as_posix()),
+                )
+            except MigrationError as exc:
+                message = f"Reviewed delivered-record candidate path is unsafe before finalization: {slug}"
+                raise MigrationError(message) from exc
+            if not candidate_path.is_file():
+                missing_reviewed.append(slug)
+            elif hashlib.sha256(candidate_path.read_bytes()).hexdigest() != candidate.get("evidence_digest"):
+                changed_reviewed.append(slug)
+        if missing_reviewed:
+            raise MigrationError(
+                "Reviewed delivered-record candidates are missing before finalization: "
+                + ", ".join(sorted(missing_reviewed))
+            )
+        if changed_reviewed:
+            raise MigrationError(
+                "Reviewed delivered-record candidates changed before finalization: "
+                + ", ".join(sorted(changed_reviewed))
+            )
     references = task_references(root)
     if references:
         details = "\n".join(f"  - {path}" for path in references)

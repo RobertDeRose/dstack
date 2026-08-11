@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -30,6 +31,18 @@ def load_migration_core() -> Any:
     if core_directory not in sys.path:
         sys.path.insert(0, core_directory)
     spec = importlib.util.spec_from_file_location("migration_core", MIGRATION_CORE)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_migration_verification() -> Any:
+    load_migration_core()
+    verification_path = REPOSITORY_ROOT / "skills/migrate-workflow/scripts/migration_verification.py"
+    spec = importlib.util.spec_from_file_location("migration_verification", verification_path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -831,6 +844,185 @@ def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -
     run_migrator(legacy_project, "draft-delivered-records", "--apply")
     changed = json.loads(manifest_path.read_text(encoding="utf-8"))["delivered_record_candidates"]
     assert any(not candidate["reviewed"] for candidate in changed)
+
+
+@pytest.mark.integration
+def test_finalize_rejects_missing_reviewed_candidate_before_finalization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = load_migration_core()
+    (tmp_path / "migration").mkdir()
+    manifest = {
+        "migration_finalized": False,
+        "features": [],
+        "delivered_record_candidates": [
+            {
+                "slug": "alpha",
+                "path": "migration/delivered-record-candidates/alpha/index.md",
+                "reviewed": True,
+                "evidence_digest": "a" * 64,
+            }
+        ],
+    }
+    manifest_path = tmp_path / "migration/workflow-migration.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(core, "ensure_bd_available", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(core, "reconcile_existing_beads_state", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(core.MigrationError, match="candidate"):
+        core.finalize_migration(
+            tmp_path,
+            manifest,
+            manifest_path=Path("migration/workflow-migration.json"),
+            report_path=Path("migration/workflow-migration.md"),
+            apply=True,
+            delete_tasks=False,
+            archive_dir=core.DEFAULT_TASK_ARCHIVE,
+        )
+
+    assert manifest["migration_finalized"] is False
+
+
+@pytest.mark.integration
+def test_redraft_invalidates_review_after_candidate_loss(tmp_path: Path) -> None:
+    core = load_migration_core()
+    feature_dir = tmp_path / "docs/src/features/alpha"
+    feature_dir.mkdir(parents=True)
+    (feature_dir / "design.md").write_text("# Alpha\n", encoding="utf-8")
+    initialize_git(tmp_path, "candidate drafting baseline")
+    manifest: dict[str, Any] = {
+        "features": [
+            {
+                "classification": "completed",
+                "slug": "alpha",
+                "title": "Alpha",
+                "target_dir": "docs/src/features/alpha",
+                "legacy_source_dirs": [],
+                "design_path": "docs/src/features/alpha/design.md",
+                "tasks": [],
+                "beads": {"root_id": "alpha-root"},
+            }
+        ],
+        "delivered_record_candidates": [],
+    }
+
+    core.draft_delivered_records(tmp_path, manifest, apply=True)
+    candidate = manifest["delivered_record_candidates"][0]
+    assert isinstance(candidate, dict)
+    candidate.update(
+        {
+            "reviewed": True,
+            "review_reason": "Reviewed delivery evidence",
+            "semantic_summary": "Alpha delivery is supported by repository evidence.",
+        }
+    )
+    candidate_path = tmp_path / str(candidate["path"])
+    candidate_path.unlink()
+
+    core.draft_delivered_records(tmp_path, manifest, apply=True)
+
+    redrafted = manifest["delivered_record_candidates"][0]
+    assert isinstance(redrafted, dict)
+    assert redrafted["reviewed"] is False
+    assert "review_reason" not in redrafted
+    assert "semantic_summary" not in redrafted
+
+
+@pytest.mark.integration
+def test_finalized_verification_allows_deleted_transient_candidate(tmp_path: Path) -> None:
+    verifier = load_migration_verification()
+    feature_dir = tmp_path / "docs/src/features/alpha"
+    architecture_dir = tmp_path / "docs/src/architecture"
+    feature_dir.mkdir(parents=True)
+    architecture_dir.mkdir(parents=True)
+    durable_paths = {
+        Path("migration/baseline.json"),
+        Path("migration/baseline.md"),
+        Path("migration/workflow-migration.json"),
+        Path("migration/workflow-migration.md"),
+        Path("migration/session-authority.json"),
+        *(Path(path) for path in verifier.BEADS_TRACKED_CONTROL_PATHS),
+    }
+    for durable_path in durable_paths:
+        target = tmp_path / durable_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("durable evidence\n", encoding="utf-8")
+    (tmp_path / "docs/src/planned-features.md").write_text(
+        "# Planned Features\n\n### `alpha`\n\n- Status: Implemented\n", encoding="utf-8"
+    )
+    (feature_dir / "index.md").write_text("# Alpha\n", encoding="utf-8")
+    initialize_git(tmp_path, "finalized candidate baseline")
+    (feature_dir / "index.md").write_text("# Alpha\n\nDelivered.\n", encoding="utf-8")
+    evidence_path = architecture_dir / "api.md"
+    evidence_path.write_text("# Alpha API\n", encoding="utf-8")
+    commit_repository(tmp_path, "record alpha delivery evidence")
+    commit_sha = run_command(["git", "rev-parse", "HEAD"], cwd=tmp_path).stdout.strip()
+    record_path = feature_dir / "index.md"
+    evidence_digest = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+    record_digest = hashlib.sha256(record_path.read_bytes()).hexdigest()
+    manifest = {
+        "migration_finalized": True,
+        "checkpoint_evidence": [
+            {
+                "status": "passed",
+                "hook": "pre-commit",
+                "command": "hk check -a",
+                "recorded_at": "2026-08-11T00:00:00+00:00",
+            }
+        ],
+        "hk_reconciliation": {"baseline": {"status": "absent"}, "current": {"status": "absent"}, "dispositions": []},
+        "artifacts": {
+            "candidate_directory": "migration/template-adoption-candidates",
+            "backup_directory": "migration/template-adoption-backup",
+            "backup_disposition": "not_applicable",
+        },
+        "features": [
+            {
+                "slug": "alpha",
+                "title": "Alpha",
+                "classification": "completed",
+                "source_dir": "docs/src/features/alpha",
+                "target_dir": "docs/src/features/alpha",
+                "design_path": "docs/src/features/alpha/design.md",
+                "legacy_tasks_path": "docs/src/features/alpha/tasks.md",
+                "has_design": False,
+            }
+        ],
+        "delivered_record_candidates": [
+            {
+                "slug": "alpha",
+                "path": "migration/delivered-record-candidates/alpha/index.md",
+                "evidence_digest": "a" * 64,
+                "reviewed": True,
+                "semantic_summary": "Alpha delivery is supported by repository evidence.",
+                "semantic_evidence": [{"path": "docs/src/architecture/api.md", "sha256": evidence_digest}],
+                "semantic_commits": [
+                    {"sha": commit_sha, "paths": ["docs/src/architecture/api.md", "docs/src/features/alpha/index.md"]}
+                ],
+                "record_path": "docs/src/features/alpha/index.md",
+                "record_digest": record_digest,
+            }
+        ],
+    }
+
+    errors, _ = verifier.verify_migration(tmp_path, manifest, verify_beads=False)
+
+    assert errors == []
+
+
+@pytest.mark.integration
+def test_draft_rejects_finalized_manifest_without_mutation(tmp_path: Path) -> None:
+    core = load_migration_core()
+    manifest: dict[str, Any] = {
+        "migration_finalized": True,
+        "features": [],
+        "delivered_record_candidates": [{"slug": "alpha", "reviewed": True}],
+    }
+
+    with pytest.raises(core.MigrationError, match="finalized"):
+        core.draft_delivered_records(tmp_path, manifest, apply=True)
+
+    assert manifest["delivered_record_candidates"] == [{"slug": "alpha", "reviewed": True}]
 
 
 def create_heading_status_project(root: Path) -> None:
