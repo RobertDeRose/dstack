@@ -15,7 +15,9 @@ The sequence establishes the smallest shared contracts first. Purposeful documen
 delivered. Language profiles and GitHub workflows extend that baseline. hk policy simplification restores native runner
 behavior before both migration preservation and monorepo composition consume the generated policy. Migration safety and
 clarity then protects existing project checks and verified history. Migration artifact retirement removes reviewed
-staging copies without weakening that audit trail, and monorepo composition remains independently reviewable.
+staging copies without weakening that audit trail, and monorepo composition remains independently reviewable. The next
+workflow feature makes review passes finite and restores resource-aware parallel task worktrees with main-agent
+cherry-pick integration, focused task checks, and one holistic close-out review.
 
 ## Roadmap conventions
 
@@ -40,6 +42,7 @@ staging copies without weakening that audit trail, and monorepo composition rema
 | `migration-safety-and-clarity` — Migration safety and clarity                   | `dstack-mol-tki` | delivered     | hk policy simplification                               | [Design](features/migration-safety-and-clarity/design.md)          |
 | `migration-artifact-retirement` — Migration artifact retirement                 | `dstack-mol-b8d` | delivered     | Migration safety and clarity                           | [Design](features/migration-artifact-retirement/design.md)         |
 | `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | delivered     | Language quality profiles, hk policy simplification    | [Design](features/monorepo-tooling-layout/design.md)               |
+| `improve-workflow-reviews` — Improve workflow reviews                           | `dstack-mol-2s9` | design        | —                                                      | [Design](features/improve-workflow-reviews/design.md)              |
 
 ## Cross-cutting decisions
 
@@ -57,6 +60,9 @@ staging copies without weakening that audit trail, and monorepo composition rema
 - Legacy migration preserves existing hk steps unless the user explicitly approves removal, commits durable task
   archives, asks contextual questions, and never uses `--no-verify`.
 - Monorepo support follows hk policy simplification and must not complicate the single-package contract.
+- Workflow reviews use finite pass and runtime budgets. Parallel-safe implementation tasks run in isolated subagent
+  worktrees while measured physical-memory utilization is below 80%; the main agent cherry-picks reviewed commits in
+  deterministic order, and one fresh holistic review runs after complete feature integration.
 
 ## Open project decisions
 
@@ -64,6 +70,6 @@ No planning-blocking cross-feature decisions remain.
 
 ## Recommended next work
 
-Plan the next capability from the delivered single-package, migration-safe, and monorepo-aware baseline. GitHub
-validation and docs deployment's waived live Pages exercise remains recorded with its GitHub API, permission, and
-provisioning risk.
+Start `/start-feature improve-workflow-reviews` to review and activate the bounded review and parallel task-execution
+redesign. GitHub validation and docs deployment's waived live Pages exercise remains recorded with its GitHub API,
+permission, and provisioning risk.

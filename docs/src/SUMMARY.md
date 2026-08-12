@@ -36,6 +36,7 @@
   - [Migration safety and clarity](features/migration-safety-and-clarity/design.md)
   - [Migration artifact retirement](features/migration-artifact-retirement/design.md)
   - [Monorepo tooling layout](features/monorepo-tooling-layout/design.md)
+  - [Improve workflow reviews](features/improve-workflow-reviews/design.md)
   <!-- END FEATURE DESIGNS -->
 - [Implemented features](features/index.md)
   <!-- BEGIN IMPLEMENTED FEATURES -->
