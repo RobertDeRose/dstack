@@ -1,90 +1,135 @@
 # Durable review state
 
-Review sessions are ephemeral, but review authority is durable Beads state. Every feature review bead and every
-standalone task's selected Beads record must append a machine-readable current-state record before launching its
-reviewer and after every material transition. A standalone task has no separate review bead: its selected issue notes
-are the authoritative review ledger.
+Review sessions are ephemeral, but review authority is durable Beads state. Every feature review record and every
+standalone task appends machine-readable state before launch and after each transition. The last state for a reviewer is
+current; earlier records remain audit history.
 
-## State record
+## Executable authority
 
-Append one single-line JSON record to the review bead's notes, or to the selected standalone task's notes, with the
-`Review state:` prefix:
+`../scripts/review-state.py` is the pure stdlib authority for validation, legal transitions, v1 migration, and aggregate
+gate projection. It reads JSON on stdin, writes JSON on stdout, never mutates Beads or Git, and exits 2 with
+`dstack.review-state-error.v1` for malformed state or illegal edges.
 
-```text
-Review state: {"schema":"dstack.review-state.v1","run_id":"run-...","reviewer_session_id":"session-...","packet_id":"packet-...","packet_path":"/ephemeral/...","packet_digest":"sha256:...","reviewed_commit":"<sha>","reviewed_diff_base":"<sha>","reviewed_diff_digest":"sha256:...","review_round":1,"finding_domains":["architecture"],"review_boundary_id":"boundary-...","replacement_count":0,"status":"active","disposition":"pending","replacement_reason":null,"supersedes_run_id":null,"unavailable_reason":null}
+```bash
+python3 ../scripts/review-state.py validate < state.json
+python3 ../scripts/review-state.py transition < event.json
+python3 ../scripts/review-state.py aggregate < reviewers.json
+python3 ../scripts/review-state.py migrate-v1 < legacy-v1.json
+python3 ../scripts/review-state.py migrate-v2 < legacy-v2.json
 ```
 
-Required fields are:
+Workflow controllers persist helper output in Beads notes with the `Review state:` prefix. They must not recreate
+transition policy from prose or reviewer wording.
 
-- `schema`: exactly `dstack.review-state.v1`;
-- `run_id`: immutable identifier for this review run;
-- `reviewer_session_id`: identifier supplied by the reviewer harness;
-- `packet_id`, `packet_path`, and `packet_digest`: packet identity, ephemeral location, and content digest;
-- `reviewed_commit`, `reviewed_diff_base`, and `reviewed_diff_digest`: exact reviewed source boundary;
-- `review_round`: positive integer for the current review/reconciliation round;
-- `finding_domains`: stable lower-case domain identifiers for the current findings;
-- `review_boundary_id`: immutable identifier for the current design/specification boundary;
-- `replacement_count`: zero or one for a bounded redesign replacement within that boundary;
-- `status`: `active`, `findings`, `verified`, `unavailable`, `replaced`, or `redesign_required`;
-- `disposition`: `pending`, `changes_required`, `approved`, `replaced`, or `redesign_required`;
-- `replacement_reason`, `supersedes_run_id`, and `unavailable_reason`: explicit values when applicable, otherwise
-  `null`.
+## State schema v3
 
-The last `Review state:` line is the canonical current state. Earlier records remain append-only audit history and must
-not be interpreted as current findings or approval. A later state for the same `run_id` resumes the original reviewer
-against a new reviewed commit or diff boundary.
+`dstack.review-state.v3` records:
 
-## Convergence threshold
+- `reviewer_id`: stable logical reviewer identity;
+- `review_issue_id`: owning Beads review issue; Beads remains the manifest and durable owner;
+- `state`: current state from the table below;
+- `pass`: `initial` or `verification`;
+- `pending_conditions`: compound decision, findings, waiver, incomplete, or redesign conditions;
+- `declared_domains`, `declared_paths`, and `declared_requirement_ids`: aggregate invalidation boundary;
+- `review_boundary_id`, `reviewed_commit`, `reviewed_diff_base`, and `reviewed_diff_digest`: immutable Git source
+  boundary;
+- validated `current_findings`, complete decision evidence, exact waiver scope, and preserved partial evidence;
+- `redesign_replacement_count`: zero or one per design boundary;
+- `infrastructure_replacement_count`: independent zero-or-one counters for initial and verification passes; and
+- `telemetry`: assignment path/domain counts when available, elapsed time, context usage, terminal status, and
+  replacement cause. Telemetry is operational evidence, never approval.
 
-A review round is one review run followed by its reconciliation and verification attempt. The controller must preserve
-stable domain identifiers in `finding_domains`; do not compare free-form prose or reviewer wording. An unresolved
-material finding is a finding whose current disposition remains `changes_required` after the round. Before launching
-another role reviewer, inspect the current state and ledger:
+Packet and projection identities are retired from executable v3 state. Historical packet-era records may remain in Beads
+notes, but they never authorize a redesigned boundary or aggregate approval. `migrate-v2` validates a packet-era v2
+record, preserves it under `legacy_state`, and produces active non-approving v3 state without importing findings,
+decisions, waivers, counters, or approval.
 
-- If two unresolved review rounds in the same domain are consecutive, append `status: redesign_required` and
-  `disposition: redesign_required` to the affected review bead(s), preserving the domain and round numbers.
-- Do not launch another reviewer while the threshold is active. Keep or reopen `spec-reconcile` and route the feature to
-  the design-question or decomposition phase; do not silently patch the same boundary again.
-- After a new design/decomposition boundary is committed, start a new packet and review round. The prior run remains
-  audit history and does not carry approval into the redesigned boundary.
-- Findings in unrelated domains, or a resolved round between two findings, do not trigger this threshold.
+Validation enforces state/pass/pending/provisional coherence, validates decision answers against the current
+`reviewed_diff_digest`, and retains resolved decision evidence. Active states must have no findings, unresolved
+decision, or waiver evidence; approval never clears such evidence. An aggregate requires one unique reviewer for every
+exact `required_reviewer_id`; fabricated approval, omitted/duplicate reviewers, or waiver without eligible findings and
+complete evidence fails.
 
-## Bounded redesign replacement
+The durable wrapper record may retain reviewer session identity, source-boundary evidence, review round, supersession,
+and unavailability evidence. A v1 or packet-era wrapper may remain in audit history; new executable decisions use the v3
+source-bound state.
 
-A material scope change invalidates the whole review run, not just one role's interpretation. Do not launch a fresh
-replacement reviewer in the same run. Append `status: replaced`, `disposition: replaced`, and a concrete
-`replacement_reason`, keep the original packet and findings as audit history, and reopen `spec-reconcile`.
+## Per-reviewer transitions
 
-After the redesigned boundary is committed, rebuild one redesigned packet and run one new four-role review. Give the new
-run a new `review_boundary_id`, `supersedes_run_id` pointing to the invalidated run, and `replacement_count: 1`. No
-second redesign replacement is allowed within that boundary; foundational findings in the new run enter the convergence
-threshold above. A reviewer that is unavailable without a scope change follows the ordinary replacement path and does
-not consume the redesign replacement allowance.
+| Current state             | Event                                                           | Next state                                        |
+|---------------------------|-----------------------------------------------------------------|---------------------------------------------------|
+| `initial_active`          | approve                                                         | provisional `approved`                            |
+| `initial_active`          | findings                                                        | `changes_required`                                |
+| `initial_active`          | unresolved intent                                               | `decision_required`                               |
+| `initial_active`          | findings plus unresolved intent                                 | compound `decision_required` + `changes_required` |
+| `initial_active`          | timeout/unavailable                                             | `initial_incomplete`                              |
+| `initial_incomplete`      | explicit retry with unused initial infrastructure counter       | `initial_active`                                  |
+| `initial_incomplete`      | retry after counter is spent                                    | `redesign_required`                               |
+| decision/findings state   | all pending answer/fixes persisted                              | `verification_active`                             |
+| `verification_active`     | approve                                                         | `approved`                                        |
+| `verification_active`     | eligible non-material findings                                  | `waiver_required`                                 |
+| `verification_active`     | material or protected finding                                   | `redesign_required`                               |
+| `verification_active`     | timeout/unavailable                                             | `verification_incomplete`                         |
+| `verification_incomplete` | explicit retry with unused verification infrastructure counter  | `verification_active`                             |
+| `verification_incomplete` | retry after counter is spent                                    | `redesign_required`                               |
+| `waiver_required`         | user accepts eligible findings with evidence                    | `approved_with_waiver`                            |
+| `waiver_required`         | user declines                                                   | `redesign_required`                               |
+| `redesign_required`       | `redesign` with unused redesign counter and new source boundary | `initial_active`                                  |
 
-## Required lifecycle
+Every unlisted edge fails. There is no third pass on one review boundary. A `redesign` event starts a new boundary
+rather than adding another pass to the old one.
 
-1. Claim the review bead and append an `active` record before launching the reviewer. For a standalone task, the
-   selected task is already the claimed record; append its `active` state before launching the reviewer instead of
-   creating or claiming another review bead.
-2. Capture the exact packet identity and source boundary before the reviewer reads it. A packet path may be ephemeral,
-   but its ID and digest must remain durable.
-3. Append `findings` with the current disposition and verification boundary after review. Append `verified` only after
-   actionable findings are resolved and the affected checks pass.
-4. After a fix, resume the original `run_id`; append its new reviewed commit/diff boundary rather than creating a fresh
-   run. Do not relaunch a reviewer merely because the controller lost conversational context.
-5. If the original reviewer cannot be resumed, append `unavailable` with a concrete reason before launching at most one
-   replacement. Preserve the original run's existing `supersedes_run_id`; it is null only for an initial run. Mark its
-   terminal history `replaced`, then create a new run with a new ID, `supersedes_run_id` pointing to the original, the
-   prior packet identity, findings ledger, resolutions, and post-review diff. Preserve the existing `replacement_count`:
-   it counts only bounded redesign replacements, so ordinary unavailability does not consume the redesign-replacement
-   allowance. Append `status: replaced` and `disposition: replaced` to the original, and record the replacement reason
-   on both review records. For a standalone task, retain both records in the selected task's append-only notes ledger.
-   If the replacement is also unavailable, append its `unavailable` state and stop without a second replacement.
-6. A replacement must not erase the original record or silently reuse its approval. The controller closes the review
-   record—or the review bead for feature workflows—only after its canonical state is `verified` or an explicitly
-   recorded terminal disposition.
+## Compound reports and aggregate coordination
 
-Use Beads notes for the durable record; for standalone work, use the selected task's notes and do not create a separate
-review bead. Do not store the authoritative state only in an ephemeral packet, transcript, or controller memory. The
-replacement reviewer receives the prior findings ledger and resolutions as input. Finding IDs and current dispositions
-follow [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md).
+State is per reviewer. A controller-owned `dstack.review-aggregate.v2` projection combines current reviewer records.
+`spec-reconcile` or another owning gate closes only when every required reviewer is `approved` or
+`approved_with_waiver`.
+
+A report may contain both unresolved intent and ordinary findings. Verification cannot begin until the decision answer
+and all fixes are persisted. Initial approval is provisional: if sibling reconciliation overlaps a declared path,
+domain, or requirement, aggregate reconciliation atomically applies one common Git source boundary to every reviewer,
+records the complete change set, invalidates approval, and starts that reviewer's verification pass. No assignment or
+projection identity is durable. Partial boundary updates are rejected. Disjoint changes do not invalidate it. An overlap
+after verification is terminal `redesign_required`; it cannot create a third pass.
+
+## Protected findings and waivers
+
+Protection is independent of severity. Findings in `security`, `correctness`, `validation`, `accessibility`, or
+data-loss-protection are always non-waivable. Findings in other domains reach `waiver_required` only when explicitly
+classified non-material. An accepted waiver records user identity, rationale, scope, and verification evidence in the
+finding ledger and state.
+
+## Separate replacement accounting
+
+A design replacement and an infrastructure replacement are different events:
+
+- `redesign_replacement_count` is zero or one for the review boundary;
+- `infrastructure_replacement_count.initial` is zero or one for the initial pass; and
+- `infrastructure_replacement_count.verification` is zero or one for verification.
+
+Timeout or unavailable infrastructure requires and preserves validated partial evidence before entering the matching
+incomplete state. The controller may explicitly authorize one same-pass replacement; it never retries automatically. A
+second same-pass failure, declined retry, or unavailable retry becomes `redesign_required` directly. A redesign count of
+one does not consume either infrastructure retry.
+
+A terminal `redesign_required` state may enter a new design boundary exactly once with the `redesign` event. The event
+requires a new `review_boundary_id`, a new reviewed commit, and a new reviewed diff digest; it may replace declared
+domains/paths/requirements, clears findings and partial incomplete evidence, resets both infrastructure counters, and
+returns `initial_active` with `redesign_replacement_count: 1`. The old state and source boundary remain append-only
+history; the new boundary cannot infer approval from that history.
+
+## Legacy migration
+
+`migrate-v1` and `migrate-v2` preserve the complete legacy record under `legacy_state`. For v1, `replacement_count` maps
+only to `redesign_replacement_count`; both infrastructure counters start at zero. Every migrated record is active and
+non-approving under the appropriate pass, including legacy approval. Old approval is historical evidence and cannot
+close a new aggregate or authorize a changed boundary or graph.
+
+## Findings ledger and persistence
+
+Finding records follow [`REVIEW-FINDINGS.md`](REVIEW-FINDINGS.md). The current open projection is the last record for
+each finding ID with `status: open`. Resolved, accepted, and superseded records remain historical evidence.
+
+Controllers append state before launch, after reports, before/after replacement, after redesign reconciliation, and
+after verification. For feature workflows the selected review bead owns state; for standalone work the selected issue
+owns it. Prompts, transcripts, assignments, and controller memory are supporting evidence, not authority.
