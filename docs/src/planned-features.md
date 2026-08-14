@@ -16,8 +16,8 @@ delivered. Language profiles and GitHub workflows extend that baseline. hk polic
 behavior before both migration preservation and monorepo composition consume the generated policy. Migration safety and
 clarity then protects existing project checks and verified history. Migration artifact retirement removes reviewed
 staging copies without weakening that audit trail, and monorepo composition remains independently reviewable. The active
-workflow-review feature makes review passes finite, bounded, deterministic, and migration-safe. After it delivers, the
-dependent parallel-execution feature adds resource-aware task worktrees and main-agent cherry-pick integration.
+delivered workflow-review feature makes review passes finite, bounded, deterministic, and migration-safe. The dependent
+parallel-execution feature adds resource-aware task worktrees and main-agent cherry-pick integration.
 
 ## Roadmap conventions
 
@@ -42,7 +42,7 @@ dependent parallel-execution feature adds resource-aware task worktrees and main
 | `migration-safety-and-clarity` — Migration safety and clarity                   | `dstack-mol-tki` | delivered     | hk policy simplification                               | [Design](features/migration-safety-and-clarity/design.md)          |
 | `migration-artifact-retirement` — Migration artifact retirement                 | `dstack-mol-b8d` | delivered     | Migration safety and clarity                           | [Design](features/migration-artifact-retirement/design.md)         |
 | `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | delivered     | Language quality profiles, hk policy simplification    | [Design](features/monorepo-tooling-layout/design.md)               |
-| `improve-workflow-reviews` — Improve workflow reviews                           | `dstack-mol-2s9` | close-out     | —                                                      | [Design](features/improve-workflow-reviews/design.md)              |
+| `improve-workflow-reviews` — Improve workflow reviews                           | `dstack-mol-2s9` | delivered     | —                                                      | [Design](features/improve-workflow-reviews/design.md)              |
 | `parallel-feature-execution` — Parallel feature execution                       | `dstack-mol-60q` | design        | Improve workflow reviews                               | [Design](features/parallel-feature-execution/design.md)            |
 
 ## Cross-cutting decisions
@@ -73,8 +73,6 @@ No planning-blocking cross-feature decisions remain.
 
 ## Recommended next work
 
-Continue `/close-feature improve-workflow-reviews`: focused validation and the initial specialist reports are complete;
-delivery-integrity verification and structural aggregate approval remain. After that feature is delivered, start
-`/start-feature parallel-feature-execution` for resource-gated worker fan-out and cherry-pick integration. GitHub
+Start `/start-feature parallel-feature-execution` for resource-gated worker fan-out and cherry-pick integration. GitHub
 validation and docs deployment's waived live Pages exercise remains recorded with its GitHub API, permission, and
 provisioning risk.

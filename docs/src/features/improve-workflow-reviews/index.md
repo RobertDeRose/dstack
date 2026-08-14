@@ -3,9 +3,9 @@
 ## Delivery Summary
 
 - Beads feature root: `dstack-mol-2s9`
-- Status: close review verification in progress — delivery blocked
+- Status: delivered
 - Pull request: not created
-- Merge commit: not applicable before approval
+- Merge commit: `78ce464dc0d769e9e7f1061fc8a114c81f507822` (fast-forward)
 - Design record: [design.md](design.md)
 
 ## Delivered Capability
@@ -13,8 +13,8 @@
 dstack review workflows now implement finite, bounded, recoverable direct specialist reviews on the feature branch.
 Beads is the workflow manifest and durable review authority; the controller derives transient role assignments from
 Beads, design/docs, and a pinned Git source boundary. The earlier packet-based implementation remains historical
-evidence. Focused close-out validation is complete, implementation integrity is provisionally approved, and the
-delivery-integrity finding is entering verification. Delivery remains blocked pending structural aggregate approval.
+evidence. Focused close-out validation completed, both specialized close reviewers approved the final source boundary,
+and the structural aggregate authorized delivery.
 
 ## User-Facing Behavior
 
@@ -93,8 +93,8 @@ contracts.
 ### Deferred Work
 
 Workflow-level reviewer-budget overrides and parallel implementation workers remain deferred to their respective future
-scope. Direct cmux child-pane orchestration remains optional presentation integration. Delivery remains blocked until
-the redesigned close reviewers approve.
+scope. Direct cmux child-pane orchestration remains optional presentation integration. The redesigned close reviewers
+approved the delivered boundary.
 
 ### Rejected or Removed Scope
 
@@ -124,20 +124,14 @@ redesigned boundary.
 The pre-delivery record is intentionally not a merge claim. Earlier packet-based holistic reviews preserved findings and
 stopped without delivery. The attempted v15 rebuild then failed to materialize the required shared packet before review;
 no approval or delivery action transferred. This redesign replaces that serialized collector flow with direct
-specialized reviewers. The redesigned close boundary will require both implementation-integrity and delivery-integrity
+specialized reviewers. The redesigned close boundary required both implementation-integrity and delivery-integrity
 approval before delivery.
 
 ## Audit Trail
 
-The direct-review specification boundary was reconciled at `e0ddcf83673d530f3d333dee329090fac8c2ffb8`. Implementation
-commits include `573b3b6`, `b9089ff`, `f742981`, `4330e45`, `88a4e92`, `b2937b0`, and the post-review safety fix
-`234822d`. The earlier packet-based specification was reconciled at `9ee77611b5acd888aa4d11e5fdfb1bed225d35d0`; its
-implementation commits are `0d8b8e0`, `b229dcc`, `f981ff5`, `4f8b407`, `1a975e2`, `5912837`, `1bf1e30`, and `7c9a3b6`;
-compatibility fixes are `cd94df0` and `4acebc3`. The implementation coordinator `dstack-mol-wrq` and its final
-focused-validation child closed at `4e6d4b8`. The old review records were preserved as superseded evidence, and no old
-approval transferred. Close-out remediation commits remain historical evidence for the packet-based boundary. The
-attempted v15 review never reached content review because the shared packet was not materialized; this redesign is the
-next specification boundary. The self-hosting decision, installed reviewer boundary, cutover marker, migration repair,
-and validation evidence remain in the feature root and close-out Beads records. The first direct close-review boundary
-approved at `483a95d`; the later safety fixes overlapped both verified domains, invalidated that approval, and require
-one fresh redesigned close-review boundary.
+Before publication, 66 local development commits were consolidated into focused commits: planning at `24031c7`, direct
+review design at `9568fe7`, finite review state at `a3390c8`, topology migration at `c129bb1`, specialist roles at
+`89dfc03`, controller orchestration at `3a616ec`, and documentation reconciliation at `78ce464`. The feature tree and
+review diff digest remained byte-identical across the rewrite. The executable aggregate rebound both specialist
+approvals to `78ce464` without invalidation. Superseded packet-era evidence, redesign findings, self-hosting decisions,
+cutover verification, and validation evidence remain append-only in Beads.
