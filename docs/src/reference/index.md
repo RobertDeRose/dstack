@@ -363,7 +363,6 @@ length, scope, and footer validators continue to inspect the unfiltered message.
 | `cog.toml`                            | Conventional Commit and changelog policy.                                       |
 | `.config/cog-changelog.tera`          | Concise plain-Markdown changelog template.                                      |
 | `scripts/setup-tooling.py`            | Stdlib provisioner used by setup, update, and manual recovery.                  |
-| `scripts/enable-docs-deployment.py`   | External-`gh` Pages configuration and enablement helper.                        |
 | `.github/workflows/validate.yml`      | Locked push and pull-request validation with `contents: read`.                  |
 | `.github/workflows/docs.yml`          | Default-branch/manual gated Pages build and deployment.                         |
 | `docs/src/development/tooling.md`     | Generated contributor commands and recovery.                                    |
@@ -374,8 +373,8 @@ length, scope, and footer validators continue to inspect the unfiltered message.
 
 Validation grants only `contents: read`. Documentation build grants only `contents: read`; deployment alone grants
 `pages: write` and `id-token: write` and targets `github-pages`. Both documentation jobs require
-`DOCS_DEPLOYMENT_ENABLED == 'true'`. The enable helper configures Pages with `build_type=workflow`, sets that variable
-as its last mutation, and returns the Pages `html_url`; external `gh` is not a universal mise tool.
+`DOCS_DEPLOYMENT_ENABLED == 'true'`. The enable task configures Pages with `build_type=workflow`, sets that variable as
+its last mutation, and returns the Pages `html_url`; external `gh` is not a universal mise tool.
 
 ### Universal tools
 

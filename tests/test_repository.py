@@ -136,7 +136,6 @@ REQUIRED_TEMPLATE_FILES = (
     "docs/src/features/_template/design.md",
     "docs/src/features/_template/index.md",
     "scripts/check-docs.py",
-    "scripts/enable-docs-deployment.py",
     "scripts/setup-tooling.py",
     "_typos.toml",
 )
@@ -287,7 +286,6 @@ SELF_ADOPTION_OUTPUTS = (
     "docs/src/operations/github-pages.md",
     "docs/src/reference/tooling.md",
     "mise.lock",
-    "scripts/enable-docs-deployment.py",
     "scripts/setup-tooling.py",
 )
 
@@ -1425,7 +1423,6 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
         "cog.toml",
         ".config/cog-changelog.tera",
         "scripts/setup-tooling.py",
-        "scripts/enable-docs-deployment.py",
         ".github/workflows/validate.yml",
         ".github/workflows/docs.yml",
         "docs/src/development/tooling.md",
@@ -2563,7 +2560,7 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
             assert "development/tooling.md" in summary
             assert "operations/github-pages.md" in summary
             assert "reference/tooling.md" in summary
-            assert (project / "scripts/enable-docs-deployment.py").is_file()
+            assert not (project / "scripts/enable-docs-deployment.py").exists()
             validate = yaml.safe_load((project / ".github/workflows/validate.yml").read_text(encoding="utf-8"))
             deployment = yaml.safe_load((project / ".github/workflows/docs.yml").read_text(encoding="utf-8"))
             assert set(validate[True]) == {"push", "pull_request"}
@@ -2633,7 +2630,6 @@ def test_python_profile_renders_exact_contract(tagged_template_source: Path, tmp
     write_logging_shims(bin_dir, "ruff", "ty", "uv")
     environment = merged_environment(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", DSTACK_SHIM_LOG=str(log))
     (project / "scripts/check-docs.py").unlink()
-    (project / "scripts/enable-docs-deployment.py").unlink()
     (project / "scripts/setup-tooling.py").unlink()
     run_command(["hk", "check", "-a", "-S", "ruff", "-S", "ruff-format", "-S", "ty"], cwd=project, env=environment)
     assert not log.exists()
@@ -3908,7 +3904,23 @@ def test_setup_project_renders_the_factual_book_matrix(
             "docs:build": {"description": "Build the documentation site", "run": "mdbook build docs"},
             "docs:deployment:enable": {
                 "description": "Enable GitHub Pages deployment",
-                "run": "python3 scripts/enable-docs-deployment.py",
+                "run": (
+                    "#!/usr/bin/env bash\n"
+                    "set -euo pipefail\n\n"
+                    "repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)\n"
+                    "pages_error=$(mktemp)\n"
+                    "trap 'rm -f \"$pages_error\"' EXIT\n\n"
+                    'if gh api "repos/$repository/pages" >/dev/null 2>"$pages_error"; then\n'
+                    '  gh api --method PUT "repos/$repository/pages" -f build_type=workflow >/dev/null\n'
+                    "elif grep -q '(HTTP 404)' \"$pages_error\"; then\n"
+                    '  gh api --method POST "repos/$repository/pages" -f build_type=workflow >/dev/null\n'
+                    "else\n"
+                    '  cat "$pages_error" >&2\n'
+                    "  exit 1\n"
+                    "fi\n"
+                    'gh variable set DOCS_DEPLOYMENT_ENABLED --body true --repo "$repository"\n'
+                    'gh api "repos/$repository/pages" --jq .html_url\n'
+                ),
             },
             "docs:serve": {
                 "description": "Serve the documentation site locally",
@@ -4191,7 +4203,7 @@ def test_copier_update_applies_new_release_and_preserves_project_changes(
         "docs:deployment:enable",
         "docs:serve",
     }
-    assert (project / "scripts/enable-docs-deployment.py").is_file()
+    assert not (project / "scripts/enable-docs-deployment.py").exists()
     assert (project / "docs/src/operations/github-pages.md").is_file()
     for workflow in (project / ".github/workflows/validate.yml", project / ".github/workflows/docs.yml"):
         run_command(["actionlint", str(workflow)], cwd=project)

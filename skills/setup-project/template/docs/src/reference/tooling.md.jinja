@@ -14,7 +14,6 @@
 | `cog.toml`                                                   | Configures Conventional Commits and concise changelogs.                        |
 | `.config/cog-changelog.tera`                                 | Renders plain Markdown changelogs without author noise.                        |
 | `scripts/setup-tooling.py`                                   | Resolves the lock, installs tools, installs hk hooks, and returns JSON status. |
-| `scripts/enable-docs-deployment.py`                          | Configures workflow-built Pages through external `gh`.                         |
 | `skills/dstack-core/scripts/reconcile-beads-interactions.py` | Verifies and reconciles append-only Beads interaction evidence.                |
 | `skills/dstack-core/scripts/beads-workflow-lock.py`          | Serializes dstack Beads mutation intervals outside Git.                        |
 | `skills/dstack-core/scripts/finalize-feature-delivery.py`    | Guards delivery/root closure with post-merge evidence.                         |

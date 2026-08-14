@@ -46,9 +46,9 @@ documentation.
 is false and no artifact or deployment occurs. The workflow builds with `mise run docs:build`, uploads `docs/book`, and
 deploys to the `github-pages` environment.
 
-`mise run docs:deployment:enable` treats `gh` as an external administrative prerequisite. It verifies the executable,
-`gh auth status`, and repository context; creates or updates Pages to `build_type=workflow`; sets
-`DOCS_DEPLOYMENT_ENABLED=true` only after Pages configuration succeeds; then prints the Pages URL. Repeated calls are
+`mise run docs:deployment:enable` treats `gh` as an external administrative prerequisite. It resolves the repository,
+queries Pages to distinguish an existing site from an HTTP 404, creates or updates Pages to `build_type=workflow`, sets
+`DOCS_DEPLOYMENT_ENABLED=true` only after Pages configuration succeeds, then prints the Pages URL. Repeated calls are
 idempotent. Local tasks remain usable without `gh` or a GitHub remote.
 
 ## Requirements
@@ -83,21 +83,16 @@ Fork pull requests therefore receive neither Pages permissions nor a deployment 
 
 #### Enable task
 
-Add the sixth generated mise task, `docs:deployment:enable`, backed by a generated stdlib helper. The helper performs,
-in order:
+Add the sixth generated mise task, `docs:deployment:enable`, as an inline shell task. It performs, in order:
 
-1. find `gh`, otherwise print installation guidance and the manual commands below;
-2. run `gh auth status`;
-3. resolve `OWNER/REPO` with `gh repo view --json nameWithOwner --jq .nameWithOwner`;
-4. query `GET /repos/{owner}/{repo}/pages`;
-5. on HTTP 404, create Pages with `POST /repos/{owner}/{repo}/pages -f build_type=workflow`; otherwise update it with
-   `PUT /repos/{owner}/{repo}/pages -f build_type=workflow`; any other GET/API failure stops;
-6. set `DOCS_DEPLOYMENT_ENABLED=true` with `gh variable set` only after Pages configuration succeeds;
-7. query Pages again and print `.html_url`.
+1. resolve `OWNER/REPO` with `gh repo view --json nameWithOwner --jq .nameWithOwner`;
+2. query Pages, updating an existing site with `PUT` or creating one with `POST` only on HTTP 404;
+3. set `DOCS_DEPLOYMENT_ENABLED=true` with `gh variable set` only after Pages configuration succeeds;
+4. query Pages and print `.html_url`.
 
 A Pages change followed by variable failure remains safe because deployment stays disabled. Repetition converges on the
-same Pages build type and variable. The helper returns nonzero and never claims success on authentication, repository,
-API, or variable failures.
+same Pages build type and variable. Shell error handling returns nonzero without claiming success when a `gh` command
+fails.
 
 Manual fallback is:
 
@@ -125,15 +120,15 @@ Generated workflows pin actions to these full commits, with comments naming thei
 - Actionlint and zizmor validate both rendered workflows.
 - Static tests assert exact triggers, branch, gates, permissions, environment, artifact path, action pins, and commands.
 - Pull requests from forks cannot obtain deployment permissions.
-- The enable helper passes deterministic mocked success, repeat, missing-gh, auth, missing-remote, 404-create, non-404
-  API, variable, and final-query cases.
-- Both Copier entry points and conflict-free updates render/preserve the workflows, sixth task, helper, and docs.
+- The inline enable task passes deterministic mocked success, repeat, repository-resolution, Pages API, variable, and
+  final-query cases.
+- Both Copier entry points and conflict-free updates render and preserve the workflows, sixth task, and docs.
 
 ### Compatibility and Migration Requirements
 
-Existing managed projects receive workflows, task, helper, and docs through Copier update. Repository variables and
-Pages settings remain GitHub-owned state and are never reset by Copier. Conflicts continue to block generated-code
-execution. Projects without GitHub or `gh` retain the existing local tasks and receive clear enablement guidance.
+Existing managed projects receive workflows, task, and docs through Copier update. Repository variables and Pages
+settings remain GitHub-owned state and are never reset by Copier. Conflicts continue to block generated-code execution.
+Projects without GitHub or `gh` retain the existing local tasks and receive clear enablement guidance.
 
 ## Existing Context
 
@@ -144,10 +139,10 @@ generated workflows remain separately specified product behavior.
 
 ## Proposed Design
 
-Add two unconditional workflow templates, one generated stdlib enable helper, one mise operator task, one generated
-operations page, and updates to existing generated tooling/reference pages. Validation consumes the five stable
-Universal project tooling tasks without adding policy. GitHub validation and docs deployment intentionally extends the
-shared mise interface from five to six tasks while retaining nine universal tools because `gh` is external.
+Add two unconditional workflow templates, one inline mise operator task, one generated operations page, and updates to
+existing generated tooling/reference pages. Validation consumes the five stable Universal project tooling tasks without
+adding policy. GitHub validation and docs deployment intentionally extends the shared mise interface from five to six
+tasks while retaining nine universal tools because `gh` is external.
 
 ## Architecture Consistency
 
@@ -179,10 +174,10 @@ Document CI parity, GitHub-state ownership, deployment permissions, gating, and 
 
 ## Operational Considerations
 
-Enablement requires an authenticated `gh` identity with repository administration permission. The helper reports the
-failed operation and manual fallback. The credentialed disposable-repository exercise belongs to lifecycle validation,
-not an implementation child; if unavailable, validation records it as unavailable and remains blocked unless explicitly
-waived.
+Enablement requires an authenticated `gh` identity with repository administration permission. The inline task stops on
+failed operations, and the operations guide provides manual fallback commands. The credentialed disposable-repository
+exercise belongs to lifecycle validation, not an implementation child; if unavailable, validation records it as
+unavailable and remains blocked unless explicitly waived.
 
 ## Documentation Impact
 
@@ -191,7 +186,7 @@ waived.
 | Root architecture     | `docs/src/architecture/index.md`                                          | deployment task     | CI/deployment/GitHub-state trust boundaries                     |
 | Root usage            | `docs/src/operations/index.md`                                            | enable task         | Enablement, recovery, manual fallback                           |
 | Root development      | `docs/src/development/index.md`                                           | validation task     | Exact local/CI parity                                           |
-| Root reference        | `docs/src/reference/index.md`                                             | enable task         | Workflows, task, variable, permissions, helper result           |
+| Root reference        | `docs/src/reference/index.md`                                             | enable task         | Workflows, task, variable, permissions, task result             |
 | Generated development | `skills/setup-project/template/docs/src/development/tooling.md.jinja`     | validation task     | CI parity and workflow paths                                    |
 | Generated operations  | `skills/setup-project/template/docs/src/operations/github-pages.md.jinja` | enable task         | Enablement, recovery, fallback, URL                             |
 | Generated reference   | `skills/setup-project/template/docs/src/reference/tooling.md.jinja`       | enable task         | Sixth task, variable, workflow/permission contract, external gh |
@@ -210,7 +205,7 @@ Every page has one implementation commit owner. No new root reader page is neede
 - Assert exact pins, events, rendered default branch, job gates, permissions, environment, artifact path, locked
   install, and named tasks.
 - Assert tool count stays nine and task set becomes the existing five plus `docs:deployment:enable`.
-- Run mocked helper cases without network credentials.
+- Run mocked inline-task cases without network credentials.
 - Exercise conflict-free Copier update and verify project-owned workflow edits follow normal Copier conflict handling
   while repository variables remain out of template state.
 - Run generated docs checker and mdBook with the operations page registered.
@@ -230,9 +225,8 @@ Repository-wide validation remains `uv run --frozen --group test pytest`, `mise 
    this file.
 2. **Deployment workflow (`dstack-mol-41q.2`)**: after task 1, generate `.github/workflows/docs.yml`; own root
    architecture docs, focused tests in `tests/test_github_deployment.py`, and its shared exact-scaffold assertion delta.
-3. **Enablement (`dstack-mol-41q.3`)**: after task 2, add helper and sixth task; own root operations/reference,
-   generated operations/reference/navigation, focused tests in `tests/test_github_enablement.py`, and shared task/file
-   assertions.
+3. **Enablement (`dstack-mol-41q.3`)**: after task 2, add the sixth task; own root operations/reference, generated
+   operations/reference/navigation, focused tests in `tests/test_github_enablement.py`, and shared task/file assertions.
 4. **Integration (`dstack-mol-41q.4`)**: after the other three, own remaining combined/update coverage in
    `tests/test_repository.py`, both-entrypoint integration, workflows/tasks/docs, and roadmap reconciliation.
 

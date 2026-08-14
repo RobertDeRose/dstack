@@ -54,7 +54,25 @@ run = "mdbook build docs"
 
 [tasks."docs:deployment:enable"]
 description = "Enable GitHub Pages deployment"
-run = "python3 scripts/enable-docs-deployment.py"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+pages_error=$(mktemp)
+trap 'rm -f "$pages_error"' EXIT
+
+if gh api "repos/$repository/pages" >/dev/null 2>"$pages_error"; then
+  gh api --method PUT "repos/$repository/pages" -f build_type=workflow >/dev/null
+elif grep -q '(HTTP 404)' "$pages_error"; then
+  gh api --method POST "repos/$repository/pages" -f build_type=workflow >/dev/null
+else
+  cat "$pages_error" >&2
+  exit 1
+fi
+gh variable set DOCS_DEPLOYMENT_ENABLED --body true --repo "$repository"
+gh api "repos/$repository/pages" --jq .html_url
+'''
 
 [tasks."docs:serve"]
 description = "Serve the documentation site locally"

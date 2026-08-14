@@ -13,17 +13,16 @@ gh auth login
 mise run docs:deployment:enable
 ```
 
-The task checks `gh`, authentication, and repository resolution. It creates or updates Pages with the GitHub Actions
-build type, then sets `DOCS_DEPLOYMENT_ENABLED=true` as the last mutation and prints the Pages URL. Repeating the task
-updates the same configuration safely.
+The mise task resolves the current repository with `gh`, creates Pages or updates an existing site to use the GitHub
+Actions build type, sets `DOCS_DEPLOYMENT_ENABLED=true`, and prints the Pages URL.
 
 Deployment requires both Pages `build_type=workflow` and the repository variable to be exactly `true`. The workflow runs
 only for pushes to the configured default branch and explicit manual dispatches; pull requests never deploy.
 
 ## Recovery
 
-A failed task names the failed GitHub operation and does not report success. Install `gh` from <https://cli.github.com/>
-if necessary. Complete the same state manually:
+The task stops on a failed `gh` command. Install `gh` from <https://cli.github.com/> if necessary. Complete the same
+state manually:
 
 ```bash
 gh api --method PUT repos/OWNER/REPO/pages -f build_type=workflow

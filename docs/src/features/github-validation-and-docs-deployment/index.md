@@ -25,9 +25,10 @@ credential persistence, and uses the pinned mise action to install the committed
 install locked tools with its cache enabled, runs `mise run docs:build`, and uploads `docs/book`; the deploy job alone
 receives `pages: write` and `id-token: write` and targets the `github-pages` environment.
 
-Administrators run `mise run docs:deployment:enable` with an external authenticated `gh`. The idempotent helper creates
-or updates Pages with `build_type=workflow`, sets the repository variable only after Pages configuration succeeds, and
-prints the Pages URL. Failures stop without claiming success and include exact manual recovery commands.
+Administrators run `mise run docs:deployment:enable` with an external authenticated `gh`. The inline task creates or
+updates Pages with `build_type=workflow`, sets the repository variable only after Pages configuration succeeds, and
+prints the Pages URL. Failed `gh` commands stop without claiming success; the operations guide provides manual recovery
+commands.
 
 ## Design Integration
 
@@ -42,7 +43,7 @@ permissions, or commands.
 Pages remains disabled after setup and Copier update. Deployment requires both repository-side `build_type=workflow` and
 the exact true repository variable. Pull requests and forks have no deployment path. Repeating the enable task converges
 on the same state. Missing `gh`, authentication, repository resolution, API access, variable permission, or URL lookup
-produces a nonzero result with installation or manual recovery guidance.
+produces a nonzero result; the operations guide provides installation and manual recovery guidance.
 
 ## Reference and Contracts
 
@@ -75,8 +76,9 @@ operations documentation, both Copier entry points, and conflict-free updates ma
 
 Implementation tasks were serialized after preflight confirmed that every generated file and task changes shared exact
 scaffold assertions. Default-branch interpolation uses YAML-safe JSON quoting. The Pages build enables mise caching,
-with an explicit zizmor suppression because this repository accepts the cache-poisoning risk. Enablement recognizes only
-a terminal `(HTTP 404)` as absent Pages and publishes exact fallback commands on every failure.
+with an explicit zizmor suppression because this repository accepts the cache-poisoning risk. The original enablement
+helper distinguished an absent Pages site through an HTTP 404; maintenance chore `dstack-y998` later replaced it with a
+smaller inline create-or-update task while retaining mutation order and documented recovery.
 
 ### Deferred Work
 
@@ -110,6 +112,7 @@ application deployment, release automation, or package manifests.
 - Locked GitHub validation (`dstack-mol-41q.1`): `e8dd79af1bbbd71f6811e642da29332befa9192d`.
 - Gated Pages deployment (`dstack-mol-41q.2`): `685f61f93b5d68289c1327cad3cfc4c990f3b750`.
 - Safe external-`gh` enablement (`dstack-mol-41q.3`): `ebbfe142b786d8a05028900cff234501e3027fac`.
+- Inline enablement simplification and template reconciliation: `dstack-y998`.
 - Combined profile/update integration (`dstack-mol-41q.4`): `ea6b558786b51cb1f07071913db50cea3f90b906`.
 - Implementation coordinator `dstack-mol-41q` closed after every required child passed acceptance and fresh review.
 - Holistic delivery and drift reviews passed after reconciling the waiver, lifecycle status, and manual-dispatch
