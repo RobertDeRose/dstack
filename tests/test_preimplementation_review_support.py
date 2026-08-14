@@ -293,6 +293,29 @@ def test_structured_review_note_rejects_invalid_waivers() -> None:
     module.validate_finding(finding)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("resolution", {"bad": True}, "resolution and verification"),
+        ("verification", ["bad"], "resolution and verification"),
+        ("reviewed_commit", "not-a-sha", "reviewed_commit is invalid"),
+        ("reviewed_diff_digest", "sha256:bad", "reviewed_diff_digest is invalid"),
+        ("supersedes_finding_id", 7, "supersedes_finding_id is invalid"),
+    ],
+)
+def test_structured_review_note_rejects_malformed_evidence(field: str, value: object, message: str) -> None:
+    module = load_script("append-review-note.py")
+    finding = valid_finding()
+    finding.update(status="resolved", resolution="fixed", verification="passed")
+    if field in {"reviewed_commit", "reviewed_diff_digest"}:
+        boundary = cast(dict[str, object], finding["source_boundary"])
+        boundary[field] = value
+    else:
+        finding[field] = value
+    with pytest.raises(ValueError, match=message):
+        module.validate_finding(finding)
+
+
 def promotion_plan() -> dict[str, object]:
     return {
         "schema": "dstack.legacy-feature-promotion.v1",
@@ -330,6 +353,35 @@ def test_legacy_promotion_rejects_dependency_cycles_before_mutation() -> None:
             tasks.append(second)
         with pytest.raises(ValueError, match="contain a cycle"):
             module.validate_plan(plan)
+
+
+def test_legacy_promotion_rejects_conflicting_root_identity_before_mutation(tmp_path: Path) -> None:
+    module = load_script("promote-legacy-feature.py")
+    commands: list[list[str]] = []
+    root = {
+        "id": "demo-root",
+        "title": "Original",
+        "issue_type": "epic",
+        "labels": ["workflow:feature"],
+        "metadata": {"feature_slug": "original"},
+    }
+
+    def fake_run(command: list[str], *, cwd: Path) -> object:
+        commands.append(command)
+        if command[1:3] == ["show", "demo-root"]:
+            return [root]
+        message = "Promotion mutated Beads after an identity conflict"
+        raise AssertionError(message)
+
+    with pytest.raises(ValueError, match="feature_slug"):
+        module.promote_existing_root(
+            repository_root=tmp_path,
+            root_id="demo-root",
+            formula_path=REPOSITORY_ROOT / ".beads/formulas/dstack-feature.formula.toml",
+            plan=promotion_plan(),
+            runner=fake_run,
+        )
+    assert commands == [["bd", "show", "demo-root", "--json"]]
 
 
 def test_legacy_promotion_preserves_root_and_is_idempotent(tmp_path: Path) -> None:

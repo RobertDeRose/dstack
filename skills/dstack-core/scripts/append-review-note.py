@@ -51,6 +51,8 @@ def validate_finding(payload: Mapping[str, object]) -> None:
     for field in ("finding_id", "summary"):
         if not isinstance(payload[field], str) or not payload[field]:
             raise ValueError(f"Finding {field} is required")
+    if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._:-]*", str(payload["finding_id"])) is None:
+        raise ValueError("Finding ID is invalid")
     domain = payload["domain"]
     if not isinstance(domain, str) or re.fullmatch(r"[a-z][a-z0-9-]*", domain) is None:
         raise ValueError("Finding domain is invalid")
@@ -67,20 +69,23 @@ def validate_finding(payload: Mapping[str, object]) -> None:
     boundary = payload["source_boundary"]
     if not isinstance(boundary, Mapping):
         raise ValueError("Finding source boundary is required")
-    for field in (
-        "review_issue_id",
-        "reviewer_session_id",
-        "reviewed_commit",
-        "reviewed_diff_base",
-        "reviewed_diff_digest",
-    ):
+    for field in ("review_issue_id", "reviewer_session_id"):
         value = boundary.get(field)
-        if not isinstance(value, str) or not value:
-            raise ValueError(f"Finding source_boundary.{field} is required")
+        if not isinstance(value, str) or re.fullmatch(r"[a-z0-9][a-z0-9._:-]*", value) is None:
+            raise ValueError(f"Finding source_boundary.{field} is invalid")
+    for field in ("reviewed_commit", "reviewed_diff_base"):
+        value = boundary.get(field)
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+            raise ValueError(f"Finding source_boundary.{field} is invalid")
+    digest = boundary.get("reviewed_diff_digest")
+    if not isinstance(digest, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+        raise ValueError("Finding source_boundary.reviewed_diff_digest is invalid")
     if status == "open" and any(payload[field] is not None for field in ("resolution", "verification", "waiver")):
         raise ValueError("Open findings cannot contain resolution evidence")
-    if status in {"resolved", "accepted"} and any(payload[field] is None for field in ("resolution", "verification")):
-        raise ValueError("Resolved findings require resolution and verification")
+    if status in {"resolved", "accepted"}:
+        for field in ("resolution", "verification"):
+            if not isinstance(payload[field], str) or not payload[field]:
+                raise ValueError("Resolved findings require resolution and verification")
     if status != "accepted" and payload["waiver"] is not None:
         raise ValueError("Only accepted findings may contain a waiver")
     if status == "accepted":
@@ -95,7 +100,12 @@ def validate_finding(payload: Mapping[str, object]) -> None:
                 raise ValueError(f"Accepted finding waiver.{field} is required")
         if waiver.get("scope") != [payload["finding_id"]]:
             raise ValueError("Accepted finding waiver scope is invalid")
-    if status == "superseded" and not payload["supersedes_finding_id"]:
+    supersedes = payload["supersedes_finding_id"]
+    if supersedes is not None and (
+        not isinstance(supersedes, str) or re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._:-]*", supersedes) is None
+    ):
+        raise ValueError("Finding supersedes_finding_id is invalid")
+    if status == "superseded" and supersedes is None:
         raise ValueError("Superseded finding requires its prior finding ID")
 
 

@@ -250,6 +250,26 @@ def promote_existing_root(
     if str(root_issue.get("issue_type") or "") != "epic" or "workflow:feature" not in (root_issue.get("labels") or []):
         raise ValueError("Selected root is not a workflow feature epic")
     root_metadata = mapping(root_issue.get("metadata"))
+    expected_identity = {
+        key: str(validated_plan[key])
+        for key in (
+            "feature_name",
+            "feature_slug",
+            "design_path",
+            "implemented_path",
+            "base_branch",
+            "implementation_repository",
+            "implementation_path",
+        )
+    }
+    conflicts = sorted(
+        key for key, expected in expected_identity.items() if root_metadata.get(key) not in (None, "", expected)
+    )
+    existing_spec = str(root_issue.get("spec_id") or "")
+    if existing_spec and existing_spec != expected_identity["design_path"]:
+        conflicts.append("spec_id")
+    if conflicts:
+        raise ValueError(f"Legacy root identity conflicts with promotion plan: {', '.join(conflicts)}")
     prior_digest = str(root_metadata.get("legacy_promotion_digest") or "")
     if prior_digest and prior_digest != digest:
         raise ValueError("Legacy promotion plan changed after lifecycle creation")
