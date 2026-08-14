@@ -171,16 +171,14 @@ only `bd show <root-id> --json`:
 ```bash
 bd update <root-id> \
   --set-metadata design_id=<id> \
-  --set-metadata review_architecture_id=<id> \
-  --set-metadata review_simplicity_id=<id> \
-  --set-metadata review_documentation_id=<id> \
-  --set-metadata review_execution_id=<id> \
+  --set-metadata review_specification_clarity_id=<id> \
+  --set-metadata review_execution_readiness_id=<id> \
   --set-metadata spec_reconcile_id=<id> \
   --set-metadata implementation_id=<id> \
   --set-metadata docs_reconcile_id=<id> \
   --set-metadata validation_id=<id> \
-  --set-metadata review_delivery_id=<id> \
-  --set-metadata review_drift_id=<id> \
+  --set-metadata review_implementation_integrity_id=<id> \
+  --set-metadata review_delivery_integrity_id=<id> \
   --set-metadata delivery_id=<id> \
   --set-metadata workflow_kind=molecule
 ```
@@ -190,9 +188,9 @@ identity and path metadata on every lifecycle task; never retain a `{{variable}}
 
 ```bash
 for lifecycle_id in \
-  <design-id> <review-architecture-id> <review-simplicity-id> <review-documentation-id> <review-execution-id> \
-  <spec-reconcile-id> <implementation-id> <docs-reconcile-id> <validation-id> <review-delivery-id> \
-  <review-drift-id> <delivery-id>
+  <design-id> <review-specification-clarity-id> <review-execution-readiness-id> \
+  <spec-reconcile-id> <implementation-id> \
+  <docs-reconcile-id> <validation-id> <review-implementation-id> <review-delivery-integrity-id> <delivery-id>
 do
   bd update "$lifecycle_id" \
     --set-metadata feature_slug=<slug> \

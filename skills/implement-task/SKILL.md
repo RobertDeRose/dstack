@@ -117,19 +117,24 @@ documentation aligned in the same work unit. Do not modify unrelated findings; c
 
 ## 4. Validate and review
 
-Run focused checks while iterating. After review fixes stabilize, run the task-specific checks, documentation checks
-when docs changed, and the repository-standard suite once before committing. Record exact commands, outcomes, skipped
-checks, and limitations. Do not reuse validation from before the final fix.
+Run focused checks while iterating. Run the exact task-specific validation command persisted in Beads, plus
+`uv run --no-project python scripts/check-docs.py` when documentation changes. Validation and the one focused reviewer
+are bounded by the exact task acceptance criteria, declared changed paths, and affected checks. Do not automatically run
+the entire repository suite. Run it only after an explicit user request or when a separate repository delivery
+policy—not this lifecycle—requires it. Record exact commands, outcomes, skipped checks, and limitations. After a fix,
+rerun only checks whose inputs changed; do not reuse validation from before the final fix.
 
 The optional Pi adapter is defined in
 [`../dstack-core/references/PI-REVIEWER-ROSTER.md`](../dstack-core/references/PI-REVIEWER-ROSTER.md); it maps the
-logical `task` role to `dstack-task-reviewer`. It preserves exactly one fresh reviewer and no context builder. If the
-named agent is absent, offer the explicit project-local sync documented in `PI-REVIEWER-ROSTER.md`; after a declined or
-failed sync, fail visibly. If it is unavailable, fail visibly with no silent role substitution or review-count change.
-Follow the shared reference for Pi discovery, resumption, replacement, and Beads evidence ownership.
+logical `task` role to `dstack-task-reviewer`. It derives one transient assignment from the selected Beads issue,
+design/docs, affected checks, and immutable Git source boundary. It preserves exactly one fresh reviewer and no second
+durable assignment manifest. If the named agent is absent, offer the explicit project-local sync documented in
+`PI-REVIEWER-ROSTER.md`; after a declined or failed sync, fail visibly. If it is unavailable, fail visibly with no
+silent role substitution or review-count change. Follow the shared reference for Pi discovery, resumption, replacement,
+and Beads evidence ownership.
 
 Launch exactly one fresh, read-only reviewer for correctness, security, maintainability, test adequacy, and compliance
-with the selected issue. A context builder is unnecessary. Give the reviewer the issue metadata, intended boundary,
+with the selected issue. Give the reviewer the issue metadata, transient assignment, immutable Git source boundary,
 changed paths, validation evidence, and diff.
 
 ### Standalone review evidence
@@ -138,15 +143,15 @@ The selected standalone issue's Beads notes are the authoritative review record.
 review bead. Append all machine-readable `Review state:` and `Finding:` records to the selected issue's notes, using the
 shared schemas in `../dstack-core/references/REVIEW-STATE.md` and `../dstack-core/references/REVIEW-FINDINGS.md`. The
 last `Review state:` line is the current review state; the last record for each `finding_id` is its current finding
-projection. Do not treat the packet, reviewer transcript, controller memory, or prose note as a substitute.
+projection. Do not treat the transient assignment, reviewer transcript, controller memory, or prose note as a
+substitute.
 
-Before launching the reviewer, append an `active` state containing the run ID, reviewer session ID supplied by the
-harness, packet ID/path/digest, reviewed commit and diff boundary, review round, finding domains, and review boundary.
-Use `status: active` and `disposition: pending`. After review, append each `Finding:` record and a new current state.
-Use `status: verified` and `disposition: approved` only after actionable findings are resolved and affected checks pass.
-An unresolved review remains `status: findings` with `disposition: changes_required` and current open `Finding:`
-records; do not close the issue. Resume the same reviewer and run ID after fixes, preserving the packet identity and
-updating the reviewed commit/diff boundary.
+Before launching the reviewer, append an `initial_active` state containing the run ID, reviewer session ID supplied by
+the harness, owning `review_issue_id`, immutable Git source boundary, declared paths/domains/requirement IDs, and
+transient assignment counts. After review, append each `Finding:` record and a new current state. Use `approved` only
+after actionable findings are resolved and affected checks pass. An unresolved review remains `status: findings` with
+`disposition: changes_required` and current open `Finding:` records; do not close the issue. Resume the same reviewer
+and run ID after fixes, preserving the source boundary until a material fix requires reconciliation.
 
 If the reviewer harness is unavailable before any reviewer session launches, append `status: unavailable` with
 `disposition: pending` and a concrete `unavailable_reason`, then stop; the controller must not substitute self-review,
@@ -156,11 +161,11 @@ preserved (`null` only for an initial run); mark that run `status: replaced` wit
 `replacement_reason`, then create a new replacement run with a new run ID, `status: active`, `disposition: pending`,
 `supersedes_run_id` pointing to the original run. The replacement run preserves the existing `replacement_count`; this
 field counts only bounded redesign replacements, so ordinary unavailability does not consume the redesign-replacement
-allowance. Record the replacement reason on both runs and pass the replacement the original packet identity, findings
-ledger, resolutions, and post-fix diff. If the replacement itself is unavailable, append its `status: unavailable` state
-and stop; do not launch a second replacement. If a fix materially changes the reviewed boundary, stop and reconcile the
-scope rather than using reviewer replacement. Do not add confidence reviewers without a distinct uncovered risk or
-explicit user request.
+allowance. Record the replacement reason on both runs and pass the replacement the same source boundary, findings
+ledger, resolutions, and post-fix diff. If the replacement itself is unavailable, append its incomplete state and stop;
+do not launch a second replacement. If a fix materially changes the reviewed boundary, stop and reconcile the scope
+rather than using reviewer replacement. Do not add confidence reviewers without a distinct uncovered risk or explicit
+user request.
 
 Record evidence before closure:
 

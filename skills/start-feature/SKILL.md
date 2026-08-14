@@ -129,87 +129,90 @@ git -C <worktree-path> branch --show-current
 git -C <worktree-path> rev-parse --show-toplevel
 ```
 
-The branch must equal `feat/<slug>` and the root must equal the resolved worktree path before editing. Claim the feature
-root when appropriate:
+The branch must equal `feat/<slug>` and the root must equal the resolved worktree path before editing. Before any claim,
+note, or other mutation, guard the selected feature's read-only resolved root against an unapplied or newer topology:
 
 ```bash
-bd update <feature-root> --claim
+python3 <core-dir>/scripts/migrate-review-topology.py \
+  --repository-root <primary-worktree> guard \
+  --root-id <feature-root> --controller-topology-version 3
 ```
 
-## 4. Build Context Once, Then Run Four Reviews
+If old review kinds remain without a cutover marker, plan and apply migration from the canonical primary worktree before
+continuing. The migrator is the sole topology mutation owner and acquires the repository lease itself. Never emulate its
+writes from this skill. Only after a successful guard may the workflow claim the feature root under the ordinary lease.
 
-The optional Pi adapter is defined in
-[`../dstack-core/references/PI-REVIEWER-ROSTER.md`](../dstack-core/references/PI-REVIEWER-ROSTER.md). For this workflow
-it maps `context-builder` to `dstack-context-builder`, `architecture` to `dstack-architecture-reviewer`, `simplicity` to
-`dstack-simplicity-reviewer`, `documentation` to `dstack-documentation-reviewer`, and `execution` to
-`dstack-execution-reviewer`. The adapter preserves one context builder plus four role reviewers: the context builder
-completes synchronously before the four independent reviewers launch concurrently with the same packet. If any named
-agent is absent; offer the explicit project-local Pi reviewer sync documented in `PI-REVIEWER-ROSTER.md` before launch.
-A declined or failed sync fails visibly. If an agent is unavailable, fail visibly; there is no silent role substitution
-or change to the review count.
+## 4. Derive Direct Assignments, Then Run Two Reviews
 
-Launch exactly one fresh, read-only context builder before any reviewer. Store its packet in the subagent run's
-ephemeral artifact directory, never in the repository. The packet must contain factual evidence only: feature authority
-and identity, reviewed requirements, relevant architecture and prior decisions, changed/current source paths, Beads
-graph and acceptance criteria, documentation impact, validation evidence, and exact source locations. It must not
-contain findings, recommendations, or a verdict. Prior findings are supplied separately as the current open projection
-from `../dstack-core/references/REVIEW-FINDINGS.md`; historical records remain audit context only.
+Beads is the workflow manifest. Read the selected feature root, design/specification issues, implementation coordinator
+and children, current validation/documentation ownership, and exact review issues from Beads. Do not create a shared
+evidence bundle, collector, shared context, or second durable manifest.
 
-The open review tasks and `spec-reconcile` are expected while review is in progress; reviewers must not report that
-state itself. Report stale dependency direction, missing tasks, and other graph defects. The controller verifies gate
-closure only after reviewer approval and the specification-reconciliation commit.
+Pin one immutable Git source boundary from the authoritative feature worktree before launch: `review_boundary_id`,
+`reviewed_commit`, `reviewed_diff_base`, `reviewed_diff_digest`, and changed paths. Persist each review state's owning
+`review_issue_id`, source boundary, declared paths, domains, requirement IDs, and `initial_active` state before
+launching its reviewer. The pinned read-only worktree is the source for reviewer inspection.
 
-Launch exactly four role reviewers with `context: fresh`, giving each the same packet and its distinct goal below. Each
-reviewer independently reasons from the packet, verifies evidence critical to its role, and reads additional source only
-when needed. Follow `../dstack-core/references/REVIEW-STATE.md` and `../dstack-core/references/REVIEW-FINDINGS.md`:
-claim the matching lifecycle task, append its durable `Review state:` record before launch, and update that record after
-each finding or resolution. Do not add general-purpose or confidence reviewers unless a distinct uncovered risk or the
-user explicitly requires one.
+The assignment includes the pinned read-only worktree and its exact source boundary. Derive one transient assignment per
+role from the current Beads issue and design/docs. It contains the owning Beads issue/title, description, acceptance
+criteria, dependencies, validation/documentation ownership, source-boundary fields, declared paths/domains/requirements,
+explicit non-goals, and the structured report contract. Resolve the exact Pi names in
+`../dstack-core/references/PI-REVIEWER-ROSTER.md`: logical `specification-clarity` maps to `dstack-clarity-reviewer`,
+and `execution-readiness` maps to `dstack-readiness-reviewer`. Missing or unavailable names fail visibly after optional
+project-local sync; there is no silent substitution.
 
-### Architecture Consistency
+Launch exactly two independent fresh reviewers concurrently. Give each only its transient role assignment and a pinned
+read-only worktree. Reviewers gather assigned evidence directly, report missing evidence, and never broaden the
+assignment silently.
 
-Compare the design with documented boundaries, invariants, ownership, established patterns, prior decisions, current
-code, and relevant completed features. Identify conflicting assumptions, missing reuse, and undocumented architecture
-changes.
+### Specification Clarity
 
-### Simplicity and Maintainability
-
-Challenge accidental complexity, speculative abstractions, hidden coupling, unclear ownership, weak failure handling,
-and avoidable operational burden. Prefer the smallest correct design.
-
-### Documentation Readiness
-
-Verify that every reader-facing change names an exact existing or new page, each page has a clear reader purpose, new
-pages are placed in `SUMMARY.md`, and product documentation stands alone without the internal feature design.
+Review behavior, boundaries, compatibility, ownership, failure/recovery policy, documentation intent, and unresolved
+user decisions. Do not invent policy.
 
 ### Execution Readiness
 
-Review implementation children, blocker direction, parallel safety, acceptance criteria, validation, documentation
-ownership, and commit boundaries. Confirm every remaining task depends on `spec-reconcile` and is small enough for one
-agent without inventing design intent.
+Review task scope, dependency direction, ownership, validation, documentation ownership, acceptance criteria, and commit
+boundaries. Work must be executable without inventing intent.
 
-Record findings and resolutions on the review bead, alongside the current `Review state:` record:
-
-```bash
-bd update <review-task-id> --claim
-bd update <review-task-id> --append-notes "<findings and resolution>"
-```
-
-Review is complete when all four review beads contain independently produced evidence, findings, and dispositions. If
-reconciliation changes a reviewed domain, resume only its original reviewer and run ID. Before launching another review
-round, apply the convergence threshold in `../dstack-core/references/REVIEW-STATE.md`: two unresolved review rounds in
-the same domain require redesign or decomposition. Do not launch another reviewer while that threshold is active; keep
-or reopen `spec-reconcile` and return to the design-question/decomposition phase. A material scope change invalidates
-the whole review run. Do not launch a fresh replacement reviewer in the same run; reopen `spec-reconcile`, commit the
-redesigned boundary, rebuild one redesigned packet, and run one new four-role review with `replacement_count: 1`.
-Refresh the shared packet only after broad design, architecture, task-graph, or documentation-structure changes. Launch
-a fresh replacement only when the original cannot be resumed without a scope change; provide the original packet,
-finding, resolution, and post-review diff.
+Follow `../dstack-core/references/REVIEW-STATE.md` and `REVIEW-FINDINGS.md`. Claim each matching lifecycle review bead
+and append its current executable state before launch. Review state is per reviewer; aggregate state uses exactly
+`specification-clarity` and `execution-readiness`. Open review tasks and `spec-reconcile` are expected and are not
+findings. Do not add confidence reviewers. Resume only affected original reviewers. A material scope change returns to
+redesign; timeout/unavailability and finite replacement behavior follow the state helper. After a terminal
+`redesign_required` state, reconcile and commit a new boundary, then use the helper's one bounded `redesign` transition
+with a new boundary ID; never launch another reviewer against the old boundary.
 
 ## 5. Reconcile the Specification
 
 Apply clear fixes to `design.md`, Beads descriptions, acceptance criteria, dependencies, metadata, validation, and
-documentation impact. Ask one blocking design question at a time when user policy or intent is genuinely ambiguous.
+documentation impact. Use `../dstack-core/scripts/review-state.py` for reviewer transitions and aggregate state.
+`spec-reconcile` cannot close while any reviewer or aggregate state contains `decision_required`, `changes_required`, an
+incomplete review, `waiver_required`, or `redesign_required`.
+
+When a reviewer identifies genuinely unresolved user policy or intent, preserve its decision record and stop. Present
+one decision brief with these labeled elements:
+
+- **Issue:** what is undecidable and the evidence or explicit uncertainty that prevents a safe inference;
+- **Affected requirements/tasks:** every recorded requirement and task ID;
+- **Recommendation:** one choice and why it best preserves the reviewed boundaries;
+- **Alternatives and consequences:** each viable alternative with its concrete trade-off; and
+- **Question:** exactly one precise question that can resolve the recorded decision.
+
+Do not hide issue detail behind the question, ask multiple questions, or invent an answer. After the user responds,
+append the answer's `author`, exact `value`, and the current `reviewed_diff_digest` as `boundary_digest` to the durable
+decision record before invoking `review-state.py transition` with event `reconcile`. The helper validates that digest
+against the current source boundary and preserves resolved decision evidence. Persist the returned state as the next
+append-only `Review state:` record before verification. The helper's result is authoritative. The transition must
+resolve every compound pending condition and exact finding ID together; it consumes the only verification pass.
+
+After reconciliation, invoke `review-state.py aggregate` with every required reviewer state and the complete changed
+path, domain, and requirement-ID sets. Supply one complete `reconciliation_boundary` when the Git source boundary
+changed; no transient assignment identity is persisted. The aggregate applies the common boundary atomically before
+sibling approval invalidation. Persist every reviewer state returned by the aggregate, including sibling approval
+invalidations, before resuming affected original reviewers. Repeat aggregate state after verification and close
+review/specification gates only when its returned `can_close` is exactly `true`. Missing reviewers, unresolved compound
+conditions, incomplete/waiver/redesign state, or an overlapping post-verification change blocks closure.
 
 For migrated features, resolve any `migration:reconciliation` bead that blocks specification or close-out. Preserve
 legacy evidence in notes while making the current design and Beads graph authoritative.

@@ -39,47 +39,26 @@ feat/feature-slug
 
 ## Review and start
 
-`/start-feature <slug>` resolves the human feature reference through Beads, activates the worktree, and runs
-four isolated reviews. An exact feature name or a unique name fragment also resolves; the Beads ID remains
-internal mutation/audit evidence.
+`/start-feature <slug>` resolves the human reference, activates `feat/<slug>`, derives two direct assignments from Beads,
+design/docs, and an immutable Git source boundary, and launches exactly two fresh independent reviewers concurrently:
 
-The feature root is an epic. Lifecycle tasks are direct children, and bounded implementation tasks sit beneath the
-implementation coordinator task. A milestone is not used as the feature container.
+1. specification clarity for behavior, boundaries, compatibility, ownership, recovery, documentation intent, and
+   unresolved decisions;
+2. execution readiness for task scope, dependencies, ownership, validation, acceptance, and commit boundaries.
 
-One fresh, read-only context builder gathers a factual evidence packet once. Four fresh reviewers share that packet and independently cover:
+There is no LLM context builder. Missing Pi names use the explicit project-local sync from `sync-pi-reviewers.py`; a
+ declined or failed sync has no silent role substitution. The optional Pi adapter maps these roles to
+`dstack-clarity-reviewer` and `dstack-readiness-reviewer`; missing names use the explicit optional sync or fail visibly
+without substitution. Close-out maps `implementation-integrity` and `delivery-integrity` to their specialized reviewers.
+Beads stores executable per-reviewer state and findings. The aggregate gate requires both reviewers, invalidates overlapping
+provisional approval, permits one verification pass, and keeps unresolved decisions/findings/infrastructure/waivers/
+redesign blocking. Decision briefs explain the issue, affected requirement/task IDs, evidence or uncertainty,
+recommendation, alternatives and consequences, and exactly one precise question; the answer, author, and reviewed diff
+digest are durable before the only verification pass. The aggregate gate cannot close unless `can_close` is true.
 
-1. architecture consistency;
-2. simplicity and maintainability;
-3. documentation readiness;
-4. execution-graph readiness.
-
-### Optional Pi reviewer adapter
-
-The dstack review contract is tool-agnostic. A Pi-based controller may opt into the exact roster in the installed
-`dstack-core` `PI-REVIEWER-ROSTER.md` reference without installing or mutating user Pi configuration. If required names
-are missing, offer the explicit project-local sync documented by that reference; the adapter itself remains non-mutating:
-
-| Logical role      | Pi agent definition             |
-|-------------------|---------------------------------|
-| `context-builder` | `dstack-context-builder`        |
-| `architecture`    | `dstack-architecture-reviewer`  |
-| `simplicity`      | `dstack-simplicity-reviewer`    |
-| `documentation`   | `dstack-documentation-reviewer` |
-| `execution`       | `dstack-execution-reviewer`     |
-| `task`            | `dstack-task-reviewer`          |
-| `delivery`        | `dstack-delivery-reviewer`      |
-| `drift`           | `dstack-drift-reviewer`         |
-
-The adapter preserves the workflow counts: context packets are built synchronously, then independent role reviewers
-launch concurrently with the same packet. A declined or failed sync, or an unavailable named agent, fails visibly; there is
-no silent role substitution. Beads review beads or standalone task notes remain the authoritative `Review state:`/`Finding:`
-owner.
-
-The packet contains factual source locations but no findings, recommendations, or verdict. Reviewers read extra source when it is insufficient. Feature workflows persist the durable `Review state:` record from the installed dstack-core `REVIEW-STATE.md` reference on their review beads. A standalone workflow has no separate review bead: its selected task notes are the authoritative review ledger for `Review state:` and `Finding:` records, including reviewer session, packet identity/digest, reviewed commit/diff boundary, and disposition. Supply reviewers the current open projection from `REVIEW-FINDINGS.md`; retain historical findings for audit. Do not add confidence reviewers without a distinct uncovered risk or user request. Fix verification resumes only affected reviewers and their run IDs; fresh replacements are used only when an original is unavailable. A material scope change invalidates the whole review run; reopen specification reconciliation, commit the redesigned boundary, and run one new bounded review with a new packet. Refresh a shared packet only after broad design, architecture, task-graph, or documentation-structure changes. Two unresolved review rounds in the same domain are a convergence stop: record `redesign_required`, do not launch another reviewer, and return through specification redesign or decomposition before creating a new packet.
-
-Open review tasks and `spec-reconcile` are expected during review and are not findings by themselves. Reviewers report stale dependency direction, missing tasks, and other graph defects; the controller verifies gate closure only after approval and the specification-reconciliation commit.
-
-It reconciles clear findings, asks only blocking design questions, commits the reviewed design, and closes `spec-reconcile` only when implementation can proceed without inventing intent. A successful start records the canonical feature in repository-local Git configuration so `/implement-feature` can resume it from the base worktree when no selector is supplied.
+Old four-start/two-close graphs migrate only through `migrate-review-topology.py` from the canonical primary worktree.
+The leased migration preserves evidence as superseded history, rewires gates, writes/verifies a cutover marker, transfers
+no approval, and is idempotent. Stale controllers fail closed.
 
 ## Implement
 
@@ -96,7 +75,7 @@ Material changes to behavior, ownership, compatibility, or acceptance stop imple
 
 After each child closes, the implementation loop runs a cohesion checkpoint against new evidence. New ownership boundaries, migrations, external dependencies, or risky effect classes require inspection, but incidental complexity alone does not require decomposition. If remaining outcomes are independently valuable and reviewable, pause the coordinator and return through normal feature planning authority to define dependent feature epics. Do not create replacement children under an incoherent coordinator; preserve user authority, completed work, and real Beads prerequisites. If no independent value or review boundary is found, continue the same feature.
 
-Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after its acceptance criteria pass. Each task gets exactly one fresh reviewer; fixes resume that reviewer. A fresh replacement is allowed only when the original is unavailable; material scope changes invalidate the review and return to specification reconciliation. `/implement-feature` then claims the next ready child and continues until the implementation coordinator closes. It pauses only when every remaining child is blocked on explicit user decisions; native planned work should never reach that state.
+Use `parent-child` for hierarchy and `blocks` only for real prerequisites. Keep code, tests, and affected documentation aligned in the same work unit. Run the exact task validation persisted in Beads and documentation checks when docs change. Validation and one focused reviewer are bounded by the exact task acceptance criteria, declared changed paths, and affected checks. The implementation lifecycle does not automatically run the entire repository suite; run it only after an explicit user request or when a separate repository delivery policy requires it. Record validation and review evidence, include the Beads ID in the commit message, and close the task only after acceptance passes. Fixes resume the same reviewer. A fresh replacement is allowed only when the original is unavailable; material scope changes invalidate the review and return to specification reconciliation. `/implement-feature` then claims the next ready child and continues until the implementation coordinator closes. It pauses only when every remaining child is blocked on explicit user decisions; native planned work should never reach that state.
 
 Before its startup-version note, `/implement-feature` resolves the authoritative `feat/<slug>` worktree from Git worktree metadata rather than trusting the process CWD. Native linked-worktree Beads authority is shared, so `bd -C` is not an isolation boundary. Every Beads mutation interval uses the repository-scoped lease from `dstack-core/references/INTERACTION-BOUNDARY.md`, which lives outside Git and prevents concurrent mutation races. It requires a clean feature worktree and captures an immutable interaction baseline. It records the root note in a separate interaction-only audit commit when the export is tracked, then captures a fresh baseline immediately before each child claim. Startup alone allows a clean tracked interval when the version note emits no interaction row; child and coordinator closure still require selected-work-unit evidence. Every child closure and the implementation coordinator closure is the final Beads mutation in its work-unit interval. The shared verifier requires append-only, valid, unstaged rows in the selected feature lineage, requires evidence for the selected work unit, rejects intervening interaction commits, metadata changes, unrelated rows, and other dirty paths, then repeats the checks against the staged index and the exact pre-staging interaction snapshot. Only `.beads/interactions.jsonl` enters the audit commit. The finalizer branches on the verified dirty result, pins the pre-commit HEAD and index tree, and verifies the resulting audit commit's parent, tree, path set, blob, and mode before requiring the feature worktree to be clean before the next child, coordinator completion, or ordinary return.
 
@@ -119,7 +98,22 @@ Add a blocking edge only when the discovery is required for safe completion.
 
 ## Close
 
-`/close-feature` starts with a clean base-worktree interaction preflight and uses the repository-scoped interaction lease for every contiguous Beads mutation interval. Native linked-worktree Beads authority is shared; `bd -C` is not an isolation boundary. It compares delivered code with the design and reader-facing docs, creates a standalone implemented-feature record, and runs validation. One fresh context builder supplies a factual packet to two fresh holistic reviewers for delivery and drift. They follow the neutrality, extra-source, refresh, confidence-review, and replacement rules above; fixes resume only the affected reviewer. The workflow then performs an explicit `pr`, `merge`, or `ready` action. With no mode, it asks which action to take. Merge mode uses `git merge --ff-only` unless the target repository's `AGENTS.md` explicitly permits merge commits; it never falls back to a merge commit after a failed fast-forward. Native Beads can append selected-feature rows to the tracked `.beads/interactions.jsonl` in the base worktree during close-out. The read-only inspector reports foreign rows without absorbing them; `blocks` and `related` edges do not grant ownership. Merge mode verifies that this is the only dirty path and that every change is append-only and belongs to the selected feature molecule or separately identified work with a `discovered-from` or `parent-child` path back to it, commits those rows on the feature branch, and restores the base copy only after committed preservation. Delivery and root closures happen after the merge; their interaction rows receive a separate interaction-only commit on the base branch. Malformed, rewritten, foreign, or mixed dirty state remains blocking. After a confirmed merge, `/close-feature` runs a mandatory post-merge finalizer: it records the actual merge SHA in the implemented record, reconciles reader-facing delivery claims, runs `verify-delivery-state.py` and documentation validation, commits the finalizer, and only then invokes `finalize-feature-delivery.py` to close delivery and the feature root. A stale merge-pending claim blocks completion.
+`/close-feature` reconciles docs and derives impacted checks from design validation, child evidence, changed-path
+ownership, generated/docs parity, and fixes. It reuses unchanged focused evidence and does not implicitly run the whole
+repository suite. It derives two direct close assignments from Beads, design/docs, validation evidence, and the
+immutable Git source boundary. Implementation-integrity covers correct code behavior, quality and simplicity, security,
+and maintainability; delivery-integrity covers documentation, validation evidence, Beads state, implemented records,
+roadmap/navigation, delivery claims, and drift. Both reviewers use the pinned nicobailon definition with a 600,000 ms
+whole-run deadline, fresh read-only context, and persisted session/output completion evidence. Each has at most one
+verification pass per boundary; there is no third pass. Timeout or unavailability preserves incomplete evidence and
+permits only one explicit same-pass infrastructure replacement per role. A second failure stops that role's boundary;
+after a committed redesign, the executable `redesign` transition requires a new reviewed source boundary before starting
+one new initial review. Pane state and shell sentinels are transport evidence, not completion authority. Protected
+security, correctness, validation, accessibility, and data-loss-protection findings are never waivable; any eligible
+waiver binds the exact non-material finding and user rationale. Assignment/elapsed/context/replacement telemetry is
+operational evidence, not approval. The optional Pi adapter maps the close roles to `dstack-implementation-reviewer`
+and `dstack-delivery-integrity-reviewer`. Delivery remains an explicit PR, fast-forward merge, or ready action.
+Post-merge finalization records actual delivery evidence before root closure.
 
 ## Audit
 

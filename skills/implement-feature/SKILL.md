@@ -39,7 +39,10 @@ records that no freshness claim was made and does not block offline work.
 ## 1. Load Minimal Context
 
 Resolve the repository root from the invoking directory, then run `bd prime` from that repository. Resolve the supplied
-feature selector. When the selector is omitted, use this deterministic precedence:
+feature selector read-only. Immediately after obtaining its root ID and before any claim, note, or other mutation, run
+`<core-dir>/scripts/migrate-review-topology.py guard --root-id <feature-root> --controller-topology-version 3`. A newer
+marker or unmigrated old review kind fails closed; only the canonical-primary-worktree migrator owns topology mutation.
+When the selector is omitted, use this deterministic precedence:
 
 1. the current branch when it matches `feat/<slug>`;
 2. the repository-local feature recorded by the last successful `/start-feature`;
@@ -236,30 +239,32 @@ published audit records, but product documentation must stand alone without requ
 
 ## 3. Validate and Review
 
-While iterating, run the smallest focused checks that cover the changed behavior. After the scoped implementation and
-review fixes stabilize, run task-specific validation, `uv run --no-project python scripts/check-docs.py` when
-documentation changes, and the full repository-standard suite once before commit. Rerun the full suite only when it
-failed or a subsequent fix affects broad/shared behavior; otherwise rerun only impacted focused checks.
+While iterating, run the smallest focused checks that cover the changed behavior. Run the exact task-specific validation
+command persisted in Beads, plus `uv run --no-project python scripts/check-docs.py` when documentation changes.
+Validation and the one focused reviewer are bounded by the exact task acceptance criteria, declared changed paths, and
+affected checks. Do not automatically run the entire repository suite. Run it only after an explicit user request or
+when a separate repository delivery policy—not this lifecycle—requires it. After a fix, rerun only checks whose inputs
+changed; do not rerun successful unrelated checks.
 
 The optional Pi adapter is defined in
 [`../dstack-core/references/PI-REVIEWER-ROSTER.md`](../dstack-core/references/PI-REVIEWER-ROSTER.md); it maps the
-logical `task` role to `dstack-task-reviewer`. It preserves exactly one fresh reviewer per selected child and does not
-add a context builder. If the named agent is absent, offer the explicit project-local sync documented in
-`PI-REVIEWER-ROSTER.md`; after a declined or failed sync, fail visibly. If it is unavailable, fail visibly with no
-silent role substitution or review-count change. Follow the shared reference for Pi discovery, resumption, replacement,
-and Beads evidence ownership.
+logical `task` role to `dstack-task-reviewer`. A separate context builder is unnecessary: the controller derives one
+transient assignment from the selected Beads issue, design/docs, affected checks, and immutable Git source boundary. It
+preserves exactly one fresh reviewer per selected child and never creates a second durable assignment manifest. If the
+named agent is absent, offer the explicit project-local sync documented in `PI-REVIEWER-ROSTER.md`; after a declined or
+failed sync, fail visibly. If it is unavailable, fail visibly with no silent role substitution or review-count change.
+Follow the shared reference for Pi discovery, resumption, replacement, and Beads evidence ownership.
 
 Launch exactly one initial reviewer with `context: fresh`, focused on correctness, security, maintainability, test
-adequacy, and compliance with the selected task and design. A separate context builder is unnecessary for this single
-scoped reviewer. Follow `../dstack-core/references/REVIEW-STATE.md` and `../dstack-core/references/REVIEW-FINDINGS.md`
-to persist the review bead's run ID, reviewer session, packet identity/digest, reviewed commit/diff boundary, current
-disposition, and current open findings before launch. Do not add confidence reviewers without a distinct uncovered risk
-or an explicit user request.
+adequacy, and compliance with the selected task and design. Follow `../dstack-core/references/REVIEW-STATE.md` and
+`../dstack-core/references/REVIEW-FINDINGS.md` to persist the owning review issue, reviewer session, immutable Git
+source boundary, declared assignment scope, current disposition, and current open findings before launch. Do not add
+confidence reviewers without a distinct uncovered risk or an explicit user request.
 
 Resolve actionable findings. Resume the same reviewer and run ID to verify fixes. Use a fresh replacement only if the
 original cannot be resumed; if a fix materially changes the reviewed scope, stop and use the planning-defect path above
-rather than asking a replacement reviewer to approve a different boundary. Provide a replacement the original packet
-identity, findings ledger, resolutions, and post-review diff. Record the unavailable/replacement reason and current
+rather than asking a replacement reviewer to approve a different boundary. Provide a replacement the same source
+boundary, findings ledger, resolutions, and post-review diff. Record the unavailable/replacement reason and current
 `Review state:` record alongside commands, outcomes, limitations, findings, and fixes:
 
 ```bash

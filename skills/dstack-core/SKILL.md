@@ -11,7 +11,7 @@ allowed-tools: Read Bash
 This support skill contains the shared contracts used by the dstack workflows.
 
 Review orchestration uses [`references/REVIEW-STATE.md`](references/REVIEW-STATE.md) for durable reviewer identity,
-packet/source boundaries, resumption, and replacement evidence,
+source-boundary assignments, resumption, and replacement evidence,
 [`references/REVIEW-FINDINGS.md`](references/REVIEW-FINDINGS.md) for current finding dispositions, and the optional
 [`references/PI-REVIEWER-ROSTER.md`](references/PI-REVIEWER-ROSTER.md) adapter for mapping logical roles to named Pi
 reviewer definitions without changing the tool-agnostic contract. Use `scripts/sync-pi-reviewers.py` only through its

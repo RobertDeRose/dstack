@@ -35,7 +35,7 @@ Delivery authority:
   repository's `AGENTS.md` explicitly states that merge commits are accepted.
 - The workflow never force-pushes, deletes a remote branch, bypasses hooks, or removes a worktree before a confirmed
   merge.
-- Holistic-review subagents are read-only.
+- Close-review subagents are read-only.
 - Merge mode authorizes bounded reconciliation of append-only `.beads/interactions.jsonl` rows for the selected feature
   molecule, plus separately identified work whose authoritative dependency lineage reaches that molecule through only
   `discovered-from` or `parent-child` edges, and the two interaction-only workflow commits described below. It never
@@ -61,9 +61,12 @@ the guarded post-merge finalizer has passed.
 
 ## 1. Activate and Inspect
 
-Run `bd prime`, then resolve the supplied feature selector. When the selector is omitted, infer it only from an active
-`feat/<slug>` branch. If the current branch is not a feature branch, stop and require a selector rather than closing
-unrelated ready work:
+Run `bd prime`, then resolve the supplied feature selector read-only. Immediately after obtaining its root ID and before
+any claim, note, or other mutation, run `<core-dir>/scripts/migrate-review-topology.py guard --root-id <feature-root>`
+with `--controller-topology-version 3`. A newer marker or unmigrated old review kind fails closed; only the
+canonical-primary- worktree migrator owns topology mutation and old approval never transfers. When the selector is
+omitted, infer it only from an active `feat/<slug>` branch. If the current branch is not a feature branch, stop and
+require a selector rather than closing unrelated ready work:
 
 ```bash
 branch=$(git branch --show-current)
@@ -73,9 +76,10 @@ bd show <resolved-root-id> --json
 ```
 
 Use the returned root ID for Beads operations and its canonical `<slug>` reference for worktrees, reports, and delivery
-commands. Resolve `docs_reconcile_id`, `validation_id`, `review_delivery_id`, `review_drift_id`, and `delivery_id` from
-root metadata. Query the full molecule or child list only to repair missing metadata. Activate and verify `feat/<slug>`.
-Inspect commits, implementation, tests, and changed files before deciding whether documentation is accurate.
+commands. Resolve `docs_reconcile_id`, `validation_id`, `review_implementation_integrity_id`,
+`review_delivery_integrity_id`, and `delivery_id` from root metadata. Query the full molecule or child list only to
+repair missing metadata. Activate and verify `feat/<slug>`. Inspect commits, implementation, tests, and changed files
+before deciding whether documentation is accurate.
 
 Continue only after all lifecycle IDs resolve, the active worktree is `feat/<slug>`, the implementation coordinator is
 closed, and no open `migration:reconciliation` task blocks close-out. Before the startup-version note or any other
@@ -115,58 +119,65 @@ evidence in the reconciliation bead.
 ## 3. Validate
 
 Claim the validation step. Classify every required check as `passed`, `failed`, `unavailable`, `waived`, or
-`not-applicable`. Run `uv run --no-project python scripts/check-docs.py`, repository-wide checks, and every
-feature-specific command named by the design or implementation beads. Record commands, outcomes, skipped checks, and
-limitations. Treat these results as valid only for the exact files and commit tested; any later holistic-review fix
-invalidates the affected results. Do not close validation until required evidence is complete and current. `unavailable`
-remains blocking unless the user explicitly waives that exact check. A waiver must record the command, reason, affected
-commit, accepting user decision, and residual risk.
+`not-applicable`. Build the impacted feature-check set from the design validation strategy, every child
+`validation_command`, changed-path ownership, generated/documentation parity, and checks invalidated by later fixes. Run
+that set plus `uv run --no-project python scripts/check-docs.py` when documentation changed. Do not automatically run a
+whole-repository suite; run one only when the design, repository delivery policy, or explicit user request requires it.
+Record exact commands, outcomes, skipped checks, limitations, tested commit, and affected paths. Reuse unchanged focused
+task evidence/telemetry, but treat results as valid only for their recorded source boundary. Any later close-review fix
+invalidates only affected results, which must be rerun before approval. Do not close validation until required evidence
+is complete and current. `unavailable` remains blocking unless the user explicitly waives that exact check. A validation
+waiver records the command, reason, affected commit, accepting user decision, and residual risk; it does not waive a
+review finding.
 
-## 4. Build Context Once, Then Run Two Holistic Reviews
+## 4. Derive Two Direct Close Assignments, Then Run Both Reviews
 
-The optional Pi adapter is defined in
-[`../dstack-core/references/PI-REVIEWER-ROSTER.md`](../dstack-core/references/PI-REVIEWER-ROSTER.md). For this workflow
-it maps `context-builder` to `dstack-context-builder`, `delivery` to `dstack-delivery-reviewer`, and `drift` to
-`dstack-drift-reviewer`. The adapter preserves one context builder plus two independent reviewers: the context builder
-completes synchronously before delivery and drift launch concurrently with the same packet. If any named agent is
-absent, offer the explicit project-local Pi reviewer sync documented in `PI-REVIEWER-ROSTER.md`; after a declined or
-failed sync, fail visibly. If an agent is unavailable, fail visibly; there is no silent role substitution or change to
-the review count.
+Beads is the workflow manifest. Read the feature root, documentation and validation issues, implementation coordinator,
+close review issues, implemented record, roadmap/navigation, current findings, and focused-check evidence directly from
+Beads and reader-facing files. Do not create a packet, collector, shared context, or second durable assignment manifest.
 
-Launch exactly one fresh, read-only context builder. Store its packet in the subagent run's ephemeral artifact
-directory, never in the repository. The factual packet covers feature authority, reviewed requirements, implementation
-diff, architecture and reference contracts, reader documentation, implemented record, roadmap/navigation, Beads history,
-and validation evidence with exact source locations. It contains no findings, recommendations, or verdict.
+Pin one immutable Git source boundary from the authoritative feature worktree: `review_boundary_id`, `reviewed_commit`,
+`reviewed_diff_base`, `reviewed_diff_digest`, and changed paths. Persist both close states with their owning
+`review_issue_id`, source boundary, declared paths/domains/requirement IDs, and `initial_active` before launch. Missing
+or stale validation evidence blocks review.
 
-Then launch exactly two reviewers with `context: fresh`, giving both the same packet and their distinct roles below.
-Each reviewer reasons independently, verifies evidence critical to its role, and reads additional source only when
-needed. Follow `../dstack-core/references/REVIEW-STATE.md` and `../dstack-core/references/REVIEW-FINDINGS.md`: claim
-each review bead and persist its run ID, reviewer session, packet identity/digest, reviewed commit/diff boundary,
-current disposition, and current open findings before launch. Do not add confidence reviewers without a distinct
-uncovered risk or an explicit user request.
+Resolve `implementation-integrity` to `dstack-implementation-reviewer` and `delivery-integrity` to
+`dstack-delivery-integrity-reviewer` through `PI-REVIEWER-ROSTER.md`. Missing or unavailable names fail visibly after
+optional project-local sync; there is no silent role substitution.
 
-### Delivery Reviewer
+Derive two independent transient assignments from the owning Beads issues, design/docs, focused validation, and the
+pinned Git boundary. The implementation assignment declares code and test paths and covers correct code behavior,
+quality and simplicity, security, and maintainability. The delivery assignment declares documentation, validation,
+Beads, implemented-record, roadmap/navigation, delivery-claim, and drift paths and covers only delivery integrity; it
+reconciles former delivery and drift evidence without reviewing code.
 
-Review correctness, failure behavior, security-sensitive changes, maintainability, test quality, and delivered-scope
-compliance.
+Launch exactly two fresh reviewers concurrently. Each receives only its own assignment and a pinned read-only worktree;
+each reads assigned evidence directly and reports missing evidence without broadening its scope.
 
-### Drift Reviewer
+Use executable review state from `../dstack-core/references/REVIEW-STATE.md` and the current-open finding ledger from
+`../dstack-core/references/REVIEW-FINDINGS.md` on each owning close review bead. Create the exact required reviewer set
+`["implementation-integrity", "delivery-integrity"]` and persist `initial_active` before launch. Each initial report
+approves provisionally, records findings/decisions, or becomes incomplete; it never implies final approval. Persist
+assignment counts, elapsed/context telemetry when available, and terminal status as operational evidence, not acceptance
+evidence.
 
-Compare implementation, design, reader-facing docs, architecture decisions, reference contracts, implemented-feature
-record, roadmap, and Beads history. Distinguish intentional evolution from accidental drift.
+An initial approval closes through the executable aggregate only when both roles approve and no finding, decision, or
+invalidation remains. After fixes, an answered decision, or overlapping reconciliation, rerun only affected impacted
+checks and provide one complete aggregate source-boundary reconciliation before invalidating sibling approvals. After
+that, resume the same reviewer for the single available verification pass. There is no third pass on the same review
+boundary. A material/protected verification finding or post-verification overlap becomes `redesign_required`; do not
+launch again against that boundary. Timeout/unavailability preserves partial evidence and permits at most one explicit
+same-pass infrastructure replacement, never an automatic retry. A replacement receives the same source boundary, open
+findings, resolutions, and post-review diff; if it also fails, stop.
 
-Claim the matching review task and record each finding and resolution with the current `Review state:` record. Resolve
-actionable findings. Resume only the reviewer whose domain changed, preserving its original run ID: delivery for
-code/tests/failure/security changes, drift for design/docs/roadmap/Beads changes, or both for cross-domain fixes.
-Refresh the shared packet only after broad design, architecture, task-graph, or documentation-structure changes. Launch
-a fresh replacement only when the original cannot be resumed or the fix materially changes that role's scope; provide
-the original packet identity, findings ledger, resolutions, and post-review diff, and record the unavailable/replacement
-reason on both review beads.
-
-After the final review fix, rerun every affected formatter, linter, build, test, feature-specific command, and
-`uv run --no-project python scripts/check-docs.py`. Update the validation bead with the post-fix commands and outcomes;
-do not reuse pre-fix results. Close each review and the validation step only when no actionable finding remains and
-validation reflects the final worktree state.
+A `redesign_required` stop requires a committed design/documentation/validation boundary before another review. Use
+`review-state.py transition` with event `redesign`, a new `review_boundary_id`, and all updated reviewed source-boundary
+fields plus declarations; this consumes the one redesign replacement and resets the new boundary to `initial_active`. Do
+not reuse old approval or infer approval from historical evidence. Waiver is available only for explicitly non-material
+findings outside security, correctness, validation, accessibility, and data-loss-protection, and requires the user's
+exact accepted scope and rationale. Protected findings are never waivable at any severity. Close both close reviews only
+when aggregate `can_close` is true; then close validation and documentation reconciliation only after their evidence
+remains current.
 
 ## 5. Commit Reconciliation
 
@@ -292,7 +303,8 @@ The merge is not close-out completion until this finalizer passes. In the merged
    fast-forward or merge commit), and record the actual pull request or `not created` value.
 2. Reconcile every path listed in the record's `Documentation Updated` section, every reader-facing page changed by the
    feature, `docs/src/planned-features.md`, `docs/src/features/index.md`, and `docs/src/SUMMARY.md`. Remove stale claims
-   that the merge or delivery is pending; do not ask a holistic reviewer to discover this mechanically detectable drift.
+   that the merge or delivery is pending; do not ask a delivery-integrity reviewer to discover this mechanically
+   detectable drift.
 3. Run the semantic delivery verifier against the record and every reconciled reader-facing path:
 
 ```bash

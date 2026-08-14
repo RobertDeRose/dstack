@@ -624,29 +624,25 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     review_state = (repository_root / "skills/dstack-core/references/REVIEW-STATE.md").read_text(encoding="utf-8")
     normalized_review_state = " ".join(review_state.split())
     for field in (
-        "dstack.review-state.v1",
-        "run_id",
-        "reviewer_session_id",
-        "packet_digest",
-        "packet_path",
-        "reviewed_commit",
-        "reviewed_diff_base",
-        "review_round",
-        "finding_domains",
-        "review_boundary_id",
-        "replacement_count",
-        "disposition",
-        "replacement_reason",
-        "supersedes_run_id",
+        "dstack.review-state.v3",
+        "reviewer_id",
+        "pending_conditions",
+        "declared_domains",
+        "declared_paths",
+        "declared_requirement_ids",
+        "current_findings",
+        "redesign_replacement_count",
+        "infrastructure_replacement_count",
+        "telemetry",
     ):
         assert field in review_state
-    assert "last `review state:` line is the canonical current state" in normalized_review_state.casefold()
-    assert "prior findings ledger and resolutions" in normalized_review_state
+    assert "last state for a reviewer is current" in normalized_review_state.casefold()
+    assert "earlier records remain audit history" in normalized_review_state
     assert "unavailable" in review_state
     assert "redesign_required" in review_state
     assert "REVIEW-FINDINGS.md" in review_state
-    assert "selected standalone task" in normalized_review_state
-    assert "selected standalone task's notes" in normalized_review_state
+    assert "standalone task" in normalized_review_state
+    assert "selected review bead owns state" in normalized_review_state
     findings = (repository_root / "skills/dstack-core/references/REVIEW-FINDINGS.md").read_text(encoding="utf-8")
     normalized_findings = " ".join(findings.split())
     for field in (
@@ -660,25 +656,48 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         "supersedes_finding_id",
     ):
         assert field in findings
-    assert "last record for a `finding_id`" in normalized_findings
-    assert "only currently open findings" in normalized_findings
+    assert "last record is current" in normalized_findings
+    assert "current `status: open`" in normalized_findings
     assert "historical" in normalized_findings
-    assert "two unresolved review rounds in the same domain" in normalized_review_state
-    assert "one redesigned packet" in normalized_review_state
-    assert "material scope change invalidates" in normalized_review_state
+    assert "`pass`: `initial` or `verification`" in normalized_review_state
+    assert "there is no third pass" in normalized_review_state.casefold()
+    assert "an overlap after verification is terminal" in normalized_review_state.casefold()
     start = skill("start-feature")
     normalized_start = " ".join(start.split())
-    assert "two unresolved review rounds in the same domain" in normalized_start
-    assert "do not launch another reviewer" in normalized_start.casefold()
+    assert "material scope change returns to redesign" in normalized_start.casefold()
+    assert "finite replacement behavior" in normalized_start.casefold()
     assert "spec-reconcile" in normalized_start
-    assert "open review tasks and `spec-reconcile` are expected" in normalized_start
-    assert "stale dependency direction" in normalized_start.casefold()
-    assert "controller verifies gate closure" in normalized_start.casefold()
-    assert "material scope change invalidates the whole review run" in normalized_start.casefold()
-    assert "one new four-role review" in normalized_start.casefold()
-    assert "do not launch a fresh replacement reviewer in the same run" in normalized_start.casefold()
+    assert "open review tasks and `spec-reconcile` are expected" in normalized_start.casefold()
+    assert (
+        "aggregate state uses exactly `specification-clarity` and `execution-readiness`" in normalized_start.casefold()
+    )
+    assert "exactly two independent fresh reviewers" in normalized_start.casefold()
+    assert "resume only affected original reviewers" in normalized_start.casefold()
     assert "invocation authorizes local specification reconciliation" in normalized_start.casefold()
     assert "does not authorize remote publication" in normalized_start.casefold()
+    assert "build-review-packet.py" not in start
+    assert "review-state.py" in start
+    assert "`spec-reconcile` cannot close" in start
+    decision_brief = start.split("one decision brief with these labeled elements", 1)[1].split(
+        "Do not hide issue detail", 1
+    )[0]
+    for label in (
+        "**Issue:**",
+        "**Affected requirements/tasks:**",
+        "**Recommendation:**",
+        "**Alternatives and consequences:**",
+        "**Question:**",
+    ):
+        assert label in decision_brief
+    assert decision_brief.count("**Question:**") == 1
+    assert "Persist the returned state as the next append-only `Review state:` record" in normalized_start
+    assert "`reviewed_diff_digest` as `boundary_digest`" in start
+    assert "every compound pending condition and exact finding ID together" in start
+    assert "every required reviewer state" in start
+    assert "complete changed path, domain, and requirement-ID sets" in normalized_start
+    assert "including sibling approval invalidations" in normalized_start
+    assert "`can_close` is exactly `true`" in start
+    assert "consumes the only verification pass" in start
     assert "Confirm the feature worktree is clean" in start
     for name in ("start-feature", "implement-feature", "implement-task", "close-feature"):
         assert "REVIEW-STATE.md" in skill(name)
@@ -773,12 +792,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "escaped `\\n`" in agents
         assert "git merge --ff-only" in agents
         assert "never create a merge commit" in agents
-        assert "Initial reviewers always use fresh context" in agents
-        assert "one context builder plus four reviewers" in normalized_agents
-        assert "one context builder plus two reviewers" in normalized_agents
-        assert "resume only the original reviewers whose domains changed" in normalized_agents
-        assert "original packet identity" in normalized_agents
-        assert "REVIEW-STATE.md" in agents
+        assert "All reviewers use fresh, narrow context" in agents
+        assert "exactly two" in normalized_agents
+        assert "specialized close-out reviews" in normalized_agents
+        assert "There is no LLM context builder" in normalized_agents
+        assert "resume only affected original reviewers" in normalized_agents
+        assert "Review state:" in agents
         assert "Do bounded work directly in the controlling session" in normalized_agents
         assert "Do not launch a scout, planner, or reviewer merely to save parent context" in normalized_agents
         assert "Redirect long command output to an ephemeral file" in normalized_agents
@@ -793,11 +812,21 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "dstack-core evidence contract" in normalized_agents
         assert "normal feature planning" in normalized_agents
         assert "incoherent coordinator" in normalized_agents
-        assert "optional Pi reviewer adapter" in normalized_agents
-        assert "dstack-context-builder" in agents
-        assert "dstack-task-reviewer" in agents
-        assert "dstack-delivery-reviewer" in agents
-        assert "dstack-drift-reviewer" in agents
+        assert "optional Pi adapter" in normalized_agents
+        assert all(
+            role in normalized_agents
+            for role in (
+                "specification-clarity",
+                "execution-readiness",
+                "task",
+                "implementation-integrity",
+                "delivery-integrity",
+            )
+        )
+        assert "clarity" in agents
+        assert "readiness" in agents
+        assert "delivery-integrity" in agents
+        assert "migrate-review-topology.py" in agents
         assert "no silent role substitution" in normalized_agents
         assert "Project context" in agents
         assert "project_purpose" in agents or "Purpose:" in agents
@@ -856,6 +885,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert 'coordinator_base_commit=$(git -C "$task_worktree" rev-parse HEAD)' in implementation
     assert "reconcile-beads-interactions.py verify-feature" in implementation
     assert "--root-id <root-id>" in implementation
+    assert "migrate-review-topology.py guard --root-id <feature-root>" in implementation
     assert "--staged" in implementation
     assert "--expected-content-sha256" in implementation
     assert "--expected-mode" in implementation
@@ -906,22 +936,20 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     normalized_closeout = " ".join(closeout.split())
     assert "resolve-feature.py --next" not in closeout
     assert "feat/<slug>" in closeout
-    assert "do not reuse pre-fix results" in " ".join(closeout.casefold().split())
+    assert "rerun only affected impacted checks" in normalized_closeout
     assert "scripts/check-docs.py" in closeout
     assert "git -C <base-worktree> merge --ff-only" in closeout
     assert "git -C <base-worktree> status --porcelain" in closeout
     assert "never fall back to a merge commit" in closeout
-    assert "Launch exactly one fresh, read-only context builder" in closeout
-    assert "launch exactly two reviewers with `context: fresh`" in closeout
+    assert "Derive Two Direct Close Assignments, Then Run Both Reviews" in closeout
+    assert "migrate-review-topology.py guard --root-id <feature-root>" in closeout
+    assert "Launch exactly two fresh reviewers concurrently" in closeout
     assert "PI-REVIEWER-ROSTER.md" in closeout
-    assert "dstack-context-builder" in closeout
-    assert "dstack-delivery-reviewer" in closeout
-    assert "dstack-drift-reviewer" in closeout
-    assert "Resume only the reviewer whose domain changed" in normalized_closeout
-    assert "no findings, recommendations, or verdict" in normalized_closeout
-    assert "reads additional source only when needed" in normalized_closeout
-    assert "Refresh the shared packet only after broad" in normalized_closeout
-    assert "distinct uncovered risk or an explicit user request" in normalized_closeout
+    assert "dstack-implementation-reviewer" in closeout
+    assert "dstack-delivery-integrity-reviewer" in closeout
+    assert "resume the same reviewer for the single available verification pass" in normalized_closeout
+    assert "immutable Git source boundary" in normalized_closeout
+    assert "reports missing evidence without broadening its scope" in normalized_closeout
     assert "AGENTS.md" in closeout
     assert "reconcile-beads-interactions.py prepare" in closeout
     assert "reconcile-beads-interactions.py finalize" in closeout
@@ -980,21 +1008,18 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
 
     pi_roster = (repository_root / "skills/dstack-core/references/PI-REVIEWER-ROSTER.md").read_text(encoding="utf-8")
     normalized_pi_roster = " ".join(pi_roster.split())
-    assert "dstack.pi-reviewer-roster.v1" in pi_roster
+    assert "dstack.pi-reviewer-roster.v2" in pi_roster
     assert "tool-agnostic" in normalized_pi_roster
-    assert "optional adapter" in normalized_pi_roster
+    assert "optional mapping" in normalized_pi_roster
     assert "synchronous" in normalized_pi_roster
     assert "concurrently" in normalized_pi_roster
     assert "no silent role substitution" in normalized_pi_roster
     for agent_name in (
-        "dstack-context-builder",
-        "dstack-architecture-reviewer",
-        "dstack-simplicity-reviewer",
-        "dstack-documentation-reviewer",
-        "dstack-execution-reviewer",
+        "dstack-clarity-reviewer",
+        "dstack-readiness-reviewer",
         "dstack-task-reviewer",
-        "dstack-delivery-reviewer",
-        "dstack-drift-reviewer",
+        "dstack-implementation-reviewer",
+        "dstack-delivery-integrity-reviewer",
     ):
         assert agent_name in pi_roster
 
@@ -1006,35 +1031,29 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
     assert "resolve-feature.py" in start
     assert "canonical" in start.casefold()
     assert "git -C <worktree-path> config dstack.activeFeature" in start
-    assert "Launch exactly one fresh, read-only context builder" in start
-    assert "Launch exactly four role reviewers with `context: fresh`" in start
-    assert "resume only its original reviewer" in start
+    assert "Derive Direct Assignments, Then Run Two Reviews" in start
+    assert "Launch exactly two independent fresh reviewers concurrently" in start
+    assert "Resume only affected original reviewers" in start
     assert "PI-REVIEWER-ROSTER.md" in start
-    assert "dstack-context-builder" in start
-    assert "dstack-architecture-reviewer" in start
-    assert "dstack-simplicity-reviewer" in start
-    assert "dstack-documentation-reviewer" in start
-    assert "dstack-execution-reviewer" in start
+    assert "dstack-clarity-reviewer" in start
+    assert "dstack-readiness-reviewer" in start
+    assert "migrate-review-topology.py" in start
     normalized_start = " ".join(start.split())
-    assert "synchronous" in normalized_start
     assert "concurrently" in normalized_start
-    assert "no silent role substitution" in normalized_start
-    assert "must not contain findings, recommendations, or a verdict" in normalized_start
-    assert "reads additional source only when needed" in normalized_start
-    assert "Refresh the shared packet only after broad" in normalized_start
-    assert "distinct uncovered risk or the user explicitly requires one" in normalized_start
+    assert "no silent substitution" in normalized_start
+    assert "report missing evidence" in start
 
     for lifecycle_path in (
         repository_root / "docs/src/development/feature-lifecycle.md",
         repository_root / "skills/setup-project/template/docs/src/development/feature-lifecycle.md.jinja",
     ):
         lifecycle = " ".join(lifecycle_path.read_text(encoding="utf-8").split())
-        assert "no findings, recommendations, or verdict" in lifecycle
-        assert "REVIEW-STATE.md" in lifecycle
-        assert "read extra source" in lifecycle
-        assert "confidence reviewers" in lifecycle
-        assert "Refresh a shared packet only after broad" in lifecycle
-        assert "original is unavailable" in lifecycle
+        assert "There is no LLM context builder" in lifecycle
+        assert "direct assignments from Beads" in lifecycle
+        assert "exactly two fresh independent reviewers" in lifecycle
+        assert "Implementation-integrity covers" in lifecycle
+        assert "delivery-integrity covers" in lifecycle
+        assert "transfers no approval" in lifecycle
         assert "material scope changes invalidate" in lifecycle
         assert (
             "material changes to behavior, ownership, compatibility, or acceptance stop implementation"
@@ -1056,16 +1075,12 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "every child closure and the implementation coordinator closure" in lifecycle.casefold()
         assert "selected feature lineage" in lifecycle.casefold()
         assert "remote delivery" in lifecycle
-        assert "Optional Pi reviewer adapter" in lifecycle
-        assert "dstack-context-builder" in lifecycle
-        assert "dstack-architecture-reviewer" in lifecycle
-        assert "dstack-simplicity-reviewer" in lifecycle
-        assert "dstack-documentation-reviewer" in lifecycle
-        assert "dstack-execution-reviewer" in lifecycle
-        assert "dstack-task-reviewer" in lifecycle
-        assert "dstack-delivery-reviewer" in lifecycle
-        assert "dstack-drift-reviewer" in lifecycle
-        assert "no silent role substitution" in lifecycle.casefold()
+        assert "optional Pi adapter" in lifecycle
+        assert "dstack-clarity-reviewer" in lifecycle
+        assert "dstack-readiness-reviewer" in lifecycle
+        assert "dstack-implementation-reviewer" in lifecycle or "implementation-integrity" in lifecycle
+        assert "dstack-delivery-integrity-reviewer" in lifecycle or "delivery-integrity" in lifecycle
+        assert "without substitution" in lifecycle.casefold()
 
     update = skill("update-project")
     assert "Run /migrate-workflow now?" in update
@@ -1095,6 +1110,40 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         content = skill(name)
         assert "Shared trust contract" in content, name
         assert "../dstack-core/references/TRUST-AND-AUTHORITY.md" in content, name
+
+
+def test_focused_validation_policy_avoids_automatic_full_suites(repository_root: Path) -> None:
+    implementation = (repository_root / "skills/implement-feature/SKILL.md").read_text(encoding="utf-8")
+    standalone = (repository_root / "skills/implement-task/SKILL.md").read_text(encoding="utf-8")
+    development = (repository_root / "docs/src/development/feature-lifecycle.md").read_text(encoding="utf-8")
+    development_index = (repository_root / "docs/src/development/index.md").read_text(encoding="utf-8")
+
+    for text in (implementation, standalone, development, development_index):
+        normalized = " ".join(text.split()).casefold()
+        assert "exact task acceptance criteria" in normalized
+        assert "entire repository suite" in normalized
+        assert "explicit user request" in normalized
+        assert "separate repository delivery policy" in normalized
+
+    for text in (implementation, standalone):
+        normalized = " ".join(text.split()).casefold()
+        assert "run the exact task-specific validation command" in normalized
+        assert "one focused reviewer" in normalized
+        assert "full repository-standard suite once before commit" not in normalized
+        assert "full repository suite once after review fixes stabilize" not in normalized
+
+    for agents_path in (
+        repository_root / "AGENTS.md",
+        repository_root / "skills/setup-project/template/AGENTS.md.jinja",
+    ):
+        normalized = " ".join(agents_path.read_text(encoding="utf-8").split()).casefold()
+        assert "run only affected checks declared by the selected task" in normalized
+        assert "does not automatically run the entire repository suite" in normalized
+
+    generated_lifecycle = (
+        repository_root / "skills/setup-project/template/docs/src/development/feature-lifecycle.md.jinja"
+    ).read_text(encoding="utf-8")
+    assert "exact task acceptance criteria" in " ".join(generated_lifecycle.split()).casefold()
 
 
 def test_implement_feature_resolves_linked_worktree_from_base_context(
@@ -1129,6 +1178,169 @@ def test_implement_feature_resolves_linked_worktree_from_base_context(
     )
 
     assert result.stdout.strip() == str(feature.resolve())
+
+
+def test_start_feature_decision_gate_contract(repository_root: Path) -> None:
+    start = (repository_root / "skills/start-feature/SKILL.md").read_text(encoding="utf-8")
+    normalized_start = " ".join(start.split())
+    assert "build-review-packet.py" not in start
+    assert "review-state.py" in start
+    assert "`spec-reconcile` cannot close" in start
+    decision_brief = start.split("one decision brief with these labeled elements", 1)[1].split(
+        "Do not hide issue detail", 1
+    )[0]
+    for label in (
+        "**Issue:**",
+        "**Affected requirements/tasks:**",
+        "**Recommendation:**",
+        "**Alternatives and consequences:**",
+        "**Question:**",
+    ):
+        assert label in decision_brief
+    assert decision_brief.count("**Question:**") == 1
+    assert "Persist the returned state as the next append-only `Review state:` record" in normalized_start
+    assert "`reviewed_diff_digest` as `boundary_digest`" in start
+    assert "every compound pending condition and exact finding ID together" in start
+    assert "every required reviewer state" in start
+    assert "complete changed path, domain, and requirement-ID sets" in normalized_start
+    assert "including sibling approval invalidations" in normalized_start
+    assert "`can_close` is exactly `true`" in start
+    assert "consumes the only verification pass" in start
+
+
+def test_direct_review_orchestration_contract(repository_root: Path) -> None:
+    skills = {
+        name: (repository_root / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        for name in ("start-feature", "implement-feature", "implement-task", "close-feature")
+    }
+    combined = "\n".join(skills.values())
+    assert "build-review-packet.py" not in combined
+    assert "shared content packet" not in combined.casefold()
+    for text in skills.values():
+        normalized = " ".join(text.split()).casefold()
+        assert "transient assignment" in normalized or "transient role assignment" in normalized
+        assert "immutable git source boundary" in normalized
+        assert "no silent role substitution" in normalized or "there is no silent substitution" in normalized
+    assert "exactly two independent fresh reviewers concurrently" in skills["start-feature"]
+    assert "Launch exactly one initial reviewer" in skills["implement-feature"]
+    assert "Launch exactly one fresh, read-only reviewer" in skills["implement-task"]
+    assert "Launch exactly two fresh reviewers concurrently" in skills["close-feature"]
+    assert "implementation-integrity" in skills["close-feature"]
+    assert "delivery-integrity" in skills["close-feature"]
+    assert "holistic role" not in skills["close-feature"].casefold()
+
+
+def test_specialized_close_review_contract(repository_root: Path) -> None:
+    close = " ".join((repository_root / "skills/close-feature/SKILL.md").read_text(encoding="utf-8").split())
+    required = (
+        "changed-path ownership",
+        "Do not automatically run a whole-repository suite",
+        "current-open finding ledger",
+        "task evidence/telemetry",
+        'exact required reviewer set `["implementation-integrity", "delivery-integrity"]`',
+        "one explicit same-pass infrastructure replacement",
+        "An initial approval closes through the executable aggregate",
+        "There is no third pass",
+        "Protected findings are never waivable",
+        "operational evidence, not acceptance evidence",
+    )
+    for phrase in required:
+        assert phrase.casefold() in close.casefold()
+    assert close.count("Launch exactly two fresh reviewers concurrently") == 1
+    assert "there is no silent role substitution" in close.casefold()
+    assert "delivery and drift" in close.casefold()
+
+    for path in (
+        repository_root / "docs/src/development/feature-lifecycle.md",
+        repository_root / "skills/setup-project/template/docs/src/development/feature-lifecycle.md.jinja",
+    ):
+        lifecycle = " ".join(path.read_text(encoding="utf-8").split()).casefold()
+        for phrase in (
+            "changed-path ownership",
+            "there is no third pass",
+            "one explicit same-pass infrastructure replacement",
+            "operational evidence, not approval",
+            "never waivable",
+        ):
+            assert phrase in lifecycle
+
+
+def test_lifecycle_skills_reject_obsolete_review_identifiers(repository_root: Path) -> None:
+    lifecycle_skills = "\n".join(
+        (repository_root / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        for name in ("start-feature", "implement-feature", "close-feature", "plan-features")
+    )
+    for obsolete in (
+        "review_architecture_id",
+        "review_simplicity_id",
+        "review_documentation_id",
+        "review_delivery_id",
+        "review_drift_id",
+    ):
+        assert obsolete not in lifecycle_skills
+    for current in (
+        "review_specification_clarity_id",
+        "review_execution_readiness_id",
+        "review_implementation_integrity_id",
+        "review_delivery_integrity_id",
+    ):
+        assert current in lifecycle_skills
+
+
+def test_topology_guards_precede_lifecycle_mutations(repository_root: Path) -> None:
+    for name in ("start-feature", "implement-feature", "close-feature"):
+        skill = (repository_root / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        resolve = skill.index("resolve")
+        guard = skill.index("migrate-review-topology.py")
+        mutation_markers = [skill.find(marker, guard) for marker in (" claim", " note", " mutation")]
+        assert resolve < guard
+        assert any(position > guard for position in mutation_markers)
+        prefix = skill[:guard].casefold()
+        assert "bd update <feature-root> --claim" not in prefix
+
+
+def test_start_feature_direct_assignment_sequence(repository_root: Path) -> None:
+    start = (repository_root / "skills/start-feature/SKILL.md").read_text(encoding="utf-8")
+    required = (
+        "guard the selected feature",
+        "migrate-review-topology.py",
+        "Beads is the workflow manifest",
+        "immutable Git source boundary",
+        "exactly two independent fresh reviewers concurrently",
+        "transient role assignment",
+        "pinned read-only worktree",
+    )
+    positions = [start.index(item) for item in required]
+    assert positions[:4] == sorted(positions[:4])
+    assert positions[4] > positions[3]
+    assert positions[5] > positions[4]
+    assert positions[6] > positions[3]
+    assert "report missing evidence" in start
+    assert "dstack-clarity-reviewer" in start
+    assert "dstack-readiness-reviewer" in start
+    assert "build-review-packet.py" not in start
+
+    roster = (repository_root / "skills/dstack-core/references/PI-REVIEWER-ROSTER.md").read_text(encoding="utf-8")
+    assert "Beads is the workflow manifest" in roster
+    assert "no shared evidence packet" in roster
+    assert "dstack-implementation-reviewer" in roster
+    assert "dstack-delivery-integrity-reviewer" in roster
+    assert "dstack-holistic-reviewer" not in roster
+
+
+def test_start_feature_decision_gate_is_reader_documented(repository_root: Path) -> None:
+    lifecycle = (repository_root / "docs/src/development/feature-lifecycle.md").read_text(encoding="utf-8")
+    normalized = " ".join(lifecycle.split())
+    for phrase in (
+        "affected requirement/task IDs",
+        "evidence or uncertainty",
+        "alternatives and consequences",
+        "exactly one precise question",
+        "answer, author, and reviewed diff digest",
+        "only verification pass",
+        "cannot close unless `can_close` is true",
+    ):
+        assert phrase in normalized
 
 
 @pytest.mark.parametrize("relative_path", REQUIRED_SKILL_SUPPORT)
@@ -3666,11 +3878,11 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert "escaped `\\n`" in agents
         assert "git merge --ff-only" in agents
         assert "never create a merge commit" in agents
-        assert "Initial reviewers always use fresh context" in agents
-        assert "one context builder plus four reviewers" in agents
-        assert "one context builder plus two reviewers" in agents
-        assert "resume only the original reviewers whose domains changed" in agents
-        assert "original packet identity" in agents
+        assert "All reviewers use fresh, narrow context and direct Beads-derived assignments" in agents
+        assert "exactly two" in agents
+        assert "direct Beads-derived assignments" in agents
+        assert "resume only\naffected original reviewers" in agents
+        assert "direct Beads-derived assignments" in agents
 
         mise_config = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
         assert mise_config["tools"] == {
@@ -6609,8 +6821,16 @@ def test_template_formula_names_feature_tasks_and_uses_one_epic_container(reposi
     formula = tomllib.loads(formula_path.read_text(encoding="utf-8"))
     steps = formula["steps"]
     implementation = next(step for step in steps if step["id"] == "implementation")
+    review_kinds = {step.get("metadata", {}).get("review_kind") for step in steps}
 
     assert formula["formula"] == "dstack-feature"
+    assert review_kinds == {
+        "specification-clarity",
+        "execution-readiness",
+        "implementation-integrity",
+        "delivery-integrity",
+        None,
+    }
     assert implementation["type"] == "task"
     assert all("feature_number" not in step["title"] for step in steps)
     assert all("workflow:feature" not in step["labels"] for step in steps)
@@ -7000,6 +7220,18 @@ def test_generated_project_pins_skills_cli(repository_root: Path) -> None:
     )
     assert "skills@latest" not in payload
     assert "skills@1.5.16" in payload
+
+
+def test_packet_provider_is_retired(repository_root: Path) -> None:
+    assert not (repository_root / "skills/dstack-core/scripts/build-review-packet.py").exists()
+    assert not (repository_root / "tests/test_review_packet.py").exists()
+    lifecycle = "\n".join(
+        (repository_root / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        for name in ("start-feature", "implement-feature", "implement-task", "close-feature")
+    )
+    assert "build-review-packet.py" not in lifecycle
+    assert "packet projection" not in lifecycle.casefold()
+    assert "shared content packet" not in lifecycle.casefold()
 
 
 def test_review_collector_sanitizes_untrusted_content(repository_root: Path) -> None:
