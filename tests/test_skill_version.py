@@ -10,7 +10,19 @@ import sys
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).parents[1] / "skills/dstack-core/scripts/check-skill-version.py"
+REPOSITORY_ROOT = Path(__file__).parents[1]
+SCRIPT = REPOSITORY_ROOT / "skills/dstack-core/scripts/check-skill-version.py"
+MUTATION_SKILLS = (
+    "audit-project",
+    "close-feature",
+    "implement-feature",
+    "implement-task",
+    "migrate-workflow",
+    "plan-features",
+    "setup-project",
+    "start-feature",
+    "update-project",
+)
 
 
 def run_diagnostic(
@@ -71,6 +83,25 @@ def test_stale_versions_warn_with_refresh_command(tmp_path: Path) -> None:
     assert evidence["refresh_command"] == "npx skills update"
     assert "stale" in str(evidence["message"]).casefold()
     assert "npx skills update" in str(evidence["evidence_line"])
+
+
+def test_refresh_requires_a_new_session_boundary_across_mutation_skills() -> None:
+    reference = (REPOSITORY_ROOT / "skills/dstack-core/references/SKILL-VERSION.md").read_text(encoding="utf-8")
+    assert "session must stop" in reference
+    assert "dstack.skill-session-rebind.v1" in reference
+    assert "prior_evidence" in reference
+    assert "new_evidence" in reference
+    assert "refresh_action" in reference
+    assert "new_session_id" in reference
+    assert "workflow_run_id" in reference
+    assert "Beads-backed workflows" in reference
+    assert "response/JSON workflows" in reference
+    assert "new session" in reference
+    for skill in MUTATION_SKILLS:
+        text = (REPOSITORY_ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8").casefold()
+        assert "new session" in text
+        assert "refreshed" in text
+        assert "workflow_run_id" in text
 
 
 def test_missing_canonical_evidence_is_reported_without_freshness_claim(tmp_path: Path) -> None:

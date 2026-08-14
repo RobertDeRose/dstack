@@ -29,7 +29,9 @@ Before rendering or initializing a project, follow
 [`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `setup-project`. After
 the read-only destination preflight, capture the exact one-line output and include it in the setup JSON/response before
 project mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim was
-made and does not block offline work.
+made and does not block offline work. Establish `workflow_run_id` before this diagnostic, using the harness value or one
+created once for this session. If installed skills are refreshed, stop this session; continue only from a new session
+that records an explicit rebind.
 
 Setup-specific authority:
 

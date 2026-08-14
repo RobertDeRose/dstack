@@ -29,7 +29,9 @@ Before applying an update or migration, follow
 [`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `update-project`. After
 the read-only preflight, capture the exact one-line output and include it in the update/migration JSON or response
 before mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim was made
-and does not block offline work.
+and does not block offline work. Establish `workflow_run_id` before this diagnostic, using the harness value or one
+created once for this session. If installed skills are refreshed, stop this session; continue only from a new session
+that records an explicit rebind.
 
 Update-specific authority:
 

@@ -24,7 +24,9 @@ Before the first workflow mutation, follow
 [`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `close-feature`. After
 read-only feature resolution, capture the exact one-line output and append it to the selected root's Beads notes before
 reconciliation or delivery mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no
-freshness claim was made and does not block offline work.
+freshness claim was made and does not block offline work. Establish `workflow_run_id` before this diagnostic, using the
+harness value or one created once for this session. If installed skills are refreshed, stop this session; continue only
+from a new session that records an explicit rebind.
 
 Delivery authority:
 

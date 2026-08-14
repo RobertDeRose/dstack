@@ -36,7 +36,8 @@ Before claiming or mutating the issue, follow
 read-only selector and readiness checks, first capture the clean worktree and commit baseline required by section 1,
 then capture the exact one-line output and append it to the selected issue's Beads notes before the claim. A `stale`
 result warns with `npx skills update`; `unavailable` records that no freshness claim was made and does not block offline
-work.
+work. Establish `workflow_run_id` before this diagnostic, using the harness value or one created once for this session.
+If installed skills are refreshed, stop this session; continue only from a new session that records an explicit rebind.
 
 ## 1. Resolve and claim exactly one issue
 

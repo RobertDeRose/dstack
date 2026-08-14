@@ -34,6 +34,30 @@ Copier, or migration mutation. Capture the exact `Skill version evidence:` line 
 Do not discard the line after displaying it. It records the executing version even when canonical comparison is
 unavailable.
 
+## Refresh session boundary
+
+The controller must establish `workflow_run_id` before this diagnostic: use the harness-provided stable value, or create
+one once and retain it for the session's durable evidence. The evidence line binds the installed skill bytes to the
+current workflow session. If `npx skills update` or another explicit refresh changes an installed skill, the current
+session must stop before its next mutation; it may not silently continue under refreshed instructions. The current
+session must stop before using refreshed skill bytes. Start a new session and rerun the diagnostic before resuming.
+Record this canonical rebind object with the new session's stable `workflow_run_id`:
+
+```json
+{
+  "schema": "dstack.skill-session-rebind.v1",
+  "prior_evidence": "<exact line>",
+  "new_evidence": "<exact line>",
+  "refresh_action": "npx skills update",
+  "new_session_id": "<workflow_run_id>"
+}
+```
+
+Persist the object with the workflow's durable evidence: Beads-backed workflows append it to the owning issue/root
+notes; migration appends it to its migration audit; response/JSON workflows include it in their existing JSON/report
+output. A stale result is not current evidence, and an unavailable result is not a freshness approval; both remain
+visible until a new session records its own result.
+
 ## Results
 
 The command emits one machine-readable line on standard output and a human diagnostic on standard error:

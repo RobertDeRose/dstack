@@ -23,7 +23,9 @@ Before the first workflow mutation, follow
 [`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `audit-project`. After
 read-only inventory work, capture the exact one-line output and record it in the audit evidence before any correction. A
 `stale` result warns with `npx skills update`; `unavailable` records that no freshness claim was made and does not block
-offline work.
+offline work. Establish `workflow_run_id` before this diagnostic, using the harness value or one created once for this
+session. If installed skills are refreshed, stop this session; continue only from a new session that records an explicit
+rebind.
 
 Audit-specific authority:
 

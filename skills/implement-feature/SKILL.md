@@ -32,7 +32,9 @@ Before claiming a child or mutating the feature, follow
 After read-only feature resolution and worktree activation, first capture the clean feature-worktree baseline described
 in Section 1. Then capture the exact one-line output, append it to the selected root's Beads notes, and finalize that
 startup interaction boundary before claiming a child. A `stale` result warns with `npx skills update`; `unavailable`
-records that no freshness claim was made and does not block offline work.
+records that no freshness claim was made and does not block offline work. Establish `workflow_run_id` before this
+diagnostic, using the harness value or one created once for this session. If installed skills are refreshed, stop this
+session; continue only from a new session that records an explicit rebind.
 
 ## Execution
 
