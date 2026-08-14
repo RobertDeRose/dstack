@@ -4055,8 +4055,9 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert answers["_src_path"] == str(tagged_template_source)
 
         overview = (docs / "introduction/project-overview.md").read_text(encoding="utf-8")
+        assert overview.startswith(f"# {expected_name} overview\n")
         assert overview == (
-            f"\n# {expected_name} overview\n\n"
+            f"# {expected_name} overview\n\n"
             f"- Project kind: `{kind}`\n\n"
             "## Purpose\n\n"
             f"{expected_purpose}\n\n"
