@@ -50,7 +50,7 @@ def test_generated_pages_deployment_is_branch_restricted_and_gated(
     build = parsed["jobs"]["build"]
     deploy = parsed["jobs"]["deploy"]
     assert build["if"] == GATE
-    assert deploy["if"] == GATE
+    assert "if" not in deploy
     assert build["permissions"] == {"contents": "read"}
     assert deploy["permissions"] == {"pages": "write", "id-token": "write"}
     assert deploy["needs"] == "build"
