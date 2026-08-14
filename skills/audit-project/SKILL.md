@@ -103,14 +103,16 @@ Apply unambiguous local documentation corrections. Create Beads issues for remai
 `discovered-from`, `related`, or `blocks` as appropriate. Include exact files, evidence, expected resolution, acceptance
 criteria, and severity.
 
-For feature-tied drift:
+For feature-tied drift, run the complete correction interval through the shared lease:
 
 ```bash
-bd create "Reconcile <finding>" \
-  --type task \
-  --deps discovered-from:<feature-root-or-task> \
-  --labels audit:drift \
-  --json
+uv run <core-dir>/scripts/beads-workflow-lock.py exec \
+  --repository-root "$repository_root" --run-id audit-project-corrections --timeout 0 -- \
+  bd create "Reconcile <finding>" \
+    --type task \
+    --deps discovered-from:<feature-root-or-task> \
+    --labels audit:drift \
+    --json
 ```
 
 Use blocking dependencies only when unresolved drift makes further delivery unsafe.
@@ -128,13 +130,15 @@ When the audit creates or updates Beads records, invoking `/audit-project` autho
 to the repository's already configured native Dolt remote after final validation:
 
 ```bash
-bd dolt remote list --json
-bd dolt push
+uv run <core-dir>/scripts/guarded-beads-push.py \
+  --worktree "$repository_root" --run-id audit-project-publication
 ```
 
-This authority does not authorize remote creation or replacement, force-pushes, or Git branch pushes. Do not push when
-Beads did not change. If no native remote is configured or the push fails, preserve local records and report
-`audit publication blocked`; do not claim the corrective work is shared.
+The guard holds the shared mutation lease, requires a clean canonical worktree, preserves local/remote/merge-base
+evidence, and permits only a non-force new-branch or fast-forward push to the unchanged configured remote. This
+authority does not authorize remote creation, configuration, replacement, or removal, force-pushes, or Git branch
+pushes. Do not publish when Beads did not change. If no native remote is configured or the guard blocks or fails,
+preserve local records and report `audit publication blocked`; do not claim the corrective work is shared.
 
 Return findings ordered by severity, intentional-versus-accidental classification, files and Beads IDs, corrections
 applied, corrective issues created, blocked work, publication evidence, the Git comparison range, and recommended next

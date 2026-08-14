@@ -58,8 +58,13 @@ migration branch. It runs native non-stealth `bd init`, which commits `.beads/.g
 `interactions.jsonl`, `metadata.json`, the formula, and any required root ignore update. Inspect that exact commit, add
 the machine-authored README exclusion, and amend it through project hooks. Initialization failure is fatal; symlinked,
 global, shared, redirected, wrong-prefix, or foreign authority is rejected. Later commands rely on native repository and
-worktree discovery while mutation guards compare effective authority digests. `bd dolt push` stores Dolt history in the
-project Git origin's special refs; fresh clones use `bd bootstrap` instead of ordinary branch files or JSONL.
+worktree discovery while mutation guards compare effective authority digests.
+`<core-dir>/scripts/guarded-beads-push.py --worktree <canonical-worktree> --run-id <workflow-run-id>` stores Dolt
+history in the project Git origin's special refs only when it can create the missing remote branch or fast-forward the
+unchanged remote. Before push it binds the captured URL to a private per-run alias and rechecks the configured remote;
+output records only the URL digest. It rejects force options, dirty or noncanonical worktrees, changed
+authority/remotes, missing common ancestry, behind state, and divergence. Fresh clones use `bd bootstrap` instead of
+ordinary branch files or JSONL.
 
 `import-beads` uses `bd --dolt-auto-commit=batch` and commits bounded per-feature state plus relationship phases. Apply
 selects at most two incomplete features by default; `--batch-size 1..14` changes that bound and repeatable

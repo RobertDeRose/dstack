@@ -52,6 +52,7 @@ REQUIRED_SKILL_SUPPORT = (
     "skills/dstack-core/scripts/reconcile-beads-interactions.py",
     "skills/dstack-core/scripts/beads-workflow-lock.py",
     "skills/dstack-core/scripts/beads_workflow_lock.py",
+    "skills/dstack-core/scripts/guarded-beads-push.py",
     "skills/dstack-core/scripts/finalize-feature-delivery.py",
     "skills/dstack-core/scripts/resolve-feature.py",
     "skills/dstack-core/scripts/verify-delivery-state.py",
@@ -728,10 +729,14 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         assert "unavailable" in workflow
 
     audit = skill("audit-project")
-    assert "bd dolt push" in audit
+    assert "guarded-beads-push.py" in audit
     assert "non-force" in audit
-    assert "does not authorize remote creation" in audit
-    assert "Git branch pushes" in audit
+    assert "does not authorize remote creation" in " ".join(audit.split())
+    assert "Git branch pushes" in " ".join(audit.split())
+    migration = skill("migrate-workflow")
+    assert migration.count("guarded-beads-push.py") >= 2
+    assert "bd dolt push" not in audit
+    assert "bd dolt push" not in migration
 
     pr_review = skill("gh-pr-review")
     assert "# Purpose" not in pr_review

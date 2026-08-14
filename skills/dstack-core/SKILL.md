@@ -20,8 +20,8 @@ explicit user-selected target; normal skill installation never mutates Pi agent 
 Lifecycle startup uses [`references/SKILL-VERSION.md`](references/SKILL-VERSION.md) to record the executing installed
 skill version and compare it with trustworthy local canonical evidence before mutation. Beads writes and delivery
 closure follow [`references/INTERACTION-BOUNDARY.md`](references/INTERACTION-BOUNDARY.md): native linked-worktree
-authority is shared, mutation intervals use a repository-scoped lease, and foreign interaction evidence remains
-fail-closed.
+authority is shared, mutation intervals use a repository-scoped lease, foreign interaction evidence remains fail-closed,
+and native Dolt publication uses `scripts/guarded-beads-push.py` instead of raw or force pushes.
 
 Before executing a dstack workflow that links to a reference in this directory, read that reference completely. The
 calling skill remains responsible for its workflow-specific authority and completion rules.

@@ -112,7 +112,9 @@ test -z "$(git status --porcelain)"
 If `bd` exists, initialize and verify it natively from the primary migration checkout:
 
 ```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
+uv run <core-dir>/scripts/beads-workflow-lock.py exec \
+  --repository-root "$migration_worktree" --run-id migrate-workflow-authority --timeout 0 -- \
+  uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
 bd formula show dstack-feature --json
 bd dolt remote list
 bd prime
@@ -122,7 +124,8 @@ Inspect the exact commit created by `bd init`. Add the machine-authored Markdown
 the exact-path pre-commit hook over `.gitignore` and the six controls, stage only the fix, and amend through ordinary
 hooks as `chore: initialize Beads workflow state`. Formula-only, failed, global/shared/redirected, mismatched, or
 `/tmp`-patched authority is fatal. Native Beads owns database placement, worktree discovery, Git-origin synchronization,
-and bootstrap. After import, run `bd dolt push`; fresh clones use `bd bootstrap`. See **Beads authority**.
+and bootstrap. After import, publish only through `<core-dir>/scripts/guarded-beads-push.py`; fresh clones use
+`bd bootstrap`. See **Beads authority**.
 
 ## Gate 3: Scan, decide, and checkpoint
 
@@ -184,15 +187,18 @@ Require `bd`. Run the non-mutating preflight before apply:
 
 ```bash
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
+uv run <core-dir>/scripts/beads-workflow-lock.py exec \
+  --repository-root "$migration_worktree" --run-id migrate-workflow-import --timeout 0 -- \
+  uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
 ```
 
 Apply mutates at most two incomplete features by default; repeat until `remaining: 0`. Use `--batch-size 1..14` for a
 reviewed bound or `--feature <slug>` for exact recovery. Both modes prove authority and reconcile recorded IDs,
 including completed features. Missing, stripped, or foreign labels are fatal; only exact native inheritance is accepted.
-Preview `repair-beads-labels` and use its `--apply` only for reviewed additive repair. Reuse deterministic identities,
-stop on duplicates or complete-graph cycles, and never treat `related` as cycle-breaking. Apply status through supported
-`bd update --status`, not patched `bd create` flags. See **Beads import and recovery**, then commit manifest/roadmap.
+Preview `repair-beads-labels` and run its reviewed `--apply` through the same repository lease. Reuse deterministic
+identities, stop on duplicates or complete-graph cycles, and never treat `related` as cycle-breaking. Apply status
+through supported `bd update --status`, not patched `bd create` flags. See **Beads import and recovery**, then commit
+manifest/roadmap.
 
 ## Gate 6: Reconcile and finalize
 
@@ -237,7 +243,8 @@ inventory.
 ## Gate 7: Verify final state
 
 ```bash
-bd dolt push
+uv run <core-dir>/scripts/guarded-beads-push.py \
+  --worktree "$migration_worktree" --run-id migrate-workflow-publication
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py verify --beads
 uv run --no-project python scripts/check-docs.py
 bd dep cycles

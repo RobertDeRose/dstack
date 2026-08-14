@@ -100,16 +100,18 @@ basename is never adopted as project identity. An uninitialized migration runs o
 checkout so native `bd init` can commit collaborative controls, discover Git origin, and establish shared-worktree Dolt
 state. The native commit is inspected and amended through project hooks. Database path/name, project ID, repository
 root, and issue prefix must match before import or verification. Cross-clone issue history uses Git special refs through
-`bd dolt push` and `bd bootstrap`, not committed database files or JSONL. Large imports derive and reconcile the
-complete deterministic issue/status/parent/relationship set before trusting phase state and rejects unexpected migrated
-records, then uses bounded Dolt batch commits for at most two incomplete features by default. Native parent-label
-inheritance is verified as a complete exact formula/ancestry set rather than treated as optional or mistaken for foreign
-lifecycle state. A separate dry-run-first repair derives missing labels from immutable manifest/formula identity and
-permits additive restoration only; replacement and unexpected labels remain fatal. Native Beads owns worktree discovery,
-control placement, and synchronization; dstack validates the effective context rather than mirroring controls or
-injecting database paths. The manifest remains a recovery cursor, never independent proof that records exist.
-Finalization is a journaled staging transaction that seals archive digests and parsed task identity; finalized
-verification compares the exact recursive archive and current feature/design/task inventory with that sealed record.
+the shared guarded Beads publisher and `bd bootstrap`, not committed database files or JSONL. Publication holds the
+repository mutation lease and rejects dirty canonical state, changed authority/remotes, and non-fast-forward Dolt
+history before push. Large imports derive and reconcile the complete deterministic issue/status/parent/relationship set
+before trusting phase state and rejects unexpected migrated records, then uses bounded Dolt batch commits for at most
+two incomplete features by default. Native parent-label inheritance is verified as a complete exact formula/ancestry set
+rather than treated as optional or mistaken for foreign lifecycle state. A separate dry-run-first repair derives missing
+labels from immutable manifest/formula identity and permits additive restoration only; replacement and unexpected labels
+remain fatal. Native Beads owns worktree discovery, control placement, and synchronization; dstack validates the
+effective context rather than mirroring controls or injecting database paths. The manifest remains a recovery cursor,
+never independent proof that records exist. Finalization is a journaled staging transaction that seals archive digests
+and parsed task identity; finalized verification compares the exact recursive archive and current feature/design/task
+inventory with that sealed record.
 
 ## Safety invariants
 

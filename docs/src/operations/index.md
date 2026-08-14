@@ -72,11 +72,13 @@ supported topology version predates that marker must be replaced before start, i
 Use `bd prime` at session start. Use `/implement-task <task-selector>` for exactly one standalone executable issue. Use
 `/implement-feature` for reviewed feature children; it continues until the feature implementation coordinator closes.
 Beads owns live readiness and dependencies; `docs/src/planned-features.md` is only the human roadmap. When
-`/audit-project` creates or updates corrective Beads records, it performs one ordinary non-force `bd dolt push` to the
-configured native remote after validation. It does not create remotes or publish Git branches. The audit also requires
-read-only Git history comparison; a `bd prime` stealth-mode message forbids Git mutations, not this required evidence.
-If the execution context denies read-only Git inspection, the result must be reported as `audit state: incomplete`, not
-as a completed audit with Git comparison silently excluded.
+`/audit-project` creates or updates corrective Beads records, it publishes after validation through the guarded Beads
+publisher. The guard holds the repository mutation lease, requires a clean canonical worktree, verifies unchanged Beads
+authority and remote configuration, and permits only a non-force new-branch or fast-forward push. It cannot configure,
+replace, or remove remotes or publish Git branches. The audit also requires read-only Git history comparison; a
+`bd prime` stealth-mode message forbids Git mutations, not this required evidence. If the execution context denies
+read-only Git inspection, the result must be reported as `audit state: incomplete`, not as a completed audit with Git
+comparison silently excluded.
 
 ## Repository-layout preflight
 
@@ -138,17 +140,18 @@ database location/name, project ID, repository root, and issue prefix. Uninitial
 on the dedicated migration branch. Native `bd init` commits collaborative controls, discovers Git origin, configures
 Dolt synchronization, and establishes worktree sharing; dstack inspects that commit and amends it through project hooks.
 Formula-only state remains uninitialized, and global/shared fallback fails. Subsequent commands use native repository
-discovery while dstack checks authority identity before and after mutations. Push issue history with `bd dolt push`;
-fresh clones recover it with `bd bootstrap`. Beads import dry-run is nonmutating and reconciles every manifest ID
-against actual deterministic metadata, including completed phases. Apply handles at most two incomplete features by
-default and uses bounded Dolt commits rather than one transaction per field or relationship. Repeat it until
-`remaining: 0`; reduce to `--batch-size 1` or select `--feature <slug>` for narrow recovery. It begins with an explicit
-`APPLY STARTED` notice and reports existing, recovered, pending, conflicting, completed, remaining, and total features.
-Per-feature phases persist, but retries trust them only after real-record reconciliation. A terminated fresh import
-resumes its persisted identities; it is not a migration-session resume. Missing native workflow/formula labels stop
-import. Preview `repair-beads-labels`, review every ID/label, then use `--apply` for additive-only restoration; extras
-block before mutation, and an empty repair writes nothing. Status transitions use `bd update --status` for Beads 1.1
-compatibility.
+discovery while dstack checks authority identity before and after mutations. Publish issue history only through the
+shared guarded publisher; it fetches and records local, remote, and merge-base evidence and rejects behind, divergent,
+or unrelated Dolt history before push. Fresh clones recover with `bd bootstrap`. Beads import dry-run is nonmutating and
+reconciles every manifest ID against actual deterministic metadata, including completed phases. Apply handles at most
+two incomplete features by default and uses bounded Dolt commits rather than one transaction per field or relationship.
+Repeat it until `remaining: 0`; reduce to `--batch-size 1` or select `--feature <slug>` for narrow recovery. It begins
+with an explicit `APPLY STARTED` notice and reports existing, recovered, pending, conflicting, completed, remaining, and
+total features. Per-feature phases persist, but retries trust them only after real-record reconciliation. A terminated
+fresh import resumes its persisted identities; it is not a migration-session resume. Missing native workflow/formula
+labels stop import. Preview `repair-beads-labels`, review every ID/label, then use `--apply` for additive-only
+restoration; extras block before mutation, and an empty repair writes nothing. Status transitions use
+`bd update --status` for Beads 1.1 compatibility.
 
 Adoption preserves recorded project identity first. Otherwise it derives the project name from the primary Git checkout
 and the default branch from `origin/HEAD`. Supply explicit project name, slug, and default branch when evidence is

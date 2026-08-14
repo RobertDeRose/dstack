@@ -372,7 +372,9 @@ numbered feature paths, task files, and missing implemented-feature markers as w
 Initialize Beads only after adoption is committed:
 
 ```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
+uv run <core-dir>/scripts/beads-workflow-lock.py exec \
+  --repository-root "$migration_worktree" --run-id migrate-workflow-authority --timeout 0 -- \
+  uv run <skill-dir>/scripts/migrate-legacy-workflow.py beads-authority --init
 bd formula show dstack-feature --json
 bd dolt remote list
 ```
@@ -395,8 +397,10 @@ initial commit only after its paths are inspected and it is amended through ordi
 database paths, patch an importer under `/tmp`, or use an alternate `--db` to pass.
 
 Collaborative controls are ordinary Git history. Live issues are Dolt history in the same Git origin's special refs: run
-`bd dolt push`, then prove a disposable fresh clone plans `bd bootstrap` from `refs/dolt/data`. JSONL export is
-interchange, not authoritative backup or synchronization.
+`<core-dir>/scripts/guarded-beads-push.py` from the clean canonical worktree, then prove a disposable fresh clone plans
+`bd bootstrap` from `refs/dolt/data`. The guard holds the repository mutation lease, rejects changed remotes and
+non-fast-forward history, and has no force mode. JSONL export is interchange, not authoritative backup or
+synchronization.
 
 ## Task parser coverage
 
@@ -561,7 +565,9 @@ commands such as `bd list` repeat indefinitely.
 Apply only after preflight succeeds:
 
 ```bash
-uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
+uv run <core-dir>/scripts/beads-workflow-lock.py exec \
+  --repository-root "$migration_worktree" --run-id migrate-workflow-import --timeout 0 -- \
+  uv run <skill-dir>/scripts/migrate-legacy-workflow.py import-beads --apply
 ```
 
 An apply pass mutates at most two incomplete features by default. Repeat it until `remaining: 0`. `--batch-size 1..14`
@@ -686,7 +692,8 @@ Use `--delete-tasks` only when deletion is deliberate and Git history is suffici
 Run:
 
 ```bash
-bd dolt push
+uv run <core-dir>/scripts/guarded-beads-push.py \
+  --worktree "$migration_worktree" --run-id migrate-workflow-publication
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py verify --beads
 uv run --no-project python scripts/check-docs.py
 bd dep cycles

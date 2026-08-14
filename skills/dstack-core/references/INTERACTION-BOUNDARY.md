@@ -43,6 +43,23 @@ creation time. Foreign records remain owned by their originating work unit. Do n
 Recheck the interaction snapshot immediately before staging, restoration, merge, and delivery closure. Any change
 outside the selected lineage or any snapshot race blocks the operation without mutation.
 
+## Guarded publication
+
+Publish native Dolt history only from a clean canonical worktree through the shared guard:
+
+```bash
+uv run <core-dir>/scripts/guarded-beads-push.py \
+  --worktree "$repository_root" --run-id "$workflow_run_id"
+```
+
+The guard acquires the same repository lease, snapshots repository-local Beads authority and the configured remote,
+fetches remote-tracking evidence, and permits only a non-force new-branch or fast-forward push. It binds the captured
+remote URL to a private per-run alias, rechecks the configured remote after binding, pushes through that alias, and
+removes it; evidence exposes only the URL digest. A busy lease, dirty or linked worktree, changed authority/remote,
+missing common ancestor, behind local branch, or divergent history blocks before push and emits the local head, remote
+head, merge base, and an evidence-preserving recovery path. It has no force or remote-replacement mode. Never replace it
+with raw `bd dolt push`, retry with `--force`, or treat a failed guard as permission to discard either history.
+
 ## Delivery ordering
 
 `ready` and no-action close-out leave the delivery issue and feature root open. Only the guarded delivery finalizer may
