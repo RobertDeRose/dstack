@@ -37,6 +37,7 @@
   - [Migration artifact retirement](features/migration-artifact-retirement/design.md)
   - [Monorepo tooling layout](features/monorepo-tooling-layout/design.md)
   - [Improve workflow reviews](features/improve-workflow-reviews/design.md)
+  - [Parallel feature execution](features/parallel-feature-execution/design.md)
   <!-- END FEATURE DESIGNS -->
 - [Implemented features](features/index.md)
   <!-- BEGIN IMPLEMENTED FEATURES -->
@@ -48,4 +49,5 @@
   - [Migration safety and clarity](features/migration-safety-and-clarity/index.md)
   - [Migration artifact retirement](features/migration-artifact-retirement/index.md)
   - [Monorepo tooling layout](features/monorepo-tooling-layout/index.md)
+  - [Improve workflow reviews](features/improve-workflow-reviews/index.md)
   <!-- END IMPLEMENTED FEATURES -->

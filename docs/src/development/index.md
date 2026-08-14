@@ -28,6 +28,11 @@ Use `mise run fix` for deterministic formatting fixes. The canonical full suite 
 `uv run --frozen --group test pytest`; pytest uses four bounded xdist workers with load-group scheduling. Mark tests
 that mutate shared repository state with `xdist_group` so those tests remain serialized.
 
+Implementation workflows run the exact task validation recorded in Beads, documentation checks for changed docs, and one
+focused reviewer bounded by the exact task acceptance criteria, declared changed paths, and affected checks. They do not
+automatically run the entire repository suite. Run the full suite only after an explicit user request or when a separate
+repository delivery policy requires it.
+
 Migration checkpoint fixtures must exercise the rendered project-local provisioner and ordinary Git commits. They cover
 provisioning failure, installed hook routing, hook failure recovery, and the narrow approved docs-step exception without
 bypassing unrelated checks.

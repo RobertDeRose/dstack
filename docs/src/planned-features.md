@@ -15,9 +15,9 @@ The sequence establishes the smallest shared contracts first. Purposeful documen
 delivered. Language profiles and GitHub workflows extend that baseline. hk policy simplification restores native runner
 behavior before both migration preservation and monorepo composition consume the generated policy. Migration safety and
 clarity then protects existing project checks and verified history. Migration artifact retirement removes reviewed
-staging copies without weakening that audit trail, and monorepo composition remains independently reviewable. The next
-workflow feature makes review passes finite and restores resource-aware parallel task worktrees with main-agent
-cherry-pick integration, focused task checks, and one holistic close-out review.
+staging copies without weakening that audit trail, and monorepo composition remains independently reviewable. The active
+workflow-review feature makes review passes finite, bounded, deterministic, and migration-safe. After it delivers, the
+dependent parallel-execution feature adds resource-aware task worktrees and main-agent cherry-pick integration.
 
 ## Roadmap conventions
 
@@ -42,7 +42,8 @@ cherry-pick integration, focused task checks, and one holistic close-out review.
 | `migration-safety-and-clarity` — Migration safety and clarity                   | `dstack-mol-tki` | delivered     | hk policy simplification                               | [Design](features/migration-safety-and-clarity/design.md)          |
 | `migration-artifact-retirement` — Migration artifact retirement                 | `dstack-mol-b8d` | delivered     | Migration safety and clarity                           | [Design](features/migration-artifact-retirement/design.md)         |
 | `monorepo-tooling-layout` — Monorepo tooling layout                             | `dstack-mol-7s4` | delivered     | Language quality profiles, hk policy simplification    | [Design](features/monorepo-tooling-layout/design.md)               |
-| `improve-workflow-reviews` — Improve workflow reviews                           | `dstack-mol-2s9` | design        | —                                                      | [Design](features/improve-workflow-reviews/design.md)              |
+| `improve-workflow-reviews` — Improve workflow reviews                           | `dstack-mol-2s9` | close-out     | —                                                      | [Design](features/improve-workflow-reviews/design.md)              |
+| `parallel-feature-execution` — Parallel feature execution                       | `dstack-mol-60q` | design        | Improve workflow reviews                               | [Design](features/parallel-feature-execution/design.md)            |
 
 ## Cross-cutting decisions
 
@@ -60,9 +61,11 @@ cherry-pick integration, focused task checks, and one holistic close-out review.
 - Legacy migration preserves existing hk steps unless the user explicitly approves removal, commits durable task
   archives, asks contextual questions, and never uses `--no-verify`.
 - Monorepo support follows hk policy simplification and must not complicate the single-package contract.
-- Workflow reviews use finite pass and runtime budgets. Parallel-safe implementation tasks run in isolated subagent
-  worktrees while measured physical-memory utilization is below 80%; the main agent cherry-picks reviewed commits in
-  deterministic order, and one fresh holistic review runs after complete feature integration.
+- Workflow reviews use finite passes and runtime budgets, focused task review, and specialized direct reviewers. Beads
+  remains the workflow manifest; targeted clarity, readiness, task, implementation-integrity, and delivery-integrity
+  reviews replace the historical collector/packet flow. The dependent parallel-execution feature will run safe tasks in
+  subagent worktrees below 80% measured physical-memory utilization and cherry-pick immutable reviewed commits
+  deterministically.
 
 ## Open project decisions
 
@@ -70,6 +73,8 @@ No planning-blocking cross-feature decisions remain.
 
 ## Recommended next work
 
-Start `/start-feature improve-workflow-reviews` to review and activate the bounded review and parallel task-execution
-redesign. GitHub validation and docs deployment's waived live Pages exercise remains recorded with its GitHub API,
-permission, and provisioning risk.
+Continue `/close-feature improve-workflow-reviews`: focused validation and the initial specialist reports are complete;
+delivery-integrity verification and structural aggregate approval remain. After that feature is delivered, start
+`/start-feature parallel-feature-execution` for resource-gated worker fan-out and cherry-pick integration. GitHub
+validation and docs deployment's waived live Pages exercise remains recorded with its GitHub API, permission, and
+provisioning risk.

@@ -241,6 +241,80 @@ frontmatter, source hashes, and discovered roster without writing; `--remove` re
 dstack-owned in `.dstack-pi-reviewers.json`. Conflicts are reported without overwriting user-authored definitions.
 Normal `npx skills add` and `npx skills update` do not mutate Pi agent directories.
 
+## Reviewer runtime budget
+
+Every dstack reviewer uses the pinned nicobailon/pi-subagents package with a 600,000 ms whole-run deadline, fresh
+context, no inherited project context or skills, an empty extension allowlist, read-only acceptance, and only the
+allowlisted read-only tools. nicobailon has no idle-timeout or report-only wrap-up equivalent. A quiet or long-running
+tool call remains in progress until the whole-run deadline or authoritative session/output evidence says otherwise.
+Saved sessions/outputs and bounded wait/status results are completion evidence; terminal panes and shell sentinels are
+transport evidence only. Timeout or transport errors are incomplete evidence and cannot approve or trigger automatic
+retry. Workflow-level overrides are not currently supported.
+
+## Direct review assignment contract
+
+Lifecycle controllers derive transient assignments from the owning Beads review issue, design/docs, focused validation,
+declared evidence scope, and one immutable Git source boundary. An assignment contains the review issue, current
+acceptance/dependencies, validation/documentation ownership, `review_boundary_id`, `reviewed_commit`,
+`reviewed_diff_base`, `reviewed_diff_digest`, changed paths, declared domains and requirements, non-goals, and the
+structured report contract. Assignments are prompts, not durable authority; Beads state and Git remain authoritative.
+Reviewers inspect assigned paths directly in a pinned read-only worktree and report missing evidence without silently
+broadening scope. No shared packet, collector, content bundle, or second durable manifest is created.
+
+## Specialized close-review contract
+
+Close-out derives impacted checks from the design validation strategy, child `validation_command` evidence, changed-path
+ownership, generated/documentation parity, and checks invalidated by fixes. It reuses unchanged focused evidence and
+does not automatically run a whole-repository suite. The required reviewer IDs are `implementation-integrity` and
+`delivery-integrity`.
+
+Implementation-integrity reviews correct code behavior, quality and simplicity, security, and maintainability.
+Delivery-integrity reviews documentation, validation evidence, Beads state, implemented records, roadmap/navigation,
+delivery claims, and drift. Each reviewer has one initial and one verification pass per review boundary; there is no
+third pass. Timeout/unavailability preserves partial evidence and permits one explicitly authorized same-pass
+infrastructure replacement per role. If a replacement also fails, the controller must reconcile and commit a new design
+boundary before using the one bounded `redesign` transition. Assignment, elapsed, context, terminal, and replacement
+telemetry is operational evidence only. Waivers require an exact non-material finding and user rationale; security,
+correctness, validation, accessibility, and data-loss-protection remain non-waivable.
+
+## Review topology migration contract
+
+`migrate-review-topology.py plan` emits `dstack.review-topology-plan.v1` for `unstarted`, `spec-review`,
+`implementation`, `close-out`, or `delivered`. Applicable plans bind the old graph snapshot and evidence map, fixed
+specification-clarity/execution-readiness/implementation-integrity/delivery-integrity IDs, lifecycle gates, and plan
+digest. `apply` requires the canonical primary worktree, owns the repository lease, transfers no approval, and writes
+`dstack.review-topology-cutover.v1` root metadata only after replacement gates, supersession, and blocker rewiring.
+`verify` checks the marker and resulting graph; `guard` rejects a controller topology version older than the marker.
+Delivered graphs are reported not applicable rather than rewritten.
+
+## Review state contract
+
+`skills/dstack-core/scripts/review-state.py` is the executable, side-effect-free review-state interface:
+
+```bash
+python3 skills/dstack-core/scripts/review-state.py validate < state.json
+python3 skills/dstack-core/scripts/review-state.py transition < event.json
+python3 skills/dstack-core/scripts/review-state.py aggregate < reviewers.json
+python3 skills/dstack-core/scripts/review-state.py migrate-v1 < legacy.json
+```
+
+State schema `dstack.review-state.v3` permits one initial and one verification pass per boundary. Active states must
+contain no findings, unresolved decision, or waiver evidence, and approval never clears such evidence. It records the
+owning Beads review issue, immutable Git source-boundary identities, validated decision answers bound to the current
+reviewed diff digest, declared invalidation boundaries, a zero-or-one redesign replacement counter, separate zero-or-one
+infrastructure counters per pass, and assignment/reviewer telemetry. The `redesign` transition is legal only from
+terminal `redesign_required`, requires a new reviewed commit and diff in addition to a new boundary identity, resets the
+pass and infrastructure counters, and consumes the one redesign replacement. Every unlisted transition fails.
+
+Aggregate schema `dstack.review-aggregate.v2` requires the exact unique reviewer set and combines current records. Every
+reviewer must share the same review boundary, reviewed commit, diff base, and diff digest. A reconciliation operation
+may atomically apply one complete common source boundary before overlap invalidation; partial updates are rejected. The
+gate closes only when all are approved or approved with eligible waiver evidence. Overlapping paths, domains, or
+requirements invalidate provisional initial approval; disjoint changes do not, and post-verification overlap stops
+without a third pass. Findings in security, correctness, validation, accessibility, or data-loss-protection domains are
+non-waivable regardless of severity. Waivers bind to exact eligible finding IDs. A v1 `replacement_count` migrates only
+to the redesign counter, infrastructure counters start at zero, and legacy approval remains non-approving history.
+
 ## Workflow paths
 
 | Path                                                  | Contract                                               |

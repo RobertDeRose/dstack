@@ -19,6 +19,45 @@ exact selected commit, renders the bundle, initializes Git and Beads when availa
 Existing repositories are routed to `/migrate-workflow`; already managed repositories are routed to `/update-project`
 with explicit consent.
 
+## Reviewer deadline and transport recovery
+
+Reviewer diagnostics report the pinned nicobailon agent, its 600,000 ms whole-run deadline, elapsed/context telemetry
+when available, saved session/output artifacts, bounded wait/status results, and the blocked action. There is no
+idle-timeout or report-only wrap-up equivalent. A quiet tool call remains in progress; a terminal pane or shell sentinel
+is not completion authority. Timeout or transport failure leaves review state incomplete and cannot authorize approval
+or automatic retry.
+
+Preserve the saved artifacts and owning Beads state. A maintainer may explicitly authorize the one same-pass
+infrastructure replacement allowed by review state. A second same-pass failure stops the current boundary. Reconcile and
+commit a new boundary, then use the single bounded `redesign` transition with a distinct reviewed source boundary; do
+not launch a third reviewer against the old boundary.
+
+## Specialized close-review recovery
+
+Close-out runs only the impacted feature checks derived from design validation, child evidence, changed paths,
+generated/documentation parity, and fixes. Missing or stale impacted-check evidence blocks review; a later fix
+invalidates only affected evidence. A whole-repository suite is not implicit.
+
+The implementation-integrity and delivery-integrity reviewers each receive a direct Beads-derived assignment and the
+same immutable Git source boundary. Preserve each owning Beads state, current-open findings, saved session/output
+artifacts, partial report, and telemetry on timeout or unavailability. Do not infer approval or retry automatically. An
+operator may authorize one same-pass infrastructure replacement per role; a second failure stops that boundary. After
+design/docs/validation reconciliation is committed, invoke the bounded `redesign` transition with a new boundary and
+launch the affected role again. Security, correctness, validation, accessibility, and data-loss-protection findings
+cannot be waived. Telemetry helps diagnose review focus but never supplies acceptance.
+
+## Review-topology migration recovery
+
+Run topology planning, application, and verification only from the canonical primary worktree. The migrator acquires the
+repository Beads lease itself. Busy lease, changed snapshot, malformed old graph, failed verification, or delivered
+feature produces a visible stop; do not reproduce its writes manually. Old evidence remains mapped as superseded history
+and old approval never transfers.
+
+An interruption before the cutover marker is retried with the same immutable plan: the migrator removes recognized
+partial targets, restores old gate status/edges, and revalidates the original snapshot. After the marker, repetition
+only verifies the exact target IDs, supersession state, plan digest, and no-approval-transfer marker. A controller whose
+supported topology version predates that marker must be replaced before start, implementation resume, or close-out.
+
 ## Deliver features
 
 ```text

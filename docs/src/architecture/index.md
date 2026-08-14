@@ -35,6 +35,47 @@ receives the same minimal reader file set; kind changes only the future-concern 
 The template omits architecture, usage, development-overview, and reference-overview pages until implementation creates
 concrete content for them. Copier records the brief so later template renders remain deterministic.
 
+## Review authority and aggregation
+
+Reviewer sessions, prompts, and assignments are ephemeral evidence; Beads review records remain authority. The pure
+`skills/dstack-core/scripts/review-state.py` helper validates per-reviewer transitions and controller aggregate state
+without mutating Git or Beads. Initial approvals are provisional until sibling reconciliation completes. An overlapping
+path, domain, or requirement change invalidates only the affected initial approval and consumes that reviewer's one
+verification pass; disjoint fixes preserve approval. A post-verification overlap stops for redesign rather than opening
+a third pass. Aggregates require the exact unique reviewer set.
+
+Review state binds every state to its owning Beads review issue and immutable Git source boundary; decision answers are
+validated against the current reviewed diff digest and retained as resolved evidence. Aggregate reconciliation
+atomically refreshes the common source boundary before invalidation; partial refreshes fail closed. Beads is the
+workflow manifest, so the controller derives only transient role assignments and never persists a second content
+manifest. Review state has separate bounded redesign and same-pass infrastructure replacement counters.
+Timeout/unavailability preserves partial evidence and permits one explicit replacement per pass, never an automatic
+retry. A second same-pass failure enters terminal `redesign_required`; after a committed new boundary, the executable
+`redesign` transition starts one new initial pass and consumes the single redesign replacement. Protected security,
+correctness, validation, accessibility, and data-loss findings are non-waivable regardless of severity. Eligible waivers
+bind user evidence to the exact preserved finding IDs. Legacy approvals migrate as non-approving history. The aggregate
+gate closes only when all required reviewers are approved or have eligible, explicit user waivers.
+
+## Direct review assignments
+
+Lifecycle controllers derive short, role-specific assignments from the owning Beads issue, design/docs, focused
+validation, and one immutable Git source boundary. Assignments declare the review issue, acceptance, dependencies,
+validation/documentation ownership, paths, domains, requirements, non-goals, and report contract. Reviewers read
+assigned evidence directly from a pinned read-only worktree and report missing evidence without broadening scope.
+Prompts, transcripts, and reviewer telemetry remain supporting evidence; Beads state and Git boundary remain authority.
+
+## Review topology and migration
+
+New feature graphs own `specification-clarity`, `execution-readiness`, `implementation-integrity`, and
+`delivery-integrity` review gates. Task workflows retain one focused reviewer. There is no LLM context builder. The
+pinned nicobailon/pi-subagents definitions provide fresh read-only child context; saved session/output artifacts and
+bounded wait/status results outrank optional terminal presentation. `migrate-review-topology.py` is the sole
+graph-mutation owner: from the canonical primary worktree it acquires the repository lease, verifies a bounded
+old-topology snapshot, creates non-approving replacement gates, maps old evidence to superseded history, rewires
+blockers, writes a versioned marker, and verifies the result. Busy leases and snapshot races stop before writes. Failed
+operations roll back; interrupted partial state is recovered from the original plan before retry. A marker makes
+repetition a verified no-op and makes older controllers fail closed.
+
 ## Validation policy
 
 Root and generated hk configurations prefer version-pinned built-in steps. Native file locking coordinates independent

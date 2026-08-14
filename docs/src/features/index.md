@@ -26,4 +26,5 @@ here only during close-out.
 - [Migration safety and clarity](migration-safety-and-clarity/index.md)
 - [Migration artifact retirement](migration-artifact-retirement/index.md)
 - [Monorepo tooling layout](monorepo-tooling-layout/index.md)
+- [Improve workflow reviews](improve-workflow-reviews/index.md)
 <!-- END IMPLEMENTED FEATURES -->
