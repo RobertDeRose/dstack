@@ -145,6 +145,7 @@ def verify_feature(
     expected_content_sha256: str | None = None,
     expected_mode: str | None = None,
     allow_clean: bool = False,
+    lineage_only: bool = False,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     command: list[str | Path] = [
@@ -166,6 +167,8 @@ def verify_feature(
         command.extend(("--expected-mode", expected_mode))
     if allow_clean:
         command.append("--allow-clean")
+    if lineage_only:
+        command.append("--lineage-only")
     if staged:
         command.append("--staged")
     return run(*command, check=check)
@@ -399,6 +402,55 @@ def test_feature_verification_rejects_a_clean_tracked_interval(
         "verified": 0,
     }
     assert run("git", "-C", feature, "status", "--porcelain=v1").stdout == ""
+
+
+def test_lineage_only_feature_verification_accepts_child_interactions_without_a_root_interaction(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    _base, feature = interaction_worktrees
+    baseline = run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip()
+    path = feature / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-child", "project-a.2") + "\n",
+        encoding="utf-8",
+    )
+
+    strict = verify_feature(repository_root, feature, baseline, "project-a", check=False)
+    result = verify_feature(repository_root, feature, baseline, "project-a", lineage_only=True)
+
+    assert strict.returncode != 0
+    assert "no appended interaction references selected feature work unit" in strict.stderr
+    assert json.loads(result.stdout)["verified"] == 1
+
+
+def test_lineage_only_feature_verification_rejects_foreign_interactions(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    _base, feature = interaction_worktrees
+    baseline = run("git", "-C", feature, "rev-parse", "HEAD").stdout.strip()
+    path = feature / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + interaction("int-child", "project-a.2")
+        + "\n"
+        + interaction("int-foreign", "project-b.1")
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = verify_feature(
+        repository_root,
+        feature,
+        baseline,
+        "project-a",
+        lineage_only=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "outside selected feature lineage" in result.stderr
 
 
 def test_feature_verification_rejects_an_interaction_commit_after_worktree_verification(

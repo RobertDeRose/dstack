@@ -322,6 +322,7 @@ def verify_work_unit(
     root_id: str | None = None,
     staged: bool = False,
     allow_clean: bool = False,
+    lineage_only: bool = False,
     expected_content_sha256: str | None = None,
     expected_mode: str | None = None,
 ) -> dict[str, object]:
@@ -420,7 +421,7 @@ def verify_work_unit(
                 f"interaction {interaction_id} references {recorded_issue_id}, "
                 f"outside selected feature lineage {root_id}"
             )
-    if root_id is not None and not selected_issue_found:
+    if root_id is not None and not lineage_only and not selected_issue_found:
         raise ReconciliationError(f"no appended interaction references selected feature work unit {issue_id}")
     output["dirty"] = True
     output["verified"] = len(additions)
@@ -450,6 +451,7 @@ def verify_feature(
     expected_content_sha256: str | None = None,
     expected_mode: str | None = None,
     allow_clean: bool = False,
+    lineage_only: bool = False,
 ) -> dict[str, object]:
     if staged and (expected_content_sha256 is None or expected_mode is None):
         raise ReconciliationError("staged feature verification requires the previously verified interaction snapshot")
@@ -462,6 +464,7 @@ def verify_feature(
         root_id=root_id,
         staged=staged,
         allow_clean=allow_clean,
+        lineage_only=lineage_only,
         expected_content_sha256=expected_content_sha256,
         expected_mode=expected_mode,
     )
@@ -547,6 +550,7 @@ def parser() -> argparse.ArgumentParser:
     feature.add_argument("--root-id", required=True)
     feature.add_argument("--issue-id", required=True)
     feature.add_argument("--baseline-commit", required=True)
+    feature.add_argument("--lineage-only", action="store_true")
     feature.add_argument("--expected-content-sha256")
     feature.add_argument("--expected-mode")
     feature.add_argument("--allow-clean", action="store_true")
@@ -573,6 +577,7 @@ def main() -> int:
                     expected_content_sha256=args.expected_content_sha256,
                     expected_mode=args.expected_mode,
                     allow_clean=args.allow_clean,
+                    lineage_only=args.lineage_only,
                 )
             else:
                 output = verify_standalone(worktree, args.issue_id, args.baseline_commit, staged=args.staged)

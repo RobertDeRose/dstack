@@ -92,6 +92,22 @@ def test_migration_plan_maps_evidence_without_transferring_approval(phase: str) 
     assert result["plan_digest"].startswith("sha256:")
 
 
+def test_migration_interaction_verification_uses_lineage_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_module()
+    arguments: tuple[str, ...] = ()
+
+    def capture(_repository: Path, *values: str) -> dict[str, Any]:
+        nonlocal arguments
+        arguments = values
+        return {}
+
+    monkeypatch.setattr(module, "interaction_command", capture)
+
+    module.interaction_verify(tmp_path, "test-root", "baseline")
+
+    assert "--lineage-only" in arguments
+
+
 def test_delivered_feature_is_not_rewritten() -> None:
     module = load_module()
     result = module.plan(old_snapshot("delivered"), "delivered")

@@ -543,6 +543,7 @@ def interaction_verify(repository: Path, root_id: str, baseline: str) -> None:
         "--baseline-commit",
         baseline,
         "--allow-clean",
+        "--lineage-only",
     )
 
 
