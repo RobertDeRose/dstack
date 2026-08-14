@@ -95,7 +95,10 @@ def test_refresh_requires_a_new_session_boundary_across_mutation_skills() -> Non
     assert "new_session_id" in reference
     assert "workflow_run_id" in reference
     assert "Beads-backed workflows" in reference
+    assert "migration audit" in reference
     assert "response/JSON workflows" in reference
+    for field in ('"schema"', '"prior_evidence"', '"new_evidence"', '"refresh_action"', '"new_session_id"'):
+        assert field in reference
     assert "new session" in reference
     for skill in MUTATION_SKILLS:
         text = (REPOSITORY_ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8").casefold()
