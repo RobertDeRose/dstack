@@ -5,12 +5,12 @@ Pi agent definitions. It does not make Pi mandatory or change Beads authority.
 
 ## Logical review contract
 
-| Workflow | Beads review role(s) | Independent reviewer(s) |
-|---|---|---|
-| `/start-feature` | `specification-clarity`, `execution-readiness` | clarity and readiness, concurrently |
-| `/implement-feature` | `task` | one task reviewer |
-| `/implement-task` | `task` | one task reviewer |
-| `/close-feature` | `implementation-integrity`, `delivery-integrity` | both close reviewers, concurrently |
+| Workflow             | Beads review role(s)                             | Independent reviewer(s)             |
+|----------------------|--------------------------------------------------|-------------------------------------|
+| `/start-feature`     | `specification-clarity`, `execution-readiness`   | clarity and readiness, concurrently |
+| `/implement-feature` | `task`                                           | one task reviewer                   |
+| `/implement-task`    | `task`                                           | one task reviewer                   |
+| `/close-feature`     | `implementation-integrity`, `delivery-integrity` | both close reviewers, concurrently  |
 
 Beads is the workflow manifest. The controller derives a transient assignment from the owning Beads issue, design/docs,
 validation evidence, and an immutable Git source boundary. Reviewers read their assigned evidence directly in a pinned
@@ -19,13 +19,13 @@ Beads `Review state:` and `Finding:` records remain authority; reviewer sessions
 
 ## Exact Pi mapping
 
-| Logical role | Exact Pi definition |
-|---|---|
-| `specification-clarity` | `dstack-clarity-reviewer` |
-| `execution-readiness` | `dstack-readiness-reviewer` |
-| `task` | `dstack-task-reviewer` |
-| `implementation-integrity` | `dstack-implementation-reviewer` |
-| `delivery-integrity` | `dstack-delivery-integrity-reviewer` |
+| Logical role               | Exact Pi definition                  |
+|----------------------------|--------------------------------------|
+| `specification-clarity`    | `dstack-clarity-reviewer`            |
+| `execution-readiness`      | `dstack-readiness-reviewer`          |
+| `task`                     | `dstack-task-reviewer`               |
+| `implementation-integrity` | `dstack-implementation-reviewer`     |
+| `delivery-integrity`       | `dstack-delivery-integrity-reviewer` |
 
 The former context-builder, architecture, simplicity, documentation, execution, delivery, drift, and holistic
 definitions are obsolete. Synchronization removes an obsolete file only when its prior manifest entry proves dstack
