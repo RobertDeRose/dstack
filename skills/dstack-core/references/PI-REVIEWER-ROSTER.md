@@ -1,88 +1,74 @@
 # Optional Pi reviewer roster adapter
 
-This reference defines schema `dstack.pi-reviewer-roster.v1`. It is an optional adapter from the dstack
-**tool-agnostic logical review roles** to named Pi agent definitions. It does not make Pi a prerequisite for any dstack
-workflow and does not change workflow counts, review schemas, convergence policy, or delivery authority.
+This reference defines `dstack.pi-reviewer-roster.v2`, the optional mapping from dstack's tool-agnostic review roles to
+Pi agent definitions. It does not make Pi mandatory or change Beads authority.
 
 ## Logical review contract
 
-The workflow remains authoritative for the number, freshness, packet boundary, and durable evidence ownership of its
-reviewers:
+| Workflow | Beads review role(s) | Independent reviewer(s) |
+|---|---|---|
+| `/start-feature` | `specification-clarity`, `execution-readiness` | clarity and readiness, concurrently |
+| `/implement-feature` | `task` | one task reviewer |
+| `/implement-task` | `task` | one task reviewer |
+| `/close-feature` | `implementation-integrity`, `delivery-integrity` | both close reviewers, concurrently |
 
-| Workflow             | Context packet              | Independent reviewers                                                          | Launch relation                                                                                                            |
-|----------------------|-----------------------------|--------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
-| `/start-feature`     | One fresh `context-builder` | Fresh `architecture`, `simplicity`, `documentation`, and `execution` reviewers | The context builder completes synchronously; the four independent reviewers then launch concurrently with the same packet. |
-| `/implement-feature` | None                        | One fresh `task` reviewer per selected child                                   | No context builder; the one reviewer is launched for the bounded child.                                                    |
-| `/implement-task`    | None                        | One fresh `task` reviewer                                                      | No context builder; the one reviewer is launched for the bounded issue.                                                    |
-| `/close-feature`     | One fresh `context-builder` | Fresh `delivery` and `drift` reviewers                                         | The context builder completes synchronously; the two independent reviewers then launch concurrently with the same packet.  |
-
-A Pi adapter selects names for these logical roles; it never adds, removes, serializes, or substitutes reviewers. Each
-fresh reviewer receives the exact packet and source boundary required by its owning workflow. Resumption uses the same
-logical role, review run, reviewer session, packet identity, and source-boundary rules defined by
-[`REVIEW-STATE.md`](REVIEW-STATE.md). The selected feature review bead or standalone task remains the authoritative
-owner of `Review state:` and `Finding:` records; the Pi agent definition is not an evidence store.
+Beads is the workflow manifest. The controller derives a transient assignment from the owning Beads issue, design/docs,
+validation evidence, and an immutable Git source boundary. Reviewers read their assigned evidence directly in a pinned
+read-only worktree. There is no shared evidence packet, collector, context-builder, or union-of-all-inputs projection.
+Beads `Review state:` and `Finding:` records remain authority; reviewer sessions and prompts are supporting evidence.
 
 ## Exact Pi mapping
 
-These names are the optional adapter's exact roster. The definitions are discovered from the Pi global agent directory
-or project `.pi/agents`; skill assets are not automatically discovered as agent definitions.
+| Logical role | Exact Pi definition |
+|---|---|
+| `specification-clarity` | `dstack-clarity-reviewer` |
+| `execution-readiness` | `dstack-readiness-reviewer` |
+| `task` | `dstack-task-reviewer` |
+| `implementation-integrity` | `dstack-implementation-reviewer` |
+| `delivery-integrity` | `dstack-delivery-integrity-reviewer` |
 
-| Logical role      | Exact Pi agent definition       | Workflow use                            |
-|-------------------|---------------------------------|-----------------------------------------|
-| `context-builder` | `dstack-context-builder`        | `/start-feature`, `/close-feature`      |
-| `architecture`    | `dstack-architecture-reviewer`  | `/start-feature`                        |
-| `simplicity`      | `dstack-simplicity-reviewer`    | `/start-feature`                        |
-| `documentation`   | `dstack-documentation-reviewer` | `/start-feature`                        |
-| `execution`       | `dstack-execution-reviewer`     | `/start-feature`                        |
-| `task`            | `dstack-task-reviewer`          | `/implement-feature`, `/implement-task` |
-| `delivery`        | `dstack-delivery-reviewer`      | `/close-feature`                        |
-| `drift`           | `dstack-drift-reviewer`         | `/close-feature`                        |
+The former context-builder, architecture, simplicity, documentation, execution, delivery, drift, and holistic
+definitions are obsolete. Synchronization removes an obsolete file only when its prior manifest entry proves dstack
+ownership and its bytes still match; modified or unowned files remain visible conflicts. Historical role names and
+packet-era assignments do not authorize current review decisions.
+
+## Enforced runtime and capability policy
+
+The definitions target nicobailon/pi-subagents (installed as a pinned package source by the operator). Resolve each
+assignment synchronously before launch. Each declares a 600,000 ms whole-run deadline, fresh context, and read-only
+acceptance role. nicobailon has no idle-timeout equivalent: a quiet or long-running tool call is not treated as a failed
+reviewer. Its lifecycle artifacts, `subagent_wait`, bounded status views, and persisted output/session paths are the
+completion evidence; controllers must not wait on a shell sentinel or infer failure from a pane state.
+
+Definitions replace old extension-specific fields with nicobailon's supported controls: `systemPromptMode: replace`,
+`inheritProjectContext: false`, `inheritSkills: false`, an empty `extensions` allowlist, and only `read,grep,find,ls`.
+No shell, mutation, or nested-delegation tool is available. `sync-pi-reviewers.py` rejects absent, malformed, changed,
+duplicate, or unexpected metadata.
 
 ## Explicit installation and synchronization
 
-The versioned definitions are bundled under `skills/dstack-core/assets/pi-reviewers/`; the Pi loader does not discover
-skill assets there automatically. When a selected Pi review is missing required names, offer this explicit project-local
-sync first:
+Definitions live under `skills/dstack-core/assets/pi-reviewers/`; Pi does not discover that directory automatically.
+When required names are missing, offer the project-local sync:
 
 ```bash
 uv run <core-dir>/scripts/sync-pi-reviewers.py \
   --target project --project-root <repository> --json
 ```
 
-A user may instead choose `--target global` (using `PI_CODING_AGENT_DIR/agents`) or an explicit agent-directory path.
-The sync command copies definitions, writes `.dstack-pi-reviewers.json` (`dstack.pi-reviewer-install.v1`) with
-source/version/hash ownership, validates frontmatter and discovery, and never changes Pi settings. Definitions require
-interactive, cmux-capable Pi sessions; context-builder and task reviewers are synchronous, other mapped reviewers are
-asynchronous, and model/thinking fields are omitted so they inherit the parent. `--check` is read-only; `--remove`
-removes only unchanged files previously installed by dstack. Conflicts are reported without overwriting user files.
-Normal `npx skills add` and `npx skills update` remain non-mutating with respect to Pi agent directories.
+Use `--check` for a read-only verification or `--remove` to remove only unchanged dstack-owned definitions.
 
-The interactive workflow offer names the missing logical roles and exact definitions, defaults to project-local sync,
-and requires explicit confirmation for every write target. A declined or failed sync returns to the visible
-missing-agent failure below; non-interactive controllers print the exact command instead of prompting.
+A user may instead select `--target global` (`PI_CODING_AGENT_DIR/agents`) or an explicit agent directory. The command
+writes `.dstack-pi-reviewers.json` with schema `dstack.pi-reviewer-install.v1`, source version, content digests, and
+ownership. The adapter itself never performs synchronization without explicit confirmation. Conflicts never overwrite
+user files.
 
 ## Adapter invocation rules
 
-1. **Use without mutation.** A Pi-based controller may use this mapping when the named definitions are available. The
-   adapter itself must not install, overwrite, copy, or modify global or project Pi configuration. A non-Pi controller
-   uses the same logical contract through its own reviewer mechanism.
-2. **Resolve before launch.** Resolve every required exact name for the selected workflow before starting its review. If
-   a named agent is absent, offer the explicit sync operation above; after a decline or failed sync, fail visibly with
-   the logical role and exact name. If an agent is unavailable, fail visibly as well; there is no silent role
-   substitution. Do not substitute another agent, reduce or increase the count, or continue with incomplete evidence.
-3. **Build packets synchronously.** For `/start-feature` and `/close-feature`, run `dstack-context-builder` to
-   completion and verify the supplied packet identity before launching any role reviewer. Do not launch role reviewers
-   concurrently with packet creation, and do not let a role reviewer create or replace the shared packet.
-4. **Run independent roles concurrently.** Once the packet is complete, launch the independent role reviewers
-   concurrently with the same packet, current open finding projection, and source boundary. Their independent sessions
-   must not share mutable controller state or launch additional reviewers.
-5. **Preserve fresh-context and resumption boundaries.** Every mapped reviewer starts in fresh context as required by
-   its workflow. After a fix, resume the same logical role and review run. If that reviewer is unavailable, follow the
-   ordinary replacement and convergence rules in `REVIEW-STATE.md`; a replacement remains the same logical role and
-   cannot create a second replacement beyond those rules.
-6. **Keep evidence in Beads.** Record packet identity, reviewer session, source boundary, findings, resolutions, and
-   disposition in the owning review bead or standalone task notes. Pi roster discovery, prompts, and transcripts are
-   supporting evidence only and never replace the durable Beads record.
-
-The adapter is unavailable when any required named agent cannot be resolved. That condition is a visible workflow
-failure, not permission to change the review plan or make Pi mandatory for other agent harnesses.
+1. Resolve every required exact name before launch. Missing/unavailable roles fail visibly after declined or failed
+   sync; there is no silent role substitution or count change.
+2. Derive and verify each transient assignment from current Beads/design/docs/Git authority before launch.
+3. Launch independent start and close reviewers concurrently. Task reviewers are single bounded sessions.
+4. Resume only the same logical reviewer/run after fixes. Follow finite state, replacement, waiver, and convergence
+   rules in [`REVIEW-STATE.md`](REVIEW-STATE.md).
+5. Persist owning Beads issue, reviewer session, source boundary, declared assignment scope, findings, resolutions,
+   telemetry, and disposition. Never persist a second assignment manifest.

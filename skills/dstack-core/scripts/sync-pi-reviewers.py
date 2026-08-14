@@ -18,6 +18,11 @@ from typing import Any, cast
 MANIFEST_NAME = ".dstack-pi-reviewers.json"
 MANIFEST_SCHEMA = "dstack.pi-reviewer-install.v1"
 ROSTER_SCHEMA = "dstack.pi-reviewer-roster.v1"
+# nicobailon/pi-subagents uses a whole-run millisecond deadline. It has no
+# equivalent idle timeout; lifecycle artifacts and bounded status/wait calls
+# provide completion evidence without treating a quiet tool call as failure.
+RUNTIME_BUDGET = {"timeoutMs": 600_000}
+POSITIVE_INTEGER_FIELDS = frozenset({"timeoutMs"})
 
 
 @dataclass(frozen=True)
@@ -28,15 +33,24 @@ class AgentSpec:
 
 
 ROSTER: dict[str, AgentSpec] = {
-    "dstack-context-builder": AgentSpec("context-builder", False, ("read", "grep", "find", "ls", "bash", "write")),
-    "dstack-architecture-reviewer": AgentSpec("architecture", True, ("read", "grep", "find", "ls")),
-    "dstack-simplicity-reviewer": AgentSpec("simplicity", True, ("read", "grep", "find", "ls")),
-    "dstack-documentation-reviewer": AgentSpec("documentation", True, ("read", "grep", "find", "ls")),
-    "dstack-execution-reviewer": AgentSpec("execution", True, ("read", "grep", "find", "ls")),
+    "dstack-clarity-reviewer": AgentSpec("specification-clarity", True, ("read", "grep", "find", "ls")),
+    "dstack-readiness-reviewer": AgentSpec("execution-readiness", True, ("read", "grep", "find", "ls")),
     "dstack-task-reviewer": AgentSpec("task", False, ("read", "grep", "find", "ls")),
-    "dstack-delivery-reviewer": AgentSpec("delivery", True, ("read", "grep", "find", "ls")),
-    "dstack-drift-reviewer": AgentSpec("drift", True, ("read", "grep", "find", "ls")),
+    "dstack-implementation-reviewer": AgentSpec("implementation-integrity", True, ("read", "grep", "find", "ls")),
+    "dstack-delivery-integrity-reviewer": AgentSpec("delivery-integrity", True, ("read", "grep", "find", "ls")),
 }
+RETIRED_FILES = frozenset(
+    {
+        "dstack-context-builder.md",
+        "dstack-architecture-reviewer.md",
+        "dstack-simplicity-reviewer.md",
+        "dstack-documentation-reviewer.md",
+        "dstack-execution-reviewer.md",
+        "dstack-delivery-reviewer.md",
+        "dstack-drift-reviewer.md",
+        "dstack-holistic-reviewer.md",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -75,17 +89,27 @@ def _parse_frontmatter(path: Path) -> dict[str, object]:
         message = f"Agent definition has unterminated YAML frontmatter: {path}"
         raise SyncError(message)
     fields: dict[str, object] = {}
-    for line in text[4:end].splitlines():
-        if not line.strip() or ":" not in line:
+    for line_number, line in enumerate(text[4:end].splitlines(), start=2):
+        if not line.strip():
             continue
-        key, value = line.split(":", 1)
+        # nicobailon frontmatter uses both lowercase and camelCase keys.
+        match = re.fullmatch(r"([a-z][A-Za-z0-9-]*):[ \t]*(.*)", line)
+        if match is None:
+            message = f"Agent definition has noncanonical frontmatter at {path}:{line_number}"
+            raise SyncError(message)
+        normalized_key, value = match.groups()
+        if normalized_key in fields:
+            message = f"Agent definition repeats frontmatter key {normalized_key!r}: {path}"
+            raise SyncError(message)
         value = value.strip()
         if value.lower() in {"true", "false"}:
-            fields[key.strip()] = value.lower() == "true"
-        elif key.strip() == "tools":
-            fields[key.strip()] = tuple(item.strip() for item in value.split(",") if item.strip())
+            fields[normalized_key] = value.lower() == "true"
+        elif normalized_key == "tools":
+            fields[normalized_key] = tuple(item.strip() for item in value.split(",") if item.strip())
+        elif normalized_key in POSITIVE_INTEGER_FIELDS and value.isdigit():
+            fields[normalized_key] = int(value)
         else:
-            fields[key.strip()] = value
+            fields[normalized_key] = value
     return fields
 
 
@@ -100,16 +124,26 @@ def _validate_asset(name: str, path: Path) -> list[str]:
     errors: list[str] = []
     expected = {
         "name": name,
-        "mode": "interactive",
-        "auto-exit": True,
-        "async": spec.async_enabled,
-        "session-mode": "lineage-only",
-        "trust-project": True,
         "tools": spec.tools,
+        "systemPromptMode": "replace",
+        "inheritProjectContext": False,
+        "inheritSkills": False,
+        "extensions": "",
+        "defaultContext": "fresh",
+        "async": spec.async_enabled,
+        "acceptanceRole": "read-only",
+        **RUNTIME_BUDGET,
     }
+    allowed_fields = {*expected, "description"}
+    unexpected_fields = sorted(fields.keys() - allowed_fields)
+    if unexpected_fields:
+        errors.append(f"{path.name}: unexpected frontmatter fields: {', '.join(unexpected_fields)}")
     for key, value in expected.items():
         if fields.get(key) != value:
             errors.append(f"{path.name}: expected frontmatter {key}={value!r}, got {fields.get(key)!r}")
+    for key in POSITIVE_INTEGER_FIELDS:
+        if not isinstance(fields.get(key), int) or cast(int, fields[key]) <= 0:
+            errors.append(f"{path.name}: frontmatter {key} must be a positive integer")
     for forbidden in ("model", "thinking"):
         if forbidden in fields:
             errors.append(f"{path.name}: frontmatter must omit {forbidden}")
@@ -174,11 +208,13 @@ def _validate_manifest(value: dict[str, Any], path: Path) -> None:
         message = f"Installer manifest has invalid source metadata: {path}"
         raise SyncError(message)
     files = value["files"]
-    expected = {f"{name}.md" for name in ROSTER}
-    if not isinstance(files, dict) or set(files) != expected:
-        message = f"Installer manifest has an incomplete file inventory: {path}"
+    if not isinstance(files, dict):
+        message = f"Installer manifest has an invalid file inventory: {path}"
         raise SyncError(message)
     for filename, entry in files.items():
+        if Path(filename).name != filename or not filename.endswith(".md"):
+            message = f"Installer manifest has an unsafe file name: {filename}"
+            raise SyncError(message)
         if not isinstance(entry, dict) or set(entry) != {"sha256", "managed"}:
             message = f"Installer manifest has invalid file metadata: {filename}"
             raise SyncError(message)
@@ -325,6 +361,7 @@ def _sync(source: Path, target: Path, *, check: bool, remove: bool) -> tuple[dic
             return result, 1
     conflicts: list[str] = []
     actions: dict[str, str] = {}
+    obsolete_removals: list[str] = []
     new_files: dict[str, dict[str, Any]] = {}
     for name, asset in assets.items():
         filename = f"{name}.md"
@@ -355,6 +392,21 @@ def _sync(source: Path, target: Path, *, check: bool, remove: bool) -> tuple[dic
             managed = True
         new_files[filename] = {"sha256": asset.digest, "managed": managed}
 
+    current_filenames = {f"{name}.md" for name in assets}
+    for filename, old_entry in old_files.items():
+        if filename in current_filenames or filename not in RETIRED_FILES or not old_entry.get("managed", False):
+            if filename not in current_filenames:
+                new_files[filename] = old_entry
+            continue
+        path = target / filename
+        if not os.path.lexists(path):
+            continue
+        if path.is_symlink() or _sha256(path) != old_entry["sha256"]:
+            conflicts.append(filename)
+            new_files[filename] = old_entry
+            continue
+        obsolete_removals.append(filename)
+
     result["conflicts"] = sorted(conflicts)
     if conflicts:
         result["status"] = "conflict"
@@ -362,7 +414,7 @@ def _sync(source: Path, target: Path, *, check: bool, remove: bool) -> tuple[dic
     if manifest is None:
         _result_list(result, "missing").append(MANIFEST_NAME)
     if check:
-        if result["missing"] or result["stale"] or actions:
+        if result["missing"] or result["stale"] or actions or obsolete_removals:
             result["status"] = "missing" if result["missing"] else "stale"
             result["installed"] = []
             result["updated"] = sorted(name for name in actions if actions[name] == "update")
@@ -370,18 +422,37 @@ def _sync(source: Path, target: Path, *, check: bool, remove: bool) -> tuple[dic
         result["discovered"] = _discovered(target)
         return result, 0
 
-    for name in sorted(actions):
-        if actions[name] == "update":
-            _result_list(result, "updated").append(name)
-        else:
-            _result_list(result, "installed").append(name)
-
     target.mkdir(parents=True, exist_ok=True)
+    changed_filenames = [f"{name}.md" for name in actions]
+    original_files = {
+        filename: (target / filename).read_bytes() if (target / filename).is_file() else None
+        for filename in [*changed_filenames, *obsolete_removals]
+    }
+    original_manifest = (target / MANIFEST_NAME).read_bytes() if manifest is not None else None
+    try:
+        for name in actions:
+            asset = assets[name]
+            _atomic_write(target / f"{name}.md", asset.path.read_bytes())
+        _write_manifest(target, source_version, new_files)
+        for filename in obsolete_removals:
+            (target / filename).unlink()
+    except OSError:
+        for filename, content in original_files.items():
+            path = target / filename
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                _atomic_write(path, content)
+        if original_manifest is None:
+            (target / MANIFEST_NAME).unlink(missing_ok=True)
+        else:
+            _atomic_write(target / MANIFEST_NAME, original_manifest)
+        raise
+    for filename in obsolete_removals:
+        _result_list(result, "removed").append(filename.removesuffix(".md"))
+    for name in sorted(actions):
+        _result_list(result, "updated" if actions[name] == "update" else "installed").append(name)
     result["missing"] = []
-    for name in actions:
-        asset = assets[name]
-        _atomic_write(target / f"{name}.md", asset.path.read_bytes())
-    _write_manifest(target, source_version, new_files)
     result["discovered"] = _discovered(target)
     return result, 0
 
