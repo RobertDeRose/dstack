@@ -45,6 +45,7 @@ from migration_core import (
     set_classification,
     set_dependency_relation,
     set_hk_disposition,
+    set_release_tool_decision,
     TEMPLATE_BACKUP_DIR,
     TEMPLATE_CANDIDATE_DIR,
     VALID_CLASSIFICATIONS,
@@ -142,6 +143,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     hk_disposition.add_argument("step")
     hk_disposition.add_argument("action", choices=("remove", "replace"))
     hk_disposition.add_argument("--reason", required=True)
+
+    release_decision = subparsers.add_parser(
+        "release-tool-decision",
+        help="Record whether migration converts, retains, or removes the existing release authority",
+    )
+    add_common_arguments(release_decision)
+    release_decision.add_argument("action", choices=("convert", "retain", "remove"))
+    release_decision.add_argument("--tool", required=True)
+    release_decision.add_argument("--reason", required=True)
 
     prepare = subparsers.add_parser("prepare", help="Normalize feature paths and rewrite links")
     add_common_arguments(prepare)
@@ -430,6 +440,18 @@ def _main(args: argparse.Namespace) -> int:
                 hook=args.hook,
                 step=args.step,
                 action=args.action,
+                reason=args.reason,
+            )
+            return 0
+
+        if args.command == "release-tool-decision":
+            set_release_tool_decision(
+                root,
+                manifest,
+                manifest_path=args.manifest,
+                report_path=args.report,
+                action=args.action,
+                tool=args.tool,
                 reason=args.reason,
             )
             return 0

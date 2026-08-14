@@ -39,6 +39,7 @@ from migration_core import (
     MigrationError,
     parse_roadmap,
     read_text,
+    release_tooling_state,
     render_relationship_cycle,
     render_typed_cycle,
     ROADMAP_PATH,
@@ -176,6 +177,13 @@ def finalized_checkpoint_errors(manifest: Mapping[str, Any]) -> list[str]:
 
 def verify_migration(root: Path, manifest: Mapping[str, Any], *, verify_beads: bool) -> tuple[list[str], list[str]]:
     errors = finalized_inventory_errors(root, manifest) if manifest.get("migration_finalized") else []
+    recorded_release = manifest.get("release_tooling", {})
+    decision = recorded_release.get("decision") if isinstance(recorded_release, Mapping) else None
+    current_release = release_tooling_state(root, decision if isinstance(decision, Mapping) else None)
+    errors.extend(
+        f"Release tooling reconciliation blocked: {issue.get('kind')}: {issue.get('message')}"
+        for issue in current_release.get("issues", [])
+    )
     if manifest.get("migration_finalized"):
         errors.extend(finalized_checkpoint_errors(manifest))
     features = [feature for feature in manifest.get("features", []) if isinstance(feature, dict)]

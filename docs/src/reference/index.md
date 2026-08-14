@@ -36,9 +36,14 @@ unchanged. `confirm-hk-inventory --inventory-json <path> --reason <evidence>` su
 evaluation is unavailable. `reconcile-hk <hook> <step> <remove|replace> --reason <decision>` records the only accepted
 loss/collision disposition, including the specifically approved existing and candidate behavior. `verify` re-evaluates
 current hk and rejects stale scans, missing steps, changed definitions, unevaluable current policy, or an unconfirmed
-manual baseline. `backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup state. Final
-verification requires tracked manifests, reports, baselines, and archived legacy tasks; it rejects temporary
-`migration/template-adoption-candidates/` directories and inconsistent backup presence/disposition. The
+manual baseline. The scan also reports every project-owned release authority from configs, package dependencies,
+workflows, mise tooling, and release documentation.
+`release-tool-decision <convert|retain|remove> --tool <tool> --reason <evidence>` records the durable choice. Conversion
+requires Cog as the sole reconciled authority; retention requires one selected non-Cog authority with matching docs and
+no Cog claim; removal requires the selected authority to be absent. Contradictions or missing decisions block
+finalization and verification. `backup-disposition <retain|remove> --reason <evidence>` resolves conditional backup
+state. Final verification requires tracked manifests, reports, baselines, and archived legacy tasks; it rejects
+temporary `migration/template-adoption-candidates/` directories and inconsistent backup presence/disposition. The
 `migration/delivered-record-candidates/` directory is separate transient review material: it is required before
 finalization, is not committed, and may be removed only after successful finalization, completed verification, and
 explicit user approval. Migration stores only answers required for safety/resume, such as classification, dependency,

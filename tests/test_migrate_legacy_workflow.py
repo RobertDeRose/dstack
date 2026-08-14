@@ -884,6 +884,16 @@ def test_finalize_rejects_missing_reviewed_candidate_before_finalization(
     manifest = {
         "migration_finalized": False,
         "features": [],
+        "release_tooling": {
+            "authorities": [],
+            "decision": {
+                "action": "remove",
+                "tool": "none",
+                "reason": "No release authority exists in this fixture.",
+                "recorded_at": "2026-08-14T00:00:00+00:00",
+            },
+            "issues": [],
+        },
         "delivered_record_candidates": [
             {
                 "slug": "alpha",

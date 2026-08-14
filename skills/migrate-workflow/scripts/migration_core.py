@@ -773,6 +773,219 @@ def hk_reconciliation_state(
     }
 
 
+RELEASE_TOOL_TOKENS = {
+    "cog": ("cocogitto", "cog ", "cog.toml"),
+    "semantic-release": ("semantic-release", "@semantic-release/"),
+    "release-it": ("release-it",),
+    "changesets": ("@changesets/", "changeset"),
+    "goreleaser": ("goreleaser", ".goreleaser"),
+}
+RELEASE_SCAN_IGNORED_DIRS = {
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    "migration",
+    "node_modules",
+    "target",
+    "vendor",
+}
+
+
+def _release_tool_for_text(text: str) -> set[str]:
+    lowered = text.casefold()
+    return {tool for tool, tokens in RELEASE_TOOL_TOKENS.items() if any(token in lowered for token in tokens)}
+
+
+def detect_release_authorities(root: Path) -> list[dict[str, str]]:
+    """Return bounded project-owned release configuration, execution, and documentation evidence."""
+    authorities: dict[tuple[str, str, str], dict[str, str]] = {}
+
+    def add(tool: str, kind: str, path: Path, detail: str) -> None:
+        relative = path.relative_to(root).as_posix()
+        key = (tool, kind, relative)
+        authorities[key] = {
+            "tool": tool,
+            "kind": kind,
+            "path": relative,
+            "ownership": "project",
+            "detail": detail,
+        }
+
+    files: list[Path] = []
+    for path in sorted(root.rglob("*")):
+        if any(part in RELEASE_SCAN_IGNORED_DIRS for part in path.relative_to(root).parts):
+            continue
+        if path.is_file() and not path.is_symlink():
+            files.append(path)
+        if len(files) > 10_000:
+            message = "Release-tool authority scan exceeded 10000 files"
+            raise MigrationError(message)
+
+    for path in files:
+        relative = path.relative_to(root).as_posix()
+        name = path.name.casefold()
+        config_tool: str | None = None
+        if name == "cog.toml":
+            config_tool = "cog"
+        elif name.startswith((".releaserc", "release.config.")):
+            config_tool = "semantic-release"
+        elif name.startswith(".release-it"):
+            config_tool = "release-it"
+        elif name.startswith(".goreleaser"):
+            config_tool = "goreleaser"
+        elif relative == ".changeset/config.json":
+            config_tool = "changesets"
+        if config_tool:
+            add(config_tool, "config", path, "release configuration")
+
+        if name == "package.json":
+            try:
+                package = json.loads(read_text(path))
+            except (json.JSONDecodeError, OSError) as exc:
+                message = f"Cannot inspect release dependencies in {relative}: {exc}"
+                raise MigrationError(message) from exc
+            for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+                dependencies = package.get(section) if isinstance(package, dict) else None
+                if not isinstance(dependencies, dict):
+                    continue
+                for dependency in dependencies:
+                    for tool in _release_tool_for_text(str(dependency)):
+                        add(tool, "dependency", path, f"{section}:{dependency}")
+            scripts = package.get("scripts") if isinstance(package, dict) else None
+            if isinstance(scripts, dict):
+                for script, command in scripts.items():
+                    if not isinstance(command, str):
+                        continue
+                    for tool in _release_tool_for_text(command):
+                        add(tool, "package-script", path, f"scripts:{script}")
+
+        inspect_kind: str | None = None
+        if path.suffix.casefold() in {".yml", ".yaml"} and relative.startswith(".github/workflows/"):
+            inspect_kind = "workflow"
+        elif name in {"mise.toml", ".mise.toml"}:
+            inspect_kind = "tooling"
+        elif name in {"mise.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"}:
+            inspect_kind = "lock"
+        elif path.suffix.casefold() in {".md", ".markdown"} or name.startswith("readme"):
+            inspect_kind = "documentation"
+        if inspect_kind:
+            try:
+                text = read_text(path)
+            except UnicodeDecodeError:
+                continue
+            if inspect_kind != "documentation" or "release" in text.casefold():
+                for tool in _release_tool_for_text(text):
+                    add(tool, inspect_kind, path, "release authority reference")
+    return [authorities[key] for key in sorted(authorities)]
+
+
+def release_tooling_state(root: Path, decision: Mapping[str, Any] | None) -> dict[str, Any]:
+    authorities = detect_release_authorities(root)
+    executable_tools = {item["tool"] for item in authorities if item["kind"] != "documentation"}
+    documented_tools = {item["tool"] for item in authorities if item["kind"] == "documentation"}
+    normalized_decision = dict(decision) if isinstance(decision, Mapping) else None
+    issues: list[dict[str, str]] = []
+    if len(executable_tools) > 1 or documented_tools - executable_tools:
+        issues.append(
+            {
+                "kind": "contradictory_release_tools",
+                "message": "Release configuration, execution, and documentation identify contradictory authorities.",
+            }
+        )
+    if normalized_decision is None:
+        issues.append(
+            {
+                "kind": "missing_release_decision",
+                "message": "Record whether to convert, retain, or remove the existing release authority.",
+            }
+        )
+    else:
+        action = normalized_decision.get("action")
+        tool = normalized_decision.get("tool")
+        reason = normalized_decision.get("reason")
+        recorded_at = normalized_decision.get("recorded_at")
+        try:
+            recorded_time = datetime.fromisoformat(recorded_at) if isinstance(recorded_at, str) else None
+        except ValueError:
+            recorded_time = None
+        if (
+            action not in {"convert", "retain", "remove"}
+            or not isinstance(tool, str)
+            or not tool
+            or not isinstance(reason, str)
+            or not reason
+            or recorded_time is None
+            or recorded_time.tzinfo is None
+        ):
+            issues.append({"kind": "invalid_release_decision", "message": "Release decision is incomplete."})
+        elif action == "convert" and tool != "cog":
+            issues.append({"kind": "invalid_release_decision", "message": "Conversion target must be Cog."})
+        elif action == "convert" and (executable_tools != {"cog"} or documented_tools != {"cog"}):
+            issues.append(
+                {"kind": "release_conversion_incomplete", "message": "Conversion requires Cog as the sole authority."}
+            )
+        elif action == "retain" and (tool == "cog" or executable_tools != {tool} or documented_tools != {tool}):
+            issues.append(
+                {
+                    "kind": "retained_release_tool_conflict",
+                    "message": "Retention requires one non-Cog authority with matching documentation.",
+                }
+            )
+        elif action == "remove" and (tool in executable_tools or len(executable_tools) > 1):
+            issues.append(
+                {
+                    "kind": "release_tool_removal_incomplete",
+                    "message": "Removed release authority remains executable or another contradiction remains.",
+                }
+            )
+    return {
+        "authorities": authorities,
+        "executable_tools": sorted(executable_tools),
+        "documented_tools": sorted(documented_tools),
+        "decision": normalized_decision,
+        "issues": issues,
+    }
+
+
+def require_release_tool_reconciliation(manifest: Mapping[str, Any], *, root: Path | None = None) -> None:
+    state = manifest.get("release_tooling")
+    if root is not None and isinstance(state, Mapping):
+        decision = state.get("decision")
+        state = release_tooling_state(root, decision if isinstance(decision, Mapping) else None)
+    if not isinstance(state, Mapping):
+        message = "Release tooling reconciliation is missing from the migration manifest"
+        raise MigrationError(message)
+    issues = state.get("issues")
+    if not isinstance(issues, list) or issues:
+        kinds = ", ".join(sorted(str(item.get("kind", "issue")) for item in issues or []))
+        suffix = f": {kinds}" if kinds else ""
+        raise MigrationError("Release tooling reconciliation must be resolved before finalization" + suffix)
+
+
+def set_release_tool_decision(
+    root: Path,
+    manifest: dict[str, Any],
+    *,
+    manifest_path: Path,
+    report_path: Path,
+    action: str,
+    tool: str,
+    reason: str,
+) -> None:
+    if not reason.strip():
+        message = "Release-tool decision requires a nonempty reason"
+        raise MigrationError(message)
+    decision = {
+        "action": action,
+        "tool": tool,
+        "reason": reason.strip(),
+        "recorded_at": utc_now(),
+    }
+    manifest["release_tooling"] = release_tooling_state(root, decision)
+    save_manifest_and_report(root, manifest_path, report_path, manifest)
+
+
 def build_manifest(
     root: Path,
     *,
@@ -995,6 +1208,10 @@ def build_manifest(
         backup_disposition = "unresolved"
     elif not backup_exists and backup_disposition not in {"retain", "remove", "unresolved"}:
         backup_disposition = "not_applicable"
+    previous_release_tooling = (existing_manifest or {}).get("release_tooling", {})
+    previous_release_decision = (
+        previous_release_tooling.get("decision") if isinstance(previous_release_tooling, Mapping) else None
+    )
     manifest = {
         **(existing_manifest or {}),
         "schema_version": SCHEMA_VERSION,
@@ -1017,6 +1234,7 @@ def build_manifest(
             "parsed_tasks": parsed_tasks,
         },
         "hk_reconciliation": hk_reconciliation_state(baseline_hk, current_hk, dispositions),
+        "release_tooling": release_tooling_state(root, previous_release_decision),
         "checkpoint_evidence": (existing_manifest or {}).get("checkpoint_evidence", []),
         "artifacts": {
             **previous_artifacts,
@@ -1065,6 +1283,34 @@ def render_report(manifest: Mapping[str, Any]) -> str:
     ]
     for key in sorted(counts):
         lines.append(f"- `{key}`: {counts[key]}")
+    release_state = manifest.get("release_tooling", {})
+    release_decision = release_state.get("decision") or {}
+    lines.extend(
+        [
+            "",
+            "## Release Tooling Reconciliation",
+            "",
+            "- Executable authorities: "
+            + (", ".join(f"`{tool}`" for tool in release_state.get("executable_tools", [])) or "none"),
+            "- Documented authorities: "
+            + (", ".join(f"`{tool}`" for tool in release_state.get("documented_tools", [])) or "none"),
+            f"- Decision: `{release_decision.get('action', 'missing')}` `{release_decision.get('tool', '')}`",
+            f"- Decision reason: {release_decision.get('reason') or '—'}",
+            f"- Blocking issues: {len(release_state.get('issues', []))}",
+            "",
+            "### Detected authorities",
+            "",
+        ]
+    )
+    for authority in release_state.get("authorities", []):
+        lines.append(
+            f"- `{authority.get('tool')}` `{authority.get('kind')}` `{authority.get('path')}` "
+            f"ownership=`{authority.get('ownership')}` — {authority.get('detail')}"
+        )
+    if not release_state.get("authorities"):
+        lines.append("- None detected.")
+    for issue in release_state.get("issues", []):
+        lines.append(f"- BLOCKED `{issue.get('kind')}`: {issue.get('message')}")
     hk_state = manifest.get("hk_reconciliation", {})
     baseline_hk = hk_state.get("baseline", {})
     current_hk = hk_state.get("current", {})
@@ -2287,6 +2533,7 @@ def finalize_migration(
     delete_tasks: bool,
     archive_dir: Path,
 ) -> None:
+    require_release_tool_reconciliation(manifest, root=root)
     safe_repository_path(
         root,
         archive_dir,

@@ -133,9 +133,12 @@ and bootstrap. After import, publish only through `<core-dir>/scripts/guarded-be
 uv run <skill-dir>/scripts/migrate-legacy-workflow.py scan --write
 ```
 
-Review counts, parser coverage, classifications, slug mappings, renames, dependencies, and findings. Stop on unparsed
-legacy tasks or any `blocks`/`related`/parent traversal cycle. Use **Task parser coverage**, **Roadmap identity**,
-**Semantic decisions**, and **Dependency cycles**.
+Review counts, parser coverage, classifications, slug mappings, renames, dependencies, release-tool authorities, and
+findings. Stop on unparsed legacy tasks, any `blocks`/`related`/parent traversal cycle, contradictory release tools, or
+a missing release decision. Use `release-tool-decision <convert|retain|remove> --tool <tool> --reason <evidence>` to
+record the explicit choice. Reconcile its CI, configs, package dependencies, mise tooling, locks, release docs, and
+generated claims before continuing. Use **Task parser coverage**, **Roadmap identity**,
+**Release authority reconciliation**, **Semantic decisions**, and **Dependency cycles**.
 
 For missing executable intent, use **Contextual migration questions** and the `/plan-features` Design Question Loop one
 answer at a time. Persist only safety/resumability answers in migration state; put product intent in designs/roadmap.
@@ -226,6 +229,11 @@ git add -- "${durable_paths[@]}" docs/src
 # The candidate directory must not appear in the staged path list.
 git diff --cached --name-only
 ```
+
+Before finalization, rerun `scan --write` and confirm the release-tool report contains one consistent executable and
+documented authority, the durable decision, and zero blocking release issues. A retained non-Cog tool must have no Cog
+configuration or adoption claim. A conversion must reconcile CI, tooling/locks, package dependencies, release docs, and
+generated evidence to Cog as the sole authority. `finalize` and `verify` fail closed otherwise.
 
 After reconciliation, run migration-mode documentation validation, then preview and apply archival:
 

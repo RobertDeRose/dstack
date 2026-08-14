@@ -192,6 +192,29 @@ Restore the original behavior by default. When the user explicitly approves remo
 hook, step, both definitions, action, and reason with `reconcile-hk`; a removal disposition cannot approve a changed
 same-key collision, and a replacement disposition cannot approve deletion.
 
+## Release authority reconciliation
+
+`scan` inventories project-owned release authority from configuration files, package dependencies, release workflows,
+mise tooling, and release documentation. Each report entry records its tool, kind, ownership, and path. Rendering
+`cog.toml` does not prove conversion and never authorizes deletion of an existing release system.
+
+Before finalization, record exactly one explicit decision:
+
+```bash
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py release-tool-decision \
+  <convert|retain|remove> --tool <tool> --reason '<evidence and intended authority>'
+uv run <skill-dir>/scripts/migrate-legacy-workflow.py scan --write
+```
+
+- `convert` requires Cog to be the sole executable and documented release authority after reconciling workflows,
+  configuration, package dependencies, mise tooling and locks, release documentation, and generated evidence.
+- `retain` requires exactly the selected non-Cog authority, matching documentation, a durable reason, and no Cog config
+  or adoption claim.
+- `remove` requires the selected authority to be absent; any remaining authority must still be internally consistent.
+
+An unresolved decision, multiple executable tools, mismatched documentation, incomplete conversion/removal, or a stale
+retention claim blocks `finalize` and `verify`. Never resolve this by silently deleting project-owned release files.
+
 ## Artifact lifecycle
 
 Migration treats the manifest, report, baseline, session-authority audit, and `migration/legacy-tasks/*.md` as durable
