@@ -228,6 +228,97 @@ def indexed_children(children: Sequence[Mapping[str, Any]], key: str) -> dict[st
     return result
 
 
+def require_metadata(actual: Mapping[str, Any], expected: Mapping[str, object], label: str) -> None:
+    mismatched = sorted(key for key, value in expected.items() if actual.get(key) != value)
+    if mismatched:
+        raise ValueError(f"Existing {label} metadata conflicts with promotion plan: {', '.join(mismatched)}")
+
+
+def validate_step_issue(
+    issue: Mapping[str, Any], step: Mapping[str, Any], variables: Mapping[str, str], root_id: str
+) -> None:
+    step_id = str(step["id"])
+    expected_type = "task" if str(step["type"]) == "human" else str(step["type"])
+    checks = {
+        "title": substitute(str(step["title"]), variables),
+        "issue_type": expected_type,
+        "parent": root_id,
+        "description": substitute(str(step.get("description") or ""), variables).strip(),
+    }
+    mismatched = sorted(key for key, value in checks.items() if issue.get(key) != value)
+    expected_labels = {str(item) for item in step.get("labels") or []}
+    if not expected_labels.issubset({str(item) for item in issue.get("labels") or []}):
+        mismatched.append("labels")
+    expected_metadata = metadata(step.get("metadata"), variables)
+    expected_metadata["promotion_step_id"] = step_id
+    try:
+        require_metadata(mapping(issue.get("metadata")), expected_metadata, f"lifecycle step {step_id}")
+    except ValueError:
+        mismatched.append("metadata")
+    if mismatched:
+        raise ValueError(
+            f"Existing lifecycle step {step_id} conflicts with formula: {', '.join(sorted(set(mismatched)))}"
+        )
+
+
+def validate_task_issue(issue: Mapping[str, Any], task: Mapping[str, Any], implementation_id: str) -> None:
+    task_key = str(task["task_key"])
+    checks = {
+        "title": str(task["title"]),
+        "issue_type": "task",
+        "parent": implementation_id,
+        "description": str(task["description"]),
+        "acceptance_criteria": str(task["acceptance_criteria"]),
+    }
+    mismatched = sorted(key for key, value in checks.items() if issue.get(key) != value)
+    actual_owner = issue.get("assignee") or issue.get("owner")
+    if actual_owner != str(task["owner"]):
+        mismatched.append("owner")
+    expected_labels = {str(item) for item in task.get("labels") or []}
+    if not expected_labels.issubset({str(item) for item in issue.get("labels") or []}):
+        mismatched.append("labels")
+    expected_metadata = {
+        "task_key": task_key,
+        "validation_commands": task["validation_commands"],
+        "commit_boundary": task["commit_boundary"],
+    }
+    try:
+        require_metadata(mapping(issue.get("metadata")), expected_metadata, f"implementation task {task_key}")
+    except ValueError:
+        mismatched.append("metadata")
+    if mismatched:
+        raise ValueError(
+            f"Existing implementation task {task_key} conflicts with plan: {', '.join(sorted(set(mismatched)))}"
+        )
+
+
+def validate_required_edges(
+    *,
+    repository_root: Path,
+    steps: Sequence[object],
+    step_issues: Mapping[str, Mapping[str, Any]],
+    tasks: Sequence[object],
+    task_issues: Mapping[str, Mapping[str, Any]],
+    runner: Runner,
+) -> None:
+    for values, issues_by_key, key_name in (
+        (steps, step_issues, "id"),
+        (tasks, task_issues, "task_key"),
+    ):
+        for raw in values:
+            item = mapping(raw)
+            key = str(item[key_name])
+            needs = [str(value) for value in item.get("needs") or []]
+            if not needs:
+                continue
+            issue_id = str(issues_by_key[key]["id"])
+            current = one_issue(runner(["bd", "show", issue_id, "--json"], cwd=repository_root), issue_id)
+            actual = dependency_ids(current)
+            missing = sorted(target for target in needs if (str(issues_by_key[target]["id"]), "blocks") not in actual)
+            if missing:
+                raise ValueError(f"Existing promotion issue {key} is missing dependencies: {', '.join(missing)}")
+
+
 def promote_existing_root(
     *,
     repository_root: Path,
@@ -280,6 +371,11 @@ def promote_existing_root(
     }
     children = issue_list(runner(["bd", "list", "--parent", root_id, "--all", "--json", "--limit", "0"], cwd=root))
     step_issues = indexed_children(children, "promotion_step_id")
+    steps_by_id = {str(mapping(step)["id"]): mapping(step) for step in steps}
+    for step_id, issue in step_issues.items():
+        if step_id not in steps_by_id:
+            raise ValueError(f"Existing lifecycle step is not in the formula: {step_id}")
+        validate_step_issue(issue, steps_by_id[step_id], variables, root_id)
     if prior_digest == digest:
         if set(step_issues) != set(ROOT_STEP_METADATA):
             raise ValueError("Recorded legacy promotion is missing lifecycle children")
@@ -293,9 +389,21 @@ def promote_existing_root(
             runner(["bd", "list", "--parent", implementation_id, "--all", "--json", "--limit", "0"], cwd=root)
         )
         task_issues = indexed_children(task_children, "task_key")
-        expected_task_keys = {str(mapping(item)["task_key"]) for item in validated_plan["implementation_tasks"]}
-        if set(task_issues) != expected_task_keys:
+        tasks_by_key = {
+            str(mapping(item)["task_key"]): mapping(item) for item in validated_plan["implementation_tasks"]
+        }
+        if set(task_issues) != set(tasks_by_key):
             raise ValueError("Recorded legacy promotion implementation tasks are stale")
+        for task_key, issue in task_issues.items():
+            validate_task_issue(issue, tasks_by_key[task_key], implementation_id)
+        validate_required_edges(
+            repository_root=root,
+            steps=steps,
+            step_issues=step_issues,
+            tasks=validated_plan["implementation_tasks"],
+            task_issues=task_issues,
+            runner=runner,
+        )
         return {
             "schema": PROMOTION_SCHEMA,
             "root_id": root_id,
@@ -336,6 +444,12 @@ def promote_existing_root(
         runner(["bd", "list", "--parent", implementation_id, "--all", "--json", "--limit", "0"], cwd=root)
     )
     task_issues = indexed_children(task_children, "task_key")
+    tasks_by_key = {str(mapping(item)["task_key"]): mapping(item) for item in validated_plan["implementation_tasks"]}
+    unknown_task_keys = sorted(set(task_issues) - set(tasks_by_key))
+    if unknown_task_keys:
+        raise ValueError(f"Existing implementation tasks are not in the plan: {', '.join(unknown_task_keys)}")
+    for task_key, issue in task_issues.items():
+        validate_task_issue(issue, tasks_by_key[task_key], implementation_id)
     for task_value in validated_plan["implementation_tasks"]:
         task = mapping(task_value)
         task_key = str(task["task_key"])
@@ -382,6 +496,14 @@ def promote_existing_root(
                 kind="blocks",
                 runner=runner,
             )
+    validate_required_edges(
+        repository_root=root,
+        steps=steps,
+        step_issues=step_issues,
+        tasks=validated_plan["implementation_tasks"],
+        task_issues=task_issues,
+        runner=runner,
+    )
 
     promoted_metadata = {
         "feature_name": variables["feature_name"],

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tomllib
 from pathlib import Path
 from types import ModuleType
 from typing import cast
@@ -403,11 +404,13 @@ def test_legacy_promotion_preserves_root_and_is_idempotent(tmp_path: Path) -> No
     }
     children: dict[str, dict[str, object]] = {}
     commands: list[list[str]] = []
+    next_id = 0
 
     def option(command: list[str], name: str, default: str = "") -> str:
         return command[command.index(name) + 1] if name in command else default
 
     def fake_run(command: list[str], *, cwd: Path) -> object:
+        nonlocal next_id
         commands.append(command)
         if command[1:3] == ["show", "demo-root"]:
             return [root]
@@ -416,7 +419,8 @@ def test_legacy_promotion_preserves_root_and_is_idempotent(tmp_path: Path) -> No
         if command[1:4] == ["list", "--parent", command[3]]:
             return [item for item in children.values() if item["parent"] == command[3]]
         if command[1] == "create":
-            issue_id = f"demo-{len(children) + 1}"
+            next_id += 1
+            issue_id = f"demo-{next_id}"
             created = {
                 "id": issue_id,
                 "title": command[2],
@@ -469,6 +473,69 @@ def test_legacy_promotion_preserves_root_and_is_idempotent(tmp_path: Path) -> No
     assert first["implementation_tasks"].keys() == {"contract"}
     assert sum(command[1] == "create" for command in commands) == creates
     assert all(command[1:3] != ["mol", "pour"] for command in commands)
+
+    root_metadata.pop("legacy_promotion_digest")
+    old_design = first["lifecycle"]["design"]
+    del children[old_design]
+    recovered = module.promote_existing_root(
+        repository_root=tmp_path,
+        root_id="demo-root",
+        formula_path=formula,
+        plan=plan,
+        runner=fake_run,
+    )
+    assert recovered["root_id"] == "demo-root"
+    assert recovered["lifecycle"]["design"] != old_design
+    assert sum(command[1] == "create" for command in commands) == creates + 1
+
+    contract_task = children[recovered["implementation_tasks"]["contract"]]
+    contract_task["acceptance_criteria"] = "corrupt"
+    with pytest.raises(ValueError, match="conflicts with plan"):
+        module.promote_existing_root(
+            repository_root=tmp_path,
+            root_id="demo-root",
+            formula_path=formula,
+            plan=plan,
+            runner=fake_run,
+        )
+    contract_task["acceptance_criteria"] = "Contract tests pass."
+
+    implementation = children[recovered["lifecycle"]["implementation"]]
+    implementation["description"] = "corrupt"
+    creates_before_failure = sum(command[1] == "create" for command in commands)
+    with pytest.raises(ValueError, match="conflicts with formula"):
+        module.promote_existing_root(
+            repository_root=tmp_path,
+            root_id="demo-root",
+            formula_path=formula,
+            plan=plan,
+            runner=fake_run,
+        )
+    assert sum(command[1] == "create" for command in commands) == creates_before_failure
+
+    formula_data = tomllib.loads(formula.read_text(encoding="utf-8"))
+    implementation_step = next(step for step in formula_data["steps"] if step["id"] == "implementation")
+    implementation["description"] = module.substitute(
+        implementation_step["description"],
+        {
+            "feature_name": "Demo",
+            "feature_slug": "demo",
+            "design_path": "docs/src/features/demo/design.md",
+            "implemented_path": "docs/src/features/demo/index.md",
+            "base_branch": "main",
+        },
+    ).strip()
+    review_architecture = children[recovered["lifecycle"]["review-architecture"]]
+    dependencies = cast(list[object], review_architecture["dependencies"])
+    dependencies.clear()
+    with pytest.raises(ValueError, match="missing dependencies"):
+        module.promote_existing_root(
+            repository_root=tmp_path,
+            root_id="demo-root",
+            formula_path=formula,
+            plan=plan,
+            runner=fake_run,
+        )
 
 
 def test_reviewer_and_promotion_contracts_cover_preimplementation_state() -> None:
