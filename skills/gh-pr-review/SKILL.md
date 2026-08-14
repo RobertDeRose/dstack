@@ -2,7 +2,7 @@
 name: gh-pr-review
 description: Review and resolve GitHub Copilot comments and optional SonarQube issues on the pull request for the current branch. Use when asked to process Copilot or SonarQube PR feedback, address review threads, or run a Copilot re-review cycle.
 metadata:
-  version: "0.10.1"
+  version: "0.11.0"
 allowed-tools: Read Glob Grep Edit Write Bash AskUserQuestion
 ---
 

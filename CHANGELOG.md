@@ -2,6 +2,20 @@
 
 - - -
 
+## v0.11.0 — 2026-08-14
+
+### Added
+
+- **workflow:** Migrate direct review topology (`c129bb1`)
+- **workflow:** Add finite direct review state (`a3390c8`)
+
+### Changed
+
+- **workflow:** Orchestrate direct specialist reviews (`3a616ec`)
+- **workflow:** Specialize direct review roles (`89dfc03`)
+
+- - -
+
 ## v0.10.1 — 2026-08-11
 
 ### Fixed
