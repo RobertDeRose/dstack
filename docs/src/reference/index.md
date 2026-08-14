@@ -380,7 +380,7 @@ its last mutation, and returns the Pages `html_url`; external `gh` is not a univ
 
 | Tool                           | Template version |
 |--------------------------------|------------------|
-| `hk`                           | `1.49.0`         |
+| `hk`                           | `1.54.1`         |
 | `cocogitto`                    | `latest`         |
 | `harper-cli`                   | `latest`         |
 | `npm:@contextlint/cli`         | `latest`         |
@@ -397,10 +397,11 @@ limited to `@contextlint/cli`.
 The mise environment sets `HK_MISE=1` and `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`. Git commands run through mise
 therefore reject merges that require a merge commit.
 
-Both hk Pkl imports use `1.49.0`. Matching validations use hk built-ins and native file locking rather than explicit
-ordering. Supported lock targets are `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`; Windows is outside the
-POSIX task contract. With the Nix profile, nixfmt-rs is retained only for Linux x64/ARM64 and macOS ARM64 while every
-other tool keeps the four-platform lock.
+Both hk Pkl imports use `1.54.1`. Matching validations use hk built-ins and native file locking rather than explicit
+ordering. The lock target set is `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`; Windows is outside the
+POSIX task contract. hk `1.54.1` publishes no macOS x64 executable, so its lock table omits that target and locked
+installation on macOS x64 is unavailable. With the Nix profile, nixfmt-rs likewise retains only Linux x64/ARM64 and
+macOS ARM64. Other tools keep the four-platform lock.
 
 ## Tooling result schema
 

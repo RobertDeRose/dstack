@@ -149,8 +149,8 @@ baseline. Multiple profiles apply one root policy to a polyglot repository, not 
 Setup collects an explicit selection, while updates preserve it unless the user explicitly adds or removes profiles. The
 existing provisioner and conflict gate remain the only network-backed tooling path. Source steps are file-gated; project
 checks are root-manifest-gated. Profiles never create manifests, dependencies, source, package roots, or package-local
-policy. The Nix exception keeps the universal four-platform lock while atomically removing only nixfmt-rs's unsupported
-macOS x64 table before locked installation.
+policy. The Nix exception removes nixfmt-rs's unsupported macOS x64 table before locked installation. hk's upstream
+release likewise omits a macOS x64 executable, so that table cannot be locked and macOS x64 installation is unavailable.
 
 GitHub validation and docs deployment consumes the stable named tasks without adding package manifests, application
 source, or duplicate CI policy. Generated projects include a documentation deployment workflow, but repository creation

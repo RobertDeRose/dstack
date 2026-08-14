@@ -22,9 +22,9 @@
 
 ## Tools
 
-The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` Cocogitto, Harper CLI, Contextlint, mdBook, uv,
+The universal tool set is hk `1.54.1`, Node `lts`, and the `latest` Cocogitto, Harper CLI, Contextlint, mdBook, uv,
 rumdl, typos, and `npm:markdown-table-formatter` releases. Contextlint checks documentation links, anchors, and image
-targets. Its reviewed low-download aube exception applies only to `@contextlint/cli`. Both hk Pkl imports use `1.49.0`.
+targets. Its reviewed low-download aube exception applies only to `@contextlint/cli`. Both hk Pkl imports use `1.54.1`.
 Equivalent native hk steps own formatter and linter commands; independent steps have no explicit `depends` edges. Custom
 steps remain only where behavior differs: Contextlint requires whole-project discovery, documentation is a project
 composite, Markdown-table formatting has no built-in, and rumdl avoids a noncanonical built-in diff header.
@@ -68,7 +68,8 @@ Ruff and ty are mise-managed at `latest`; pytest is project-owned. The profile i
 | `docs:serve`             | Serve mdBook on port 3000 by default or a supplied port.              |
 
 The committed lock targets `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`. Windows is not part of this
-POSIX-shell task contract.
+POSIX-shell task contract. hk `1.54.1` publishes no macOS x64 executable, so its lock table omits that target and locked
+installation on macOS x64 is unavailable.
 
 The mise environment routes hk hooks through mise with `HK_MISE=1` and sets `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`,
 so Git rejects merges that require a merge commit.

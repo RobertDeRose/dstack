@@ -1398,7 +1398,9 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
 
     assert "ignores user-global mise configuration" in architecture
     assert "An update with conflicts never executes newly rendered project code" in architecture
+    assert "macOS x64 installation is unavailable" in architecture
     assert "mise lock --yes --platform linux-x64,linux-arm64,macos-x64,macos-arm64" in operations
+    assert "locked installation on that host is unavailable" in operations
     assert "python3 scripts/setup-tooling.py --json" in operations
     assert 'stash = "git"' in development
     assert "intentionally omits dstack's `release` task" in development
@@ -1434,6 +1436,14 @@ def test_reader_docs_publish_the_generated_tooling_contract(repository_root: Pat
         tool: value["version"] if isinstance(value, dict) else value for tool, value in mise["tools"].items()
     }
     assert documented_tools == expected_versions
+    assert "locked installation on macOS x64 is unavailable" in " ".join(reference.split())
+    lock = tomllib.loads((repository_root / "mise.lock").read_text(encoding="utf-8"))
+    hk_lock = lock["tools"]["hk"][0]
+    assert {key for key in hk_lock if key.startswith("platforms.")} == {
+        "platforms.linux-arm64",
+        "platforms.linux-x64",
+        "platforms.macos-arm64",
+    }
 
     schema_match = re.search(r"## Tooling result schema.*?```json\n(.*?)\n```", reference, flags=re.DOTALL)
     assert schema_match is not None
@@ -2523,7 +2533,7 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
                 "docs:serve",
             }
             expected_tools = {
-                "hk": "1.49.0",
+                "hk": "1.54.1",
                 "cocogitto": "latest",
                 "harper-cli": "latest",
                 "npm:@contextlint/cli": {"version": "latest", "aube_args": "--allow-low-downloads"},
@@ -2565,7 +2575,8 @@ def test_language_profile_matrix_renders_both_entrypoints(repository_root: Path,
             deployment = yaml.safe_load((project / ".github/workflows/docs.yml").read_text(encoding="utf-8"))
             assert set(validate[True]) == {"push", "pull_request"}
             assert deployment[True] == {"push": {"branches": ["main"]}, "workflow_dispatch": None}
-            assert all(job["if"] == "vars.DOCS_DEPLOYMENT_ENABLED == 'true'" for job in deployment["jobs"].values())
+            assert deployment["jobs"]["build"]["if"] == "vars.DOCS_DEPLOYMENT_ENABLED == 'true'"
+            assert deployment["jobs"]["deploy"]["needs"] == "build"
             run_command(["pkl", "eval", "hk.pkl"], cwd=project)
             run_command(["python3", "scripts/check-docs.py"], cwd=project)
             for forbidden in ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "mix.exs", "flake.nix"):
@@ -2697,6 +2708,7 @@ def test_typescript_profile_renders_exact_contract(tagged_template_source: Path,
     assert hk.index('["vitest"]') > hk.index('["check"]')
     assert "Vitest must be declared by the project" in " ".join(development.split())
     assert "Recorded language profiles: `typescript`" in reference
+    assert "locked installation on macOS x64 is unavailable" in " ".join(reference.split())
     assert not (project / "package.json").exists()
     run_command(["pkl", "eval", "hk.pkl"], cwd=project)
     run_command(["uv", "run", "scripts/check-docs.py"], cwd=project)
@@ -3869,6 +3881,7 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert all(not (project / relative).exists() for relative in REMOVED_CONTENT_FREE_DOCS)
         assert (project / "README.md").exists() is include_readme
         agents = (project / "AGENTS.md").read_text(encoding="utf-8")
+        normalized_agents = " ".join(agents.split())
         assert "git commit -F <file>" in agents
         assert "multiple `-m` flags" in agents
         assert "escaped `\\n`" in agents
@@ -3877,12 +3890,11 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert "All reviewers use fresh, narrow context and direct Beads-derived assignments" in agents
         assert "exactly two" in agents
         assert "direct Beads-derived assignments" in agents
-        assert "resume only\naffected original reviewers" in agents
-        assert "direct Beads-derived assignments" in agents
+        assert "resume only affected original reviewers" in normalized_agents
 
         mise_config = tomllib.loads((project / "mise.toml").read_text(encoding="utf-8"))
         assert mise_config["tools"] == {
-            "hk": "1.49.0",
+            "hk": "1.54.1",
             "cocogitto": "latest",
             "harper-cli": "latest",
             "npm:@contextlint/cli": {"version": "latest", "aube_args": "--allow-low-downloads"},
@@ -3935,7 +3947,7 @@ def test_setup_project_renders_the_factual_book_matrix(
         assert "hooks" not in mise_config
 
         hk_config = (project / "hk.pkl").read_text(encoding="utf-8")
-        assert hk_config.count("v1.49.0/hk@1.49.0") == 2
+        assert hk_config.count("v1.54.1/hk@1.54.1") == 2
         assert hk_config.count('stash = "git"') == 1
         assert '"commit-msg"' in hk_config
         assert "commit_message_scope" in hk_config
@@ -4101,7 +4113,7 @@ def test_generated_tooling_contract_end_to_end(
     markdown.write_text("# Race\n\n| A | B |\n|---|---|\n| one | two |  \n", encoding="utf-8")
     mise_toml = project / "mise.toml"
     mise_toml.write_text(
-        mise_toml.read_text(encoding="utf-8").replace('hk = "1.49.0"', 'hk="1.49.0"  '),
+        mise_toml.read_text(encoding="utf-8").replace('hk = "1.54.1"', 'hk="1.54.1"  '),
         encoding="utf-8",
     )
     run_command(["git", "add", "race.md", "mise.toml"], cwd=project)

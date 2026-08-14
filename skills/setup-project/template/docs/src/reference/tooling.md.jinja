@@ -22,9 +22,9 @@
 
 ## Tools
 
-The universal tool set is hk `1.49.0`, Node `lts`, and the `latest` Cocogitto, Harper CLI, Contextlint, mdBook, uv,
+The universal tool set is hk `1.54.1`, Node `lts`, and the `latest` Cocogitto, Harper CLI, Contextlint, mdBook, uv,
 rumdl, typos, and `npm:markdown-table-formatter` releases. Contextlint checks documentation links, anchors, and image
-targets. Its reviewed low-download aube exception applies only to `@contextlint/cli`. Both hk Pkl imports use `1.49.0`.
+targets. Its reviewed low-download aube exception applies only to `@contextlint/cli`. Both hk Pkl imports use `1.54.1`.
 Equivalent native hk steps own matching formatter and linter commands. Independent steps have no explicit `depends`
 edges. Go retains two output-sensitive edges: `gofumpt` follows `goimports` so the stricter formatter owns final source,
 and fix-only `go-mod` follows `gofumpt` so module metadata observes the final imports.
@@ -161,7 +161,8 @@ failures. Go package `fix` runs `go mod tidy`; root hk package-prefixed globs ow
 | `docs:serve`             | Serve mdBook on port 3000 by default or a supplied port.              |
 
 The committed lock targets `linux-x64`, `linux-arm64`, `macos-x64`, and `macos-arm64`. Windows is not part of this
-POSIX-shell task contract.
+POSIX-shell task contract. hk `1.54.1` publishes no macOS x64 executable, so its lock table omits that target and locked
+installation on macOS x64 is unavailable.
 
 The mise environment routes hk hooks through mise with `HK_MISE=1` and sets `GIT_CONFIG_PARAMETERS="'merge.ff=only'"`, so
 Git rejects merges that require a merge commit.

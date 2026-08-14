@@ -221,12 +221,13 @@ mise x -- hk install --mise
 ```
 
 The lock/install commands ignore user-global mise tools. For the Nix profile, the provisioner validates the three
-supported nixfmt-rs lock entries and removes only its macOS x64 entry before locked installation; all other tools retain
-the four-platform lock. hk hook installation runs only when Git exists and is reported separately. After native Beads
-initialization, setup runs `bd hooks install` and verifies `bd hooks list --json`; conflict-free updates do the same
-after successful tooling. These Beads hooks are separate from hk and are reported in `beads_hooks`. Setup with
-`--no-git-init` can therefore finish lock/install work while reporting hooks as `skipped-no-git`; `--skip-post-setup`
-performs no generated code and reports all tooling stages as skipped.
+supported nixfmt-rs lock entries and removes its macOS x64 entry before locked installation. hk also has no macOS x64
+release artifact, so locked installation on that host is unavailable; other tools retain the four-platform lock. hk hook
+installation runs only when Git exists and is reported separately. After native Beads initialization, setup runs
+`bd hooks install` and verifies `bd hooks list --json`; conflict-free updates do the same after successful tooling.
+These Beads hooks are separate from hk and are reported in `beads_hooks`. Setup with `--no-git-init` can therefore
+finish lock/install work while reporting hooks as `skipped-no-git`; `--skip-post-setup` performs no generated code and
+reports all tooling stages as skipped.
 
 Profile source checks skip when no matching files exist. Package checks skip without their root manifest. A selected
 manifest with missing project-owned pytest, Vitest, or Credo fails with the named prerequisite; flake checks similarly

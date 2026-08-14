@@ -117,11 +117,11 @@ child claim. Startup alone allows a clean tracked interval when the version note
 coordinator closure still require selected-work-unit evidence. Every child closure and the implementation coordinator
 closure is the final Beads mutation in its work-unit interval. The shared verifier requires append-only, valid, unstaged
 rows in the selected feature lineage, requires evidence for the selected work unit, rejects intervening interaction
-commits, metadata changes, unrelated rows, and other dirty paths, then repeats the checks against the staged index and
-the exact pre-staging interaction snapshot. Only `.beads/interactions.jsonl` enters the audit commit. The finalizer
-branches on the verified dirty result, pins the pre-commit HEAD and index tree, and verifies the resulting audit
-commit's parent, tree, path set, blob, and mode before requiring the feature worktree to be clean before the next child,
-coordinator completion, or ordinary return.
+commits, metadata changes, foreign interaction rows, and other dirty paths. It repeats the checks against the staged
+index and the exact pre-staging interaction snapshot. Only `.beads/interactions.jsonl` enters the audit commit. The
+finalizer branches on the verified dirty result, pins the pre-commit HEAD and index tree, and verifies the resulting
+audit commit's parent, tree, path set, blob, and mode before requiring the feature worktree to be clean before the next
+child, coordinator completion, or ordinary return.
 
 These bounded local commits do not authorize remote delivery, worktree removal, or close-out. They preserve feature
 history for `/close-feature`, whose later reconciliation still verifies rows created during close-out and delivery.
@@ -166,8 +166,8 @@ transport evidence, not completion authority. Protected security, correctness, v
 data-loss-protection findings are never waivable; any eligible waiver binds the exact non-material finding and user
 rationale. Assignment/elapsed/context/replacement telemetry is operational evidence, not approval. The optional Pi
 adapter maps the close roles to `dstack-implementation-reviewer` and `dstack-delivery-integrity-reviewer`. Delivery
-remains an explicit PR, fast-forward merge, or ready action. Post-merge finalization records actual delivery evidence
-before root closure.
+remains an explicit PR, fast-forward merge, or ready action. Delivery and root closures happen after the merge, only
+after post-merge finalization records actual delivery evidence.
 
 ## Audit
 
