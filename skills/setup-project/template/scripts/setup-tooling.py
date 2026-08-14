@@ -159,9 +159,12 @@ def _provision(project_root: Path, config_dir: Path) -> dict[str, Any]:
         result["lock"] = stage("failed", path="mise.lock", error=error)
         result["recovery"] = [RERUN_COMMAND]
         return result
-    normalization_error = normalize_biome_lock(project_root, lock_path) or normalize_nixfmt_lock(
-        project_root, lock_path
-    )
+    try:
+        normalization_error = normalize_biome_lock(project_root, lock_path) or normalize_nixfmt_lock(
+            project_root, lock_path
+        )
+    except (OSError, UnicodeError) as exc:
+        normalization_error = f"failed to normalize mise.lock: {exc}"
     if normalization_error:
         result["lock"] = stage("failed", path="mise.lock", error=normalization_error)
         result["recovery"] = [RERUN_COMMAND]

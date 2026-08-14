@@ -2166,6 +2166,41 @@ def test_mise_monorepo_compatibility_contract(
     assert set(lock["tools"]) == {"node", "uv"}
 
 
+@pytest.mark.parametrize("error", [OSError("replace failed"), UnicodeError("invalid lock encoding")])
+def test_tooling_provisioner_reports_lock_normalization_exceptions(
+    repository_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
+    module = load_tooling_module(repository_root)
+    project = tmp_path / "project"
+    project.mkdir()
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(module.shutil, "which", lambda _command: "/bin/mise")
+
+    def fake_run(command: list[str], cwd: Path, *, config_dir: Path) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command == module.LOCK_COMMAND:
+            (cwd / "mise.lock").write_text("resolved\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(module, "run", fake_run)
+    monkeypatch.setattr(module, "normalize_biome_lock", lambda *_args: (_ for _ in ()).throw(error))
+
+    result = module.provision(project)
+
+    assert result["status"] == "degraded"
+    assert result["lock"] == {
+        "status": "failed",
+        "path": "mise.lock",
+        "error": f"failed to normalize mise.lock: {error}",
+    }
+    assert result["recovery"] == [module.RERUN_COMMAND]
+    assert commands == [module.LOCK_COMMAND]
+
+
 def test_tooling_provisioner_isolates_project_lock_from_global_mise_tools(
     repository_root: Path,
     tmp_path: Path,
