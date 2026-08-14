@@ -82,10 +82,10 @@ def validate_finding(payload: Mapping[str, object]) -> None:
         raise ValueError("Finding source_boundary.reviewed_diff_digest is invalid")
     if status == "open" and any(payload[field] is not None for field in ("resolution", "verification", "waiver")):
         raise ValueError("Open findings cannot contain resolution evidence")
-    if status in {"resolved", "accepted"}:
+    if status != "open":
         for field in ("resolution", "verification"):
             if not isinstance(payload[field], str) or not payload[field]:
-                raise ValueError("Resolved findings require resolution and verification")
+                raise ValueError("Non-open findings require resolution and verification")
     if status != "accepted" and payload["waiver"] is not None:
         raise ValueError("Only accepted findings may contain a waiver")
     if status == "accepted":

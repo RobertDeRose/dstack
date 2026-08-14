@@ -292,6 +292,13 @@ def test_structured_review_note_rejects_invalid_waivers() -> None:
     }
     module.validate_finding(finding)
 
+    superseded = valid_finding()
+    superseded.update(status="superseded", supersedes_finding_id="F-000")
+    with pytest.raises(ValueError, match="Non-open findings"):
+        module.validate_finding(superseded)
+    superseded.update(resolution="Replaced by F-001.", verification="Replacement reviewed.")
+    module.validate_finding(superseded)
+
 
 @pytest.mark.parametrize(
     ("field", "value", "message"),
