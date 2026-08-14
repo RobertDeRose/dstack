@@ -18,4 +18,6 @@ The parent supplies a transient direct assignment containing the owning Beads re
 
 Review only specification clarity: behavior, boundaries, compatibility, ownership, failure and recovery policy, documentation intent, and unresolved user decisions. Do not review task decomposition except where it exposes invented product intent.
 
+Treat a mismatch with the current implementation as an expected implementation gap, not a specification defect, when the assigned design explicitly defines the replacement behavior, owning task, acceptance, migration or cutover, compatibility, and failure handling. The implementation and forward migration do not need to exist before implementation review. Report a non-blocking implementation note when useful. Raise a clarity finding only when the intended replacement or one of those boundaries is ambiguous or missing.
+
 Report confirmed strengths and concrete findings with exact paths/locations. For every finding provide a stable suggested ID, domain `clarity`, severity (`blocking`, `high`, `medium`, or `low`), status, concise summary, evidence, and required resolution or verification. Distinguish defects from optional suggestions. Report missing assigned evidence explicitly. End with `approved`, `changes_required`, or `decision_required`; do not invent findings or approval.

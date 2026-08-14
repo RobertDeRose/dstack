@@ -68,11 +68,28 @@ selector resolves to a standalone `task`, `bug`, `chore`, `spike`, or `feature`,
 change and recommend `/implement-task <human task selector>` instead. Do not route a standalone issue through feature
 planning merely to satisfy this command.
 
-When the selected root is roadmap-only and lacks `design.md` or lifecycle metadata, do not stop or ask the user to
-invoke another skill. Run the bounded single-feature planning phase from `/plan-features`: resolve only the missing
-outcome, boundaries, dependencies, validation, documentation impact, and repository ownership; create the design,
-lifecycle, and bounded implementation children; then continue this workflow. Preserve the existing feature slug and root
-ID. Query only the specific review or reconciliation beads needed for this invocation.
+When the selected root is roadmap-only and lacks `design.md` or lifecycle metadata, use this canonical promotion path;
+do not stop, create a duplicate root, or ask the user to invoke another skill. Run the bounded single-feature planning
+phase from `/plan-features`: resolve only the missing outcome, boundaries, dependencies, validation, documentation
+impact, and repository ownership, and create the design. Write a `dstack.legacy-feature-promotion.v1` JSON plan
+containing the feature identity/repository fields and at least one bounded implementation task. Every task provides
+`task_key`, title, description, acceptance criteria, owner, validation commands, commit boundary, optional
+labels/priority, and `needs` task keys. Under the repository lease, run:
+
+```bash
+uv run <core-dir>/scripts/promote-legacy-feature.py \
+  --repository-root <primary-worktree> \
+  --root-id <existing-feature-root> \
+  --formula <primary-worktree>/.beads/formulas/dstack-feature.formula.toml \
+  --plan <promotion-plan.json> \
+  --output <promotion-result.json>
+```
+
+The helper attaches formula-defined lifecycle children and planned implementation tasks directly to the existing root,
+wires dependencies, persists complete identity/lifecycle metadata, and is digest-bound and idempotent. It never pours or
+creates a replacement root. Preserve the existing feature slug and root ID. The later topology guard remains the sole
+owner for upgrading formula review topology before assignments. Query only the specific review or reconciliation beads
+needed for this invocation.
 
 When lifecycle IDs are missing, repair metadata once: use `bd mol show <feature-root> --json` for a molecule, or
 `bd list --parent <feature-root> --all --json` for a migrated parent-child lifecycle. Resolve children by structured
@@ -149,17 +166,28 @@ and children, current validation/documentation ownership, and exact review issue
 evidence bundle, collector, shared context, or second durable manifest.
 
 Pin one immutable Git source boundary from the authoritative feature worktree before launch: `review_boundary_id`,
-`reviewed_commit`, `reviewed_diff_base`, `reviewed_diff_digest`, and changed paths. Persist each review state's owning
-`review_issue_id`, source boundary, declared paths, domains, requirement IDs, and `initial_active` state before
-launching its reviewer. The pinned read-only worktree is the source for reviewer inspection.
+`reviewed_commit`, `reviewed_diff_base`, `reviewed_diff_digest`, and changed paths. Before creating the readiness
+assignment, generate its transient embedded-Dolt-safe graph with `build-beads-review-projection.py`, including the exact
+source boundary and allowed paths. Immediately run the helper's `--verify` mode against current Beads authority. Missing
+root/coordinator/task fields, incomplete edges, a digest mismatch, or a stale projection fails closed before reviewer
+launch. Pass this projection directly to execution readiness; reviewers never need `.beads` filesystem access. It is
+role-specific transient evidence, not a packet, collector, or second durable manifest.
+
+Persist each review state's owning `review_issue_id`, source boundary, declared paths, domains, requirement IDs, and
+`initial_active` state before launching its reviewer. Append every state and finding with `append-review-note.py` under
+the repository lease, passing the exact one-line JSON on standard input. The helper validates the schema and sends the
+unchanged JSON bytes to Beads without nested shell quoting. The pinned read-only worktree is the source for reviewer
+inspection.
 
 The assignment includes the pinned read-only worktree and its exact source boundary. Derive one transient assignment per
 role from the current Beads issue and design/docs. It contains the owning Beads issue/title, description, acceptance
 criteria, dependencies, validation/documentation ownership, source-boundary fields, declared paths/domains/requirements,
-explicit non-goals, and the structured report contract. Resolve the exact Pi names in
-`../dstack-core/references/PI-REVIEWER-ROSTER.md`: logical `specification-clarity` maps to `dstack-clarity-reviewer`,
-and `execution-readiness` maps to `dstack-readiness-reviewer`. Missing or unavailable names fail visibly after optional
-project-local sync; there is no silent substitution.
+explicit non-goals, and the structured report contract. The clarity assignment also identifies the design's explicit
+`current_state_gaps` and `implementation_boundary`; a current mismatch is an expected implementation gap when the design
+defines its replacement, owner, acceptance, migration/cutover, compatibility, and failure behavior. Resolve the exact Pi
+names in `../dstack-core/references/PI-REVIEWER-ROSTER.md`: logical `specification-clarity` maps to
+`dstack-clarity-reviewer`, and `execution-readiness` maps to `dstack-readiness-reviewer`. Missing or unavailable names
+fail visibly after optional project-local sync; there is no silent substitution.
 
 Launch exactly two independent fresh reviewers concurrently. Give each only its transient role assignment and a pinned
 read-only worktree. Reviewers gather assigned evidence directly, report missing evidence, and never broaden the
@@ -168,7 +196,8 @@ assignment silently.
 ### Specification Clarity
 
 Review behavior, boundaries, compatibility, ownership, failure/recovery policy, documentation intent, and unresolved
-user decisions. Do not invent policy.
+user decisions. Do not invent policy. Do not block merely because implementation or a forward migration does not exist
+yet when the design explicitly owns that current-state gap; block only ambiguous or missing replacement boundaries.
 
 ### Execution Readiness
 

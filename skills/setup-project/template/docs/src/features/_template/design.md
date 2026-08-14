@@ -35,6 +35,12 @@ implementation.
 Describe the current implementation, relevant documentation, related completed features, constraints, and established
 patterns this design builds upon.
 
+## Implementation Boundary
+
+List current-state gaps the feature intentionally owns. For each gap, name the replacement behavior, owning Beads task,
+acceptance evidence, migration or cutover, compatibility, and failure/recovery behavior. Current implementation is
+context for specification review, not evidence that the pre-implementation design is defective.
+
 ## Proposed Design
 
 Explain the smallest complete design. Cover only the concerns that apply, such as boundaries, ownership, components,

@@ -16,6 +16,10 @@ source-boundary assignments, resumption, and replacement evidence,
 [`references/PI-REVIEWER-ROSTER.md`](references/PI-REVIEWER-ROSTER.md) adapter for mapping logical roles to named Pi
 reviewer definitions without changing the tool-agnostic contract. Use `scripts/sync-pi-reviewers.py` only through its
 explicit user-selected target; normal skill installation never mutates Pi agent directories.
+`build-beads-review-projection.py` supplies execution readiness with a validated transient graph without reading Beads
+storage directly, and `append-review-note.py` validates and byte-preserves one-line state/finding JSON across Beads
+updates. `promote-legacy-feature.py` attaches the canonical formula lifecycle and a validated implementation plan to an
+existing roadmap root without creating a replacement epic.
 
 Lifecycle startup uses [`references/SKILL-VERSION.md`](references/SKILL-VERSION.md) to record the executing installed
 skill version and compare it with trustworthy local canonical evidence before mutation. Beads writes and delivery

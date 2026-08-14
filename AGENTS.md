@@ -151,11 +151,12 @@ counts or mutates Pi configuration. Missing or unavailable names fail visibly af
 no silent role substitution.
 
 Beads is the workflow manifest. The controller derives transient assignments from current Beads/design/docs/validation
-and one immutable Git source boundary; it never builds a shared packet or second durable manifest. Beads remains review
-authority. Append executable `Review state:` and `Finding:` records, preserve current-open projections and historical
-evidence, resume only affected original reviewers, and enforce one initial plus one verification pass. Infrastructure
-replacement is separate from redesign. Protected security, correctness, validation, accessibility, and data-loss
-findings cannot be waived.
+and one immutable Git source boundary; execution readiness also receives a validated transient Beads graph projection
+that works with embedded Dolt. It never builds a shared packet or second durable manifest. Beads remains review
+authority. Append executable `Review state:` and `Finding:` records through the structured note helper, preserve
+current-open projections and historical evidence, resume only affected original reviewers, and enforce one initial plus
+one verification pass. Infrastructure replacement is separate from redesign. Protected security, correctness,
+validation, accessibility, and data-loss findings cannot be waived.
 
 Existing old-topology graphs migrate only through `migrate-review-topology.py` from the canonical primary worktree under
 the repository lease. Old evidence is preserved as superseded history, approval never transfers, and stale controllers

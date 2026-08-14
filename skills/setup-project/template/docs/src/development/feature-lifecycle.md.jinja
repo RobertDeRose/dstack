@@ -46,6 +46,8 @@ design/docs, and an immutable Git source boundary, and launches exactly two fres
    unresolved decisions;
 2. execution readiness for task scope, dependencies, ownership, validation, acceptance, and commit boundaries.
 
+Specification review treats current behavior as an expected implementation gap when the design explicitly defines the replacement, owning task, acceptance, migration/cutover, compatibility, and failure behavior. Readiness receives a digest-verified transient Beads graph projection with lifecycle and implementation tasks, edges, ownership, validation, and commit boundaries, so embedded Dolt never requires reviewer filesystem access. Structured review records are schema-validated and appended without shell interpolation. A roadmap-only legacy epic uses `promote-legacy-feature.py`, the canonical digest-bound, idempotent promotion path that preserves its root identity while adding formula-defined lifecycle and planned implementation children plus complete metadata.
+
 There is no LLM context builder. Missing Pi names use the explicit project-local sync from `sync-pi-reviewers.py`; a
  declined or failed sync has no silent role substitution. The optional Pi adapter maps these roles to
 `dstack-clarity-reviewer` and `dstack-readiness-reviewer`; missing names use the explicit optional sync or fail visibly

@@ -13,9 +13,11 @@ Pi agent definitions. It does not make Pi mandatory or change Beads authority.
 | `/close-feature`     | `implementation-integrity`, `delivery-integrity` | both close reviewers, concurrently  |
 
 Beads is the workflow manifest. The controller derives a transient assignment from the owning Beads issue, design/docs,
-validation evidence, and an immutable Git source boundary. Reviewers read their assigned evidence directly in a pinned
-read-only worktree. There is no shared evidence packet, collector, context-builder, or union-of-all-inputs projection.
-Beads `Review state:` and `Finding:` records remain authority; reviewer sessions and prompts are supporting evidence.
+validation evidence, and an immutable Git source boundary. Execution readiness additionally receives a digest-verified,
+role-specific transient Beads graph projection so embedded Dolt does not require reviewer filesystem access. Reviewers
+read their assigned evidence directly in a pinned read-only worktree. There is no shared evidence packet, collector,
+context-builder, or union-of-all-inputs projection. Beads `Review state:` and `Finding:` records remain authority;
+reviewer sessions and prompts are supporting evidence.
 
 ## Exact Pi mapping
 
