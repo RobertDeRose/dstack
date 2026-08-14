@@ -331,20 +331,8 @@ def expected_migrated_statuses(feature: Mapping[str, Any]) -> tuple[str, dict[st
         lifecycle = dict.fromkeys(lifecycle, "closed")
     elif classification == "needs_review":
         root_status = "in_progress"
-        for step_id in (
-            "design",
-            "review-architecture",
-            "review-simplicity",
-            "review-documentation",
-            "review-execution",
-            "spec-reconcile",
-        ):
-            lifecycle[step_id] = "closed"
-        imported_tasks = [
-            task for task in feature.get("tasks", []) if str(task.get("label", "")) not in {"T000", "T999"}
-        ]
-        if all(str(task.get("status", "")) == "closed" for task in imported_tasks):
-            lifecycle["implementation"] = "closed"
+        lifecycle["design"] = "closed"
+
     elif classification == "in_progress":
         root_status = "in_progress"
         lifecycle["design"] = "closed" if feature.get("evidence", {}).get("t000_closed") else "in_progress"
@@ -1297,40 +1285,26 @@ def apply_imported_states(
     if classification == "completed":
         for step_id in (
             "design",
-            "review-architecture",
-            "review-simplicity",
-            "review-documentation",
-            "review-execution",
+            "review-specification-clarity",
+            "review-execution-readiness",
             "spec-reconcile",
             "implementation",
             "docs-reconcile",
             "validate",
-            "review-delivery",
-            "review-drift",
+            "review-implementation",
+            "review-delivery-integrity",
             "delivery",
         ):
             bd_close(root, lifecycle[step_id], "Migrated completed legacy feature evidence")
         bd_close(root, root_id, "Migrated completed legacy feature")
     elif classification == "needs_review":
-        for step_id in (
-            "design",
-            "review-architecture",
-            "review-simplicity",
-            "review-documentation",
-            "review-execution",
-            "spec-reconcile",
-        ):
-            bd_close(
-                root, lifecycle[step_id], "Legacy implementation evidence imported; migration reconciliation remains"
-            )
+        bd_close(root, lifecycle["design"], "Legacy design evidence imported; fresh specification reviews remain")
 
         open_implementation_ids = [
             implementation_tasks[label]
             for label, task in task_by_label.items()
             if label in implementation_tasks and task["status"] != "closed"
         ]
-        if not open_implementation_ids:
-            bd_close(root, lifecycle["implementation"], "All imported legacy implementation tasks are complete")
 
         reconciliation_id = feature["beads"].get("migration_reconciliation_id")
         if not reconciliation_id:

@@ -131,16 +131,14 @@ CYCLE_CONFLICT_PREFIXES = (
 
 LIFECYCLE_METADATA_KEYS = {
     "design": "design_id",
-    "review-architecture": "review_architecture_id",
-    "review-simplicity": "review_simplicity_id",
-    "review-documentation": "review_documentation_id",
-    "review-execution": "review_execution_id",
+    "review-specification-clarity": "review_specification_clarity_id",
+    "review-execution-readiness": "review_execution_readiness_id",
     "spec-reconcile": "spec_reconcile_id",
     "implementation": "implementation_id",
     "docs-reconcile": "docs_reconcile_id",
     "validate": "validation_id",
-    "review-delivery": "review_delivery_id",
-    "review-drift": "review_drift_id",
+    "review-implementation": "review_implementation_integrity_id",
+    "review-delivery-integrity": "review_delivery_integrity_id",
     "delivery": "delivery_id",
 }
 

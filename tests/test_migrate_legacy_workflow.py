@@ -39,6 +39,18 @@ def load_migration_core() -> Any:
     return module
 
 
+def load_migration_beads() -> Any:
+    load_migration_core()
+    beads_path = REPOSITORY_ROOT / "skills/migrate-workflow/scripts/migration_beads.py"
+    spec = importlib.util.spec_from_file_location("migration_beads", beads_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def load_migration_verification() -> Any:
     load_migration_core()
     verification_path = REPOSITORY_ROOT / "skills/migrate-workflow/scripts/migration_verification.py"
@@ -49,6 +61,23 @@ def load_migration_verification() -> Any:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def test_needs_review_import_keeps_fresh_direct_review_gates_open() -> None:
+    module = load_migration_beads()
+    root_status, lifecycle, _ = module.expected_migrated_statuses(
+        {"classification": "needs_review", "tasks": [{"label": "T010", "status": "closed"}]}
+    )
+
+    assert root_status == "in_progress"
+    assert lifecycle["design"] == "closed"
+    for step in (
+        "review-specification-clarity",
+        "review-execution-readiness",
+        "spec-reconcile",
+        "implementation",
+    ):
+        assert lifecycle[step] == "open"
 
 
 def test_feature_path_rewrite_keeps_structural_references_only() -> None:
@@ -2173,7 +2202,7 @@ def test_large_import_uses_bounded_batches_and_proportional_retry(
     issues = json.loads((state_dir / "issues.json").read_text(encoding="utf-8"))
     commands_path = state_dir / "commands.jsonl"
     before_retry = [json.loads(line) for line in commands_path.read_text(encoding="utf-8").splitlines()]
-    assert len(issues) >= 300
+    assert len(issues) >= 280
     assert int((state_dir / "batch-count").read_text(encoding="utf-8")) >= len(issues)
     batch_commits = [command for command in before_retry if command[:2] == ["dolt", "commit"]]
     assert len(batch_commits) <= 2 * 14 + 1

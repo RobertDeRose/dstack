@@ -1,5 +1,5 @@
 formula = "dstack-feature"
-description = "Documentation-first feature workflow with interactive design, isolated specification reviews, bounded implementation, documentation reconciliation, validation, holistic close-out reviews, and explicit delivery."
+description = "Documentation-first feature workflow with interactive design, direct specification reviews, bounded implementation, documentation reconciliation, validation, two specialized close-out reviews, and explicit delivery."
 version = 1
 type = "workflow"
 phase = "liquid"
@@ -39,63 +39,35 @@ Run the interactive planning and design-question loop. Create or update {{design
 """
 
 [[steps]]
-id = "review-architecture"
-title = "Review architecture: {{feature_name}}"
+id = "review-specification-clarity"
+title = "Review specification clarity: {{feature_name}}"
 type = "task"
 priority = 1
 labels = [
   "workflow:feature-lifecycle",
   "phase:spec-review",
-  "review:architecture"
+  "review:specification-clarity"
 ]
 needs = ["design"]
-metadata = { workflow_phase = "spec-review", review_kind = "architecture" }
+metadata = { workflow_phase = "spec-review", review_kind = "specification-clarity" }
 description = """
-Review {{design_path}} against documented project boundaries, invariants, ownership, established patterns, current implementation, relevant decisions, and completed-feature records. Identify conflicting assumptions, missing reuse, unnecessary new patterns, and architecture changes that require reader-facing documentation.
+Review {{design_path}} for behavior, boundaries, compatibility, ownership, failure and recovery policy, documentation intent, and unresolved decisions. Use a direct Beads-derived assignment and pinned Git source boundary. Record executable review state and findings without inventing user policy.
 """
 
 [[steps]]
-id = "review-simplicity"
-title = "Review simplicity: {{feature_name}}"
+id = "review-execution-readiness"
+title = "Review execution readiness: {{feature_name}}"
 type = "task"
 priority = 1
 labels = [
   "workflow:feature-lifecycle",
   "phase:spec-review",
-  "review:simplicity"
+  "review:execution-readiness"
 ]
 needs = ["design"]
-metadata = { workflow_phase = "spec-review", review_kind = "simplicity" }
+metadata = { workflow_phase = "spec-review", review_kind = "execution-readiness" }
 description = """
-Review {{design_path}} for the smallest correct design. Challenge accidental complexity, speculative abstractions, hidden coupling, unclear ownership, weak failure handling, and avoidable implementation or operational burden. Prefer concise, conventional designs unless additional complexity satisfies a concrete requirement.
-"""
-
-[[steps]]
-id = "review-documentation"
-title = "Review documentation: {{feature_name}}"
-type = "task"
-priority = 1
-labels = [
-  "workflow:feature-lifecycle",
-  "phase:spec-review",
-  "review:documentation"
-]
-needs = ["design"]
-metadata = { workflow_phase = "spec-review", review_kind = "documentation" }
-description = """
-Review the exact reader-facing pages named by {{design_path}}. Confirm each page has a clear reader purpose, all applicable documentation concerns are covered, non-applicable concerns are explicit, new pages are registered in docs/src/SUMMARY.md, and the product documentation stands alone without requiring the internal feature design.
-"""
-
-[[steps]]
-id = "review-execution"
-title = "Review execution: {{feature_name}}"
-type = "task"
-priority = 1
-labels = ["workflow:feature-lifecycle", "phase:spec-review", "review:execution"]
-needs = ["design"]
-metadata = { workflow_phase = "spec-review", review_kind = "execution" }
-description = """
-Review implementation child beads for scope, dependency direction, parallel safety, validation, acceptance criteria, documentation ownership, and commit boundaries. Each child should be independently understandable and small enough for one agent to complete without inventing design intent.
+Review implementation children for scope, dependencies, ownership, validation, documentation ownership, acceptance criteria, and commit boundaries. Use a direct Beads-derived assignment and pinned Git source boundary. Each child must be independently understandable and executable without inventing intent.
 """
 
 [[steps]]
@@ -104,12 +76,7 @@ title = "Reconcile specification: {{feature_name}}"
 type = "task"
 priority = 1
 labels = ["workflow:feature-lifecycle", "phase:spec-ready"]
-needs = [
-  "review-architecture",
-  "review-simplicity",
-  "review-documentation",
-  "review-execution"
-]
+needs = ["review-specification-clarity", "review-execution-readiness"]
 metadata = { workflow_phase = "spec-ready" }
 description = """
 Reconcile review findings into {{design_path}} and the Beads implementation graph. Resolve clear findings directly. Ask the user one blocking design question at a time when policy or intent is genuinely ambiguous. Commit the reviewed design and record the commit SHA before closing this step.
@@ -152,31 +119,39 @@ labels = ["workflow:feature-lifecycle", "phase:closeout", "closeout:validation"]
 needs = ["implementation"]
 metadata = { workflow_phase = "closeout", closeout_kind = "validation" }
 description = """
-Run repository-wide validation, `uv run scripts/check-docs.py`, and all feature-specific commands named by {{design_path}} or implementation beads. Record commands, results, limitations, and skipped checks in this bead.
+Run impacted feature validation, `uv run --no-project python scripts/check-docs.py`, and all feature-specific commands named by {{design_path}} or implementation beads. Record commands, results, limitations, and skipped checks in this bead.
 """
 
 [[steps]]
-id = "review-delivery"
-title = "Review delivery: {{feature_name}}"
+id = "review-implementation"
+title = "Review implementation integrity: {{feature_name}}"
 type = "task"
 priority = 1
-labels = ["workflow:feature-lifecycle", "phase:closeout", "review:delivery"]
+labels = [
+  "workflow:feature-lifecycle",
+  "phase:closeout",
+  "review:implementation-integrity"
+]
 needs = ["docs-reconcile", "validate"]
-metadata = { workflow_phase = "closeout-review", review_kind = "delivery" }
+metadata = { workflow_phase = "closeout-review", review_kind = "implementation-integrity" }
 description = """
-Review the delivered feature holistically for correctness, security-sensitive regressions, failure behavior, maintainability, test quality, and scope compliance. Record findings and verify actionable issues are resolved before closing.
+Review correct code behavior, quality and simplicity, security, and maintainability within the pinned Git source boundary. Inspect implementation paths, tests, failure behavior, and security-sensitive changes. Do not review delivery documentation or Beads lifecycle status except where a code defect makes a claim unsafe. Use a direct controller-derived assignment and one bounded verification pass.
 """
 
 [[steps]]
-id = "review-drift"
-title = "Review documentation drift: {{feature_name}}"
+id = "review-delivery-integrity"
+title = "Review delivery integrity: {{feature_name}}"
 type = "task"
 priority = 1
-labels = ["workflow:feature-lifecycle", "phase:closeout", "review:drift"]
+labels = [
+  "workflow:feature-lifecycle",
+  "phase:closeout",
+  "review:delivery-integrity"
+]
 needs = ["docs-reconcile", "validate"]
-metadata = { workflow_phase = "closeout-review", review_kind = "drift" }
+metadata = { workflow_phase = "closeout-review", review_kind = "delivery-integrity" }
 description = """
-Compare implementation, {{design_path}}, applicable reader-facing docs, documented decisions, reference contracts, {{implemented_path}}, the roadmap, and the Beads graph. Identify intentional changes, accidental drift, stale claims, and missing audit evidence. Record and resolve findings before closing.
+Review documentation, validation evidence, Beads state, the implemented record, roadmap/navigation, delivery claims, and cross-artifact drift within the pinned Git source boundary. Do not duplicate implementation-integrity review. Use a direct controller-derived assignment and one bounded verification pass.
 """
 
 [[steps]]
@@ -185,7 +160,7 @@ title = "Deliver: {{feature_name}}"
 type = "human"
 priority = 1
 labels = ["workflow:feature-lifecycle", "phase:delivery"]
-needs = ["review-delivery", "review-drift"]
+needs = ["review-implementation", "review-delivery-integrity"]
 metadata = { workflow_phase = "delivery" }
 description = """
 The feature is reconciled and validated. Ask for one explicit action: create a pull request, merge, or leave ready with no delivery action. Record the chosen action, PR URL or merge commit when applicable. Close the feature root only when its actual delivery state and documentation are final.
