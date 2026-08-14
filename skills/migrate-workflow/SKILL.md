@@ -22,13 +22,12 @@ normative for this workflow. If it conflicts with this skill, follow the more re
 
 ## Startup version evidence
 
-Before the first migration mutation, follow
-[`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `migrate-workflow`. After
-read-only session binding, capture the exact one-line output and include it in the migration audit evidence before
-branch, worktree, or Beads mutation. A `stale` result warns with `npx skills update`; `unavailable` records that no
-freshness claim was made and does not block offline work. Establish `workflow_run_id` before this diagnostic, using the
-harness value or one created once for this session. If installed skills are refreshed, stop this session; continue only
-from a new session that records an explicit rebind.
+Follow [`../dstack-core/references/SKILL-VERSION.md`](../dstack-core/references/SKILL-VERSION.md) for `migrate-workflow`
+before the first mutation. After read-only binding, capture the exact one-line output in migration audit evidence before
+branch, worktree, or Beads mutation. `stale` warns with `npx skills update`; `unavailable` records no freshness claim
+and does not block offline work. Establish `workflow_run_id` before this diagnostic, using the harness value or one
+created once for this session. If skills are refreshed, stop this session; continue only from a new session with an
+explicit rebind.
 
 Migration-specific authority:
 

@@ -288,6 +288,18 @@ def run_migrator(
     )
 
 
+def record_no_release_authority_decision(root: Path) -> None:
+    run_migrator(
+        root,
+        "release-tool-decision",
+        "remove",
+        "--tool",
+        "none",
+        "--reason",
+        "This legacy fixture has no project release authority.",
+    )
+
+
 def load_manifest(root: Path) -> dict[str, object]:
     return json.loads((root / "migration/workflow-migration.json").read_text(encoding="utf-8"))
 
@@ -629,6 +641,7 @@ def test_prepare_import_and_finalize_are_resumable_and_guarded(
 ) -> None:
     run_migrator(legacy_project, "baseline", "--docs-command", f"{sys.executable} -c pass", "--write")
     run_migrator(legacy_project, "scan", "--write")
+    record_no_release_authority_decision(legacy_project)
     run_migrator(
         legacy_project,
         "classify",
@@ -798,6 +811,7 @@ def test_delivered_navigation_and_review_required_drafts(legacy_project: Path) -
     initialize_git(legacy_project, "legacy delivered feature")
     authorize_fresh_session(legacy_project)
     run_migrator(legacy_project, "scan", "--write")
+    record_no_release_authority_decision(legacy_project)
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     summary_path = legacy_project / "docs/src/SUMMARY.md"
     index_path = legacy_project / "docs/src/features/index.md"
@@ -1044,6 +1058,16 @@ def test_finalized_verification_allows_deleted_transient_candidate(tmp_path: Pat
         ],
     }
 
+    manifest["release_tooling"] = {
+        "authorities": [],
+        "decision": {
+            "action": "remove",
+            "tool": "none",
+            "reason": "This finalized fixture has no project release authority.",
+            "recorded_at": "2026-08-11T00:00:00+00:00",
+        },
+        "issues": [],
+    }
     errors, _ = verifier.verify_migration(tmp_path, manifest, verify_beads=False)
 
     assert errors == []
@@ -1321,6 +1345,7 @@ def test_dependency_command_reconciles_imported_beads_and_manifest(
 ) -> None:
     env, state_dir = fake_bd_environment
     run_migrator(legacy_project, "scan", "--write")
+    record_no_release_authority_decision(legacy_project)
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     run_migrator(legacy_project, "import-beads", "--apply", env=env)
 
@@ -2965,6 +2990,7 @@ def test_repair_beads_labels_restores_only_proven_native_labels(
 ) -> None:
     env, state_dir = fake_bd_environment
     run_migrator(legacy_project, "scan", "--write")
+    record_no_release_authority_decision(legacy_project)
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     run_migrator(legacy_project, "import-beads", "--apply", env=env)
     alpha = features_by_slug(legacy_project)["alpha"]
@@ -3015,6 +3041,7 @@ def test_interrupted_label_repair_resumes_from_durable_full_plan(
 ) -> None:
     env, state_dir = fake_bd_environment
     run_migrator(legacy_project, "scan", "--write")
+    record_no_release_authority_decision(legacy_project)
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     run_migrator(legacy_project, "import-beads", "--apply", env=env)
     alpha = features_by_slug(legacy_project)["alpha"]
@@ -3124,6 +3151,7 @@ def test_beads_dry_run_and_verify_preserve_authority_bytes(
 ) -> None:
     env, _ = fake_bd_environment
     run_migrator(legacy_project, "scan", "--write")
+    record_no_release_authority_decision(legacy_project)
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     run_migrator(legacy_project, "import-beads", "--apply", env=env)
     metadata = legacy_project / ".beads/metadata.json"
@@ -3144,6 +3172,7 @@ def test_finalize_preflights_all_archives_and_rolls_back_docs_failure(
 ) -> None:
     env, _ = fake_bd_environment
     run_migrator(legacy_project, "scan", "--write")
+    record_no_release_authority_decision(legacy_project)
     run_migrator(
         legacy_project,
         "classify",
@@ -3227,6 +3256,7 @@ def test_finalize_requires_live_beads_records_before_archival(
 ) -> None:
     env, state_dir = fake_bd_environment
     run_migrator(legacy_project, "scan", "--write")
+    record_no_release_authority_decision(legacy_project)
     run_migrator(legacy_project, "prepare", "--apply", "--allow-dirty")
     run_migrator(legacy_project, "import-beads", "--apply", env=env)
     (legacy_project / "docs/src/features/alpha/index.md").write_text(

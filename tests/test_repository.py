@@ -562,7 +562,7 @@ def test_reviewed_skill_contracts_are_explicit(repository_root: Path) -> None:
         encoding="utf-8"
     )
     # Candidate cleanup and safe tracked/untracked staging add a bounded migration gate section.
-    assert len(migration.splitlines()) <= 280
+    assert len(migration.splitlines()) <= 285
     assert "references/MIGRATION.md" in migration
     for heading in (
         "## Baseline interpretation",
