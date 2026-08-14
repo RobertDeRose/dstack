@@ -2,6 +2,18 @@
 
 - - -
 
+## v0.11.3 — 2026-08-14
+
+### Fixed
+
+- **workflow:** Restore migration regression coverage (`8cb3df5`)
+- **template:** Prevent blank overview heading (`0786bbc`)
+- **workflow:** Bind refreshed skills to new sessions (`4f7c447`)
+- **toolchain:** Report lock normalization failures (`438acb9`)
+- **workflow:** Reconcile release-tool authorities (`1a4338f`)
+
+- - -
+
 ## v0.11.2 — 2026-08-14
 
 ### Fixed
