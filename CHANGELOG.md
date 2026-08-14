@@ -2,6 +2,20 @@
 
 - - -
 
+## v0.11.2 — 2026-08-14
+
+### Fixed
+
+- **workflow:** Validate legacy promotion recovery (`4f7a3e3`)
+- **workflow:** Require evidence for superseded findings (`d3c1743`)
+- **workflow:** Harden review evidence and promotion (`c398ec6`)
+- **workflow:** Prevent pre-implementation review deadlocks (`2e49fb5`)
+- **github:** Align Pages gate integration assertion (`2b1a35e`)
+- **docs:** Format Pi reviewer roster tables (`65ac2d3`)
+- **workflow:** Guard Beads publication history (`6d1c9f0`)
+
+- - -
+
 ## v0.11.1 — 2026-08-14
 
 ### Fixed
