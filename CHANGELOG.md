@@ -2,6 +2,19 @@
 
 - - -
 
+## v0.11.1 — 2026-08-14
+
+### Fixed
+
+- **toolchain:** Repair release validation failures (`a8b8beb`)
+- **workflow:** Accept lineage-only migration evidence (`14f6579`)
+
+### Changed
+
+- **github:** Inline Pages configuration task (`b4c3612`)
+
+- - -
+
 ## v0.11.0 — 2026-08-14
 
 ### Added
