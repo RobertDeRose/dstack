@@ -212,10 +212,40 @@ def validate_legacy_state(value: Any) -> dict[str, Any] | None:
         return None
     require(isinstance(value, dict), "legacy_state must be an object")
     legacy = value if isinstance(value, dict) else {}
+    schema = legacy.get("schema")
     require(
-        legacy.get("schema") in {"dstack.review-state.v1", "dstack.review-state.v2"},
+        schema in {"dstack.review-state.v1", "dstack.review-state.v2"},
         "legacy_state.schema must identify a supported migrated state",
     )
+    if schema == "dstack.review-state.v1":
+        require(isinstance(legacy.get("run_id"), str) and legacy["run_id"], "legacy_state.run_id is required")
+        replacement_count = legacy.get("replacement_count", 0)
+        require(
+            replacement_count in (0, 1) and not isinstance(replacement_count, bool),
+            "legacy_state.replacement_count is invalid",
+        )
+        review_round = legacy.get("review_round", 1)
+        require(
+            isinstance(review_round, int) and not isinstance(review_round, bool) and review_round > 0,
+            "legacy_state.review_round is invalid",
+        )
+        require_string_list(legacy.get("finding_domains", []), "legacy_state.finding_domains")
+    else:
+        for key in ("reviewer_id", *BOUNDARY_FIELDS, *RETIRED_PACKET_FIELDS):
+            require(isinstance(legacy.get(key), str) and legacy[key], f"legacy_state.{key} is required")
+        validate_review_boundary(legacy)
+        for key in RETIRED_PACKET_FIELDS:
+            pattern = DIGEST_PATTERN if key.endswith("digest") else IDENTITY_PATTERN
+            require(pattern.fullmatch(legacy[key]) is not None, f"legacy_state.{key} is invalid")
+        require(legacy.get("pass") in PASSES, "legacy_state.pass is invalid")
+        require_string_list(legacy.get("declared_domains"), "legacy_state.declared_domains", allow_empty=False)
+        require_string_list(legacy.get("declared_paths", []), "legacy_state.declared_paths")
+        require_string_list(legacy.get("declared_requirement_ids", []), "legacy_state.declared_requirement_ids")
+        replacement_count = legacy.get("redesign_replacement_count", 0)
+        require(
+            replacement_count in (0, 1) and not isinstance(replacement_count, bool),
+            "legacy_state.redesign_replacement_count is invalid",
+        )
     return legacy
 
 
@@ -266,12 +296,6 @@ def validate_state(value: Any) -> dict[str, Any]:
         legacy_recovery_status in (None, "unavailable"),
         "legacy_recovery_authorization must be unavailable or null",
     )
-    legacy_state = validate_legacy_state(state.get("legacy_state"))
-    if legacy_state is not None:
-        require(
-            legacy_recovery_status == "unavailable",
-            "legacy_state requires explicit unavailable recovery authorization status",
-        )
     recovery_authorization = validate_recovery_authorization(state.get("recovery_authorization"))
     if recovery_authorization is not None:
         require(
@@ -290,14 +314,36 @@ def validate_state(value: Any) -> dict[str, Any]:
             recovery_authorization["new_review_boundary_id"] == state["review_boundary_id"],
             "recovery authorization new boundary does not match state",
         )
-    if redesign == 1:
-        if legacy_state is not None:
-            require(
-                recovery_authorization is None,
-                "legacy consumed redesign cannot carry recovery authorization",
-            )
+    legacy_state = validate_legacy_state(state.get("legacy_state"))
+    if legacy_state is not None:
+        require(
+            legacy_recovery_status == "unavailable",
+            "legacy_state requires explicit unavailable recovery authorization status",
+        )
+        legacy_identity = legacy_state.get("run_id", legacy_state.get("reviewer_id"))
+        legacy_boundary = (
+            f"legacy-{legacy_identity}"
+            if legacy_state["schema"] == "dstack.review-state.v1"
+            else legacy_state["review_boundary_id"]
+        )
+        if recovery_authorization is None:
+            require(state["review_boundary_id"] == legacy_boundary, "legacy_state boundary does not match state")
+            if legacy_state["schema"] == "dstack.review-state.v1":
+                require(state["reviewed_commit"] == "0" * 40, "legacy_state commit does not match state")
+                require(state["reviewed_diff_base"] == "0" * 40, "legacy_state diff base does not match state")
+                require(
+                    state["reviewed_diff_digest"] == "sha256:" + "0" * 64, "legacy_state digest does not match state"
+                )
+            else:
+                for key in BOUNDARY_FIELDS:
+                    require(state[key] == legacy_state[key], f"legacy_state {key} does not match state")
         else:
-            require(recovery_authorization is not None, "consumed redesign replacement requires recovery authorization")
+            require(
+                recovery_authorization["prior_review_boundary_id"] == legacy_boundary,
+                "legacy_state prior boundary does not match state",
+            )
+    if redesign == 1 and legacy_state is None:
+        require(recovery_authorization is not None, "consumed redesign replacement requires recovery authorization")
     if redesign == 0:
         require(
             recovery_authorization is None and (legacy_recovery_status is None or legacy_state is not None),

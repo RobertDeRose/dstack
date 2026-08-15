@@ -534,6 +534,58 @@ def test_recovery_authorization_is_required_after_redesign_and_validated() -> No
     assert "consumed redesign replacement" in error["error"]
 
 
+def test_authorized_redesign_remains_available_after_v1_v2_migration() -> None:
+    v1 = run(
+        "migrate-v1",
+        {
+            "schema": "dstack.review-state.v1",
+            "run_id": "old-v1",
+            "replacement_count": 0,
+            "review_round": 1,
+            "status": "verified",
+        },
+    )
+    v2 = initial()
+    v2.update(
+        schema="dstack.review-state.v2",
+        packet_id="old-packet",
+        packet_digest="sha256:" + "a" * 64,
+        projection_id="old-packet:role:specification-clarity",
+        projection_digest="sha256:" + "b" * 64,
+    )
+    v2.pop("review_issue_id")
+    v2 = run("migrate-v2", v2)
+
+    for migrated, boundary in ((v1, "boundary-v1-recovery"), (v2, "boundary-v2-recovery")):
+        reported = transition(migrated, "report", findings=[finding()])
+        reconciled = transition(
+            reported,
+            "reconcile",
+            resolved_conditions=["changes_required"],
+            resolved_finding_ids=["F-001"],
+        )
+        terminal = transition(reconciled, "report", findings=[finding("F-002", domain="correctness")])
+        redesigned = transition(
+            terminal,
+            "redesign",
+            review_boundary_id=boundary,
+            reviewed_commit="1" * 40,
+            reviewed_diff_base="2" * 40,
+            reviewed_diff_digest="sha256:" + "3" * 64,
+            authorization={
+                "user": "maintainer",
+                "decision": "authorize",
+                "reason": "Recover the migrated review.",
+                "affected_review_issue_ids": [migrated["review_issue_id"]],
+            },
+        )
+        assert redesigned["state"] == "initial_active"
+        assert redesigned["redesign_replacement_count"] == 1
+        assert redesigned["legacy_state"] == migrated["legacy_state"]
+        assert redesigned["legacy_recovery_authorization"] == "unavailable"
+        assert redesigned["recovery_authorization"]["decision"] == "authorize"
+
+
 def test_legacy_recovery_exception_requires_explicit_migration_marker() -> None:
     migrated = run(
         "migrate-v1",
@@ -557,6 +609,44 @@ def test_legacy_recovery_exception_requires_explicit_migration_marker() -> None:
     )
     error = run("validate", forged, success=False)
     assert "legacy_state.schema" in error["error"]
+
+    malformed_v1 = initial(
+        state="initial_active",
+        redesign_replacement_count=1,
+        legacy_recovery_authorization="unavailable",
+        legacy_state={
+            "schema": "dstack.review-state.v1",
+            "run_id": "specification-clarity",
+            "replacement_count": "bad",
+            "review_round": 1,
+            "finding_domains": [],
+        },
+    )
+    error = run("validate", malformed_v1, success=False)
+    assert "legacy_state.replacement_count" in error["error"]
+
+    malformed_v2 = initial(
+        state="initial_active",
+        redesign_replacement_count=1,
+        legacy_recovery_authorization="unavailable",
+        legacy_state={"schema": "dstack.review-state.v2", "reviewer_id": "old"},
+    )
+    error = run("validate", malformed_v2, success=False)
+    assert "legacy_state.review_boundary_id" in error["error"]
+
+    forged_valid = run(
+        "migrate-v1",
+        {
+            "schema": "dstack.review-state.v1",
+            "run_id": "old-run",
+            "replacement_count": 1,
+            "review_round": 2,
+            "status": "verified",
+        },
+    )
+    forged_valid["review_boundary_id"] = "different-boundary"
+    error = run("validate", forged_valid, success=False)
+    assert "legacy_state boundary" in error["error"]
 
 
 def test_redesign_rejects_stale_boundary() -> None:
