@@ -46,6 +46,14 @@ design/docs/validation reconciliation is committed, invoke the bounded `redesign
 launch the affected role again. Security, correctness, validation, accessibility, and data-loss-protection findings
 cannot be waived. Telemetry helps diagnose review focus but never supplies acceptance.
 
+## Interleaved Beads interaction recovery
+
+Finalize each feature's interaction boundary immediately after its Beads mutations. If the shared base contains valid
+rows from multiple feature lineages, `reconcile-beads-interactions.py prepare` copies only the selected lineage to its
+feature worktree and preserves foreign rows as an append-only base delta. Commit and finalize that owner, then repeat
+for each remaining owner. Never restore, rewrite, or delete foreign rows; malformed, duplicate, non-append, and
+unrelated records remain blocking errors.
+
 ## Review-topology migration recovery
 
 Run topology planning, application, and verification only from the canonical primary worktree. The migrator acquires the

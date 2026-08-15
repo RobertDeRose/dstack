@@ -204,13 +204,13 @@ def appended_records(worktree: Path, root_id: str) -> tuple[list[tuple[str, str,
     current = (worktree / INTERACTIONS).read_bytes()
     if not current.startswith(head):
         raise ReconciliationError(f"{INTERACTIONS} is not an append-only change in {worktree}")
+    _head_records, head_by_id = parse_records(head, source=f"{worktree}/{INTERACTIONS} HEAD")
     additions, _ = parse_records(current[len(head) :], source=f"{worktree}/{INTERACTIONS} additions")
+    duplicate_ids = set(head_by_id).intersection(interaction_id for interaction_id, _issue_id, _raw in additions)
+    if duplicate_ids:
+        raise ReconciliationError(f"{INTERACTIONS} repeats committed interaction id(s): {sorted(duplicate_ids)}")
     if not additions:
         raise ReconciliationError(f"{INTERACTIONS} has no appended records in {worktree}")
-    _selected, foreign = classify_records(worktree, additions, root_id)
-    if foreign:
-        details = "; ".join(f"{row['interaction_id']} references {row['issue_id']} ({row['title']})" for row in foreign)
-        raise ReconciliationError(f"foreign interaction records outside selected feature lineage {root_id}: {details}")
     return additions, current
 
 
@@ -471,7 +471,9 @@ def verify_feature(
 
 
 def prepare(base: Path, feature: Path, root_id: str) -> dict[str, object]:
-    additions, _base_current = appended_records(base, root_id)
+    additions, base_current = appended_records(base, root_id)
+    selected, foreign = classify_records(base, additions, root_id)
+    selected_ids = {row["interaction_id"] for row in selected}
     feature_dirty = require_interaction_only_status(feature, allow_clean=True)
     feature_head = git(feature, "show", f"HEAD:{INTERACTIONS.as_posix()}")
     feature_current = (feature / INTERACTIONS).read_bytes()
@@ -495,32 +497,48 @@ def prepare(base: Path, feature: Path, root_id: str) -> dict[str, object]:
 
     missing: list[bytes] = []
     for interaction_id, _issue_id, raw in additions:
+        if interaction_id not in selected_ids:
+            continue
         existing = feature_by_id.get(interaction_id)
         if existing is not None and existing != raw:
             raise ReconciliationError(f"interaction {interaction_id} differs between worktrees")
         if existing is None:
             missing.append(raw)
     if missing:
+        if (base / INTERACTIONS).read_bytes() != base_current:
+            raise ReconciliationError(f"{INTERACTIONS} changed during selected-lineage extraction")
         (feature / INTERACTIONS).write_bytes(feature_current + b"".join(missing))
-    return {"copied": len(missing), "preserved": len(additions), "root_id": root_id}
+    return {
+        "copied": len(missing),
+        "preserved": len(additions),
+        "foreign": len(foreign),
+        "root_id": root_id,
+    }
 
 
 def finalize(base: Path, feature: Path, root_id: str) -> dict[str, object]:
-    additions, _base_current = appended_records(base, root_id)
+    additions, base_current = appended_records(base, root_id)
+    selected, foreign = classify_records(base, additions, root_id)
+    selected_ids = {row["interaction_id"] for row in selected}
     if status_entries(feature):
         raise ReconciliationError("feature interaction reconciliation must be committed before finalization")
     feature_head = git(feature, "show", f"HEAD:{INTERACTIONS.as_posix()}")
     _records, feature_by_id = parse_records(feature_head, source=f"{feature} HEAD/{INTERACTIONS}")
     for interaction_id, _issue_id, raw in additions:
-        if feature_by_id.get(interaction_id) != raw:
+        if interaction_id in selected_ids and feature_by_id.get(interaction_id) != raw:
             raise ReconciliationError(f"committed feature branch does not preserve interaction {interaction_id}")
-    git(base, "restore", "--worktree", "--source=HEAD", "--", INTERACTIONS.as_posix())
-    return {"restored": len(additions), "root_id": root_id}
+    if (base / INTERACTIONS).read_bytes() != base_current:
+        raise ReconciliationError(f"{INTERACTIONS} changed during selected-lineage finalization")
+    head = git(base, "show", f"HEAD:{INTERACTIONS.as_posix()}")
+    foreign_raw = b"".join(raw for interaction_id, _issue_id, raw in additions if interaction_id not in selected_ids)
+    (base / INTERACTIONS).write_bytes(head + foreign_raw)
+    return {"preserved": len(foreign), "removed": len(selected), "root_id": root_id}
 
 
 def verify_post_merge(base: Path, root_id: str) -> dict[str, object]:
     additions, _base_current = appended_records(base, root_id)
-    return {"verified": len(additions), "root_id": root_id}
+    _selected, foreign = classify_records(base, additions, root_id)
+    return {"verified": len(additions), "foreign": len(foreign), "root_id": root_id}
 
 
 def parser() -> argparse.ArgumentParser:

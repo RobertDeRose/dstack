@@ -714,7 +714,36 @@ def test_inspect_does_not_promote_blocks_or_related_edges_to_ownership(
     assert [row["issue_id"] for row in report["foreign"]] == ["project-blocked", "project-related"]
 
 
-def test_prepare_reports_all_foreign_appends_without_mutation(
+def test_prepare_rejects_ids_duplicated_across_head_and_delta(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    base, feature = interaction_worktrees
+    path = base / INTERACTIONS
+    before = path.read_bytes()
+    before_feature = (feature / INTERACTIONS).read_bytes()
+    path.write_bytes(before + interaction("int-base", "project-a.1").encode() + b"\n")
+
+    result = run(
+        sys.executable,
+        repository_root / SCRIPT,
+        "prepare",
+        "--base-worktree",
+        base,
+        "--feature-worktree",
+        feature,
+        "--root-id",
+        "project-a",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "repeats committed interaction id" in result.stderr
+    assert path.read_bytes() != before
+    assert (feature / INTERACTIONS).read_bytes() == before_feature
+
+
+def test_prepare_preserves_foreign_appends_without_mutation(
     repository_root: Path,
     interaction_worktrees: tuple[Path, Path],
 ) -> None:
@@ -741,14 +770,51 @@ def test_prepare_reports_all_foreign_appends_without_mutation(
         feature,
         "--root-id",
         "project-a",
-        check=False,
     )
 
-    assert result.returncode != 0
-    assert "int-foreign-a" in result.stderr
-    assert "int-foreign-b" in result.stderr
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["foreign"] == 2
     assert path.read_bytes() == before_base
-    assert (feature / INTERACTIONS).read_bytes() == before_feature
+    feature_after = (feature / INTERACTIONS).read_text(encoding="utf-8")
+    assert "int-close" in feature_after
+    assert "int-discovered" in feature_after
+    assert "int-foreign-a" not in feature_after
+    assert "int-foreign-b" not in feature_after
+    assert feature_after.encode() != before_feature
+
+
+def test_reconciles_interleaved_lineages_repeatedly(
+    repository_root: Path,
+    interaction_worktrees: tuple[Path, Path],
+) -> None:
+    base, feature_a = interaction_worktrees
+    script = repository_root / SCRIPT
+    path = base / INTERACTIONS
+    path.write_text(
+        path.read_text(encoding="utf-8") + interaction("int-foreign-b", "project-b.1") + "\n", encoding="utf-8"
+    )
+    common_a = ("--base-worktree", base, "--feature-worktree", feature_a, "--root-id", "project-a")
+
+    prepared_a = run(sys.executable, script, "prepare", *common_a)
+    assert json.loads(prepared_a.stdout)["copied"] == 2
+    assert "int-foreign-b" not in (feature_a / INTERACTIONS).read_text(encoding="utf-8")
+    run("git", "-C", feature_a, "add", INTERACTIONS)
+    run("git", "-C", feature_a, "commit", "-m", "record feature a recovery")
+    finalized_a = run(sys.executable, script, "finalize", *common_a)
+    assert json.loads(finalized_a.stdout) == {"preserved": 1, "removed": 2, "root_id": "project-a"}
+    assert "int-foreign-b" in path.read_text(encoding="utf-8")
+    assert "int-close" not in path.read_text(encoding="utf-8")
+
+    feature_b = base.parent / "project.feature-b"
+    run("git", "-C", base, "worktree", "add", "-b", "feat/other", feature_b)
+    common_b = ("--base-worktree", base, "--feature-worktree", feature_b, "--root-id", "project-b")
+    prepared_b = run(sys.executable, script, "prepare", *common_b)
+    assert json.loads(prepared_b.stdout)["copied"] == 1
+    run("git", "-C", feature_b, "add", INTERACTIONS)
+    run("git", "-C", feature_b, "commit", "-m", "record feature b recovery")
+    finalized_b = run(sys.executable, script, "finalize", *common_b)
+    assert json.loads(finalized_b.stdout) == {"preserved": 0, "removed": 1, "root_id": "project-b"}
+    assert run("git", "-C", base, "status", "--porcelain").stdout == ""
 
 
 def test_preflight_requires_a_clean_worktree_before_closeout(
@@ -844,5 +910,5 @@ def test_reconciles_only_committed_feature_interactions(
         "project-a",
         check=False,
     )
-    assert result.returncode != 0
-    assert "outside selected feature lineage" in result.stderr
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["foreign"] == 1

@@ -210,9 +210,12 @@ uv run <core-dir>/scripts/reconcile-beads-interactions.py finalize \
   --base-worktree <base-worktree> --feature-worktree <feature-worktree> --root-id <root-id>
 ```
 
-Skip this boundary only when the base interaction export is clean and no close-out Beads mutation emitted a row. If
-`prepare` or the inspector reports foreign rows, stop without restoring or closing delivery/root. The base must be clean
-before the user chooses `pr`, `merge`, or `ready`; a later delivery action must reacquire the lease and recheck it.
+Skip this boundary only when the base interaction export is clean and no close-out Beads mutation emitted a row.
+Finalize immediately after each close-out Beads mutation. If `inspect` reports interleaved foreign rows, `prepare`
+extracts only the selected lineage, preserves foreign rows as an append-only base delta, and reports the remaining
+count; commit and finalize the selected owner, then repeat the same recovery for each foreign owner. Never restore or
+delete foreign rows. The base must be clean before the user chooses `pr`, `merge`, or `ready`; a later delivery action
+must reacquire the lease and recheck it.
 
 ## 7. Choose Delivery Action
 
