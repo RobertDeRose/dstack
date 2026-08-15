@@ -207,6 +207,18 @@ def validate_recovery_authorization(value: Any) -> dict[str, Any] | None:
     return authorization
 
 
+def validate_legacy_state(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    require(isinstance(value, dict), "legacy_state must be an object")
+    legacy = value if isinstance(value, dict) else {}
+    require(
+        legacy.get("schema") in {"dstack.review-state.v1", "dstack.review-state.v2"},
+        "legacy_state.schema must identify a supported migrated state",
+    )
+    return legacy
+
+
 def validate_review_boundary(state: dict[str, Any]) -> None:
     for key in BOUNDARY_FIELDS:
         require(isinstance(state.get(key), str) and state[key], f"review boundary {key} is required")
@@ -254,6 +266,12 @@ def validate_state(value: Any) -> dict[str, Any]:
         legacy_recovery_status in (None, "unavailable"),
         "legacy_recovery_authorization must be unavailable or null",
     )
+    legacy_state = validate_legacy_state(state.get("legacy_state"))
+    if legacy_state is not None:
+        require(
+            legacy_recovery_status == "unavailable",
+            "legacy_state requires explicit unavailable recovery authorization status",
+        )
     recovery_authorization = validate_recovery_authorization(state.get("recovery_authorization"))
     if recovery_authorization is not None:
         require(
@@ -273,16 +291,16 @@ def validate_state(value: Any) -> dict[str, Any]:
             "recovery authorization new boundary does not match state",
         )
     if redesign == 1:
-        if "legacy_state" in state:
+        if legacy_state is not None:
             require(
-                recovery_authorization is None and legacy_recovery_status == "unavailable",
-                "legacy consumed redesign requires explicit unavailable authorization status",
+                recovery_authorization is None,
+                "legacy consumed redesign cannot carry recovery authorization",
             )
         else:
             require(recovery_authorization is not None, "consumed redesign replacement requires recovery authorization")
     if redesign == 0:
         require(
-            recovery_authorization is None and (legacy_recovery_status is None or "legacy_state" in state),
+            recovery_authorization is None and (legacy_recovery_status is None or legacy_state is not None),
             "recovery authorization requires a consumed redesign replacement",
         )
     infrastructure = state.get("infrastructure_replacement_count")

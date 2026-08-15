@@ -534,6 +534,31 @@ def test_recovery_authorization_is_required_after_redesign_and_validated() -> No
     assert "consumed redesign replacement" in error["error"]
 
 
+def test_legacy_recovery_exception_requires_explicit_migration_marker() -> None:
+    migrated = run(
+        "migrate-v1",
+        {
+            "schema": "dstack.review-state.v1",
+            "run_id": "old-run",
+            "replacement_count": 1,
+            "review_round": 2,
+            "status": "verified",
+        },
+    )
+    migrated.pop("legacy_recovery_authorization")
+    error = run("validate", migrated, success=False)
+    assert "legacy_state requires explicit unavailable" in error["error"]
+
+    forged = initial(
+        state="initial_active",
+        redesign_replacement_count=1,
+        legacy_recovery_authorization="unavailable",
+        legacy_state={"schema": "not-a-review-state"},
+    )
+    error = run("validate", forged, success=False)
+    assert "legacy_state.schema" in error["error"]
+
+
 def test_redesign_rejects_stale_boundary() -> None:
     terminal = initial(state="redesign_required", pending_conditions=["redesign_required"])
     replacement = {
