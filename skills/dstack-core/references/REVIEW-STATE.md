@@ -35,6 +35,7 @@ transition policy from prose or reviewer wording.
   boundary;
 - validated `current_findings`, complete decision evidence, exact waiver scope, and preserved partial evidence;
 - `redesign_replacement_count`: zero or one per design boundary;
+- `recovery_authorization`: the explicit user, reason, affected review issues, and prior/new boundary IDs for recovery;
 - `infrastructure_replacement_count`: independent zero-or-one counters for initial and verification passes; and
 - `telemetry`: assignment path/domain counts when available, elapsed time, context usage, terminal status, and
   replacement cause. Telemetry is operational evidence, never approval.
@@ -56,25 +57,25 @@ source-bound state.
 
 ## Per-reviewer transitions
 
-| Current state             | Event                                                           | Next state                                        |
-|---------------------------|-----------------------------------------------------------------|---------------------------------------------------|
-| `initial_active`          | approve                                                         | provisional `approved`                            |
-| `initial_active`          | findings                                                        | `changes_required`                                |
-| `initial_active`          | unresolved intent                                               | `decision_required`                               |
-| `initial_active`          | findings plus unresolved intent                                 | compound `decision_required` + `changes_required` |
-| `initial_active`          | timeout/unavailable                                             | `initial_incomplete`                              |
-| `initial_incomplete`      | explicit retry with unused initial infrastructure counter       | `initial_active`                                  |
-| `initial_incomplete`      | retry after counter is spent                                    | `redesign_required`                               |
-| decision/findings state   | all pending answer/fixes persisted                              | `verification_active`                             |
-| `verification_active`     | approve                                                         | `approved`                                        |
-| `verification_active`     | eligible non-material findings                                  | `waiver_required`                                 |
-| `verification_active`     | material or protected finding                                   | `redesign_required`                               |
-| `verification_active`     | timeout/unavailable                                             | `verification_incomplete`                         |
-| `verification_incomplete` | explicit retry with unused verification infrastructure counter  | `verification_active`                             |
-| `verification_incomplete` | retry after counter is spent                                    | `redesign_required`                               |
-| `waiver_required`         | user accepts eligible findings with evidence                    | `approved_with_waiver`                            |
-| `waiver_required`         | user declines                                                   | `redesign_required`                               |
-| `redesign_required`       | `redesign` with unused redesign counter and new source boundary | `initial_active`                                  |
+| Current state             | Event                                                             | Next state                                        |
+|---------------------------|-------------------------------------------------------------------|---------------------------------------------------|
+| `initial_active`          | approve                                                           | provisional `approved`                            |
+| `initial_active`          | findings                                                          | `changes_required`                                |
+| `initial_active`          | unresolved intent                                                 | `decision_required`                               |
+| `initial_active`          | findings plus unresolved intent                                   | compound `decision_required` + `changes_required` |
+| `initial_active`          | timeout/unavailable                                               | `initial_incomplete`                              |
+| `initial_incomplete`      | explicit retry with unused initial infrastructure counter         | `initial_active`                                  |
+| `initial_incomplete`      | retry after counter is spent                                      | `redesign_required`                               |
+| decision/findings state   | all pending answer/fixes persisted                                | `verification_active`                             |
+| `verification_active`     | approve                                                           | `approved`                                        |
+| `verification_active`     | eligible non-material findings                                    | `waiver_required`                                 |
+| `verification_active`     | material or protected finding                                     | `redesign_required`                               |
+| `verification_active`     | timeout/unavailable                                               | `verification_incomplete`                         |
+| `verification_incomplete` | explicit retry with unused verification infrastructure counter    | `verification_active`                             |
+| `verification_incomplete` | retry after counter is spent                                      | `redesign_required`                               |
+| `waiver_required`         | user accepts eligible findings with evidence                      | `approved_with_waiver`                            |
+| `waiver_required`         | user declines                                                     | `redesign_required`                               |
+| `redesign_required`       | authorized `redesign` with unused counter and new source boundary | `initial_active`                                  |
 
 Every unlisted edge fails. There is no third pass on one review boundary. A `redesign` event starts a new boundary
 rather than adding another pass to the old one.
@@ -113,10 +114,13 @@ second same-pass failure, declined retry, or unavailable retry becomes `redesign
 one does not consume either infrastructure retry.
 
 A terminal `redesign_required` state may enter a new design boundary exactly once with the `redesign` event. The event
-requires a new `review_boundary_id`, a new reviewed commit, and a new reviewed diff digest; it may replace declared
-domains/paths/requirements, clears findings and partial incomplete evidence, resets both infrastructure counters, and
-returns `initial_active` with `redesign_replacement_count: 1`. The old state and source boundary remain append-only
-history; the new boundary cannot infer approval from that history.
+requires explicit user authorization containing `user`, `decision: authorize`, `reason`, and non-empty
+`affected_review_issue_ids`, plus a new `review_boundary_id`, a new reviewed commit, and a new reviewed diff digest. The
+result records the authorization and prior/new boundary IDs; denied or missing authorization fails closed. Legacy v1/v2
+migrations carry `legacy_recovery_authorization: unavailable` as explicit non-authorizing history and cannot use it to
+authorize a new recovery. It may replace declared domains/paths/requirements, clears findings and partial incomplete
+evidence, resets both infrastructure counters, and returns `initial_active` with `redesign_replacement_count: 1`. The
+old state and source boundary remain append-only history; the new boundary cannot infer approval from that history.
 
 ## Legacy migration
 

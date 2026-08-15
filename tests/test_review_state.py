@@ -68,6 +68,7 @@ def initial(**changes: Any) -> dict[str, Any]:
         "resolved_decision": None,
         "waiver": None,
         "partial_evidence": None,
+        "recovery_authorization": None,
         "redesign_replacement_count": 0,
         "infrastructure_replacement_count": {"initial": 0, "verification": 0},
         "provisional": False,
@@ -436,6 +437,29 @@ def test_waiver_rejects_tampered_scope_and_refusal_is_terminal() -> None:
     assert transition(waiver, "decline_waiver")["state"] == "redesign_required"
 
 
+def test_redesign_requires_explicit_authorization() -> None:
+    terminal = initial(state="redesign_required", pending_conditions=["redesign_required"])
+    replacement = {
+        "review_boundary_id": "boundary-redesigned",
+        "reviewed_commit": "1" * 40,
+        "reviewed_diff_base": "2" * 40,
+        "reviewed_diff_digest": "sha256:" + "3" * 64,
+    }
+    error = run("transition", {"state": terminal, "event": "redesign", "data": replacement}, success=False)
+    assert "authorization" in error["error"]
+    denied = {
+        **replacement,
+        "authorization": {
+            "user": "maintainer",
+            "decision": "deny",
+            "reason": "Not approved.",
+            "affected_review_issue_ids": ["close-implementation", "close-delivery"],
+        },
+    }
+    error = run("transition", {"state": terminal, "event": "redesign", "data": denied}, success=False)
+    assert "authorize" in error["error"]
+
+
 def test_redesign_starts_one_new_source_boundary() -> None:
     partial = {"summary": "No final report"}
     terminal = transition(
@@ -454,6 +478,12 @@ def test_redesign_starts_one_new_source_boundary() -> None:
         declared_domains=["architecture", "correctness"],
         declared_paths=["docs/src/architecture/index.md", "skills/dstack-core/SKILL.md"],
         declared_requirement_ids=["FR-1", "FR-2"],
+        authorization={
+            "user": "maintainer",
+            "decision": "authorize",
+            "reason": "Correct the terminal close-review findings.",
+            "affected_review_issue_ids": ["close-implementation", "close-delivery"],
+        },
     )
     assert redesigned["state"] == "initial_active"
     assert redesigned["redesign_replacement_count"] == 1
@@ -461,6 +491,47 @@ def test_redesign_starts_one_new_source_boundary() -> None:
     assert redesigned["reviewed_diff_digest"] == "sha256:" + "3" * 64
     assert redesigned["infrastructure_replacement_count"] == {"initial": 0, "verification": 0}
     assert redesigned["current_findings"] == []
+    assert redesigned["recovery_authorization"] == {
+        "user": "maintainer",
+        "decision": "authorize",
+        "reason": "Correct the terminal close-review findings.",
+        "affected_review_issue_ids": ["close-implementation", "close-delivery"],
+        "prior_review_boundary_id": "feature-review-boundary",
+        "new_review_boundary_id": "boundary-redesigned",
+    }
+
+
+def test_recovery_authorization_is_required_after_redesign_and_validated() -> None:
+    consumed = initial(state="initial_active", redesign_replacement_count=1)
+    error = run("validate", consumed, success=False)
+    assert "consumed redesign replacement" in error["error"]
+
+    malformed = initial(
+        state="initial_active",
+        redesign_replacement_count=1,
+        recovery_authorization={
+            "user": "maintainer",
+            "decision": "authorize",
+            "reason": "Recover.",
+            "affected_review_issue_ids": ["close-review"],
+        },
+    )
+    error = run("validate", malformed, success=False)
+    assert "complete boundary evidence" in error["error"]
+
+    unauthorized = initial(
+        state="initial_active",
+        recovery_authorization={
+            "user": "maintainer",
+            "decision": "authorize",
+            "reason": "Unexpected.",
+            "affected_review_issue_ids": ["close-review"],
+            "prior_review_boundary_id": "old",
+            "new_review_boundary_id": "feature-review-boundary",
+        },
+    )
+    error = run("validate", unauthorized, success=False)
+    assert "consumed redesign replacement" in error["error"]
 
 
 def test_redesign_rejects_stale_boundary() -> None:
@@ -473,7 +544,20 @@ def test_redesign_rejects_stale_boundary() -> None:
     }
     error = run(
         "transition",
-        {"state": terminal, "event": "redesign", "data": {**replacement, "reviewed_commit": "c" * 40}},
+        {
+            "state": terminal,
+            "event": "redesign",
+            "data": {
+                **replacement,
+                "reviewed_commit": "c" * 40,
+                "authorization": {
+                    "user": "maintainer",
+                    "decision": "authorize",
+                    "reason": "Correct the terminal finding.",
+                    "affected_review_issue_ids": ["close-review"],
+                },
+            },
+        },
         success=False,
     )
     assert "new reviewed commit" in error["error"]
@@ -493,6 +577,7 @@ def test_v1_migration_preserves_approval_as_non_approving_history() -> None:
     assert migrated["schema"] == "dstack.review-state.v3"
     assert migrated["state"] == "verification_active"
     assert migrated["redesign_replacement_count"] == 1
+    assert migrated["legacy_recovery_authorization"] == "unavailable"
     assert migrated["legacy_state"] == v1
     migrated["reviewer_id"] = "specification-clarity"
     execution = transition(

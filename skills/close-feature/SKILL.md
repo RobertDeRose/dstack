@@ -172,14 +172,17 @@ launch again against that boundary. Timeout/unavailability preserves partial evi
 same-pass infrastructure replacement, never an automatic retry. A replacement receives the same source boundary, open
 findings, resolutions, and post-review diff; if it also fails, stop.
 
-A `redesign_required` stop requires a committed design/documentation/validation boundary before another review. Use
-`review-state.py transition` with event `redesign`, a new `review_boundary_id`, and all updated reviewed source-boundary
-fields plus declarations; this consumes the one redesign replacement and resets the new boundary to `initial_active`. Do
-not reuse old approval or infer approval from historical evidence. Waiver is available only for explicitly non-material
-findings outside security, correctness, validation, accessibility, and data-loss-protection, and requires the user's
-exact accepted scope and rationale. Protected findings are never waivable at any severity. Close both close reviews only
-when aggregate `can_close` is true; then close validation and documentation reconciliation only after their evidence
-remains current.
+A `redesign_required` stop reports two actionable choices: leave the feature blocked, or authorize one recovery
+boundary. Do not continue from reviewer output alone. If the user explicitly authorizes recovery, record their identity,
+reason, and affected close-review issue IDs in Beads, then pass
+`authorization: {user, decision: authorize, reason, affected_review_issue_ids}` to `review-state.py transition` with
+event `redesign`, a new `review_boundary_id`, and all updated reviewed source-boundary fields plus declarations. The
+executable state records the prior and new boundaries, consumes the one redesign replacement, and resets the new
+boundary to `initial_active`. Recovery without authorization is rejected; do not reuse old approval or infer approval
+from historical evidence. Waiver is available only for explicitly non-material findings outside security, correctness,
+validation, accessibility, and data-loss-protection, and requires the user's exact accepted scope and rationale.
+Protected findings are never waivable at any severity. Close both close reviews only when aggregate `can_close` is true;
+then close validation and documentation reconciliation only after their evidence remains current.
 
 ## 5. Commit Reconciliation
 

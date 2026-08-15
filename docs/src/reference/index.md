@@ -311,10 +311,12 @@ python3 skills/dstack-core/scripts/review-state.py migrate-v1 < legacy.json
 State schema `dstack.review-state.v3` permits one initial and one verification pass per boundary. Active states must
 contain no findings, unresolved decision, or waiver evidence, and approval never clears such evidence. It records the
 owning Beads review issue, immutable Git source-boundary identities, validated decision answers bound to the current
-reviewed diff digest, declared invalidation boundaries, a zero-or-one redesign replacement counter, separate zero-or-one
+reviewed diff digest, declared invalidation boundaries, a zero-or-one redesign replacement counter, explicit recovery
+authorization with user/reason/affected-review-issue and prior/new-boundary evidence, separate zero-or-one
 infrastructure counters per pass, and assignment/reviewer telemetry. The `redesign` transition is legal only from
-terminal `redesign_required`, requires a new reviewed commit and diff in addition to a new boundary identity, resets the
-pass and infrastructure counters, and consumes the one redesign replacement. Every unlisted transition fails.
+terminal `redesign_required`, requires explicit `decision: authorize` recovery evidence and a new reviewed commit and
+diff in addition to a new boundary identity, resets the pass and infrastructure counters, and consumes the one redesign
+replacement. Every unlisted transition fails.
 
 Aggregate schema `dstack.review-aggregate.v2` requires the exact unique reviewer set and combines current records. Every
 reviewer must share the same review boundary, reviewed commit, diff base, and diff digest. A reconciliation operation

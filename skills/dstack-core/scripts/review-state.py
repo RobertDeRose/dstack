@@ -182,6 +182,31 @@ def validate_waiver(value: Any, findings: list[dict[str, Any]]) -> dict[str, Any
     return waiver
 
 
+def validate_recovery_authorization(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    require(isinstance(value, dict), "recovery_authorization must be an object")
+    authorization = value if isinstance(value, dict) else {}
+    required = {"user", "decision", "reason", "affected_review_issue_ids"}
+    boundary_fields = {"prior_review_boundary_id", "new_review_boundary_id"}
+    require(set(authorization) in (required, required | boundary_fields), "recovery_authorization fields are invalid")
+    for key in ("user", "reason"):
+        require(isinstance(authorization[key], str) and authorization[key], f"recovery_authorization.{key} is required")
+    if boundary_fields <= set(authorization):
+        for key in boundary_fields:
+            require(
+                isinstance(authorization[key], str) and authorization[key],
+                f"recovery_authorization.{key} is required",
+            )
+    require(authorization["decision"] == "authorize", "recovery authorization must explicitly authorize recovery")
+    require_string_list(
+        authorization["affected_review_issue_ids"],
+        "recovery_authorization.affected_review_issue_ids",
+        allow_empty=False,
+    )
+    return authorization
+
+
 def validate_review_boundary(state: dict[str, Any]) -> None:
     for key in BOUNDARY_FIELDS:
         require(isinstance(state.get(key), str) and state[key], f"review boundary {key} is required")
@@ -224,6 +249,42 @@ def validate_state(value: Any) -> dict[str, Any]:
     validate_partial_evidence(state.get("partial_evidence"))
     redesign = state.get("redesign_replacement_count")
     require(redesign in (0, 1) and not isinstance(redesign, bool), "redesign_replacement_count must be zero or one")
+    legacy_recovery_status = state.get("legacy_recovery_authorization")
+    require(
+        legacy_recovery_status in (None, "unavailable"),
+        "legacy_recovery_authorization must be unavailable or null",
+    )
+    recovery_authorization = validate_recovery_authorization(state.get("recovery_authorization"))
+    if recovery_authorization is not None:
+        require(
+            set(recovery_authorization)
+            == {
+                "user",
+                "decision",
+                "reason",
+                "affected_review_issue_ids",
+                "prior_review_boundary_id",
+                "new_review_boundary_id",
+            },
+            "persisted recovery authorization requires complete boundary evidence",
+        )
+        require(
+            recovery_authorization["new_review_boundary_id"] == state["review_boundary_id"],
+            "recovery authorization new boundary does not match state",
+        )
+    if redesign == 1:
+        if "legacy_state" in state:
+            require(
+                recovery_authorization is None and legacy_recovery_status == "unavailable",
+                "legacy consumed redesign requires explicit unavailable authorization status",
+            )
+        else:
+            require(recovery_authorization is not None, "consumed redesign replacement requires recovery authorization")
+    if redesign == 0:
+        require(
+            recovery_authorization is None and (legacy_recovery_status is None or "legacy_state" in state),
+            "recovery authorization requires a consumed redesign replacement",
+        )
     infrastructure = state.get("infrastructure_replacement_count")
     require(isinstance(infrastructure, dict), "infrastructure_replacement_count must be an object")
     counts = infrastructure if isinstance(infrastructure, dict) else {}
@@ -365,6 +426,9 @@ def transition(state_value: Any, event: Any, data_value: Any) -> dict[str, Any]:
         provided = set(data) & set(BOUNDARY_FIELDS)
         require(provided == set(BOUNDARY_FIELDS), "redesign requires complete source boundary")
         replacement = {key: data[key] for key in BOUNDARY_FIELDS}
+        authorization = validate_recovery_authorization(data.get("authorization"))
+        require(authorization is not None, "redesign requires explicit recovery authorization")
+        authorization_value = authorization if authorization is not None else {}
         require(
             replacement["review_boundary_id"] != state["review_boundary_id"], "redesign requires a new review boundary"
         )
@@ -378,7 +442,13 @@ def transition(state_value: Any, event: Any, data_value: Any) -> dict[str, Any]:
         if "review_issue_id" in data:
             require(data["review_issue_id"] == state["review_issue_id"], "redesign cannot change review issue")
         validate_review_boundary({**state, **replacement})
+        prior_boundary_id = state["review_boundary_id"]
         state.update(replacement)
+        state["recovery_authorization"] = {
+            **authorization_value,
+            "prior_review_boundary_id": prior_boundary_id,
+            "new_review_boundary_id": replacement["review_boundary_id"],
+        }
         for field, allow_empty in (
             ("declared_domains", False),
             ("declared_paths", True),
@@ -635,6 +705,8 @@ def migrate_v2(value: Any) -> dict[str, Any]:
         "resolved_decision": None,
         "waiver": None,
         "partial_evidence": None,
+        "recovery_authorization": None,
+        "legacy_recovery_authorization": "unavailable",
         "redesign_replacement_count": redesign,
         "infrastructure_replacement_count": {INITIAL_PASS: 0, VERIFICATION_PASS: 0},
         "provisional": False,
@@ -685,6 +757,8 @@ def migrate_v1(value: Any) -> dict[str, Any]:
         "resolved_decision": None,
         "waiver": None,
         "partial_evidence": None,
+        "recovery_authorization": None,
+        "legacy_recovery_authorization": "unavailable",
         "redesign_replacement_count": redesign,
         "infrastructure_replacement_count": {INITIAL_PASS: 0, VERIFICATION_PASS: 0},
         "provisional": False,
