@@ -2,7 +2,7 @@
 name: implement-task
 description: Implement exactly one standalone Beads task, bug, chore, spike, or feature with scoped context, validation, review, commit evidence, and closure. Use when asked to execute an individual task outside a workflow:feature epic.
 metadata:
-  version: "0.11.3"
+  version: "0.11.4"
 allowed-tools: Read Glob Grep Edit Write Bash Task AskUserQuestion
 ---
 

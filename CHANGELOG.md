@@ -2,6 +2,17 @@
 
 - - -
 
+## v0.11.4 — 2026-08-15
+
+### Fixed
+
+- **workflow:** Preserve authorized legacy recovery (`2ea506b`)
+- **workflow:** Validate migrated review recovery state (`0c72181`)
+- **workflow:** Recover interleaved interaction rows (`584cf70`)
+- **workflow:** Authorize terminal close-review recovery (`2158603`)
+
+- - -
+
 ## v0.11.3 — 2026-08-14
 
 ### Fixed
