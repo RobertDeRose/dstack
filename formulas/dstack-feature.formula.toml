@@ -7,7 +7,7 @@ implementation work is created dynamically beneath the implementation epic.
 The implementation gate records specification approval, while closeout uses
 native dynamic fan-in over the implementation children.
 """
-version = 1
+version = 2
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -67,7 +67,10 @@ id = "closeout"
 title = "Reconcile and close feature: {{feature_title}}"
 type = "task"
 priority = 1
-needs = ["implementation"]
+# Keep the ordinary blocking edge task-to-task. Beads rejects an epic as a
+# normal blocker of a task. Dynamic implementation completion is represented
+# separately by the native waits_for fan-in below.
+needs = ["specification"]
 waits_for = "children-of(implementation)"
 labels = ["dstack:step:closeout", "feature:{{feature_slug}}"]
 metadata = { dstack_step = "closeout", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }

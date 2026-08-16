@@ -177,11 +177,43 @@ def command_formula(args: list[str], cwd: Path) -> int:
     return 0
 
 
+def iter_formula_steps(steps: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
+    for step in steps:
+        yield step
+        yield from iter_formula_steps(step.get("children", []))
+
+
+def validate_formula_dependencies(formula: dict[str, Any]) -> None:
+    """Model Beads' epic blocking constraint during formula cooking.
+
+    Ordinary ``needs``/``depends_on`` relationships become blocking
+    dependencies. Beads permits an epic to block another epic, but rejects an
+    epic as the ordinary blocker of a task. ``waits_for`` is a distinct native
+    fan-in relationship and is intentionally not subject to this check.
+    """
+
+    steps = list(iter_formula_steps(formula.get("steps", [])))
+    by_id = {step["id"]: step for step in steps}
+    for dependent in steps:
+        for blocker_id in (
+            *dependent.get("needs", []),
+            *dependent.get("depends_on", []),
+        ):
+            blocker = by_id.get(blocker_id)
+            if blocker is None:
+                raise RuntimeError(f"unknown formula dependency: {blocker_id}")
+            blocker_type = blocker.get("type", "task")
+            dependent_type = dependent.get("type", "task")
+            if blocker_type == "epic" and dependent_type != "epic":
+                raise RuntimeError("epics can only block other epics, not tasks")
+
+
 def command_cook(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
     if not args:
         raise RuntimeError("formula name required")
     name = args[0]
     data = tomllib.loads(find_formula(cwd, name).read_text())
+    validate_formula_dependencies(data)
     if "--persist" in args:
         state["protos"][name] = data
         save_state(state)

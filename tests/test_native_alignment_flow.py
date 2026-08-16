@@ -57,7 +57,16 @@ def test_alignment_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
         cwd=installed_repo,
     )
 
+    assert landing not in {
+        item["id"]
+        for item in run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)
+    }
+
     run_json(["bd", "close", analysis, "--json"], cwd=installed_repo)
+    assert landing not in {
+        item["id"]
+        for item in run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)
+    }
     assert run_json(
         ["bd", "ready", "--mol", corrections, "--exclude-type", "epic", "--json"],
         cwd=installed_repo,
@@ -70,6 +79,10 @@ def test_alignment_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
     )
     assert [item["id"] for item in claimed] == [correction["id"]]
     run_json(["bd", "close", correction["id"], "--json"], cwd=installed_repo)
+
+    ready = run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)
+    assert landing in {item["id"] for item in ready}
+
     run_json(["bd", "close", corrections, "--json"], cwd=installed_repo)
 
     ready = run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)

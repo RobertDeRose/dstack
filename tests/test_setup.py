@@ -49,3 +49,45 @@ def test_setup_refuses_formula_conflict_without_force(target_repo: Path) -> None
 
     forced = run_json([*command, "--force"], cwd=target_repo)
     assert forced["formulas"]["dstack-feature"] == "updated"
+
+
+def test_force_setup_recovers_from_previously_copied_invalid_formula(
+    target_repo: Path,
+) -> None:
+    formulas = target_repo / ".beads" / "formulas"
+    formulas.mkdir(parents=True)
+    (formulas / "dstack-feature.formula.toml").write_text(
+        """
+formula = "dstack-feature"
+type = "workflow"
+phase = "liquid"
+pour = true
+
+[[steps]]
+id = "implementation"
+title = "Implementation"
+type = "epic"
+
+[[steps]]
+id = "closeout"
+title = "Closeout"
+type = "task"
+needs = ["implementation"]
+""".lstrip()
+    )
+
+    result = run_json(
+        [
+            "python3",
+            "-S",
+            str(SETUP_SCRIPT),
+            "install",
+            "--root",
+            str(target_repo),
+            "--force",
+        ],
+        cwd=target_repo,
+    )
+
+    assert result["status"] == "ok"
+    assert result["formulas"]["dstack-feature"] == "updated"

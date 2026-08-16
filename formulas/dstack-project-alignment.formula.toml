@@ -7,7 +7,7 @@ that plan from Tier 2 execution. Corrective tasks are created dynamically
 beneath the corrections epic. Tier 3 uses native dynamic fan-in and performs
 final reconciliation and delivery.
 """
-version = 1
+version = 2
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -71,7 +71,10 @@ id = "landing"
 title = "Validate and land project alignment: {{audit_title}}"
 type = "task"
 priority = 1
-needs = ["corrections"]
+# Keep the ordinary blocking edge task-to-task. Beads rejects an epic as a
+# normal blocker of a task. Dynamic corrective-work completion is represented
+# separately by the native waits_for fan-in below.
+needs = ["analysis"]
 waits_for = "children-of(corrections)"
 labels = ["dstack:step:alignment-landing", "audit:{{audit_slug}}"]
 metadata = { dstack_step = "alignment-landing", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
