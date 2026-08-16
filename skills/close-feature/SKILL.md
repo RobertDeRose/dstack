@@ -80,6 +80,11 @@ message.
 4. push the branch and create the PR non-interactively;
 5. create a native `gh:pr` gate that blocks the feature root and uses the PR
    number as its await identifier;
+
+   ```bash
+   bd gate create --type gh:pr --blocks <feature-root-id> \
+     --await-id <pr-number> --reason "Await merged feature PR" --json
+   ```
 6. add the PR URL and gate ID as a root comment;
 7. leave the root open.
 

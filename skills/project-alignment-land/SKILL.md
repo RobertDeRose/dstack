@@ -70,6 +70,11 @@ The explicit `pr` argument authorizes PR preparation.
    supplied completely by the user;
 2. push and create the PR non-interactively after approval;
 3. create a native `gh:pr` gate blocking the audit root, keyed by PR number;
+
+   ```bash
+   bd gate create --type gh:pr --blocks <audit-root-id> \
+     --await-id <pr-number> --reason "Await merged alignment PR" --json
+   ```
 4. comment with PR URL and gate ID;
 5. leave the root open.
 

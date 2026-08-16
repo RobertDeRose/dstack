@@ -11,18 +11,19 @@ feat/<feature-slug>
 ```
 
 Before creation, verify the intended base branch exists and resolve its commit.
-Use a unique Beads worktree name and the native commands:
+Create the feature branch at that exact commit without switching the caller,
+then let Beads create the worktree:
 
 ```bash
+git show-ref --verify --quiet refs/heads/feat/<feature-slug> || \
+  git branch feat/<feature-slug> <base-commit>
 bd worktree list --json
-bd worktree create <worktree-name> --branch feat/<feature-slug> --json
-bd worktree info --json
+bd worktree create feature-<feature-slug> --branch feat/<feature-slug> --json
 ```
 
-If the branch must be created from a specific base and Beads does not create it
-at that commit, create the branch explicitly with Git first, then let Beads add
-the worktree. Never switch the caller's branch merely to create another
-worktree.
+Treat the JSON returned by `bd worktree create` or the matching entry from
+`bd worktree list --json` as the authoritative path. Never switch the caller's
+branch merely to create another worktree.
 
 After creation or reuse, verify with Git:
 

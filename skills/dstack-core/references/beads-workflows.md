@@ -43,13 +43,13 @@ Do not maintain a hidden active-feature pointer.
 Find direct children by their unique step labels:
 
 ```bash
-bd list --parent <root-id> --label dstack:step:specification --json
-bd list --parent <root-id> --label dstack:step:implementation --json
-bd list --parent <root-id> --label dstack:step:closeout --json
+bd list --parent <root-id> --all --label dstack:step:specification --json
+bd list --parent <root-id> --all --label dstack:step:implementation --json
+bd list --parent <root-id> --all --label dstack:step:closeout --json
 
-bd list --parent <root-id> --label dstack:step:alignment-analysis --json
-bd list --parent <root-id> --label dstack:step:alignment-corrections --json
-bd list --parent <root-id> --label dstack:step:alignment-landing --json
+bd list --parent <root-id> --all --label dstack:step:alignment-analysis --json
+bd list --parent <root-id> --all --label dstack:step:alignment-corrections --json
+bd list --parent <root-id> --all --label dstack:step:alignment-landing --json
 ```
 
 Require exactly one direct child for each stable step. A missing or duplicate
@@ -136,7 +136,16 @@ only after actual delivery, not merely after preparation.
 
 - The feature human gate represents acceptance of the specification boundary.
 - The project-alignment human gate represents approval of the Tier 1 plan.
-- Resolve a human gate only through the corresponding explicit dstack command.
-- Use `gh:run`, `gh:pr`, or timer gates for real external waits.
+- Resolve a human gate only through the corresponding explicit dstack command:
+
+  ```bash
+  bd gate resolve <gate-id> --json
+  ```
+- Use `gh:run`, `gh:pr`, or timer gates for real external waits. For a PR:
+
+  ```bash
+  bd gate create --type gh:pr --blocks <root-id> --await-id <pr-number> \
+    --reason "Await merged delivery PR" --json
+  ```
 - Use `bd gate check` for automatic gates; do not poll CI or PR state in dstack.
 - Ordinary review iterations are not gates.
