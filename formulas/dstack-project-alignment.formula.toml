@@ -1,0 +1,83 @@
+formula = "dstack-project-alignment"
+description = """
+Persistent three-tier project-alignment workflow for dstack.
+
+Tier 1 analyzes and builds a corrective plan. A native human gate separates
+that plan from Tier 2 execution. Corrective tasks are created dynamically
+beneath the corrections epic. Tier 3 uses native dynamic fan-in and performs
+final reconciliation and delivery.
+"""
+version = 1
+type = "workflow"
+phase = "liquid"
+pour = true
+
+[vars.audit_title]
+description = "Human-readable audit title"
+required = true
+
+[vars.audit_slug]
+description = "Kebab-case audit identifier"
+required = true
+pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+
+[vars.target_branch]
+description = "Branch that the completed audit will land into"
+default = "dev"
+
+[vars.baseline_commit]
+description = "Immutable Git commit audited during Tier 1"
+required = true
+
+[vars.scope]
+description = "Human-readable audit scope"
+default = "whole repository"
+
+[[steps]]
+id = "analysis"
+title = "Analyze project alignment: {{audit_title}}"
+type = "task"
+priority = 1
+labels = ["dstack:step:alignment-analysis", "audit:{{audit_slug}}"]
+metadata = { dstack_step = "alignment-analysis", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+description = """
+Analyze {{scope}} at {{baseline_commit}}. Compare specifications, reader
+documentation, implementation, tests, Beads work, and delivery evidence.
+Create a bounded corrective plan beneath the corrections workstream without
+modifying source. Close this step only after presenting the plan for approval.
+"""
+
+[[steps]]
+id = "corrections"
+title = "Execute project-alignment corrections: {{audit_title}}"
+type = "epic"
+priority = 1
+needs = ["analysis"]
+labels = ["dstack:step:alignment-corrections", "audit:{{audit_slug}}"]
+metadata = { dstack_step = "alignment-corrections", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+description = """
+Container for approved corrective work. Add each bounded correction as a
+child, make it depend on the analysis step, and make it wait on this
+workstream's human approval gate. Close this epic only after all required
+corrective children are complete or explicitly accepted/deferred.
+"""
+
+[steps.gate]
+type = "human"
+id = "approve-{{audit_slug}}-execution"
+
+[[steps]]
+id = "landing"
+title = "Validate and land project alignment: {{audit_title}}"
+type = "task"
+priority = 1
+needs = ["corrections"]
+waits_for = "children-of(corrections)"
+labels = ["dstack:step:alignment-landing", "audit:{{audit_slug}}"]
+metadata = { dstack_step = "alignment-landing", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+description = """
+Perform final reconciliation, repository validation, integration review, and
+the explicitly requested delivery action. Closing this step makes the audit
+delivery-ready; the molecule root remains open until delivery actually
+completes.
+"""
