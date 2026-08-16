@@ -1,11 +1,11 @@
 ---
-name: project-alignment-review
-description: Pour and execute Tier 1 of the native project-alignment workflow: immutable analysis, corrective planning, and an unresolved human gate.
+name: dstack-beads-project-alignment-review
+description: "Pour and execute Tier 1 of the native project-alignment workflow: immutable analysis, corrective planning, and an unresolved human gate."
 ---
 
 # Project alignment review
 
-Read the dstack core skill and every core reference before acting.
+Read the `dstack-beads-core` skill and every core reference before acting.
 
 This is Tier 1. It analyzes and prepares a durable corrective plan. It does not
 modify source, create an execution worktree, implement corrections, or deliver.

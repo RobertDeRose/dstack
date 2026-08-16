@@ -9,7 +9,7 @@ from typing import Any, Iterable
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-SETUP_SCRIPT = PACKAGE_ROOT / "skills" / "dstack-core" / "scripts" / "setup.py"
+SETUP_SCRIPT = PACKAGE_ROOT / "skills" / "dstack-beads-core" / "scripts" / "setup.py"
 FAKE_BD = PACKAGE_ROOT / "tests" / "fake_bd.py"
 
 

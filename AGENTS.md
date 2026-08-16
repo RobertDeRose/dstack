@@ -42,3 +42,10 @@ native dependency, gate, and fan-in behavior.
 Only the original feature lifecycle and the original three-tier project
 alignment lifecycle are in scope. Expert meetings, code intelligence, inline
 review UI, review wisps, and parallel writers are later phases.
+
+## Pi package naming
+
+Public slash commands are prompt aliases. Internal skills must remain under the
+`dstack-beads-*` namespace so user-level skills from older installations cannot
+shadow package resources. Quote YAML frontmatter descriptions and keep the
+frontmatter parser tests passing.

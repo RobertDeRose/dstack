@@ -1,6 +1,6 @@
 ---
-name: dstack-core
-description: Shared Beads-native workflow, review, discovery, Git, and authority rules for every dstack command.
+name: dstack-beads-core
+description: "Shared Beads-native workflow, review, discovery, Git, and authority rules for every dstack command."
 ---
 
 # dstack core

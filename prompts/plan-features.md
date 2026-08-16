@@ -1,7 +1,7 @@
 ---
-description: Plan and prioritize project features without starting implementation
+description: "Plan and prioritize project features without starting implementation"
 ---
 
-Load and follow the `plan-features` skill.
+Load and follow the `dstack-beads-plan-features` skill.
 
 User input: $ARGUMENTS

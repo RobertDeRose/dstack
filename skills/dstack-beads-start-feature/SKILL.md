@@ -1,11 +1,11 @@
 ---
-name: start-feature
-description: Pour the native dstack feature molecule, create its worktree and design, and add dynamically gated implementation work.
+name: dstack-beads-start-feature
+description: "Pour the native dstack feature molecule, create its worktree and design, and add dynamically gated implementation work."
 ---
 
 # Start feature
 
-Read the dstack core skill and every core reference before acting.
+Read the `dstack-beads-core` skill and every core reference before acting.
 
 Use the user's input as the feature selector, goal, constraints, non-goals, and
 optional base branch. Default the base branch to `dev` only when that branch

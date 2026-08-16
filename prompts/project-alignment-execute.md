@@ -1,7 +1,7 @@
 ---
-description: Approve and execute ready project-alignment corrections
+description: "Approve and execute ready project-alignment corrections"
 ---
 
-Load and follow the `project-alignment-execute` skill.
+Load and follow the `dstack-beads-project-alignment-execute` skill.
 
 User input: $ARGUMENTS

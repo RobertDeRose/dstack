@@ -1,11 +1,11 @@
 ---
-name: project-alignment-execute
-description: Resolve the native human approval gate and execute ready corrective work from a project-alignment molecule.
+name: dstack-beads-project-alignment-execute
+description: "Resolve the native human approval gate and execute ready corrective work from a project-alignment molecule."
 ---
 
 # Project alignment execute
 
-Read the dstack core skill and every core reference before acting.
+Read the `dstack-beads-core` skill and every core reference before acting.
 
 This is Tier 2. Use the user's input as an audit selector, optional correction
 selector, and optional `--all`. Default to one correction.

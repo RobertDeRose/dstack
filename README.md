@@ -22,6 +22,9 @@ machine, reviewer topology, migration system, or interaction ledger.
 
 ## Commands
 
+The public commands are prompt aliases. Internal skills are namespaced as
+`dstack-beads-*` so stale or unrelated user skills cannot shadow the package.
+
 After installing the Pi package and running `/setup-project` in a repository:
 
 ```text
@@ -116,6 +119,18 @@ Restart Pi or run `/reload`, then invoke this from the target Git repository:
 /setup-project
 ```
 
+When upgrading from an older dstack installation, first inspect and archive stale
+standalone skills that Pi auto-discovers from `~/.pi/agent/skills`:
+
+```bash
+python3 /path/to/dstack/scripts/cleanup-legacy-pi-skills.py
+python3 /path/to/dstack/scripts/cleanup-legacy-pi-skills.py --apply
+```
+
+The script is a dry run by default and moves recognized dstack skill directories
+to a timestamped backup instead of deleting them. Restart Pi or run `/reload`
+afterward.
+
 The command initializes Beads only because invoking setup explicitly authorizes
 it. Existing different formula files are not overwritten unless the user runs:
 
@@ -128,8 +143,8 @@ it. Existing different formula files are not overwritten unless the user runs:
 The setup command calls the only bundled executable helper:
 
 ```bash
-python3 skills/dstack-core/scripts/setup.py install --root . --init
-python3 skills/dstack-core/scripts/setup.py doctor --root .
+python3 skills/dstack-beads-core/scripts/setup.py install --root . --init
+python3 skills/dstack-beads-core/scripts/setup.py doctor --root .
 ```
 
 The helper only:
@@ -154,6 +169,6 @@ validated in real repositories.
 
 ```bash
 python3 -m pytest
-python3 -m py_compile skills/dstack-core/scripts/setup.py
+python3 -m py_compile skills/dstack-beads-core/scripts/setup.py
 git diff --check
 ```

@@ -1,11 +1,11 @@
 ---
-name: implement-feature
-description: Claim and implement native ready work from a feature's implementation molecule, one task at a time by default.
+name: dstack-beads-implement-feature
+description: "Claim and implement native ready work from a feature's implementation molecule, one task at a time by default."
 ---
 
 # Implement feature
 
-Read the dstack core skill and every core reference before acting.
+Read the `dstack-beads-core` skill and every core reference before acting.
 
 Use the user's input as a feature selector, optional task selector, and optional
 `--all`. Default to one implementation task.

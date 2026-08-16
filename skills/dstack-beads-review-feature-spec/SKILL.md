@@ -1,11 +1,11 @@
 ---
-name: review-feature-spec
-description: Review, reconcile, commit, and approve the specification boundary of a poured dstack feature molecule.
+name: dstack-beads-review-feature-spec
+description: "Review, reconcile, commit, and approve the specification boundary of a poured dstack feature molecule."
 ---
 
 # Review feature specification
 
-Read the dstack core skill and every core reference before acting.
+Read the `dstack-beads-core` skill and every core reference before acting.
 
 Use the user's input as a feature Bead ID, exact slug, or unique title selector.
 This command owns the specification step and the feature's native human approval

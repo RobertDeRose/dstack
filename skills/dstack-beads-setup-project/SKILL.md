@@ -1,6 +1,6 @@
 ---
-name: setup-project
-description: Initialize Beads when authorized, install dstack's formulas, cook persistent protos, and validate the workflow foundation.
+name: dstack-beads-setup-project
+description: "Initialize Beads when authorized, install dstack's formulas, cook persistent protos, and validate the workflow foundation."
 ---
 
 # Setup project
@@ -15,7 +15,7 @@ repository has not been initialized.
 2. Run the bundled installer:
 
    ```bash
-   python3 "{baseDir}/../dstack-core/scripts/setup.py" \
+   python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
      install --root . --init
    ```
 
@@ -31,7 +31,7 @@ repository has not been initialized.
 5. Run the doctor once after installation:
 
    ```bash
-   python3 "{baseDir}/../dstack-core/scripts/setup.py" doctor --root .
+   python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" doctor --root .
    ```
 
 6. Stop on a formula conflict without `--force`, invalid parser result, failed

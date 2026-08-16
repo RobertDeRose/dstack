@@ -1,11 +1,11 @@
 ---
-name: plan-features
-description: Plan and prioritize project features while keeping executable workflow state out of the planning phase.
+name: dstack-beads-plan-features
+description: "Plan and prioritize project features while keeping executable workflow state out of the planning phase."
 ---
 
 # Plan features
 
-Read the dstack core skill and discovery reference before acting.
+Read the `dstack-beads-core` skill and its discovery reference before acting.
 
 Use the user's message as project or feature-planning input. This command plans;
 it does not pour a molecule, create a feature branch/worktree, or implement.

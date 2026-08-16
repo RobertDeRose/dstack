@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def skill(name: str) -> str:
-    return (ROOT / "skills" / name / "SKILL.md").read_text()
+    return (ROOT / "skills" / f"dstack-beads-{name}" / "SKILL.md").read_text()
 
 
 def test_feature_skills_use_native_beads_workflow_primitives() -> None:
@@ -34,8 +34,8 @@ def test_alignment_skills_preserve_three_authority_tiers() -> None:
 
 
 def test_discovery_and_review_policies_are_shared() -> None:
-    discoveries = (ROOT / "skills" / "dstack-core" / "references" / "discoveries.md").read_text()
-    reviews = (ROOT / "skills" / "dstack-core" / "references" / "review-loop.md").read_text()
+    discoveries = (ROOT / "skills" / "dstack-beads-core" / "references" / "discoveries.md").read_text()
+    reviews = (ROOT / "skills" / "dstack-beads-core" / "references" / "review-loop.md").read_text()
     assert "bd todo add" in discoveries
     assert "discovered-from" in discoveries
     assert "There is no maximum pass count" in reviews

@@ -1,11 +1,11 @@
 ---
-name: close-feature
-description: Claim the native closeout step, reconcile and review the feature, then leave it ready or deliver it by approved PR or fast-forward merge.
+name: dstack-beads-close-feature
+description: "Claim the native closeout step, reconcile and review the feature, then leave it ready or deliver it by approved PR or fast-forward merge."
 ---
 
 # Close feature
 
-Read the dstack core skill and every core reference before acting.
+Read the `dstack-beads-core` skill and every core reference before acting.
 
 Use the user's input as a feature selector and optional delivery mode:
 `ready`, `pr`, or `merge`. Default to `ready`.

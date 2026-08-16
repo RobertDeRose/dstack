@@ -1,11 +1,11 @@
 ---
-name: project-alignment-land
-description: Execute Tier 3 final reconciliation, validation, review, and explicitly authorized delivery of a project-alignment molecule.
+name: dstack-beads-project-alignment-land
+description: "Execute Tier 3 final reconciliation, validation, review, and explicitly authorized delivery of a project-alignment molecule."
 ---
 
 # Project alignment land
 
-Read the dstack core skill and every core reference before acting.
+Read the `dstack-beads-core` skill and every core reference before acting.
 
 This is Tier 3. Use the user's input as an audit selector and optional delivery
 mode: `ready`, `pr`, or `merge`. Default to `ready`.
