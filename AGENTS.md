@@ -4,7 +4,7 @@ Keep dstack a thin policy layer over Beads and Git.
 
 ## Authorities
 
-- Beads owns formulas, protos, molecules, work, dependencies, gates, readiness,
+- Beads owns formulas, poured molecules, work, dependencies, gates, readiness,
   claims, TODOs, comments, relationships, worktree records, and completion.
 - Git owns source, branches, commits, diffs, and delivery boundaries.
 - dstack owns skills, prompt aliases, review policy, and the deterministic
@@ -28,8 +28,8 @@ Keep dstack a thin policy layer over Beads and Git.
 - Normal workflows never migrate or rewrite historical workflow topology.
 - One implementation or corrective Bead is one intended Git commit boundary by
   default.
-- Helpers may install or validate configuration, but workflow execution must use
-  native `bd` commands directly.
+- Helpers may install or validate formula source and safely remove verified legacy
+  template artifacts, but workflow execution must use native `bd` commands directly.
 
 ## Formula design
 
@@ -51,3 +51,9 @@ Public slash commands are prompt aliases. Internal skills must remain under the
 `dstack-beads-*` namespace so user-level skills from older installations cannot
 shadow package resources. Quote YAML frontmatter descriptions and keep the
 frontmatter parser tests passing.
+
+## Formula installation
+
+Install formula source files only. Do not run `bd cook --persist` in a target
+repository: persisted template steps and gates enter the live ready frontier.
+Validate through `bd mol seed` and an isolated temporary `bd mol pour`.

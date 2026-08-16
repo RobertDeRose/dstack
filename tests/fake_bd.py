@@ -136,7 +136,7 @@ def closed(item: dict[str, Any]) -> bool:
 def is_ready(state: dict[str, Any], item: dict[str, Any]) -> bool:
     if item.get("status") != "open":
         return False
-    if item.get("type") == "gate":
+    if item.get("type") in {"gate", "molecule"}:
         return False
     for blocker_id in item.get("dependencies", []):
         if not closed(issue(state, blocker_id)):
@@ -231,6 +231,85 @@ def validate_formula_dependencies(formula: dict[str, Any]) -> None:
             )
 
 
+def load_formula(cwd: Path, state: dict[str, Any], name: str) -> dict[str, Any]:
+    if name in state["protos"]:
+        return state["protos"][name]
+    return tomllib.loads(find_formula(cwd, name).read_text())
+
+
+def persist_proto_graph(name: str, formula: dict[str, Any], state: dict[str, Any]) -> None:
+    """Model the target pollution produced by ``bd cook --persist``."""
+
+    for item_id in [name, *[item["id"] for item in descendants(state, name)]]:
+        state["issues"].pop(item_id, None)
+
+    state["issues"][name] = {
+        "id": name,
+        "title": name,
+        "type": "molecule",
+        "issue_type": "molecule",
+        "status": "open",
+        "parent_id": None,
+        "labels": ["template"],
+        "metadata": {},
+        "dependencies": [],
+        "gate_ids": [],
+        "is_template": True,
+    }
+
+    raw_steps = formula.get("steps", [])
+    step_ids = {step["id"]: f"{name}.{step['id']}" for step in raw_steps}
+    for step in raw_steps:
+        step_id = step_ids[step["id"]]
+        dependencies = [step_ids[item] for item in step.get("needs", [])]
+        dependencies.extend(step_ids[item] for item in step.get("depends_on", []))
+        waits_for = step.get("waits_for")
+        if isinstance(waits_for, str):
+            match = re.fullmatch(r"children-of\(([^)]+)\)", waits_for)
+            if match and match.group(1) in step_ids:
+                waits_for = f"children-of({step_ids[match.group(1)]})"
+        state["issues"][step_id] = {
+            "id": step_id,
+            "formula_step_id": step["id"],
+            "title": step["title"],
+            "description": step.get("description", ""),
+            "type": step.get("type", "task"),
+            "issue_type": step.get("type", "task"),
+            "status": "open",
+            "parent_id": name,
+            "labels": step.get("labels", []),
+            "metadata": step.get("metadata", {}),
+            "dependencies": dependencies,
+            "gate_ids": [],
+            "waits_for": waits_for,
+            "is_template": True,
+        }
+
+    for step in raw_steps:
+        gate = step.get("gate")
+        if not gate:
+            continue
+        gate_id = f"{name}.gate-{step['id']}"
+        waiter_id = step_ids[step["id"]]
+        state["issues"][gate_id] = {
+            "id": gate_id,
+            "title": gate.get("id") or f"gate-{step['id']}",
+            "type": "gate",
+            "issue_type": "gate",
+            "status": "open",
+            "parent_id": name,
+            "labels": [f"gate:{gate['type']}"],
+            "metadata": {},
+            "dependencies": [],
+            "gate_ids": [],
+            "gate_type": gate["type"],
+            "await_id": gate.get("await_id") or gate.get("id"),
+            "waiter_id": waiter_id,
+            "is_template": True,
+        }
+        state["issues"][waiter_id]["gate_ids"].append(gate_id)
+
+
 def command_cook(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
     if not args:
         raise RuntimeError("formula name required")
@@ -239,6 +318,7 @@ def command_cook(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
     validate_formula_dependencies(data)
     if "--persist" in args:
         state["protos"][name] = data
+        persist_proto_graph(name, data, state)
         save_state(state)
     emit({"formula": name, "persisted": "--persist" in args})
     return 0
@@ -254,14 +334,12 @@ def parse_vars(args: list[str]) -> dict[str, str]:
     return parsed
 
 
-def command_pour(args: list[str], state: dict[str, Any]) -> int:
+def command_pour(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
     if not args:
-        raise RuntimeError("proto required")
+        raise RuntimeError("formula or proto required")
     name = args[0]
-    try:
-        formula = state["protos"][name]
-    except KeyError as exc:
-        raise RuntimeError(f"proto unavailable: {name}") from exc
+    formula = load_formula(cwd, state, name)
+    validate_formula_dependencies(formula)
     variables = parse_vars(args)
     for key, definition in formula.get("vars", {}).items():
         if key not in variables and "default" in definition:
@@ -274,20 +352,22 @@ def command_pour(args: list[str], state: dict[str, Any]) -> int:
         "id": root_id,
         "title": name,
         "type": "epic",
+        "issue_type": "epic",
         "status": "open",
         "parent_id": None,
         "labels": [],
         "metadata": {"formula": name, "variables": variables},
         "dependencies": [],
         "gate_ids": [],
+        "is_template": False,
     }
 
     raw_steps = [substitute(step, variables) for step in formula.get("steps", [])]
     step_ids = {step["id"]: new_id(state) for step in raw_steps}
     for step in raw_steps:
         step_id = step_ids[step["id"]]
-        dependencies = [step_ids[name] for name in step.get("needs", [])]
-        dependencies.extend(step_ids[name] for name in step.get("depends_on", []))
+        dependencies = [step_ids[item] for item in step.get("needs", [])]
+        dependencies.extend(step_ids[item] for item in step.get("depends_on", []))
         waits_for = step.get("waits_for")
         if isinstance(waits_for, str):
             match = re.fullmatch(r"children-of\(([^)]+)\)", waits_for)
@@ -299,6 +379,7 @@ def command_pour(args: list[str], state: dict[str, Any]) -> int:
             "title": step["title"],
             "description": step.get("description", ""),
             "type": step.get("type", "task"),
+            "issue_type": step.get("type", "task"),
             "status": "open",
             "parent_id": root_id,
             "labels": step.get("labels", []),
@@ -306,6 +387,7 @@ def command_pour(args: list[str], state: dict[str, Any]) -> int:
             "dependencies": dependencies,
             "gate_ids": [],
             "waits_for": waits_for,
+            "is_template": False,
         }
 
     gate_ids: dict[str, str] = {}
@@ -320,6 +402,7 @@ def command_pour(args: list[str], state: dict[str, Any]) -> int:
             "id": gate_id,
             "title": gate.get("id") or f"gate-{step['id']}",
             "type": "gate",
+            "issue_type": "gate",
             "status": "open",
             "parent_id": root_id,
             "labels": [f"gate:{gate['type']}"],
@@ -329,6 +412,7 @@ def command_pour(args: list[str], state: dict[str, Any]) -> int:
             "gate_type": gate["type"],
             "await_id": gate.get("await_id") or gate.get("id"),
             "waiter_id": waiter_id,
+            "is_template": False,
         }
         state["issues"][waiter_id]["gate_ids"].append(gate_id)
 
@@ -337,18 +421,21 @@ def command_pour(args: list[str], state: dict[str, Any]) -> int:
     return 0
 
 
-def command_mol(args: list[str], state: dict[str, Any]) -> int:
+def command_mol(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
     if not args:
         raise RuntimeError("mol subcommand required")
     subcommand = args[0]
     rest = args[1:]
     if subcommand == "seed":
-        if not rest or rest[0] not in state["protos"]:
-            raise RuntimeError("proto unavailable")
-        emit({"proto": rest[0], "available": True})
+        if not rest:
+            raise RuntimeError("formula required")
+        name = rest[0]
+        formula = load_formula(cwd, state, name)
+        validate_formula_dependencies(formula)
+        emit({"formula": name, "available": True})
         return 0
     if subcommand == "pour":
-        return command_pour(rest, state)
+        return command_pour(rest, cwd, state)
     if subcommand in {"progress", "current"}:
         root_id = rest[0]
         items = descendants(state, root_id)
@@ -521,6 +608,44 @@ def command_show(args: list[str], state: dict[str, Any]) -> int:
     return 0
 
 
+def command_delete(args: list[str], state: dict[str, Any]) -> int:
+    issue_ids = [item for item in args if not item.startswith("-")]
+    if not issue_ids:
+        raise RuntimeError("issue ID required")
+    cascade = "--cascade" in args
+    deleted: list[str] = []
+    for root_id in issue_ids:
+        if root_id not in state["issues"]:
+            raise RuntimeError(f"issue not found: {root_id}")
+        targets = [root_id]
+        if cascade:
+            targets.extend(item["id"] for item in descendants(state, root_id))
+        for target in targets:
+            if target in state["issues"]:
+                state["issues"].pop(target)
+                deleted.append(target)
+            state["comments"].pop(target, None)
+            state["protos"].pop(target, None)
+        target_set = set(targets)
+        for item in state["issues"].values():
+            item["dependencies"] = [
+                dependency
+                for dependency in item.get("dependencies", [])
+                if dependency not in target_set
+            ]
+            item["gate_ids"] = [
+                gate_id for gate_id in item.get("gate_ids", []) if gate_id not in target_set
+            ]
+        state["relations"] = [
+            relation
+            for relation in state["relations"]
+            if relation.get("from") not in target_set and relation.get("to") not in target_set
+        ]
+    save_state(state)
+    emit({"deleted": deleted, "deleted_count": len(deleted)})
+    return 0
+
+
 def command_todo(args: list[str], state: dict[str, Any]) -> int:
     if not args:
         raise RuntimeError("todo subcommand required")
@@ -580,7 +705,7 @@ def main() -> int:
         if command == "cook":
             return command_cook(rest, cwd, state)
         if command == "mol":
-            return command_mol(rest, state)
+            return command_mol(rest, cwd, state)
         if command == "update":
             return command_update(rest, state)
         if command == "create":
@@ -595,6 +720,8 @@ def main() -> int:
             return command_close(rest, state)
         if command == "show":
             return command_show(rest, state)
+        if command == "delete":
+            return command_delete(rest, state)
         if command == "todo":
             return command_todo(rest, state)
         if command == "dep":

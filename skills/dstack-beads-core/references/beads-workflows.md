@@ -4,14 +4,18 @@ Use Beads directly. Do not reimplement these operations in dstack.
 
 ## Setup
 
-The target repository must contain the bundled formulas and their persisted
-protos. Validate with:
+The target repository must contain the bundled formula source files. Do not
+persist formula protos in the target database: their template steps and gates
+pollute normal `bd ready` and `bd gate list` output. Validate with:
 
 ```bash
 python3 "{baseDir}/../scripts/setup.py" doctor --root .
 bd mol seed dstack-feature
 bd mol seed dstack-project-alignment
 ```
+
+`bd mol pour <formula-name>` cooks the installed formula inline. Persistent
+protos are unnecessary for normal dstack use.
 
 ## Resolve a workflow root
 

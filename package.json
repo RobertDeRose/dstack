@@ -1,6 +1,6 @@
 {
   "name": "dstack",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Beads-native software engineering workflows for Pi",
   "license": "MIT",

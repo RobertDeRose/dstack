@@ -5,7 +5,7 @@ methodology using Beads and Git rather than implementing another workflow
 engine.
 
 Phase 1 restores the original feature workflow and three-tier project-alignment
-workflow. Beads owns their execution through formulas, protos, molecules,
+workflow. Beads owns their execution through formulas, poured molecules,
 dependencies, gates, ready work, claims, TODOs, comments, and native worktrees.
 
 ## Responsibilities
@@ -15,7 +15,7 @@ dependencies, gates, ready work, claims, TODOs, comments, and native worktrees.
 - **Git** owns source, branches, commits, diffs, and delivery boundaries.
 - **Repository documentation** owns intended and supported behavior.
 - **dstack** owns the workflow policy, review rules, and one installation helper
-  that copies and cooks the bundled formulas.
+  that installs and validates the bundled formula source.
 
 There is no dstack task database, readiness engine, scheduler, approval state
 machine, reviewer topology, migration system, or interaction ledger.
@@ -41,7 +41,7 @@ After installing the Pi package and running `/setup-project` in a repository:
 
 ## Native Beads workflows
 
-`/setup-project` installs and cooks two formulas into the target repository:
+`/setup-project` installs two formula source files into the target repository:
 
 - `dstack-feature`
 - `dstack-project-alignment`
@@ -149,6 +149,11 @@ it. Existing different formula files are not overwritten unless the user runs:
 /setup-project --force
 ```
 
+Older dstack releases persisted formula protos with `bd cook --persist`. Beads
+then exposed those template steps and template gates in the normal ready and gate
+views. Forced setup verifies that a same-named graph is entirely template-owned
+before deleting it. It never deletes an ordinary same-named Bead.
+
 ## Formula installer
 
 The setup command calls the only bundled executable helper:
@@ -162,13 +167,21 @@ The helper only:
 
 1. verifies the Git root and Beads executable;
 2. optionally initializes Beads;
-3. persists both bundled formulas in an isolated temporary Beads repository;
-4. installs the two formula source files only after that exact cook succeeds;
-5. validates them through `bd formula show`;
-6. persists their target protos through `bd cook --persist`;
-7. verifies that `bd mol seed` can resolve them.
+3. installs both formulas in an isolated temporary Beads repository;
+4. validates them with `bd formula show` and `bd mol seed`;
+5. pours one temporary molecule from each formula to exercise real issue, gate,
+   and dependency insertion;
+6. installs the two formula source files in the target only after that preflight
+   succeeds;
+7. removes verified accidental template graphs from older dstack setup when
+   `--force` is explicit;
+8. verifies that the installed formulas remain directly pourable by name.
 
-It does not create, select, claim, execute, or close workflow work.
+It does not persist protos in the target repository. `bd mol pour` cooks the
+installed formula inline, so target-side `bd cook --persist` is unnecessary and
+would pollute normal `bd ready` and `bd gate list` output.
+
+It does not select, claim, execute, or close workflow work.
 
 ## Phase boundary
 

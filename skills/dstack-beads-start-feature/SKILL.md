@@ -32,7 +32,7 @@ Use Beads' native worktree commands and the core worktree reference.
 
 ## Pour the feature molecule
 
-From the repository with the shared Beads database, run the persistent proto:
+From the repository with the shared Beads database, pour the installed formula directly:
 
 ```bash
 bd mol pour dstack-feature \

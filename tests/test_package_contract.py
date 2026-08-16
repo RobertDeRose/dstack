@@ -93,9 +93,11 @@ def test_prompt_aliases_target_namespaced_package_skills() -> None:
         assert f"Load and follow the `{expected}` skill." in path.read_text()
 
 
-def test_setup_preflights_persisted_cooking_before_target_copy() -> None:
+def test_setup_preflights_isolated_formula_pour_before_target_copy() -> None:
     source = (ROOT / "skills" / "dstack-beads-core" / "scripts" / "setup.py").read_text()
     assert "def validate_formula_bundle" in source
+    assert "def pour_formula_preflight" in source
     install_body = source[source.index("def install("):source.index("def doctor(")]
     assert install_body.index("validate_formula_bundle(source_dir)") < install_body.index("copy_formula(")
     assert "restore_formula_files(snapshots)" in source
+    assert '"--persist"' not in source

@@ -21,7 +21,7 @@ the target to `dev` only when that branch exists and no target was supplied.
    or stop on ambiguity; do not pour duplicate audits for the same intended
    baseline and scope.
 4. Resolve a stable audit slug.
-5. Pour the persistent proto:
+5. Pour the installed formula directly:
 
    ```bash
    bd mol pour dstack-project-alignment \

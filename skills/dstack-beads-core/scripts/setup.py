@@ -15,6 +15,21 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 FORMULA_NAMES = ("dstack-feature", "dstack-project-alignment")
+PREFLIGHT_VARS: dict[str, dict[str, str]] = {
+    "dstack-feature": {
+        "feature_title": "Dstack Formula Preflight",
+        "feature_slug": "dstack-formula-preflight",
+        "base_branch": "main",
+        "design_path": "docs/src/features/dstack-formula-preflight/design.md",
+    },
+    "dstack-project-alignment": {
+        "audit_title": "Dstack Alignment Preflight",
+        "audit_slug": "dstack-alignment-preflight",
+        "target_branch": "main",
+        "baseline_commit": "0000000000000000000000000000000000000000",
+        "scope": "formula validation",
+    },
+}
 
 
 class SetupError(RuntimeError):
@@ -23,6 +38,7 @@ class SetupError(RuntimeError):
 
 @dataclass(frozen=True)
 class CommandResult:
+    returncode: int
     stdout: str
     stderr: str
 
@@ -56,11 +72,12 @@ def run(
     except FileNotFoundError as exc:
         raise SetupError(f"required executable not found: {command[0]}") from exc
 
+    result = CommandResult(completed.returncode, stdout, stderr)
     if check and completed.returncode != 0:
         detail = stderr.strip() or stdout.strip()
         raise SetupError(f"command failed ({' '.join(command)}): {detail}")
 
-    return CommandResult(stdout, stderr)
+    return result
 
 
 def package_root() -> Path:
@@ -78,7 +95,17 @@ def ensure_beads(root: Path, *, initialize: bool) -> None:
         return
     if not initialize:
         raise SetupError("Beads is not initialized; rerun with --init after authorization")
-    run(["bd", "init", "--quiet"], cwd=root)
+    run(
+        [
+            "bd",
+            "init",
+            "--quiet",
+            "--skip-agents",
+            "--skip-hooks",
+            "--non-interactive",
+        ],
+        cwd=root,
+    )
     if not beads_dir.exists():
         raise SetupError("bd init completed without creating .beads")
 
@@ -186,38 +213,105 @@ def validate_dstack_formula_contract(
         )
 
 
-def validate_formula_source(root: Path, formula_name: str) -> dict[str, Any]:
-    result = run(["bd", "formula", "show", formula_name, "--json"], cwd=root)
+def parse_json_output(result: CommandResult, *, context: str) -> Any:
     try:
-        parsed = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        raise SetupError(f"bd formula show returned invalid JSON for {formula_name}") from exc
+        raise SetupError(f"{context} returned invalid JSON") from exc
+
+
+def issue_items(payload: Any) -> list[dict[str, Any]]:
+    """Normalize Beads 1.x arrays and the opt-in v2 JSON envelope."""
+
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in ("issues", "items", "data"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        if isinstance(payload.get("id"), str):
+            return [payload]
+    return []
+
+
+def formula_var_args(formula_name: str) -> list[str]:
+    try:
+        variables = PREFLIGHT_VARS[formula_name]
+    except KeyError as exc:
+        raise SetupError(f"missing preflight variables for {formula_name}") from exc
+    args: list[str] = []
+    for key, value in variables.items():
+        args.extend(["--var", f"{key}={value}"])
+    return args
+
+
+def validate_formula_source(
+    root: Path,
+    formula_name: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    result = run(
+        ["bd", "formula", "show", formula_name, "--json"],
+        cwd=root,
+        env=env,
+    )
+    parsed = parse_json_output(result, context=f"bd formula show for {formula_name}")
     if not isinstance(parsed, dict):
         raise SetupError(f"bd formula show returned a non-object for {formula_name}")
     validate_dstack_formula_contract(formula_name, parsed)
     return parsed
 
 
-def cook_formula(
+def seed_formula(
     root: Path,
     formula_name: str,
     *,
     env: Mapping[str, str] | None = None,
 ) -> None:
     run(
-        ["bd", "cook", formula_name, "--persist", "--force"],
+        ["bd", "mol", "seed", formula_name, *formula_var_args(formula_name)],
         cwd=root,
         env=env,
     )
-    run(["bd", "mol", "seed", formula_name], cwd=root, env=env)
+
+
+def pour_formula_preflight(
+    root: Path,
+    formula_name: str,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> None:
+    result = run(
+        [
+            "bd",
+            "mol",
+            "pour",
+            formula_name,
+            *formula_var_args(formula_name),
+            "--json",
+        ],
+        cwd=root,
+        env=env,
+    )
+    payload = parse_json_output(result, context=f"bd mol pour for {formula_name}")
+    if not isinstance(payload, dict):
+        raise SetupError(f"bd mol pour returned a non-object for {formula_name}")
+    if not any(
+        isinstance(payload.get(key), str) and payload.get(key)
+        for key in ("new_epic_id", "root_id")
+    ):
+        raise SetupError(f"bd mol pour did not return a root ID for {formula_name}")
 
 
 def validate_formula_bundle(source_dir: Path) -> None:
-    """Cook every bundled formula in an isolated real Beads repository.
+    """Pour every bundled formula in an isolated real Beads repository.
 
-    ``bd formula show`` validates parsing, but only persisted cooking exercises
-    dependency-kind constraints such as the task/epic rule applied to generated
-    gates. This preflight runs before any target formula file is modified.
+    ``bd mol seed`` verifies formula discovery and in-memory cooking. The
+    isolated pour additionally exercises real issue and dependency insertion,
+    including generated gates and task/epic type constraints, without creating
+    template issues or gates in the target repository.
     """
 
     with tempfile.TemporaryDirectory(prefix="dstack-formula-preflight-") as raw:
@@ -247,23 +341,108 @@ def validate_formula_bundle(source_dir: Path) -> None:
             filename = f"{formula_name}.formula.toml"
             shutil.copyfile(source_dir / filename, formula_dir / filename)
         for formula_name in FORMULA_NAMES:
-            result = run(
-                ["bd", "formula", "show", formula_name, "--json"],
-                cwd=scratch,
-                env=env,
-            )
-            try:
-                parsed = json.loads(result.stdout)
-            except json.JSONDecodeError as exc:
+            validate_formula_source(scratch, formula_name, env=env)
+            seed_formula(scratch, formula_name, env=env)
+            pour_formula_preflight(scratch, formula_name, env=env)
+
+
+def show_issue_optional(root: Path, issue_id: str) -> dict[str, Any] | None:
+    result = run(["bd", "show", issue_id, "--json"], cwd=root, check=False)
+    if result.returncode != 0:
+        detail = f"{result.stdout}\n{result.stderr}".casefold()
+        if "not found" in detail or "no issues found" in detail:
+            return None
+        raise SetupError(
+            f"command failed (bd show {issue_id} --json): "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    payload = parse_json_output(result, context=f"bd show for {issue_id}")
+    matches = [item for item in issue_items(payload) if item.get("id") == issue_id]
+    if len(matches) != 1:
+        raise SetupError(f"bd show returned an unexpected result for {issue_id}")
+    return matches[0]
+
+
+def persisted_proto_artifacts(root: Path, formula_name: str) -> list[dict[str, Any]]:
+    """Return a fully verified accidental proto graph from older dstack setup."""
+
+    root_issue = show_issue_optional(root, formula_name)
+    if root_issue is None:
+        return []
+    if root_issue.get("is_template") is not True:
+        raise SetupError(
+            f"issue {formula_name} exists but is not a dstack template; refusing to delete it"
+        )
+
+    artifacts: list[dict[str, Any]] = [root_issue]
+    seen = {formula_name}
+    queue = [formula_name]
+    while queue:
+        parent_id = queue.pop(0)
+        result = run(
+            ["bd", "list", "--parent", parent_id, "--all", "--json"],
+            cwd=root,
+        )
+        children = issue_items(
+            parse_json_output(result, context=f"bd list for {parent_id}")
+        )
+        for child in children:
+            child_id = child.get("id")
+            if not isinstance(child_id, str) or not child_id.startswith(
+                f"{formula_name}."
+            ):
                 raise SetupError(
-                    f"isolated bd formula show returned invalid JSON for {formula_name}"
-                ) from exc
-            if not isinstance(parsed, dict):
-                raise SetupError(
-                    f"isolated bd formula show returned a non-object for {formula_name}"
+                    f"persisted proto {formula_name} has an unexpected descendant: "
+                    f"{child_id!r}"
                 )
-            validate_dstack_formula_contract(formula_name, parsed)
-            cook_formula(scratch, formula_name, env=env)
+            if child.get("is_template") is not True:
+                raise SetupError(
+                    f"persisted proto {formula_name} has a non-template descendant: "
+                    f"{child_id}"
+                )
+            if child_id in seen:
+                continue
+            seen.add(child_id)
+            artifacts.append(child)
+            queue.append(child_id)
+    return artifacts
+
+
+def find_legacy_persisted_protos(root: Path) -> dict[str, list[dict[str, Any]]]:
+    found: dict[str, list[dict[str, Any]]] = {}
+    for formula_name in FORMULA_NAMES:
+        artifacts = persisted_proto_artifacts(root, formula_name)
+        if artifacts:
+            found[formula_name] = artifacts
+    return found
+
+
+def remove_legacy_persisted_protos(
+    root: Path,
+    found: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> list[str]:
+    removed: list[str] = []
+    for formula_name, artifacts in found.items():
+        artifact_ids = [
+            artifact_id
+            for artifact in artifacts
+            if isinstance((artifact_id := artifact.get("id")), str)
+        ]
+        if not artifact_ids or artifact_ids[0] != formula_name:
+            raise SetupError(
+                f"legacy persisted proto inventory is invalid for {formula_name}"
+            )
+        run(
+            ["bd", "delete", *artifact_ids, "--force", "--json"],
+            cwd=root,
+        )
+        for artifact_id in artifact_ids:
+            if show_issue_optional(root, artifact_id) is not None:
+                raise SetupError(
+                    f"failed to remove legacy persisted proto artifact: {artifact_id}"
+                )
+        removed.append(formula_name)
+    return removed
 
 
 def restore_formula_files(snapshots: Mapping[Path, bytes | None]) -> None:
@@ -287,7 +466,16 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
 
     validate_formula_bundle(source_dir)
 
+    legacy_protos = find_legacy_persisted_protos(root)
+    if legacy_protos and not force:
+        names = ", ".join(sorted(legacy_protos))
+        raise SetupError(
+            "legacy persisted dstack protos pollute Beads ready work and gates: "
+            f"{names}; rerun with --force to remove only those verified template graphs"
+        )
+
     snapshots: dict[Path, bytes | None] = {}
+    removed: list[str] = []
     try:
         for formula_name in FORMULA_NAMES:
             filename = f"{formula_name}.formula.toml"
@@ -301,7 +489,10 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
 
         for formula_name in FORMULA_NAMES:
             parsed[formula_name] = validate_formula_source(root, formula_name)
-            cook_formula(root, formula_name)
+            seed_formula(root, formula_name)
+
+        if legacy_protos:
+            removed = remove_legacy_persisted_protos(root, legacy_protos)
     except Exception:
         restore_formula_files(snapshots)
         raise
@@ -311,9 +502,9 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
         "root": str(root),
         "beads_version": version,
         "formulas": installed,
-        "protos": list(FORMULA_NAMES),
         "validated": sorted(parsed),
-        "preflight": "isolated-persisted-cook",
+        "preflight": "isolated-formula-pour",
+        "legacy_persisted_protos_removed": removed,
     }
 
 
@@ -337,14 +528,23 @@ def doctor(root_arg: Path) -> dict[str, Any]:
                 "rerun /setup-project --force"
             )
         validate_formula_source(root, formula_name)
-        run(["bd", "mol", "seed", formula_name], cwd=root)
+        seed_formula(root, formula_name)
         statuses[formula_name] = "available"
+
+    legacy_protos = find_legacy_persisted_protos(root)
+    if legacy_protos:
+        names = ", ".join(sorted(legacy_protos))
+        raise SetupError(
+            "legacy persisted dstack protos remain in Beads: "
+            f"{names}; rerun /setup-project --force"
+        )
 
     return {
         "status": "ok",
         "root": str(root),
         "beads_version": version,
         "formulas": statuses,
+        "persisted_protos": "absent",
     }
 
 
@@ -352,7 +552,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    install_parser = subparsers.add_parser("install", help="install and cook formulas")
+    install_parser = subparsers.add_parser("install", help="install and validate formulas")
     install_parser.add_argument("--root", type=Path, default=Path.cwd())
     install_parser.add_argument("--init", action="store_true")
     install_parser.add_argument("--force", action="store_true")
