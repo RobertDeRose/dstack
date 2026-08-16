@@ -2,12 +2,14 @@ formula = "dstack-feature"
 description = """
 Persistent feature-delivery workflow for dstack.
 
-The poured molecule contains only the stable lifecycle skeleton. Real
-implementation work is created dynamically beneath the implementation epic.
-The implementation gate records specification approval, while closeout uses
-native dynamic fan-in over the implementation children.
+The poured molecule contains only the stable lifecycle skeleton. A task-sized
+approval milestone carries the human gate because Beads blocking dependencies
+must connect like kinds: tasks block tasks and epics block epics. Real
+implementation work is created dynamically beneath the implementation epic and
+depends on the approved milestone. Closeout uses native dynamic fan-in over the
+implementation children.
 """
-version = 2
+version = 3
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -39,23 +41,23 @@ metadata = { dstack_step = "specification", design_path = "{{design_path}}", bas
 description = """
 Review and reconcile {{design_path}} and the proposed implementation graph.
 Resolve genuine product or architecture decisions, commit the accepted
-specification, record its Git commit on this Bead, and close this step only
-when implementation may proceed from that boundary.
+specification, and record its Git commit on this Bead.
 """
 
 [[steps]]
-id = "implementation"
-title = "Implementation workstream: {{feature_title}}"
-type = "epic"
+id = "approval"
+title = "Authorize feature implementation: {{feature_title}}"
+type = "task"
 priority = 1
 needs = ["specification"]
-labels = ["dstack:step:implementation", "feature:{{feature_slug}}"]
-metadata = { dstack_step = "implementation", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }
+labels = ["dstack:step:implementation-approval", "feature:{{feature_slug}}"]
+metadata = { dstack_step = "implementation-approval", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }
 description = """
-Container for the feature's real implementation tasks. Add bounded tasks as
-children of this epic. Each task must also depend on the specification step
-and wait on this workstream's human approval gate. Close this epic only after
-all required implementation children are complete or explicitly deferred.
+Human authorization milestone for implementation. The formula-generated gate
+blocks this task. After the accepted specification is committed,
+/review-feature-spec resolves the gate and closes this milestone. Dynamic
+implementation tasks depend on this task rather than depending directly on a
+gate or on the implementation epic.
 """
 
 [steps.gate]
@@ -63,20 +65,31 @@ type = "human"
 id = "approve-{{feature_slug}}-specification"
 
 [[steps]]
+id = "implementation"
+title = "Implementation workstream: {{feature_title}}"
+type = "epic"
+priority = 1
+labels = ["dstack:step:implementation", "feature:{{feature_slug}}"]
+metadata = { dstack_step = "implementation", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }
+description = """
+Container for the feature's real implementation tasks. Add bounded tasks as
+children of this epic. Each task must depend on the implementation-approval
+milestone. Close this epic only after all required implementation children are
+complete or explicitly deferred.
+"""
+
+[[steps]]
 id = "closeout"
 title = "Reconcile and close feature: {{feature_title}}"
 type = "task"
 priority = 1
-# Keep the ordinary blocking edge task-to-task. Beads rejects an epic as a
-# normal blocker of a task. Dynamic implementation completion is represented
-# separately by the native waits_for fan-in below.
-needs = ["specification"]
+needs = ["approval"]
 waits_for = "children-of(implementation)"
 labels = ["dstack:step:closeout", "feature:{{feature_slug}}"]
 metadata = { dstack_step = "closeout", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }
 description = """
 Reconcile delivered behavior, reader documentation, validation evidence, and
-remaining findings. Produce the final candidate and review it. Closing this
-step makes the feature delivery-ready; the molecule root remains open until
-the requested PR or fast-forward delivery actually completes.
+remaining findings. Produce and review the final candidate. Closing this step
+makes the feature delivery-ready; the molecule root remains open until the
+requested PR or fast-forward delivery actually completes.
 """

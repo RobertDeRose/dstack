@@ -14,8 +14,9 @@ Use the user's input as a feature selector, optional task selector, and optional
 
 1. Run the setup doctor.
 2. Resolve the feature root and stable steps through Beads JSON.
-3. Verify the human specification gate is resolved. If it is open, route to
-   `/review-feature-spec`; never recommend migration.
+3. Verify the implementation-approval milestone is closed and its human gate is
+   resolved. If either is incomplete, route to `/review-feature-spec`; never
+   recommend migration.
 4. Resolve the Beads-managed `feat/<slug>` worktree and verify it exactly.
 5. Read the specification step's `git:<commit>` external reference.
 6. Verify with Git that the commit exists and is an ancestor of the feature

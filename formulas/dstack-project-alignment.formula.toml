@@ -2,12 +2,13 @@ formula = "dstack-project-alignment"
 description = """
 Persistent three-tier project-alignment workflow for dstack.
 
-Tier 1 analyzes and builds a corrective plan. A native human gate separates
-that plan from Tier 2 execution. Corrective tasks are created dynamically
-beneath the corrections epic. Tier 3 uses native dynamic fan-in and performs
-final reconciliation and delivery.
+Tier 1 analyzes and builds a corrective plan. A task-sized approval milestone
+carries the native human gate because Beads blocking dependencies must connect
+like kinds. Corrective tasks are created dynamically beneath the corrections
+epic and depend on that approved milestone. Tier 3 uses native dynamic fan-in
+and performs final reconciliation and delivery.
 """
-version = 2
+version = 3
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -44,22 +45,22 @@ description = """
 Analyze {{scope}} at {{baseline_commit}}. Compare specifications, reader
 documentation, implementation, tests, Beads work, and delivery evidence.
 Create a bounded corrective plan beneath the corrections workstream without
-modifying source. Close this step only after presenting the plan for approval.
+modifying source.
 """
 
 [[steps]]
-id = "corrections"
-title = "Execute project-alignment corrections: {{audit_title}}"
-type = "epic"
+id = "approval"
+title = "Approve project-alignment execution: {{audit_title}}"
+type = "task"
 priority = 1
 needs = ["analysis"]
-labels = ["dstack:step:alignment-corrections", "audit:{{audit_slug}}"]
-metadata = { dstack_step = "alignment-corrections", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+labels = ["dstack:step:alignment-approval", "audit:{{audit_slug}}"]
+metadata = { dstack_step = "alignment-approval", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
 description = """
-Container for approved corrective work. Add each bounded correction as a
-child, make it depend on the analysis step, and make it wait on this
-workstream's human approval gate. Close this epic only after all required
-corrective children are complete or explicitly accepted/deferred.
+Human authorization milestone for Tier 2. The formula-generated gate blocks
+this task. /project-alignment-execute resolves the gate and closes this
+milestone after explicit approval. Dynamic corrective tasks depend on this
+task rather than depending directly on a gate or on the corrections epic.
 """
 
 [steps.gate]
@@ -67,14 +68,24 @@ type = "human"
 id = "approve-{{audit_slug}}-execution"
 
 [[steps]]
+id = "corrections"
+title = "Execute project-alignment corrections: {{audit_title}}"
+type = "epic"
+priority = 1
+labels = ["dstack:step:alignment-corrections", "audit:{{audit_slug}}"]
+metadata = { dstack_step = "alignment-corrections", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+description = """
+Container for approved corrective work. Add each bounded correction as a child
+and make it depend on the alignment-approval milestone. Close this epic only
+after all required corrective children are complete or explicitly deferred.
+"""
+
+[[steps]]
 id = "landing"
 title = "Validate and land project alignment: {{audit_title}}"
 type = "task"
 priority = 1
-# Keep the ordinary blocking edge task-to-task. Beads rejects an epic as a
-# normal blocker of a task. Dynamic corrective-work completion is represented
-# separately by the native waits_for fan-in below.
-needs = ["analysis"]
+needs = ["approval"]
 waits_for = "children-of(corrections)"
 labels = ["dstack:step:alignment-landing", "audit:{{audit_slug}}"]
 metadata = { dstack_step = "alignment-landing", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }

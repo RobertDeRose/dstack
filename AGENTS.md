@@ -34,8 +34,10 @@ Keep dstack a thin policy layer over Beads and Git.
 ## Formula design
 
 Formulas encode only stable lifecycle skeletons. Dynamic implementation and
-audit tasks are created under the poured workstream epics and participate in
-native dependency, gate, and fan-in behavior.
+audit tasks are created under poured workstream epics and depend on separate,
+task-sized approval milestones. Formula-generated gates must block those tasks,
+not the epics, because Beads ordinary blocking edges cannot cross task/epic
+kinds. Native `children-of(...)` fan-in joins the dynamic work at closeout.
 
 ## Phase 1
 

@@ -51,8 +51,9 @@ Capture the returned molecule root ID. Update the root using native Beads fields
 - metadata containing the slug, base branch, branch, design path, and worktree
   path.
 
-Resolve exactly one specification step, implementation workstream, closeout
-step, and open human gate using the core Beads workflow reference.
+Resolve exactly one specification step, implementation-approval milestone,
+implementation workstream, closeout step, and open human gate using the core
+Beads workflow reference.
 
 ## Design
 
@@ -79,14 +80,19 @@ Create bounded children beneath the implementation epic. Every child must:
 
 - use `--no-inherit-labels`;
 - carry `dstack:work:implementation` and `feature:<slug>`;
-- depend on the specification step;
-- use `--waits-for-gate <human-gate-id>`;
+- depend on the implementation-approval milestone;
 - contain context, acceptance criteria, and expected validation.
+
+Do not pass the human gate ID through `--waits-for-gate`; that flag controls
+`all-children`/`any-children` fan-in for a separate `--waits-for` relationship.
+The formula gate blocks the task-sized approval milestone, and implementation
+children become ready when that milestone closes.
 
 Model genuine implementation dependencies with native Beads edges. Leave
 independent children unordered.
 
-The human gate stays open. `/start-feature` does not authorize implementation.
+The human gate stays open and the approval milestone remains blocked.
+`/start-feature` does not authorize implementation.
 
 ## Planning reconciliation
 
@@ -104,7 +110,7 @@ A draft commit does not close the specification step or resolve the gate.
 
 ## Return
 
-- feature root, stable steps, and human gate IDs;
+- feature root, stable steps, approval milestone, and human gate IDs;
 - base branch/commit, feature branch, and verified worktree path;
 - design path;
 - dynamic implementation tasks and dependency summary;

@@ -14,25 +14,40 @@ def load(name: str) -> dict:
     return tomllib.loads((ROOT / "formulas" / f"{name}.formula.toml").read_text())
 
 
-def assert_no_epic_blocks_task(formula: dict) -> None:
-    steps = {step["id"]: step for step in formula["steps"]}
-    for dependent in steps.values():
-        for blocker_id in (
-            *dependent.get("needs", []),
-            *dependent.get("depends_on", []),
-        ):
-            blocker = steps[blocker_id]
-            assert not (
-                blocker.get("type", "task") == "epic"
-                and dependent.get("type", "task") != "epic"
-            ), f"epic {blocker_id} cannot ordinarily block task {dependent['id']}"
-
-
-def test_beads_rejects_epic_as_an_ordinary_task_blocker() -> None:
-    broken = {
+def test_beads_rejects_cross_kind_blocking_edges() -> None:
+    epic_blocks_task = {
         "steps": [
             {"id": "workstream", "type": "epic"},
             {"id": "closeout", "type": "task", "needs": ["workstream"]},
+        ]
+    }
+    with pytest.raises(
+        RuntimeError,
+        match="tasks can only block other tasks, not epics",
+    ):
+        validate_formula_dependencies(epic_blocks_task)
+
+    task_blocks_epic = {
+        "steps": [
+            {"id": "approval", "type": "task"},
+            {"id": "workstream", "type": "epic", "needs": ["approval"]},
+        ]
+    }
+    with pytest.raises(
+        RuntimeError,
+        match="epics can only block other epics, not tasks",
+    ):
+        validate_formula_dependencies(task_blocks_epic)
+
+
+def test_beads_rejects_a_formula_gate_on_an_epic() -> None:
+    broken = {
+        "steps": [
+            {
+                "id": "workstream",
+                "type": "epic",
+                "gate": {"type": "human", "id": "approve-work"},
+            }
         ]
     }
 
@@ -43,44 +58,54 @@ def test_beads_rejects_epic_as_an_ordinary_task_blocker() -> None:
         validate_formula_dependencies(broken)
 
 
-def test_feature_formula_is_small_native_workflow() -> None:
+def test_feature_formula_uses_gated_task_milestone_and_epic_workstream() -> None:
     formula = load("dstack-feature")
     assert formula["type"] == "workflow"
     assert formula["phase"] == "liquid"
     assert formula["pour"] is True
     assert [step["id"] for step in formula["steps"]] == [
         "specification",
+        "approval",
         "implementation",
         "closeout",
     ]
-    implementation = formula["steps"][1]
-    closeout = formula["steps"][2]
+
+    specification, approval, implementation, closeout = formula["steps"]
+    assert specification["type"] == "task"
+    assert approval["type"] == "task"
+    assert approval["needs"] == ["specification"]
+    assert approval["gate"]["type"] == "human"
     assert implementation["type"] == "epic"
-    assert implementation["gate"]["type"] == "human"
-    assert implementation["needs"] == ["specification"]
-    assert closeout["needs"] == ["specification"]
+    assert "gate" not in implementation
+    assert "needs" not in implementation
+    assert closeout["needs"] == ["approval"]
     assert closeout["waits_for"] == "children-of(implementation)"
-    assert_no_epic_blocks_task(formula)
+    validate_formula_dependencies(formula)
 
 
-def test_alignment_formula_is_small_native_workflow() -> None:
+def test_alignment_formula_uses_gated_task_milestone_and_epic_workstream() -> None:
     formula = load("dstack-project-alignment")
     assert formula["type"] == "workflow"
     assert formula["phase"] == "liquid"
     assert formula["pour"] is True
     assert [step["id"] for step in formula["steps"]] == [
         "analysis",
+        "approval",
         "corrections",
         "landing",
     ]
-    corrections = formula["steps"][1]
-    landing = formula["steps"][2]
+
+    analysis, approval, corrections, landing = formula["steps"]
+    assert analysis["type"] == "task"
+    assert approval["type"] == "task"
+    assert approval["needs"] == ["analysis"]
+    assert approval["gate"]["type"] == "human"
     assert corrections["type"] == "epic"
-    assert corrections["gate"]["type"] == "human"
-    assert corrections["needs"] == ["analysis"]
-    assert landing["needs"] == ["analysis"]
+    assert "gate" not in corrections
+    assert "needs" not in corrections
+    assert landing["needs"] == ["approval"]
     assert landing["waits_for"] == "children-of(corrections)"
-    assert_no_epic_blocks_task(formula)
+    validate_formula_dependencies(formula)
 
 
 def test_formulas_do_not_encode_review_ceremony() -> None:

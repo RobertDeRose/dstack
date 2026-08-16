@@ -38,8 +38,8 @@ the target to `dev` only when that branch exists and no target was supplied.
    - labels `workflow:project-alignment` and `audit:<slug>`;
    - external reference `git:<baseline-commit>`;
    - metadata containing slug, target branch, baseline, and scope.
-7. Resolve exactly one analysis step, corrections workstream, landing step, and
-   open human gate.
+7. Resolve exactly one analysis step, alignment-approval milestone,
+   corrections workstream, landing step, and open human gate.
 8. Claim the analysis step atomically.
 
 ## Read-only analysis boundary
@@ -80,8 +80,7 @@ corrective outcome. Every child must:
 
 - use `--no-inherit-labels`;
 - carry `dstack:work:alignment` and `audit:<slug>`;
-- depend on the analysis step;
-- wait on the corrections workstream's human gate;
+- depend on the alignment-approval milestone;
 - state the problem/evidence, required outcome, acceptance criteria, affected
   scope, risk, and expected validation.
 
@@ -98,9 +97,9 @@ audit plan. Link them with `discovered-from` and keep them nonblocking.
    correctness, and testability;
 2. add a concise executive assessment and plan summary as an audit-root comment;
 3. close the analysis step;
-4. leave the human gate open;
-5. verify the corrections remain absent from the ready frontier because the
-   native gate is unresolved;
+4. leave the human gate open and the alignment-approval milestone blocked;
+5. verify the corrections remain absent from the ready frontier because they
+   depend on that unresolved approval milestone;
 6. present the plan and stop for user approval.
 
 Do not begin Tier 2 in the same invocation. The exact approval action is
@@ -119,7 +118,7 @@ When resuming an existing Tier 1 audit:
 
 ## Return
 
-- audit root, stable steps, and human gate;
+- audit root, stable steps, approval milestone, and human gate;
 - target branch and immutable baseline;
 - executive alignment assessment;
 - findings and evidence;

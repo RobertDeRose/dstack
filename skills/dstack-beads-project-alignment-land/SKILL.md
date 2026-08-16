@@ -13,7 +13,8 @@ mode: `ready`, `pr`, or `merge`. Default to `ready`.
 ## Resolve and resume
 
 1. Run the setup doctor.
-2. Resolve the audit root and stable steps.
+2. Resolve the audit root and all stable steps, including the closed
+   alignment-approval milestone.
 3. Resolve and verify the Beads-managed audit worktree.
 4. Inspect native progress for the corrections workstream and audit root.
 5. If required corrections remain open, stop and report them.

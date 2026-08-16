@@ -5,7 +5,7 @@ from pathlib import Path
 from conftest import run_json
 
 
-def test_alignment_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
+def test_alignment_approval_dynamic_work_and_fan_in(installed_repo: Path) -> None:
     poured = run_json(
         [
             "bd",
@@ -28,10 +28,12 @@ def test_alignment_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
     )
     root = poured["root_id"]
     analysis = poured["step_ids"]["analysis"]
+    approval = poured["step_ids"]["approval"]
     corrections = poured["step_ids"]["corrections"]
     landing = poured["step_ids"]["landing"]
-    gate = poured["gate_ids"]["corrections"]
+    gate = poured["gate_ids"]["approval"]
 
+    assert run_json(["bd", "show", corrections, "--json"], cwd=installed_repo)["type"] == "epic"
     correction = run_json(
         [
             "bd",
@@ -45,9 +47,7 @@ def test_alignment_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
             "--labels",
             "dstack:work:alignment,audit:repository-alignment",
             "--deps",
-            analysis,
-            "--waits-for-gate",
-            gate,
+            approval,
             "--description",
             "Align docs and implementation",
             "--acceptance",
@@ -63,16 +63,15 @@ def test_alignment_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
     }
 
     run_json(["bd", "close", analysis, "--json"], cwd=installed_repo)
-    assert landing not in {
-        item["id"]
-        for item in run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)
-    }
     assert run_json(
         ["bd", "ready", "--mol", corrections, "--exclude-type", "epic", "--json"],
         cwd=installed_repo,
     ) == []
 
     run_json(["bd", "gate", "resolve", gate, "--json"], cwd=installed_repo)
+    run_json(["bd", "update", approval, "--claim", "--json"], cwd=installed_repo)
+    run_json(["bd", "close", approval, "--json"], cwd=installed_repo)
+
     claimed = run_json(
         ["bd", "ready", "--mol", corrections, "--exclude-type", "epic", "--claim", "--json"],
         cwd=installed_repo,
@@ -84,7 +83,6 @@ def test_alignment_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
     assert landing in {item["id"] for item in ready}
 
     run_json(["bd", "close", corrections, "--json"], cwd=installed_repo)
-
     ready = run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)
     assert [item["id"] for item in ready] == [landing]
     run_json(["bd", "close", landing, "--json"], cwd=installed_repo)

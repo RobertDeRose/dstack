@@ -5,7 +5,7 @@ from pathlib import Path
 from conftest import run_json
 
 
-def test_feature_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
+def test_feature_approval_dynamic_work_and_fan_in(installed_repo: Path) -> None:
     poured = run_json(
         [
             "bd",
@@ -26,9 +26,13 @@ def test_feature_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
     )
     root = poured["root_id"]
     spec = poured["step_ids"]["specification"]
+    approval = poured["step_ids"]["approval"]
     implementation = poured["step_ids"]["implementation"]
     closeout = poured["step_ids"]["closeout"]
-    gate = poured["gate_ids"]["implementation"]
+    gate = poured["gate_ids"]["approval"]
+
+    assert run_json(["bd", "show", implementation, "--json"], cwd=installed_repo)["type"] == "epic"
+    assert run_json(["bd", "show", approval, "--json"], cwd=installed_repo)["type"] == "task"
 
     run_json(
         [
@@ -57,9 +61,7 @@ def test_feature_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
             "--labels",
             "dstack:work:implementation,feature:provisioning-api",
             "--deps",
-            spec,
-            "--waits-for-gate",
-            gate,
+            approval,
             "--description",
             "Validate API input",
             "--acceptance",
@@ -81,9 +83,7 @@ def test_feature_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
             "--labels",
             "dstack:work:implementation,feature:provisioning-api",
             "--deps",
-            f"{spec},{first['id']}",
-            "--waits-for-gate",
-            gate,
+            f"{approval},{first['id']}",
             "--description",
             "Test validation behavior",
             "--acceptance",
@@ -93,30 +93,28 @@ def test_feature_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
         cwd=installed_repo,
     )
 
-    # The stable closeout task is sequenced behind the specification task and
-    # separately fans in over dynamic implementation children. It must not be
-    # ready before either condition is satisfied.
     assert closeout not in {
         item["id"]
         for item in run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)
     }
-
     assert run_json(
         ["bd", "ready", "--mol", implementation, "--exclude-type", "epic", "--json"],
         cwd=installed_repo,
     ) == []
 
     run_json(["bd", "close", spec, "--json"], cwd=installed_repo)
-    assert closeout not in {
-        item["id"]
-        for item in run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)
-    }
     assert run_json(
         ["bd", "ready", "--mol", implementation, "--exclude-type", "epic", "--json"],
         cwd=installed_repo,
     ) == []
 
+    # Resolving the gate makes the approval milestone ready. It does not bypass
+    # that milestone or directly gate the workstream epic.
     run_json(["bd", "gate", "resolve", gate, "--json"], cwd=installed_repo)
+    claimed_approval = run_json(["bd", "update", approval, "--claim", "--json"], cwd=installed_repo)
+    assert claimed_approval["id"] == approval
+    run_json(["bd", "close", approval, "--json"], cwd=installed_repo)
+
     ready = run_json(
         ["bd", "ready", "--mol", implementation, "--exclude-type", "epic", "--claim", "--json"],
         cwd=installed_repo,
@@ -135,9 +133,6 @@ def test_feature_gate_dynamic_work_and_fan_in(installed_repo: Path) -> None:
     assert [item["id"] for item in ready] == [second["id"]]
     run_json(["bd", "close", second["id"], "--json"], cwd=installed_repo)
 
-    # children-of(implementation) is the native dynamic fan-in. Once all
-    # implementation children close, closeout is eligible even before the
-    # container epic is closed; the skill closes that epic before claiming it.
     ready_root = run_json(["bd", "ready", "--mol", root, "--json"], cwd=installed_repo)
     assert closeout in {item["id"] for item in ready_root}
 

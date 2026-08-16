@@ -51,33 +51,44 @@ A feature molecule has this stable skeleton:
 ```text
 specification
     ↓
-human approval gate
-    ↓
+implementation-approval task ← human gate
+    ├── blocks each dynamic implementation task
+    └── blocks closeout
+
 implementation epic
     ├── dynamically created implementation task
     ├── dynamically created implementation task
     └── dynamically created implementation task
-    ↓
-closeout waits for the implementation children
+
+closeout waits for children-of(implementation)
 ```
 
-A project-alignment molecule has the same native structure around its three
-authority tiers:
+A project-alignment molecule uses the same pattern around its three authority
+tiers:
 
 ```text
 analysis and plan
     ↓
-human approval gate
-    ↓
-corrective-work epic
+alignment-approval task ← human gate
+    ├── blocks each dynamic correction
+    └── blocks landing
+
+corrections epic
     ├── dynamically created correction
     └── dynamically created correction
-    ↓
-validation and landing waits for the correction children
+
+landing waits for children-of(corrections)
 ```
 
-The dynamic work is ordinary Beads work. dstack uses `bd ready --mol`, atomic
-claims, dependencies, gates, `bd mol progress`, and `bd mol current` directly.
+The approval milestone is deliberately a task. Beads 1.2.2 permits ordinary
+blocking dependencies only between like kinds, so a formula-generated gate
+cannot block an epic directly. The workstream remains an epic so native
+molecule progress, ready work, and dynamic-child fan-in remain intact.
+
+The dynamic work is ordinary Beads work. Each task is a child of its workstream
+epic and depends on the task-sized approval milestone. dstack uses
+`bd ready --mol`, atomic claims, dependencies, gates, `bd mol progress`, and
+`bd mol current` directly.
 
 ## Discovery policy
 
@@ -151,10 +162,11 @@ The helper only:
 
 1. verifies the Git root and Beads executable;
 2. optionally initializes Beads;
-3. installs the two formula source files;
-4. validates them through `bd formula show`;
-5. persists their protos through `bd cook --persist`;
-6. verifies that `bd mol seed` can resolve them.
+3. persists both bundled formulas in an isolated temporary Beads repository;
+4. installs the two formula source files only after that exact cook succeeds;
+5. validates them through `bd formula show`;
+6. persists their target protos through `bd cook --persist`;
+7. verifies that `bd mol seed` can resolve them.
 
 It does not create, select, claim, execute, or close workflow work.
 

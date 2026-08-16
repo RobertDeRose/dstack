@@ -51,10 +51,14 @@ The two formulas encode only stable steps:
 
 ```text
 dstack-feature:
-  specification -> human gate -> implementation epic -> closeout
+  specification -> gated approval task
+  implementation epic -> dynamic children depend on approval
+  closeout needs approval and waits for implementation children
 
 dstack-project-alignment:
-  analysis -> human gate -> corrections epic -> landing
+  analysis -> gated approval task
+  corrections epic -> dynamic children depend on approval
+  landing needs approval and waits for correction children
 ```
 
 Real implementation and correction tasks are dynamic children of the relevant

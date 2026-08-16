@@ -183,18 +183,35 @@ def iter_formula_steps(steps: Iterable[dict[str, Any]]) -> Iterable[dict[str, An
         yield from iter_formula_steps(step.get("children", []))
 
 
-def validate_formula_dependencies(formula: dict[str, Any]) -> None:
-    """Model Beads' epic blocking constraint during formula cooking.
+def formula_step_is_epic(step: dict[str, Any]) -> bool:
+    """Match Beads cooking: a step with children is promoted to an epic."""
 
-    Ordinary ``needs``/``depends_on`` relationships become blocking
-    dependencies. Beads permits an epic to block another epic, but rejects an
-    epic as the ordinary blocker of a task. ``waits_for`` is a distinct native
-    fan-in relationship and is intentionally not subject to this check.
+    return step.get("type", "task") == "epic" or bool(step.get("children"))
+
+
+def validate_blocking_kinds(*, source_is_epic: bool, target_is_epic: bool) -> None:
+    """Model Beads 1.2.2 cross-type ``blocks`` validation exactly."""
+
+    if source_is_epic == target_is_epic:
+        return
+    if source_is_epic:
+        raise RuntimeError("epics can only block other epics, not tasks")
+    raise RuntimeError("tasks can only block other tasks, not epics")
+
+
+def validate_formula_dependencies(formula: dict[str, Any]) -> None:
+    """Model Beads' blocking constraints during formula cooking.
+
+    ``needs`` and ``depends_on`` become ordinary ``blocks`` dependencies.
+    Formula gates create another ``blocks`` dependency from the guarded step to
+    a non-epic gate issue. ``waits_for`` is a separate fan-in relationship and
+    is not subject to the task/epic equality rule.
     """
 
     steps = list(iter_formula_steps(formula.get("steps", [])))
     by_id = {step["id"]: step for step in steps}
     for dependent in steps:
+        dependent_is_epic = formula_step_is_epic(dependent)
         for blocker_id in (
             *dependent.get("needs", []),
             *dependent.get("depends_on", []),
@@ -202,10 +219,16 @@ def validate_formula_dependencies(formula: dict[str, Any]) -> None:
             blocker = by_id.get(blocker_id)
             if blocker is None:
                 raise RuntimeError(f"unknown formula dependency: {blocker_id}")
-            blocker_type = blocker.get("type", "task")
-            dependent_type = dependent.get("type", "task")
-            if blocker_type == "epic" and dependent_type != "epic":
-                raise RuntimeError("epics can only block other epics, not tasks")
+            validate_blocking_kinds(
+                source_is_epic=dependent_is_epic,
+                target_is_epic=formula_step_is_epic(blocker),
+            )
+
+        if dependent.get("gate"):
+            validate_blocking_kinds(
+                source_is_epic=dependent_is_epic,
+                target_is_epic=False,
+            )
 
 
 def command_cook(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
@@ -383,20 +406,40 @@ def command_create(args: list[str], state: dict[str, Any]) -> int:
     rest = args[1:]
     item_id = new_id(state)
     parent_id = value(rest, "--parent")
-    gate_id = value(rest, "--waits-for-gate")
     dependencies = csv_values(rest, "--deps")
+    item_type = value(rest, "--type", "task")
+
+    for blocker_id in dependencies:
+        blocker = issue(state, blocker_id)
+        validate_blocking_kinds(
+            source_is_epic=item_type == "epic",
+            target_is_epic=blocker.get("type") == "epic",
+        )
+
+    waits_for_id = value(rest, "--waits-for")
+    waits_for: str | None = None
+    if waits_for_id:
+        gate_mode = value(rest, "--waits-for-gate", "all-children")
+        if gate_mode not in {"all-children", "any-children"}:
+            raise RuntimeError(
+                f"invalid --waits-for-gate value '{gate_mode}' "
+                "(valid: all-children, any-children)"
+            )
+        waits_for = f"{gate_mode}({waits_for_id})"
+
     item = {
         "id": item_id,
         "title": title,
         "description": value(rest, "--description", ""),
         "acceptance": value(rest, "--acceptance", ""),
-        "type": value(rest, "--type", "task"),
+        "type": item_type,
         "status": "open",
         "parent_id": parent_id,
         "labels": csv_values(rest, "--labels"),
         "metadata": {},
         "dependencies": dependencies,
-        "gate_ids": [gate_id] if gate_id else [],
+        "gate_ids": [],
+        "waits_for": waits_for,
     }
     state["issues"][item_id] = item
     save_state(state)

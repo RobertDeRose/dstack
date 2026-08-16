@@ -15,8 +15,9 @@ gate. It does not implement feature tasks.
 
 1. Run the setup doctor.
 2. Resolve exactly one open feature root through Beads JSON.
-3. Resolve the specification step, implementation workstream, closeout step, and
-   human gate through their native labels/relationships.
+3. Resolve the specification step, implementation-approval milestone,
+   implementation workstream, closeout step, and human gate through their native
+   labels/relationships.
 4. Locate the Beads-managed feature worktree and verify branch `feat/<slug>`.
 5. Atomically claim the specification step. If another agent owns it, stop and
    report the owner instead of replacing the claim.
@@ -51,9 +52,10 @@ Closed historical tasks are irrelevant to this new molecule.
 ## Reconcile dynamic work
 
 When adding or replacing implementation children, follow the core workflow
-reference exactly: correct parent, labels, specification dependency, human gate,
-acceptance criteria, and validation. Use native dependencies for real ordering.
-Do not create reviewer/coordinator tasks.
+reference exactly: correct epic parent, labels, approval-milestone dependency,
+acceptance criteria, and validation. The gate blocks the approval milestone; do
+not attach a gate ID directly to a dynamic task. Use native dependencies for real
+ordering. Do not create reviewer/coordinator tasks.
 
 ## Commit and approve
 
@@ -66,18 +68,23 @@ When the design and task graph are accepted:
 5. record the final commit and review evidence in a Markdown Beads comment;
 6. set the specification step's external reference to `git:<commit>`;
 7. close the specification step;
-8. resolve the unique human gate blocking the implementation workstream;
-9. verify the implementation children now participate in the native ready
-   frontier according to their remaining dependencies.
+8. resolve the unique human gate blocking the implementation-approval milestone;
+9. claim the now-ready approval milestone, add a concise authorization comment,
+   and close it;
+10. verify the implementation children now participate in the native ready
+    frontier according to their remaining dependencies.
 
 Invocation of `/review-feature-spec` supplies the human authorization represented
 by the gate once the interactive review has resolved all product decisions. Do
 not ask for a redundant second approval merely to close that gate.
 
 If the review remains blocked by unresolved intent, leave the specification step
-open and the gate unresolved.
+open, the gate unresolved, and the approval milestone blocked. If an interruption
+occurs after gate resolution but before milestone closure, resume the existing
+milestone rather than creating another approval record.
 
-Update the roadmap entry to `in-progress` only after the gate is resolved.
+Update the roadmap entry to `in-progress` only after the gate is resolved and
+the approval milestone is closed.
 
 ## Return
 
@@ -87,6 +94,6 @@ Update the roadmap entry to `in-progress` only after the gate is resolved.
 - implementation graph changes;
 - committed specification SHA;
 - review/verification outcomes;
-- specification close result and gate resolution;
+- specification close result, gate resolution, and approval-milestone closure;
 - native ready and blocked work;
 - exact next `/implement-feature` command.

@@ -19,23 +19,26 @@ repository has not been initialized.
      install --root . --init
    ```
 
-3. Add `--force` only when the user explicitly supplied it. This replaces
+3. The installer first persists both bundled formulas in an isolated temporary
+   Beads repository. This catches generated-gate and task/epic dependency errors
+   before any target formula file is changed.
+4. Add `--force` only when the user explicitly supplied it. This replaces
    differing installed formula source files and recooks their protos; it does
    not rewrite existing poured molecules.
-4. Read the JSON result and report:
+5. Read the JSON result and report:
    - target Git root;
    - Beads version;
    - whether each formula was installed, updated, or unchanged;
    - persisted proto names;
    - validation result.
-5. Run the doctor once after installation:
+6. Run the doctor once after installation:
 
    ```bash
    python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" doctor --root .
    ```
 
-6. Stop on a formula conflict without `--force`, invalid parser result, failed
-   cook, or unavailable proto. Do not manually patch `.beads` state to bypass a
+7. Stop on a formula conflict without `--force`, invalid parser result, failed
+   isolated or target cook, or unavailable proto. Do not manually patch `.beads` state to bypass a
    failure.
 
 ## Installed workflows

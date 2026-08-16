@@ -20,12 +20,17 @@ does not authorize final delivery.
 2. Resolve exactly one open project-alignment root and its stable steps.
 3. Verify the analysis step is closed and contains a durable plan summary.
 4. Verify the recorded baseline commit and target branch still exist.
-5. Resolve the unique open human gate blocking the corrections workstream.
-6. Resolve that gate. Do not create or update a separate approval issue/state.
-7. Verify corrective children now participate in the native ready frontier.
+5. Resolve the unique open human gate blocking the alignment-approval
+   milestone.
+6. Resolve that gate.
+7. Claim the now-ready alignment-approval milestone, add a concise approval
+   comment, and close it.
+8. Verify corrective children now participate in the native ready frontier.
 
 If the gate was already resolved, resume Tier 2 without asking for approval
-again. If Tier 1 is incomplete, stop and route to `/project-alignment-review`.
+again. If the approval milestone remains open after an interruption, claim and
+close that existing milestone. If Tier 1 is incomplete, stop and route to
+`/project-alignment-review`.
 
 ## Native audit worktree
 
@@ -94,7 +99,7 @@ Do not merge, open a PR, or close the audit root in Tier 2.
 
 ## Return
 
-- audit, approval gate resolution, and worktree;
+- audit, approval gate/milestone resolution, and worktree;
 - claimed correction;
 - behavior/files changed;
 - validation and stage-specific pending evidence;

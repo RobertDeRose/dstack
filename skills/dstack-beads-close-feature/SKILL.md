@@ -13,7 +13,8 @@ Use the user's input as a feature selector and optional delivery mode:
 ## Resolve and resume
 
 1. Run the setup doctor.
-2. Resolve the feature root and stable steps.
+2. Resolve the feature root and all stable steps, including the closed
+   implementation-approval milestone.
 3. Resolve and verify the Beads-managed feature worktree.
 4. Inspect `bd mol current` and `bd mol progress` for both the implementation
    workstream and feature root.

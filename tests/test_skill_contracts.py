@@ -11,7 +11,10 @@ def skill(name: str) -> str:
 
 def test_feature_skills_use_native_beads_workflow_primitives() -> None:
     assert "bd mol pour dstack-feature" in skill("start-feature")
-    assert "--waits-for-gate" in skill("start-feature")
+    start = skill("start-feature")
+    assert "depend on the implementation-approval milestone" in start
+    assert "Do not pass the human gate ID through `--waits-for-gate`" in start
+    assert "approval milestone" in skill("review-feature-spec").lower()
     assert "resolve the unique human gate" in skill("review-feature-spec").lower()
     assert "bd ready --mol" in skill("implement-feature")
     assert "bd mol current" in skill("implement-feature")
@@ -41,3 +44,12 @@ def test_discovery_and_review_policies_are_shared() -> None:
     assert "There is no maximum pass count" in reviews
     assert "review unavailable" in reviews
     assert "changes requested" in reviews
+
+
+def test_human_gate_ids_are_not_misused_as_waits_for_gate_modes() -> None:
+    all_text = "\n".join(
+        path.read_text()
+        for path in (ROOT / "skills").glob("*/SKILL.md")
+    )
+    assert "--waits-for-gate <human-gate-id>" not in all_text
+    assert "--waits-for-gate <gate-id>" not in all_text
