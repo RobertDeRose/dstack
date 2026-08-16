@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -27,22 +28,31 @@ class CommandResult:
 
 def run(command: Sequence[str], *, cwd: Path, check: bool = True) -> CommandResult:
     try:
-        completed = subprocess.run(
-            command,
-            cwd=cwd,
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        # File-backed capture avoids pipe hangs when a command starts a helper
+        # process that briefly inherits its standard streams.
+        with tempfile.TemporaryFile(mode="w+t") as stdout_file, tempfile.TemporaryFile(
+            mode="w+t"
+        ) as stderr_file:
+            completed = subprocess.run(
+                command,
+                cwd=cwd,
+                check=False,
+                text=True,
+                stdout=stdout_file,
+                stderr=stderr_file,
+            )
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout = stdout_file.read()
+            stderr = stderr_file.read()
     except FileNotFoundError as exc:
         raise SetupError(f"required executable not found: {command[0]}") from exc
 
     if check and completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip()
+        detail = stderr.strip() or stdout.strip()
         raise SetupError(f"command failed ({' '.join(command)}): {detail}")
 
-    return CommandResult(completed.stdout, completed.stderr)
+    return CommandResult(stdout, stderr)
 
 
 def package_root() -> Path:
