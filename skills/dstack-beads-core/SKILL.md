@@ -86,3 +86,14 @@ One dynamic implementation or correction Bead is one intended Git commit by
 default. Specification and closeout/landing work may each produce their own
 bounded commits. Beads comments record durable evidence; do not create
 bookkeeping-only Git commits.
+
+## Beads runtime state and Git
+
+The Beads Dolt database owns durable workflow state. Do not stage, commit, or
+restore `.beads/interactions.jsonl` as part of feature work. It is runtime/export
+state, not a feature commit boundary.
+
+If `.beads/interactions.jsonl` is tracked by Git, treat that as legacy repository
+configuration. Preserve the file contents and use `/setup-project --force` for
+the one-time untracking migration. Never recommend `git restore` on a freshly
+written interaction log merely to make the worktree clean.

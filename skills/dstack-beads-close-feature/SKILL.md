@@ -13,15 +13,19 @@ Use the user's input as a feature selector and optional delivery mode:
 ## Resolve and resume
 
 1. Run the setup doctor.
-2. Resolve the feature root and all stable steps, including the closed
+2. Verify `.beads/interactions.jsonl` is not tracked by Git. If it is tracked,
+   stop before delivery mutations and instruct the user to run
+   `/setup-project --force` once from the repository's main worktree. Preserve
+   the file; never restore or commit it as feature bookkeeping.
+3. Resolve the feature root and all stable steps, including the closed
    implementation-approval milestone.
-3. Resolve and verify the Beads-managed feature worktree.
-4. Inspect `bd mol current` and `bd mol progress` for both the implementation
+4. Resolve and verify the Beads-managed feature worktree.
+5. Inspect `bd mol current` and `bd mol progress` for both the implementation
    workstream and feature root.
-5. If required implementation children remain open, stop and report them.
-6. If all required children are complete but the implementation epic is open,
+6. If required implementation children remain open, stop and report them.
+7. If all required children are complete but the implementation epic is open,
    verify progress and close it.
-7. Require the closeout step to be ready, then claim it atomically. If it is
+8. Require the closeout step to be ready, then claim it atomically. If it is
    already closed, resume from the delivery-ready root instead of creating or
    reopening ceremony work.
 
@@ -120,6 +124,11 @@ the feature root, and update the roadmap to `completed`. Do not implement a
 dstack PR polling loop.
 
 ## Cleanup
+
+After any delivery-state Beads mutations, verify the target worktree remains
+Git-clean. A modified tracked `.beads/interactions.jsonl` is a repository-hygiene
+error, not something to restore or commit; preserve it and require the one-time
+`/setup-project --force` migration.
 
 Use `bd worktree remove` only after actual delivery and only when its native
 safety checks pass. Preserve any worktree with uncommitted, unpushed, or stashed

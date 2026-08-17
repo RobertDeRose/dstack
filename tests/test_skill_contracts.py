@@ -95,3 +95,13 @@ def test_review_and_implement_default_to_active_session_feature() -> None:
     assert "An explicit feature selector always overrides these defaults" in implement
     assert 'Do not persist an\n"active feature" label or custom state file' in review
     assert 'Do not persist an\n"active feature" label or custom state file' in implement
+
+
+def test_beads_interaction_log_is_runtime_state() -> None:
+    core = skill("core")
+    close = skill("close-feature")
+    setup = skill("setup-project")
+    assert ".beads/interactions.jsonl" in core
+    assert "Never recommend `git restore`" in core
+    assert "/setup-project --force" in close
+    assert "git rm --cached -- .beads/interactions.jsonl" in setup

@@ -40,7 +40,23 @@ repository has not been initialized.
    python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" doctor --root .
    ```
 
-7. Stop on a formula conflict without `--force`, invalid parser result, failed
+7. Check whether `.beads/interactions.jsonl` is tracked:
+
+   ```bash
+   git ls-files --error-unmatch .beads/interactions.jsonl >/dev/null 2>&1
+   ```
+
+   If it is tracked, it is legacy repository configuration. Without `--force`,
+   report that migration is required and leave it untouched. With explicit
+   `--force`, preserve the file on disk, add `.beads/interactions.jsonl` to the
+   repository `.gitignore` when needed, and run:
+
+   ```bash
+   git rm --cached -- .beads/interactions.jsonl
+   ```
+
+   Report the staged untracking change. Never delete or restore the runtime log.
+8. Stop on a formula conflict without `--force`, invalid parser result, failed
    isolated pour, unavailable formula, unrecognized same-named Bead, or unsafe
    legacy-template cleanup. Do not manually patch `.beads` state to bypass a
    failure.
