@@ -12,6 +12,12 @@ optional base branch. The selector may be a feature slug, a Bead ID, or an exact
 feature title such as `Leader Election Weighting`. Default the base branch to
 `dev` only when that branch exists and the user did not provide another target.
 
+After resolving or creating the feature, treat that exact feature root as the
+**active feature for the current Pi session**. Subsequent
+`/review-feature-spec` and `/implement-feature` invocations with no feature
+selector default to this resolved root. This is conversational selection only;
+do not create a custom state file, label, or database record for it.
+
 ## Preconditions
 
 1. Run the setup doctor.
@@ -121,7 +127,7 @@ that this molecule replaces and comment with the molecule ID.
 
 Do not create a commit automatically. Offer exactly two next actions:
 
-1. `/review-feature-spec <slug>`;
+1. `/review-feature-spec` (the active feature defaults to this feature);
 2. create one draft-spec commit in the feature worktree.
 
 A draft commit does not close the specification step or resolve the gate.
@@ -135,4 +141,7 @@ A draft commit does not close the specification step or resolve the gate.
 - native molecule progress;
 - unresolved decisions;
 - roadmap/TODO reconciliation;
-- the two allowed next actions.
+- state that this feature is now the default active feature for this Pi session;
+- the two allowed next actions, which may omit the selector:
+  1. `/review-feature-spec`;
+  2. create one draft-spec commit in the feature worktree.

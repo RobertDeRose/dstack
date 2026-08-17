@@ -7,14 +7,28 @@ description: "Review, reconcile, commit, and approve the specification boundary 
 
 Read the `dstack-beads-core` skill and every core reference before acting.
 
-Use the user's input as a feature Bead ID, exact slug, or unique title selector.
-This command owns the specification step and the feature's native human approval
-gate. It does not implement feature tasks.
+Use the user's input as an optional feature Bead ID, exact slug, or unique title
+selector. This command owns the specification step and the feature's native
+human approval gate. It does not implement feature tasks.
+
+When the user supplies no feature selector, resolve the feature in this order:
+
+1. use the exact feature root most recently resolved by `/start-feature` in the
+   current Pi session;
+2. otherwise, if the current Git worktree is on `feat/<slug>`, resolve the one
+   current dstack feature whose root metadata/branch matches that branch;
+3. otherwise, if the current worktree path exactly matches one current feature
+   root's recorded worktree path, use that feature;
+4. otherwise stop and show viable open feature roots instead of guessing.
+
+An explicit selector always overrides the session default. Do not persist an
+"active feature" label or custom state file.
 
 ## Resolve and verify
 
 1. Run the setup doctor.
-2. Resolve exactly one open feature root through Beads JSON.
+2. Resolve exactly one open feature root through Beads JSON using the
+   selector/default rules above.
 3. Resolve the specification step, implementation-approval milestone,
    implementation workstream, closeout step, and human gate through their native
    labels/relationships.
@@ -96,4 +110,5 @@ the approval milestone is closed.
 - review/verification outcomes;
 - specification close result, gate resolution, and approval-milestone closure;
 - native ready and blocked work;
-- exact next `/implement-feature` command.
+- exact next `/implement-feature` command; when continuing the same Pi
+  session, show `/implement-feature` without a redundant feature selector.

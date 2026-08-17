@@ -30,15 +30,17 @@ After installing the Pi package and running `/setup-project` in a repository:
 ```text
 /plan-features
 /adopt-feature <legacy-feature>
-/start-feature <slug | bead-id | exact-title>
-/review-feature-spec <feature>
-/implement-feature <feature> [task | --all]
+/start-feature <feature>
+/review-feature-spec [feature]
+/implement-feature [feature] [task | --all]
 /close-feature <feature> [ready | pr | merge]
 
 /project-alignment-review [scope]
 /project-alignment-execute <audit> [task | --all]
 /project-alignment-land <audit> [ready | pr | merge]
 ```
+
+`/start-feature` makes its resolved feature the active feature for the current Pi session, so the next `/review-feature-spec` and `/implement-feature` commands can omit the feature selector. Explicit selectors still override the default.
 
 ## Native Beads workflows
 

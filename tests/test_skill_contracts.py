@@ -79,3 +79,19 @@ def test_adopt_feature_is_the_only_legacy_migration_path() -> None:
     assert "Do not recreate reviewer/coordinator tasks" in adopt
     assert "supersede the legacy feature root with the new root **last**" in adopt
     assert "/review-feature-spec <slug>" in adopt
+
+
+def test_review_and_implement_default_to_active_session_feature() -> None:
+    start = skill("start-feature")
+    review = skill("review-feature-spec")
+    implement = skill("implement-feature")
+
+    assert "active feature for the current Pi session" in start
+    assert "most recently resolved by `/start-feature`" in review
+    assert "most recently resolved by `/start-feature`" in implement
+    assert "most recently resolved by" in implement
+    assert "`/review-feature-spec` in the current Pi session" in implement
+    assert "An explicit selector always overrides the session default" in review
+    assert "An explicit feature selector always overrides these defaults" in implement
+    assert 'Do not persist an\n"active feature" label or custom state file' in review
+    assert 'Do not persist an\n"active feature" label or custom state file' in implement

@@ -7,13 +7,31 @@ description: "Claim and implement native ready work from a feature's implementat
 
 Read the `dstack-beads-core` skill and every core reference before acting.
 
-Use the user's input as a feature selector, optional task selector, and optional
-`--all`. Default to one implementation task.
+Use the user's input as an optional feature selector, optional task selector, and
+optional `--all`. Default to one implementation task.
+
+When the user supplies no feature selector, resolve the feature in this order:
+
+1. use the exact feature root most recently resolved by `/start-feature` in the
+   current Pi session;
+2. otherwise, use the feature most recently resolved by
+   `/review-feature-spec` in the current Pi session;
+3. otherwise, if the current Git worktree is on `feat/<slug>`, resolve the one
+   current dstack feature whose root metadata/branch matches that branch;
+4. otherwise, if the current worktree path exactly matches one current feature
+   root's recorded worktree path, use that feature;
+5. otherwise stop and show viable implementation-ready feature roots instead of
+   guessing.
+
+An explicit feature selector always overrides these defaults. Do not persist an
+"active feature" label or custom state file. A task selector never changes the
+active feature.
 
 ## Preconditions
 
 1. Run the setup doctor.
-2. Resolve the feature root and stable steps through Beads JSON.
+2. Resolve the feature root and stable steps through Beads JSON using the
+   selector/default rules above.
 3. Verify the implementation-approval milestone is closed and its human gate is
    resolved. If either is incomplete, route to `/review-feature-spec`; never
    recommend migration.
