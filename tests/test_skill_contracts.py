@@ -21,6 +21,12 @@ def test_feature_skills_use_native_beads_workflow_primitives() -> None:
     assert "bd mol progress" in skill("implement-feature")
     assert "git merge --ff-only" in skill("close-feature")
     assert "gh:pr" in skill("close-feature")
+    close = skill("close-feature")
+    assert "whole feature branch" in close
+    assert "log --oneline --no-merges <target>..HEAD" in close
+    assert "diff --stat <target>...HEAD" in close
+    assert "origin/<target>" in close
+    assert "docs-only" in close
 
 
 def test_alignment_skills_preserve_three_authority_tiers() -> None:

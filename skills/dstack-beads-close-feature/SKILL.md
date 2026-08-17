@@ -72,22 +72,47 @@ The explicit `merge` argument authorizes a fast-forward delivery attempt.
 ## `pr`
 
 The explicit `pr` argument authorizes preparing a PR, not silently choosing its
-message.
+message. A PR delivers the **whole feature branch**, not merely the final
+closeout commit.
 
-1. update/revalidate the candidate against the current target branch;
-2. present the proposed PR title and body;
-3. require explicit approval unless the user already supplied the complete
-   approved title and body;
-4. push the branch and create the PR non-interactively;
-5. create a native `gh:pr` gate that blocks the feature root and uses the PR
+1. Resolve the current recorded target branch from the local target worktree.
+   Fetching `origin` may refresh remote state, but `origin/<target>` is not a
+   substitute for the recorded local target branch. If local target and remote
+   target differ, report that explicitly before proposing or creating the PR.
+2. Update/revalidate the candidate against the current recorded target branch.
+3. Before drafting the PR, inspect the complete feature delta from target to
+   candidate, including both the commit series and aggregate diff:
+
+   ```bash
+   git -C <feature-worktree> log --oneline --no-merges <target>..HEAD
+   git -C <feature-worktree> diff --stat <target>...HEAD
+   git -C <feature-worktree> diff --name-status <target>...HEAD
+   ```
+
+4. Draft the PR title from the delivered feature as a whole. Do not derive the
+   title from the closeout commit subject merely because it is `HEAD`.
+5. Draft the PR body from the whole feature delta. Summarize material product,
+   source, configuration, test, and documentation changes represented by
+   `<target>...HEAD`; include closeout documentation as one part of that
+   summary, not as the feature itself. Include validation and any accepted
+   risks or pending delivery-stage checks.
+6. Sanity-check the draft against `git diff --stat <target>...HEAD`. A docs-only
+   PR title/body is invalid when the feature delta contains non-documentation
+   source/config/test changes. Likewise, do not advertise code changes that are
+   absent from the aggregate diff.
+7. Present the proposed PR title and body.
+8. Require explicit approval unless the user already supplied the complete
+   approved title and body.
+9. Push the branch and create the PR non-interactively.
+10. create a native `gh:pr` gate that blocks the feature root and uses the PR
    number as its await identifier;
 
    ```bash
    bd gate create --type gh:pr --blocks <feature-root-id> \
      --await-id <pr-number> --reason "Await merged feature PR" --json
    ```
-6. add the PR URL and gate ID as a root comment;
-7. leave the root open.
+11. add the PR URL and gate ID as a root comment;
+12. leave the root open.
 
 On a later invocation, run `bd gate check`. If the PR gate is still open, report
 and stop. If it confirms merge, verify the target contains the candidate, close

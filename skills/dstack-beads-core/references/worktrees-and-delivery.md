@@ -66,6 +66,12 @@ workflow.
 
 `pr` means:
 
+- resolve the recorded **local target branch** first; do not silently substitute
+  `origin/<target>` for it;
+- inspect the complete `<target>..HEAD` commit series and `<target>...HEAD`
+  aggregate diff before drafting the PR;
+- title and summarize the whole delivered feature, not merely the closeout/HEAD
+  commit;
 - present the proposed title and body for explicit approval;
 - create the PR only after approval;
 - create a native `gh:pr` gate that blocks the molecule root;
