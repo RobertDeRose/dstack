@@ -8,7 +8,7 @@ like kinds. Corrective tasks are created dynamically beneath the corrections
 epic and depend on that approved milestone. Tier 3 uses native dynamic fan-in
 and performs final reconciliation and delivery.
 """
-version = 3
+version = 4
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -39,8 +39,8 @@ id = "analysis"
 title = "Analyze project alignment: {{audit_title}}"
 type = "task"
 priority = 1
-labels = ["dstack:step:alignment-analysis", "audit:{{audit_slug}}"]
-metadata = { dstack_step = "alignment-analysis", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+labels = ["dstack:step:alignment-analysis"]
+metadata = { dstack_step = "alignment-analysis" }
 description = """
 Analyze {{scope}} at {{baseline_commit}}. Compare specifications, reader
 documentation, implementation, tests, Beads work, and delivery evidence.
@@ -54,8 +54,8 @@ title = "Approve project-alignment execution: {{audit_title}}"
 type = "task"
 priority = 1
 needs = ["analysis"]
-labels = ["dstack:step:alignment-approval", "audit:{{audit_slug}}"]
-metadata = { dstack_step = "alignment-approval", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+labels = ["dstack:step:alignment-approval"]
+metadata = { dstack_step = "alignment-approval" }
 description = """
 Human authorization milestone for Tier 2. The formula-generated gate blocks
 this task. /project-alignment-execute resolves the gate and closes this
@@ -72,8 +72,8 @@ id = "corrections"
 title = "Execute project-alignment corrections: {{audit_title}}"
 type = "epic"
 priority = 1
-labels = ["dstack:step:alignment-corrections", "audit:{{audit_slug}}"]
-metadata = { dstack_step = "alignment-corrections", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+labels = ["dstack:step:alignment-corrections"]
+metadata = { dstack_step = "alignment-corrections" }
 description = """
 Container for approved corrective work. Add each bounded correction as a child
 and make it depend on the alignment-approval milestone. Close this epic only
@@ -87,8 +87,8 @@ type = "task"
 priority = 1
 needs = ["approval"]
 waits_for = "children-of(corrections)"
-labels = ["dstack:step:alignment-landing", "audit:{{audit_slug}}"]
-metadata = { dstack_step = "alignment-landing", target_branch = "{{target_branch}}", baseline_commit = "{{baseline_commit}}", scope = "{{scope}}" }
+labels = ["dstack:step:alignment-landing"]
+metadata = { dstack_step = "alignment-landing" }
 description = """
 Perform final reconciliation, repository validation, integration review, and
 the explicitly requested delivery action. Closing this step makes the audit

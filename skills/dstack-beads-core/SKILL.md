@@ -43,7 +43,11 @@ Do not add a helper for:
 - CI or PR polling;
 - task ownership;
 - worktree lifecycle;
-- workflow migration.
+- workflow migration engines.
+
+The single compatibility exception is `/adopt-feature`, which translates one
+active legacy dstack feature into the current native formula skeleton using
+ordinary Beads operations. It does not maintain migration state.
 
 ## Stable workflow skeletons
 

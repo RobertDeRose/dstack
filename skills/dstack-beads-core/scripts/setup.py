@@ -212,6 +212,19 @@ def validate_dstack_formula_contract(
             f"{formula_name} approval step is missing {expected_approval_label}"
         )
 
+    # Beads 1.2.2 interpolates formula variables reliably in titles,
+    # descriptions, and gate IDs, but can preserve template expressions
+    # literally in issue labels/metadata. dstack therefore requires stable
+    # formula children to use only static identity in those fields.
+    for step_id, step in steps.items():
+        metadata = step.get("metadata", {})
+        step_labels = step.get("labels", [])
+        encoded = json.dumps({"metadata": metadata, "labels": step_labels}, sort_keys=True)
+        if "{{" in encoded:
+            raise SetupError(
+                f"{formula_name} step {step_id} must not template labels or metadata"
+            )
+
 
 def parse_json_output(result: CommandResult, *, context: str) -> Any:
     try:

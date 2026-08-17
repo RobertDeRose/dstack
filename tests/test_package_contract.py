@@ -13,6 +13,7 @@ def test_package_registers_direct_prompt_commands_and_skills() -> None:
     commands = {
         "setup-project",
         "plan-features",
+        "adopt-feature",
         "start-feature",
         "review-feature-spec",
         "implement-feature",

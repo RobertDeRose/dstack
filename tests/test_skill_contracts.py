@@ -53,3 +53,13 @@ def test_human_gate_ids_are_not_misused_as_waits_for_gate_modes() -> None:
     )
     assert "--waits-for-gate <human-gate-id>" not in all_text
     assert "--waits-for-gate <gate-id>" not in all_text
+
+
+def test_adopt_feature_is_the_only_legacy_migration_path() -> None:
+    adopt = skill("adopt-feature")
+    assert "one-time compatibility path" in adopt
+    assert "bd mol pour dstack-feature" in adopt
+    assert "Never delete the legacy graph" in adopt
+    assert "Do not recreate reviewer/coordinator tasks" in adopt
+    assert "supersede the legacy feature root with the new root **last**" in adopt
+    assert "/review-feature-spec <slug>" in adopt

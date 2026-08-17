@@ -14,11 +14,11 @@ dependencies, gates, ready work, claims, TODOs, comments, and native worktrees.
   readiness, claims, comments, TODOs, and completion state.
 - **Git** owns source, branches, commits, diffs, and delivery boundaries.
 - **Repository documentation** owns intended and supported behavior.
-- **dstack** owns the workflow policy, review rules, and one installation helper
-  that installs and validates the bundled formula source.
+- **dstack** owns the workflow policy, review rules, one installation helper that installs and validates the bundled
+  formula source, and one compatibility skill for adopting active legacy features.
 
 There is no dstack task database, readiness engine, scheduler, approval state
-machine, reviewer topology, migration system, or interaction ledger.
+machine, reviewer topology, migration engine, or interaction ledger.
 
 ## Commands
 
@@ -29,6 +29,7 @@ After installing the Pi package and running `/setup-project` in a repository:
 
 ```text
 /plan-features
+/adopt-feature <legacy-feature>
 /start-feature <feature>
 /review-feature-spec <feature>
 /implement-feature <feature> [task | --all]
@@ -86,9 +87,24 @@ cannot block an epic directly. The workstream remains an epic so native
 molecule progress, ready work, and dynamic-child fan-in remain intact.
 
 The dynamic work is ordinary Beads work. Each task is a child of its workstream
-epic and depends on the task-sized approval milestone. dstack uses
+epic and depends on the task-sized approval milestone. Feature-level concrete
+metadata lives on the molecule root; stable formula children carry only static
+step identity so Beads formula-variable interpolation is not required in labels
+or metadata. dstack uses
 `bd ready --mol`, atomic claims, dependencies, gates, `bd mol progress`, and
 `bd mol current` directly.
+
+## Legacy feature adoption
+
+`/adopt-feature <feature>` is the one-time compatibility path for a feature that
+is already open under the old dstack lifecycle. It pours the current formula,
+preserves completed work and Git history, recreates only real remaining
+implementation tasks, carries closeout requirements forward, supersedes obsolete
+workflow ceremony, and leaves the new specification gate open. It never creates
+a migration database or rewrites source history.
+
+Do not use it for merely planned backlog features or already-current dstack
+molecules.
 
 ## Discovery policy
 

@@ -119,3 +119,14 @@ def test_formulas_do_not_encode_review_ceremony() -> None:
         "interaction ledger",
     ):
         assert forbidden not in text
+
+
+def test_stable_formula_children_do_not_template_labels_or_metadata() -> None:
+    for name in ("dstack-feature", "dstack-project-alignment"):
+        formula = load(name)
+        for step in formula["steps"]:
+            labels = step.get("labels", [])
+            metadata = step.get("metadata", {})
+            rendered = repr((labels, metadata))
+            assert "{{" not in rendered
+            assert metadata == {"dstack_step": metadata["dstack_step"]}

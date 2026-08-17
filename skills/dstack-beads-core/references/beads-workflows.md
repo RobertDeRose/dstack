@@ -26,19 +26,23 @@ An explicit Bead ID wins. Otherwise:
 3. match the exact slug label first, then a unique case-insensitive title;
 4. stop on zero or multiple matches.
 
-Feature roots carry:
+Feature roots carry all feature-level identity and concrete metadata:
 
 ```text
 workflow:feature
 feature:<slug>
+metadata.feature_slug=<slug>
+metadata.base_branch=<branch>
+metadata.design_path=<path>
 ```
 
-Audit roots carry:
+Stable formula children carry only their static `dstack:step:*` label and
+`metadata.dstack_step`. Do not duplicate templated feature variables into child
+labels or metadata.
 
-```text
-workflow:project-alignment
-audit:<slug>
-```
+Audit roots carry audit-level identity and concrete audit metadata. Stable
+alignment children likewise carry only static step identity; dynamic correction
+tasks may carry `audit:<slug>` because dstack creates those tasks explicitly.
 
 Do not maintain a hidden active-feature pointer.
 

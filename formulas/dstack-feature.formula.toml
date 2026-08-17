@@ -9,7 +9,7 @@ implementation work is created dynamically beneath the implementation epic and
 depends on the approved milestone. Closeout uses native dynamic fan-in over the
 implementation children.
 """
-version = 3
+version = 4
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -36,8 +36,8 @@ id = "specification"
 title = "Review feature specification: {{feature_title}}"
 type = "task"
 priority = 1
-labels = ["dstack:step:specification", "feature:{{feature_slug}}"]
-metadata = { dstack_step = "specification", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }
+labels = ["dstack:step:specification"]
+metadata = { dstack_step = "specification" }
 description = """
 Review and reconcile {{design_path}} and the proposed implementation graph.
 Resolve genuine product or architecture decisions, commit the accepted
@@ -50,8 +50,8 @@ title = "Authorize feature implementation: {{feature_title}}"
 type = "task"
 priority = 1
 needs = ["specification"]
-labels = ["dstack:step:implementation-approval", "feature:{{feature_slug}}"]
-metadata = { dstack_step = "implementation-approval", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }
+labels = ["dstack:step:implementation-approval"]
+metadata = { dstack_step = "implementation-approval" }
 description = """
 Human authorization milestone for implementation. The formula-generated gate
 blocks this task. After the accepted specification is committed,
@@ -69,8 +69,8 @@ id = "implementation"
 title = "Implementation workstream: {{feature_title}}"
 type = "epic"
 priority = 1
-labels = ["dstack:step:implementation", "feature:{{feature_slug}}"]
-metadata = { dstack_step = "implementation", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }
+labels = ["dstack:step:implementation"]
+metadata = { dstack_step = "implementation" }
 description = """
 Container for the feature's real implementation tasks. Add bounded tasks as
 children of this epic. Each task must depend on the implementation-approval
@@ -85,8 +85,8 @@ type = "task"
 priority = 1
 needs = ["approval"]
 waits_for = "children-of(implementation)"
-labels = ["dstack:step:closeout", "feature:{{feature_slug}}"]
-metadata = { dstack_step = "closeout", design_path = "{{design_path}}", base_branch = "{{base_branch}}" }
+labels = ["dstack:step:closeout"]
+metadata = { dstack_step = "closeout" }
 description = """
 Reconcile delivered behavior, reader documentation, validation evidence, and
 remaining findings. Produce and review the final candidate. Closing this step
