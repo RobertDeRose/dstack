@@ -1,112 +1,20 @@
 ---
 name: dstack-beads-project-alignment-execute
-description: "Resolve the native human approval gate and execute ready corrective work from a project-alignment molecule."
+description: "Approve and execute native ready project-alignment corrections against current repository evidence."
 ---
 
 # Project alignment execute
 
-Read the `dstack-beads-core` skill and every core reference before acting.
+Explicit invocation authorizes Tier 2 corrections, not delivery.
 
-This is Tier 2. Use the user's input as an audit selector, optional correction
-selector, and optional `--all`. Default to one correction.
+1. Run `dstackctl.py alignment approve <audit>` idempotently.
+2. Claim one correction with `alignment claim-next` (or repeat for `--all`).
+3. Revalidate the finding against the repository as it exists now. If already
+   fixed or obsolete, update/close the Bead with the concrete reason instead of
+   implementing stale instructions.
+4. Otherwise decide and implement the smallest correct correction, validate,
+   review, and commit through `dstackctl.py git commit --bead <id>`.
+5. Complete with `alignment finish-task`; finally run
+   `alignment finish-workstream`.
 
-Invoking this command is explicit approval of the Tier 1 plan represented by the
-selected audit molecule. It authorizes resolving that audit's human gate; it
-does not authorize final delivery.
-
-## Preconditions and approval
-
-1. Run the setup doctor.
-2. Resolve exactly one open project-alignment root and its stable steps.
-3. Verify the analysis step is closed and contains a durable plan summary.
-4. Verify the recorded target branch still exists and report material drift
-   from the approved Tier 1 evidence before source mutation.
-5. Resolve the unique open human gate blocking the alignment-approval
-   milestone.
-6. Resolve that gate.
-7. Claim the now-ready alignment-approval milestone, add a concise approval
-   comment, and close it.
-8. Verify corrective children now participate in the native ready frontier.
-
-If the gate was already resolved, resume Tier 2 without asking for approval
-again. If the approval milestone remains open after an interruption, claim and
-close that existing milestone. If Tier 1 is incomplete, stop and route to
-`/project-alignment-review`.
-
-## Native audit worktree
-
-Create or reuse a Beads-managed worktree on:
-
-```text
-audit/<audit-slug>
-```
-
-Create the branch from the current target unless the approved plan explicitly
-requires another existing branch point. Verify the exact path and branch before source changes. Tier
-2 source mutations occur only in this worktree.
-
-## Select and claim correction work
-
-Without a named correction:
-
-```bash
-bd ready --mol <corrections-workstream-id> \
-  --exclude-type epic \
-  --claim \
-  --json
-```
-
-For a named correction, verify ancestry and readiness before `bd update --claim`.
-
-When no work is ready, use `bd mol current` and `bd mol progress` to report real
-blockers. Do not compute an execution schedule or require global metadata.
-
-## Execute one correction
-
-1. read the selected Bead, direct blockers, Tier 1 evidence, accepted docs,
-   relevant source/tests, and required validation;
-2. implement only the bounded corrective outcome;
-3. reconcile documentation when the correction changes supported behavior;
-4. run focused validation and repository checks required by risk/policy;
-5. create one correction-sized candidate commit with footer
-   `Beads: <correction-id>`;
-6. run the shared independent review loop;
-7. correct findings, revalidate, and safely amend the private commit;
-8. use the discovery policy for incidental work;
-9. add a durable Markdown review/validation comment to the correction Bead;
-10. close the correction only after approval, permitted accepted risk, or an
-    explicit later-stage validation contract.
-
-A later correctness finding remains `changes requested`. Another review is
-always available after user authorization. Do not create redesign or reviewer
-replacement state.
-
-## Continue or stop
-
-Without `--all`, stop after one correction.
-
-With `--all`, continue serially until no work is ready, a real user decision is
-required, required correction-level validation cannot run, the worktree is
-unsafe, or the user interrupts.
-
-When every required corrective child is complete or explicitly accepted/deferred:
-
-1. verify `bd mol progress <corrections-id> --json`;
-2. close the corrections epic;
-3. verify the formula's landing step becomes ready through native dependency and
-   fan-in behavior;
-4. recommend `/project-alignment-land <audit-slug>`.
-
-Do not merge, open a PR, or close the audit root in Tier 2.
-
-## Return
-
-- audit, approval gate/milestone resolution, and worktree;
-- claimed correction;
-- behavior/files changed;
-- validation and stage-specific pending evidence;
-- review findings/corrections and authorization for extra reviews;
-- correction commit/comment/closure;
-- native corrections and audit progress;
-- ready and blocked work;
-- exact next command.
+Do not deliver, create a PR, or store Git SHAs in Beads.

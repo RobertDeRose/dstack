@@ -9,7 +9,7 @@ implementation work is created dynamically beneath the implementation epic and
 depends on the approved milestone. Closeout uses native dynamic fan-in over the
 implementation children.
 """
-version = 4
+version = 7
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -23,10 +23,6 @@ description = "Kebab-case feature identifier"
 required = true
 pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$"
 
-[vars.base_branch]
-description = "Integration branch from which the feature starts"
-default = "dev"
-
 [vars.design_path]
 description = "Repository-relative feature design document"
 required = true
@@ -37,11 +33,10 @@ title = "Review feature specification: {{feature_title}}"
 type = "task"
 priority = 1
 labels = ["dstack:step:specification"]
-metadata = { dstack_step = "specification" }
 description = """
 Review and reconcile {{design_path}} and the proposed implementation graph.
-Resolve genuine product or architecture decisions and commit the accepted
-specification with this Bead ID in the commit footer.
+Resolve genuine product or architecture decisions. Commit only when repository
+content changes; approval is recorded as a digest of the accepted design content.
 """
 
 [[steps]]
@@ -51,10 +46,9 @@ type = "task"
 priority = 1
 needs = ["specification"]
 labels = ["dstack:step:implementation-approval"]
-metadata = { dstack_step = "implementation-approval" }
 description = """
 Human authorization milestone for implementation. The formula-generated gate
-blocks this task. After the accepted specification is committed,
+blocks this task. After the accepted specification is approved,
 /review-feature-spec resolves the gate and closes this milestone. Dynamic
 implementation tasks depend on this task rather than depending directly on a
 gate or on the implementation epic.
@@ -70,7 +64,6 @@ title = "Implementation workstream: {{feature_title}}"
 type = "epic"
 priority = 1
 labels = ["dstack:step:implementation"]
-metadata = { dstack_step = "implementation" }
 description = """
 Container for the feature's real implementation tasks. Add bounded tasks as
 children of this epic. Each task must depend on the implementation-approval
@@ -86,10 +79,9 @@ priority = 1
 needs = ["approval"]
 waits_for = "children-of(implementation)"
 labels = ["dstack:step:closeout"]
-metadata = { dstack_step = "closeout" }
 description = """
 Reconcile delivered behavior, reader documentation, validation evidence, and
 remaining findings. Produce and review the final candidate. Closing this step
-makes the feature delivery-ready; the molecule root remains open until the
+makes the feature eligible for delivery; the molecule root remains open until the
 requested PR or fast-forward delivery actually completes.
 """

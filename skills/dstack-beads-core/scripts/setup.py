@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install and validate dstack's Beads formulas in a target Git repository."""
+"""Install, validate, and explicitly repair dstack's Beads integration."""
 
 from __future__ import annotations
 
@@ -7,93 +7,55 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from dstacklib import (
+    ALIGNMENT_STEPS,
+    FEATURE_STEPS,
+    BeadsClient,
+    DstackError,
+    as_items,
+    feature_slug,
+    git_root,
+    has_label,
+    issue_labels,
+    issue_metadata,
+    parse_json,
+    root_metadata_value,
+    run,
+)
 
 FORMULA_NAMES = ("dstack-feature", "dstack-project-alignment")
 PREFLIGHT_VARS: dict[str, dict[str, str]] = {
     "dstack-feature": {
         "feature_title": "Dstack Formula Preflight",
         "feature_slug": "dstack-formula-preflight",
-        "base_branch": "main",
         "design_path": "docs/src/features/dstack-formula-preflight/design.md",
     },
     "dstack-project-alignment": {
         "audit_title": "Dstack Alignment Preflight",
         "audit_slug": "dstack-alignment-preflight",
-        "target_branch": "main",
         "scope": "formula validation",
     },
 }
 
 
-class SetupError(RuntimeError):
-    """Raised when setup cannot proceed safely."""
-
-
-@dataclass(frozen=True)
-class CommandResult:
-    returncode: int
-    stdout: str
-    stderr: str
-
-
-def run(
-    command: Sequence[str],
-    *,
-    cwd: Path,
-    check: bool = True,
-    env: Mapping[str, str] | None = None,
-) -> CommandResult:
-    try:
-        # File-backed capture avoids pipe hangs when a command starts a helper
-        # process that briefly inherits its standard streams.
-        with tempfile.TemporaryFile(mode="w+t") as stdout_file, tempfile.TemporaryFile(
-            mode="w+t"
-        ) as stderr_file:
-            completed = subprocess.run(
-                command,
-                cwd=cwd,
-                check=False,
-                text=True,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                env=dict(env) if env is not None else None,
-            )
-            stdout_file.seek(0)
-            stderr_file.seek(0)
-            stdout = stdout_file.read()
-            stderr = stderr_file.read()
-    except FileNotFoundError as exc:
-        raise SetupError(f"required executable not found: {command[0]}") from exc
-
-    result = CommandResult(completed.returncode, stdout, stderr)
-    if check and completed.returncode != 0:
-        detail = stderr.strip() or stdout.strip()
-        raise SetupError(f"command failed ({' '.join(command)}): {detail}")
-
-    return result
+class SetupError(DstackError):
+    """Raised when setup or repair cannot proceed safely."""
 
 
 def package_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def resolve_git_root(requested: Path) -> Path:
-    result = run(["git", "rev-parse", "--show-toplevel"], cwd=requested.resolve())
-    return Path(result.stdout.strip()).resolve()
-
-
 def ensure_beads(root: Path, *, initialize: bool) -> None:
-    beads_dir = root / ".beads"
-    if beads_dir.exists():
+    if (root / ".beads").is_dir():
         return
     if not initialize:
-        raise SetupError("Beads is not initialized; rerun with --init after authorization")
+        raise SetupError("Beads is not initialized; rerun setup after authorization")
     run(
         [
             "bd",
@@ -105,236 +67,114 @@ def ensure_beads(root: Path, *, initialize: bool) -> None:
         ],
         cwd=root,
     )
-    if not beads_dir.exists():
+    if not (root / ".beads").is_dir():
         raise SetupError("bd init completed without creating .beads")
 
 
-def copy_formula(source: Path, destination: Path, *, force: bool) -> str:
-    if destination.exists():
-        if destination.read_bytes() == source.read_bytes():
-            return "unchanged"
-        if not force:
-            raise SetupError(
-                f"formula differs: {destination}; rerun with --force to replace it"
-            )
-        state = "updated"
-    else:
-        state = "installed"
-
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, destination)
-    return state
-
-
-def step_map(formula: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
-    steps = formula.get("steps")
-    if not isinstance(steps, list):
-        raise SetupError("formula steps must be a list")
-    result: dict[str, Mapping[str, Any]] = {}
-    for raw in steps:
-        if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
-            raise SetupError("formula contains a step without a string id")
-        result[raw["id"]] = raw
+def formula_vars(name: str) -> list[str]:
+    result: list[str] = []
+    for key, value in PREFLIGHT_VARS[name].items():
+        result.extend(["--var", f"{key}={value}"])
     return result
 
 
-def require_step_type(
-    steps: Mapping[str, Mapping[str, Any]],
-    step_id: str,
-    expected_type: str,
-) -> Mapping[str, Any]:
-    try:
-        step = steps[step_id]
-    except KeyError as exc:
-        raise SetupError(f"missing required formula step: {step_id}") from exc
-    actual = step.get("type", "task")
-    if actual != expected_type:
-        raise SetupError(
-            f"formula step {step_id} must remain type={expected_type}, got {actual}"
-        )
-    return step
+def step_map(formula: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    raw = formula.get("steps")
+    if not isinstance(raw, list):
+        raise SetupError("formula steps must be a list")
+    result: dict[str, Mapping[str, Any]] = {}
+    for item in raw:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            raise SetupError("formula contains an invalid step")
+        result[str(item["id"])] = item
+    return result
 
 
-def validate_dstack_formula_contract(
-    formula_name: str,
-    formula: Mapping[str, Any],
-) -> None:
-    """Reject a cookable formula that violates dstack's workflow contract."""
-
+def validate_formula_contract(name: str, formula: Mapping[str, Any]) -> None:
     steps = step_map(formula)
-    if formula_name == "dstack-feature":
-        expected_ids = {"specification", "approval", "implementation", "closeout"}
-        specification = require_step_type(steps, "specification", "task")
-        approval = require_step_type(steps, "approval", "task")
-        workstream = require_step_type(steps, "implementation", "epic")
-        terminal = require_step_type(steps, "closeout", "task")
-        expected_waits_for = "children-of(implementation)"
-        expected_approval_label = "dstack:step:implementation-approval"
-    elif formula_name == "dstack-project-alignment":
-        expected_ids = {"analysis", "approval", "corrections", "landing"}
-        specification = require_step_type(steps, "analysis", "task")
-        approval = require_step_type(steps, "approval", "task")
-        workstream = require_step_type(steps, "corrections", "epic")
-        terminal = require_step_type(steps, "landing", "task")
-        expected_waits_for = "children-of(corrections)"
-        expected_approval_label = "dstack:step:alignment-approval"
+    if name == "dstack-feature":
+        expected = {
+            "specification": ("task", FEATURE_STEPS["specification"]),
+            "approval": ("task", FEATURE_STEPS["approval"]),
+            "implementation": ("epic", FEATURE_STEPS["implementation"]),
+            "closeout": ("task", FEATURE_STEPS["closeout"]),
+        }
+        planning, approval, workstream, terminal = (
+            "specification",
+            "approval",
+            "implementation",
+            "closeout",
+        )
+    elif name == "dstack-project-alignment":
+        expected = {
+            "analysis": ("task", ALIGNMENT_STEPS["analysis"]),
+            "approval": ("task", ALIGNMENT_STEPS["approval"]),
+            "corrections": ("epic", ALIGNMENT_STEPS["corrections"]),
+            "landing": ("task", ALIGNMENT_STEPS["landing"]),
+        }
+        planning, approval, workstream, terminal = (
+            "analysis",
+            "approval",
+            "corrections",
+            "landing",
+        )
     else:
-        raise SetupError(f"unknown dstack formula contract: {formula_name}")
+        raise SetupError(f"unknown dstack formula: {name}")
 
-    if set(steps) != expected_ids:
-        raise SetupError(
-            f"{formula_name} must contain exactly {sorted(expected_ids)}, "
-            f"got {sorted(steps)}"
-        )
-    if approval.get("needs") != [specification["id"]]:
-        raise SetupError(
-            f"{formula_name} approval must depend only on {specification['id']}"
-        )
-    gate = approval.get("gate")
+    if set(steps) != set(expected):
+        raise SetupError(f"{name} must contain exactly {sorted(expected)}")
+    for step_id, (expected_type, expected_label) in expected.items():
+        step = steps[step_id]
+        actual_type = str(step.get("type") or "task")
+        if actual_type != expected_type:
+            raise SetupError(f"{name} step {step_id} must be {expected_type}, got {actual_type}")
+        if step.get("labels") != [expected_label]:
+            raise SetupError(f"{name} step {step_id} must have only label {expected_label}")
+        if step.get("metadata"):
+            raise SetupError(f"{name} step {step_id} must not duplicate identity in metadata")
+        encoded = json.dumps(step, sort_keys=True)
+        labels = json.dumps(step.get("labels", []))
+        metadata = json.dumps(step.get("metadata", {}))
+        if "{{" in labels or "{{" in metadata:
+            raise SetupError(f"{name} step {step_id} templates labels or metadata")
+        if not encoded:
+            raise SetupError("invalid formula step")
+
+    if steps[approval].get("needs") != [planning]:
+        raise SetupError(f"{name} approval must depend only on {planning}")
+    gate = steps[approval].get("gate")
     if not isinstance(gate, dict) or gate.get("type") != "human":
-        raise SetupError(f"{formula_name} approval must carry a human gate")
-    if workstream.get("gate"):
-        raise SetupError(f"{formula_name} workstream epic must not carry a gate")
-    if workstream.get("needs") or workstream.get("depends_on"):
-        raise SetupError(
-            f"{formula_name} workstream epic must not have ordinary task blockers"
-        )
-    if terminal.get("needs") != ["approval"]:
-        raise SetupError(f"{formula_name} terminal step must depend on approval")
-    if terminal.get("waits_for") != expected_waits_for:
-        raise SetupError(
-            f"{formula_name} terminal step must wait for {expected_waits_for}"
-        )
-    labels = approval.get("labels", [])
-    if expected_approval_label not in labels:
-        raise SetupError(
-            f"{formula_name} approval step is missing {expected_approval_label}"
-        )
-
-    # Beads 1.2.2 interpolates formula variables reliably in titles,
-    # descriptions, and gate IDs, but can preserve template expressions
-    # literally in issue labels/metadata. dstack therefore requires stable
-    # formula children to use only static identity in those fields.
-    for step_id, step in steps.items():
-        metadata = step.get("metadata", {})
-        step_labels = step.get("labels", [])
-        encoded = json.dumps({"metadata": metadata, "labels": step_labels}, sort_keys=True)
-        if "{{" in encoded:
-            raise SetupError(
-                f"{formula_name} step {step_id} must not template labels or metadata"
-            )
+        raise SetupError(f"{name} approval must carry a human gate")
+    if steps[workstream].get("needs") or steps[workstream].get("gate"):
+        raise SetupError(f"{name} workstream must remain an ungated epic container")
+    if steps[terminal].get("needs") != [approval]:
+        raise SetupError(f"{name} terminal must depend on approval")
+    if steps[terminal].get("waits_for") != f"children-of({workstream})":
+        raise SetupError(f"{name} terminal must use native dynamic child fan-in")
 
 
-def parse_json_output(result: CommandResult, *, context: str) -> Any:
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise SetupError(f"{context} returned invalid JSON") from exc
-
-
-def issue_items(payload: Any) -> list[dict[str, Any]]:
-    """Normalize Beads 1.x arrays and the opt-in v2 JSON envelope."""
-
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    if isinstance(payload, dict):
-        for key in ("issues", "items", "data"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        if isinstance(payload.get("id"), str):
-            return [payload]
-    return []
-
-
-def formula_var_args(formula_name: str) -> list[str]:
-    try:
-        variables = PREFLIGHT_VARS[formula_name]
-    except KeyError as exc:
-        raise SetupError(f"missing preflight variables for {formula_name}") from exc
-    args: list[str] = []
-    for key, value in variables.items():
-        args.extend(["--var", f"{key}={value}"])
-    return args
-
-
-def validate_formula_source(
+def validate_formula(
     root: Path,
-    formula_name: str,
+    name: str,
     *,
     env: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    result = run(
-        ["bd", "formula", "show", formula_name, "--json"],
-        cwd=root,
-        env=env,
-    )
-    parsed = parse_json_output(result, context=f"bd formula show for {formula_name}")
-    if not isinstance(parsed, dict):
-        raise SetupError(f"bd formula show returned a non-object for {formula_name}")
-    validate_dstack_formula_contract(formula_name, parsed)
-    return parsed
-
-
-def seed_formula(
-    root: Path,
-    formula_name: str,
-    *,
-    env: Mapping[str, str] | None = None,
-) -> None:
-    run(
-        ["bd", "mol", "seed", formula_name, *formula_var_args(formula_name)],
-        cwd=root,
-        env=env,
-    )
-
-
-def pour_formula_preflight(
-    root: Path,
-    formula_name: str,
-    *,
-    env: Mapping[str, str] | None = None,
-) -> None:
-    result = run(
-        [
-            "bd",
-            "mol",
-            "pour",
-            formula_name,
-            *formula_var_args(formula_name),
-            "--json",
-        ],
-        cwd=root,
-        env=env,
-    )
-    payload = parse_json_output(result, context=f"bd mol pour for {formula_name}")
+    result = run(["bd", "formula", "show", name, "--json"], cwd=root, env=env)
+    payload = parse_json(result.stdout, context=f"bd formula show {name}")
     if not isinstance(payload, dict):
-        raise SetupError(f"bd mol pour returned a non-object for {formula_name}")
-    if not any(
-        isinstance(payload.get(key), str) and payload.get(key)
-        for key in ("new_epic_id", "root_id")
-    ):
-        raise SetupError(f"bd mol pour did not return a root ID for {formula_name}")
+        raise SetupError(f"bd formula show returned a non-object for {name}")
+    validate_formula_contract(name, payload)
+    run(["bd", "mol", "seed", name, *formula_vars(name)], cwd=root, env=env)
+    return payload
 
 
-def validate_formula_bundle(source_dir: Path) -> None:
-    """Pour every bundled formula in an isolated real Beads repository.
-
-    ``bd mol seed`` verifies formula discovery and in-memory cooking. The
-    isolated pour additionally exercises real issue and dependency insertion,
-    including generated gates and task/epic type constraints, without creating
-    template issues or gates in the target repository.
-    """
-
-    with tempfile.TemporaryDirectory(prefix="dstack-formula-preflight-") as raw:
+def validate_bundle(source_dir: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="dstack-preflight-") as raw:
         scratch = Path(raw)
         run(["git", "init", "-q"], cwd=scratch)
-
-        env = dict(os.environ)
-        # Keep the stateful test double isolated from the target test database.
-        if "DSTACK_FAKE_BD_STATE" in env:
+        env: dict[str, str] = {}
+        if "DSTACK_FAKE_BD_STATE" in os.environ:
             env["DSTACK_FAKE_BD_STATE"] = str(scratch / "fake-bd-state.json")
-
         run(
             [
                 "bd",
@@ -349,41 +189,96 @@ def validate_formula_bundle(source_dir: Path) -> None:
         )
         formula_dir = scratch / ".beads" / "formulas"
         formula_dir.mkdir(parents=True, exist_ok=True)
-        for formula_name in FORMULA_NAMES:
-            filename = f"{formula_name}.formula.toml"
-            shutil.copyfile(source_dir / filename, formula_dir / filename)
-        for formula_name in FORMULA_NAMES:
-            validate_formula_source(scratch, formula_name, env=env)
-            seed_formula(scratch, formula_name, env=env)
-            pour_formula_preflight(scratch, formula_name, env=env)
+        for name in FORMULA_NAMES:
+            shutil.copyfile(
+                source_dir / f"{name}.formula.toml",
+                formula_dir / f"{name}.formula.toml",
+            )
+        for name in FORMULA_NAMES:
+            validate_formula(scratch, name, env=env)
+            result = run(
+                ["bd", "mol", "pour", name, *formula_vars(name), "--json"],
+                cwd=scratch,
+                env=env,
+            )
+            payload = parse_json(result.stdout, context=f"bd mol pour {name}")
+            if not isinstance(payload, dict) or not (
+                payload.get("root_id") or payload.get("new_epic_id")
+            ):
+                raise SetupError(f"isolated pour returned no root for {name}")
 
 
-def show_issue_optional(root: Path, issue_id: str) -> dict[str, Any] | None:
-    result = run(["bd", "show", issue_id, "--json"], cwd=root, check=False)
-    if result.returncode != 0:
-        detail = f"{result.stdout}\n{result.stderr}".casefold()
-        if "not found" in detail or "no issues found" in detail:
-            return None
-        raise SetupError(
-            f"command failed (bd show {issue_id} --json): "
-            f"{result.stderr.strip() or result.stdout.strip()}"
+def copy_formula(source: Path, destination: Path, *, force: bool) -> str:
+    if destination.exists():
+        if destination.read_bytes() == source.read_bytes():
+            return "unchanged"
+        if not force:
+            raise SetupError(
+                f"formula differs: {destination}; rerun /setup-project --force"
+            )
+        state = "updated"
+    else:
+        state = "installed"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, destination)
+    return state
+
+
+def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
+    root = git_root(root_arg)
+    ensure_beads(root, initialize=initialize)
+    client = BeadsClient(root)
+    version = client.check_version()
+    client.check_capabilities()
+    source_dir = package_root() / "formulas"
+    validate_bundle(source_dir)
+
+    installed: dict[str, str] = {}
+    for name in FORMULA_NAMES:
+        installed[name] = copy_formula(
+            source_dir / f"{name}.formula.toml",
+            root / ".beads" / "formulas" / f"{name}.formula.toml",
+            force=force,
         )
-    payload = parse_json_output(result, context=f"bd show for {issue_id}")
-    matches = [item for item in issue_items(payload) if item.get("id") == issue_id]
-    if len(matches) != 1:
-        raise SetupError(f"bd show returned an unexpected result for {issue_id}")
-    return matches[0]
+        validate_formula(root, name)
+    return {
+        "status": "ok",
+        "root": str(root),
+        "beads_version": version,
+        "formulas": installed,
+        "preflight": "isolated-formula-pour",
+    }
 
 
-def all_issue_inventory(root: Path) -> list[dict[str, Any]]:
-    """Return every issue, including hidden templates and gate issues.
+def doctor(root_arg: Path) -> dict[str, Any]:
+    root = git_root(root_arg)
+    if not (root / ".beads").is_dir():
+        raise SetupError("Beads is not initialized")
+    client = BeadsClient(root)
+    version = client.check_version()
+    client.check_capabilities()
+    source_dir = package_root() / "formulas"
+    statuses: dict[str, str] = {}
+    for name in FORMULA_NAMES:
+        installed = root / ".beads" / "formulas" / f"{name}.formula.toml"
+        source = source_dir / f"{name}.formula.toml"
+        if not installed.is_file():
+            raise SetupError(f"missing installed formula: {installed}")
+        if installed.read_bytes() != source.read_bytes():
+            raise SetupError(
+                f"installed formula differs from dstack package: {installed}"
+            )
+        validate_formula(root, name)
+        statuses[name] = "available"
+    return {
+        "status": "ok",
+        "root": str(root),
+        "beads_version": version,
+        "formulas": statuses,
+    }
 
-    ``bd list`` excludes templates and gates by default. Older dstack setup
-    persisted formula protos, and an early cleanup could delete only their
-    roots while leaving template steps and gates orphaned. A root-based walk
-    therefore cannot prove that the repository is clean.
-    """
 
+def all_issue_inventory(client: BeadsClient) -> list[dict[str, Any]]:
     result = run(
         [
             "bd",
@@ -395,250 +290,206 @@ def all_issue_inventory(root: Path) -> list[dict[str, Any]]:
             "0",
             "--json",
         ],
-        cwd=root,
+        cwd=client.root,
     )
-    return issue_items(parse_json_output(result, context="bd list inventory"))
+    return as_items(parse_json(result.stdout, context="bd list repair inventory"))
 
 
-def persisted_proto_artifacts(
-    root: Path,
-    formula_name: str,
-    *,
-    inventory: Sequence[Mapping[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
-    """Return verified legacy template artifacts for one reserved formula ID.
-
-    The exact formula name and its dotted namespace are reserved for the
-    accidental graphs created by older ``bd cook --persist`` setup releases.
-    Detection intentionally does not require the root to exist: a prior partial
-    cleanup may have left only orphaned child steps or gates.
-    """
-
-    source = (
-        list(inventory)
-        if inventory is not None
-        else all_issue_inventory(root)
-    )
-    matching_summaries: list[Mapping[str, Any]] = []
-    prefix = f"{formula_name}."
-    for item in source:
-        item_id = item.get("id")
-        if isinstance(item_id, str) and (
-            item_id == formula_name or item_id.startswith(prefix)
-        ):
-            matching_summaries.append(item)
-
-    if not matching_summaries:
-        return []
-
-    artifacts: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for summary in matching_summaries:
-        artifact_id = summary.get("id")
-        if not isinstance(artifact_id, str) or artifact_id in seen:
+def legacy_template_artifacts(client: BeadsClient) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for summary in all_issue_inventory(client):
+        issue_id = str(summary.get("id") or "")
+        if not any(issue_id == name or issue_id.startswith(f"{name}.") for name in FORMULA_NAMES):
             continue
-        seen.add(artifact_id)
-
-        artifact = show_issue_optional(root, artifact_id)
-        if artifact is None:
-            raise SetupError(
-                f"legacy dstack template artifact disappeared during inspection: {artifact_id}"
-            )
-        if artifact.get("is_template") is not True:
-            raise SetupError(
-                f"issue {artifact_id} uses dstack's reserved template namespace "
-                "but is not a dstack template; refusing to delete it"
-            )
-        artifacts.append(artifact)
-
-    artifacts.sort(
-        key=lambda item: (
-            item.get("id") != formula_name,
-            str(item.get("id", "")).count("."),
-            str(item.get("id", "")),
-        )
-    )
-    return artifacts
+        issue = client.show(issue_id)
+        if issue.get("is_template") is not True:
+            raise SetupError(f"reserved dstack template ID is used by non-template issue {issue_id}")
+        result.append(issue)
+    return result
 
 
-def find_legacy_persisted_protos(root: Path) -> dict[str, list[dict[str, Any]]]:
-    inventory = all_issue_inventory(root)
-    found: dict[str, list[dict[str, Any]]] = {}
-    for formula_name in FORMULA_NAMES:
-        artifacts = persisted_proto_artifacts(
-            root,
-            formula_name,
-            inventory=inventory,
-        )
-        if artifacts:
-            found[formula_name] = artifacts
-    return found
+def add_gitignore_line(root: Path, line: str) -> bool:
+    path = root / ".gitignore"
+    existing = path.read_text().splitlines() if path.exists() else []
+    if line in existing:
+        return False
+    with path.open("a", encoding="utf-8") as handle:
+        if existing and existing[-1] != "":
+            handle.write("\n")
+        handle.write(line + "\n")
+    return True
 
 
-def remove_legacy_persisted_protos(
-    root: Path,
-    found: Mapping[str, Sequence[Mapping[str, Any]]],
-) -> list[str]:
-    artifact_ids: list[str] = []
-    for formula_name, artifacts in found.items():
-        prefix = f"{formula_name}."
-        for artifact in artifacts:
-            artifact_id = artifact.get("id")
-            if not isinstance(artifact_id, str) or not (
-                artifact_id == formula_name or artifact_id.startswith(prefix)
-            ):
-                raise SetupError(
-                    f"legacy persisted template inventory is invalid for {formula_name}"
-                )
-            artifact_ids.append(artifact_id)
-
-    artifact_ids = sorted(set(artifact_ids))
-    if not artifact_ids:
-        return []
-
-    # Refuse cleanup if any issue outside the verified set depends on one of
-    # these artifacts. The dry run validates the complete batch before --force
-    # performs the irreversible deletion.
-    run(
-        ["bd", "delete", *artifact_ids, "--dry-run", "--json"],
-        cwd=root,
-    )
-    run(
-        ["bd", "delete", *artifact_ids, "--force", "--json"],
-        cwd=root,
+def tracked(root: Path, path: str) -> bool:
+    return (
+        run(
+            ["git", "ls-files", "--error-unmatch", path],
+            cwd=root,
+            check=False,
+        ).returncode
+        == 0
     )
 
-    remaining = find_legacy_persisted_protos(root)
-    if remaining:
-        remaining_ids = sorted(
-            str(item.get("id"))
-            for artifacts in remaining.values()
-            for item in artifacts
+
+def normalize_current_features(client: BeadsClient, *, force: bool) -> list[str]:
+    changed: list[str] = []
+    roots = client.list(all_statuses=True, labels=["workflow:feature"])
+    for root in roots:
+        root_id = str(root.get("id") or "")
+        if not root_id:
+            continue
+        slug = feature_slug(root)
+        base = root_metadata_value(root, "dstack.base_branch", "base_branch")
+        design = root_metadata_value(root, "dstack.design_path", "design_path")
+        root_args: list[str] = []
+        root_metadata = issue_metadata(root)
+        if base and not root_metadata.get("dstack.base_branch"):
+            root_args.extend(["--set-metadata", f"dstack.base_branch={base}"])
+        if design and not root_metadata.get("dstack.design_path"):
+            root_args.extend(["--set-metadata", f"dstack.design_path={design}"])
+        for key in ("feature_slug", "base_branch", "branch", "worktree_path", "adopted_from"):
+            if key in issue_metadata(root):
+                root_args.extend(["--unset-metadata", key])
+        for label in issue_labels(root):
+            if label == "dstack:delivery-ready":
+                root_args.extend(["--remove-label", label])
+        if root_args:
+            if not force:
+                changed.append(root_id)
+            else:
+                client.update(root_id, *root_args)
+                changed.append(root_id)
+
+        children = client.children(root_id)
+        for child in children:
+            child_id = str(child.get("id") or "")
+            child_args: list[str] = []
+            metadata = issue_metadata(child)
+            for key in ("dstack_step", "base_branch", "design_path"):
+                if key in metadata:
+                    child_args.extend(["--unset-metadata", key])
+            for label in issue_labels(child):
+                if label == "feature:{{feature_slug}}" or (slug and label == f"feature:{slug}"):
+                    child_args.extend(["--remove-label", label])
+            if child_args:
+                if force:
+                    client.update(child_id, *child_args)
+                changed.append(child_id)
+
+        implementation = next(
+            (child for child in children if has_label(child, FEATURE_STEPS["implementation"])),
+            None,
         )
-        raise SetupError(
-            "failed to remove legacy persisted dstack template artifacts: "
-            + ", ".join(remaining_ids)
-        )
-
-    return sorted(found)
-
-
-def restore_formula_files(snapshots: Mapping[Path, bytes | None]) -> None:
-    for destination, previous in snapshots.items():
-        if previous is None:
-            destination.unlink(missing_ok=True)
-        else:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(previous)
+        if implementation:
+            for task in client.children(str(implementation["id"])):
+                task_args: list[str] = []
+                for label in issue_labels(task):
+                    if label == "feature:{{feature_slug}}" or (slug and label == f"feature:{slug}"):
+                        task_args.extend(["--remove-label", label])
+                if task_args:
+                    if force:
+                        client.update(str(task["id"]), *task_args)
+                    changed.append(str(task["id"]))
+    return sorted(set(changed))
 
 
-def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
-    root = resolve_git_root(root_arg)
-    version = run(["bd", "--version"], cwd=root).stdout.strip()
-    ensure_beads(root, initialize=initialize)
+def normalize_current_alignments(client: BeadsClient, *, force: bool) -> list[str]:
+    changed: list[str] = []
+    roots = client.list(all_statuses=True, labels=["workflow:project-alignment"])
+    for root in roots:
+        root_id = str(root.get("id") or "")
+        if not root_id:
+            continue
+        root_args: list[str] = []
+        target = root_metadata_value(root, "dstack.target_branch", "target_branch")
+        scope = root_metadata_value(root, "dstack.scope", "scope")
+        root_metadata = issue_metadata(root)
+        if target and not root_metadata.get("dstack.target_branch"):
+            root_args.extend(["--set-metadata", f"dstack.target_branch={target}"])
+        if scope and not root_metadata.get("dstack.scope"):
+            root_args.extend(["--set-metadata", f"dstack.scope={scope}"])
+        for key in ("audit_slug", "target_branch", "branch", "worktree_path"):
+            if key in issue_metadata(root):
+                root_args.extend(["--unset-metadata", key])
+        for label in issue_labels(root):
+            if label == "dstack:delivery-ready":
+                root_args.extend(["--remove-label", label])
+        if root_args:
+            if force:
+                client.update(root_id, *root_args)
+            changed.append(root_id)
 
-    formula_dir = root / ".beads" / "formulas"
-    source_dir = package_root() / "formulas"
-    installed: dict[str, str] = {}
-    parsed: dict[str, Any] = {}
+        for child in client.children(root_id):
+            child_args: list[str] = []
+            for key in ("dstack_step", "target_branch", "scope"):
+                if key in issue_metadata(child):
+                    child_args.extend(["--unset-metadata", key])
+            for label in issue_labels(child):
+                if label.startswith("audit:"):
+                    child_args.extend(["--remove-label", label])
+            if child_args:
+                if force:
+                    client.update(str(child["id"]), *child_args)
+                changed.append(str(child["id"]))
+    return sorted(set(changed))
 
-    validate_formula_bundle(source_dir)
 
-    legacy_protos = find_legacy_persisted_protos(root)
-    if legacy_protos and not force:
-        names = ", ".join(sorted(legacy_protos))
-        raise SetupError(
-            "legacy persisted dstack template artifacts pollute Beads ready "
-            "work and gates: "
-            f"{names}; rerun with --force to remove only those verified template graphs"
-        )
+def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
+    root = git_root(root_arg)
+    client = BeadsClient(root)
+    client.check_version()
+    templates = legacy_template_artifacts(client)
+    normalized = sorted(
+        set(normalize_current_features(client, force=force)) | set(normalize_current_alignments(client, force=force))
+    )
+    interaction_tracked = tracked(root, ".beads/interactions.jsonl")
 
-    snapshots: dict[Path, bytes | None] = {}
+    if (templates or normalized or interaction_tracked) and not force:
+        return {
+            "status": "repair-required",
+            "template_artifacts": [item["id"] for item in templates],
+            "molecule_items_to_normalize": normalized,
+            "interaction_log_tracked": interaction_tracked,
+        }
+
     removed: list[str] = []
-    try:
-        for formula_name in FORMULA_NAMES:
-            filename = f"{formula_name}.formula.toml"
-            destination = formula_dir / filename
-            snapshots[destination] = destination.read_bytes() if destination.exists() else None
-            installed[formula_name] = copy_formula(
-                source_dir / filename,
-                destination,
-                force=force,
-            )
+    if templates:
+        ids = sorted(str(item["id"]) for item in templates)
+        run(["bd", "delete", *ids, "--dry-run", "--json"], cwd=root)
+        run(["bd", "delete", *ids, "--force", "--json"], cwd=root)
+        removed = ids
 
-        for formula_name in FORMULA_NAMES:
-            parsed[formula_name] = validate_formula_source(root, formula_name)
-            seed_formula(root, formula_name)
-
-        if legacy_protos:
-            removed = remove_legacy_persisted_protos(root, legacy_protos)
-    except Exception:
-        restore_formula_files(snapshots)
-        raise
+    gitignore_changed = False
+    interaction_untracked = False
+    if interaction_tracked:
+        gitignore_changed = add_gitignore_line(root, ".beads/interactions.jsonl")
+        run(["git", "rm", "--cached", "--", ".beads/interactions.jsonl"], cwd=root)
+        interaction_untracked = True
 
     return {
         "status": "ok",
-        "root": str(root),
-        "beads_version": version,
-        "formulas": installed,
-        "validated": sorted(parsed),
-        "preflight": "isolated-formula-pour",
-        "legacy_persisted_protos_removed": removed,
-    }
-
-
-def doctor(root_arg: Path) -> dict[str, Any]:
-    root = resolve_git_root(root_arg)
-    version = run(["bd", "--version"], cwd=root).stdout.strip()
-    if not (root / ".beads").is_dir():
-        raise SetupError("Beads is not initialized")
-
-    statuses: dict[str, str] = {}
-    source_dir = package_root() / "formulas"
-    for formula_name in FORMULA_NAMES:
-        filename = f"{formula_name}.formula.toml"
-        formula_path = root / ".beads" / "formulas" / filename
-        source_path = source_dir / filename
-        if not formula_path.is_file():
-            raise SetupError(f"missing installed formula: {formula_path}")
-        if formula_path.read_bytes() != source_path.read_bytes():
-            raise SetupError(
-                f"installed formula differs from dstack package: {formula_path}; "
-                "rerun /setup-project --force"
-            )
-        validate_formula_source(root, formula_name)
-        seed_formula(root, formula_name)
-        statuses[formula_name] = "available"
-
-    legacy_protos = find_legacy_persisted_protos(root)
-    if legacy_protos:
-        names = ", ".join(sorted(legacy_protos))
-        raise SetupError(
-            "legacy persisted dstack template artifacts remain in Beads: "
-            f"{names}; rerun /setup-project --force"
-        )
-
-    return {
-        "status": "ok",
-        "root": str(root),
-        "beads_version": version,
-        "formulas": statuses,
-        "persisted_protos": "absent",
+        "template_artifacts_removed": removed,
+        "molecule_items_normalized": normalized,
+        "interaction_log_untracked": interaction_untracked,
+        "gitignore_changed": gitignore_changed,
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    install_parser = subparsers.add_parser("install", help="install and validate formulas")
+    install_parser = sub.add_parser("install")
     install_parser.add_argument("--root", type=Path, default=Path.cwd())
     install_parser.add_argument("--init", action="store_true")
     install_parser.add_argument("--force", action="store_true")
 
-    doctor_parser = subparsers.add_parser("doctor", help="validate installed formulas")
+    doctor_parser = sub.add_parser("doctor")
     doctor_parser.add_argument("--root", type=Path, default=Path.cwd())
 
+    repair_parser = sub.add_parser("repair-legacy")
+    repair_parser.add_argument("--root", type=Path, default=Path.cwd())
+    repair_parser.add_argument("--force", action="store_true")
     return parser
 
 
@@ -647,16 +498,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "install":
             payload = install(args.root, initialize=args.init, force=args.force)
-        else:
+        elif args.command == "doctor":
             payload = doctor(args.root)
-    except SetupError as exc:
+        else:
+            payload = repair_legacy(args.root, force=args.force)
+    except DstackError as exc:
         json.dump({"status": "error", "error": str(exc)}, sys.stderr)
         sys.stderr.write("\n")
         return 1
-
     json.dump(payload, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
-    return 0
+    return 0 if payload.get("status") == "ok" else 2
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ like kinds. Corrective tasks are created dynamically beneath the corrections
 epic and depend on that approved milestone. Tier 3 uses native dynamic fan-in
 and performs final reconciliation and delivery.
 """
-version = 5
+version = 7
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -22,10 +22,6 @@ description = "Kebab-case audit identifier"
 required = true
 pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$"
 
-[vars.target_branch]
-description = "Branch that the completed audit will land into"
-default = "dev"
-
 [vars.scope]
 description = "Human-readable audit scope"
 default = "whole repository"
@@ -36,7 +32,6 @@ title = "Analyze project alignment: {{audit_title}}"
 type = "task"
 priority = 1
 labels = ["dstack:step:alignment-analysis"]
-metadata = { dstack_step = "alignment-analysis" }
 description = """
 Analyze {{scope}} on the selected target branch. Compare specifications, reader
 documentation, implementation, tests, Beads work, and delivery evidence.
@@ -51,7 +46,6 @@ type = "task"
 priority = 1
 needs = ["analysis"]
 labels = ["dstack:step:alignment-approval"]
-metadata = { dstack_step = "alignment-approval" }
 description = """
 Human authorization milestone for Tier 2. The formula-generated gate blocks
 this task. /project-alignment-execute resolves the gate and closes this
@@ -69,7 +63,6 @@ title = "Execute project-alignment corrections: {{audit_title}}"
 type = "epic"
 priority = 1
 labels = ["dstack:step:alignment-corrections"]
-metadata = { dstack_step = "alignment-corrections" }
 description = """
 Container for approved corrective work. Add each bounded correction as a child
 and make it depend on the alignment-approval milestone. Close this epic only
@@ -84,10 +77,8 @@ priority = 1
 needs = ["approval"]
 waits_for = "children-of(corrections)"
 labels = ["dstack:step:alignment-landing"]
-metadata = { dstack_step = "alignment-landing" }
 description = """
 Perform final reconciliation, repository validation, integration review, and
-the explicitly requested delivery action. Closing this step makes the audit
-delivery-ready; the molecule root remains open until delivery actually
+the explicitly requested delivery action. Closing this step makes the audit eligible for delivery; the molecule root remains open until delivery actually
 completes.
 """

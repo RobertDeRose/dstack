@@ -1,148 +1,40 @@
 ---
 name: dstack-beads-start-feature
-description: "Pour the native dstack feature molecule, create its worktree and design, and add dynamically gated implementation work."
+description: "Resolve or initialize a feature, decide its design and task graph, and leave specification approval open."
 ---
 
 # Start feature
 
-Read the `dstack-beads-core` skill and every core reference before acting.
+Use the input as an exact Bead ID, slug, or title. New input becomes the feature
+title. Default the base branch to `dev` when it exists, otherwise `main`, unless
+the user specified one.
 
-Use the user's input as the feature selector, goal, constraints, non-goals, and
-optional base branch. The selector may be a feature slug, a Bead ID, or an exact
-feature title such as `Leader Election Weighting`. Default the base branch to
-`dev` only when that branch exists and the user did not provide another target.
+## Mechanics
 
-After resolving or creating the feature, treat that exact feature root as the
-**active feature for the current Pi session**. Subsequent
-`/review-feature-spec` and `/implement-feature` invocations with no feature
-selector default to this resolved root. This is conversational selection only;
-do not create a custom state file, label, or database record for it.
-
-## Preconditions
-
-1. Run the setup doctor.
-2. Read planning and feature documentation when present for product context.
-   Treat it as design input, never as lifecycle state.
-3. Resolve the feature selector before deriving anything new:
-   - If the selector is an exact Bead ID, inspect that Bead directly.
-   - Otherwise inspect feature roots and planned feature epics and match, in
-     order, an exact slug or an exact title. Title matching is case-insensitive
-     and ignores a leading `Feature: ` prefix. Do not use fuzzy matching.
-   - Prefer one open current dstack molecule when the same feature also has a
-     closed legacy root.
-   - If more than one viable open feature matches, stop and show the candidate
-     IDs instead of guessing.
-   - If the selected Bead is a closed delivered feature, stop.
-   - If the selected Bead is an active legacy dstack feature, stop and direct
-     the user to `/adopt-feature <bead-id>`; do not pour a duplicate workflow.
-   - If the selected Bead is a planned feature epic, use its concrete
-     `metadata.feature_slug`, `metadata.feature_name`/title, design path, and
-     base branch when available.
-4. If no existing feature matches, derive a stable kebab-case slug and title
-   from the user's input. Do not guess major product intent.
-5. Search existing feature molecule roots one final time by the resolved slug
-   before pouring another. Reuse the exact existing open current molecule or
-   stop on ambiguity.
-6. Verify the intended base branch.
-
-## Native worktree
-
-Use Beads' native worktree commands and the core worktree reference.
-
-- Branch: `feat/<slug>`.
-- Create the branch from the intended base commit when it does not exist.
-- Create or reuse one Beads-managed worktree.
-- Verify its Git root and branch before writing.
-- Never write the design in the caller's worktree and copy it afterward.
-
-## Pour the feature molecule
-
-From the repository with the shared Beads database, pour the installed formula directly:
+Run:
 
 ```bash
-bd mol pour dstack-feature \
-  --var feature_title="<title>" \
-  --var feature_slug="<slug>" \
-  --var base_branch="<base-branch>" \
-  --var design_path="docs/src/features/<slug>/design.md" \
-  --json
+python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
+  feature initialize "<selector-or-title>" --base-branch <base>
 ```
 
-Capture the returned molecule root ID. Update the root using native Beads fields:
+The command resolves an existing current feature, refuses a closed/legacy
+feature, or transactionally pours one molecule and creates/reuses its worktree.
+Treat the returned root as the conversational active feature.
 
-- title `Feature: <title>`;
-- labels `workflow:feature` and `feature:<slug>`;
-- metadata containing the slug, base branch, branch, design path, and worktree
-  path. Do not store a Git commit SHA or Git-history mirror in Beads.
+## Agent decisions
 
-Resolve exactly one specification step, implementation-approval milestone,
-implementation workstream, closeout step, and open human gate using the core
-Beads workflow reference.
+In the returned worktree, write or reconcile only the durable design. Decide:
 
-## Design
+- requirements and non-goals;
+- architecture, interfaces, data flow, and failure behavior;
+- security/compatibility/migration boundaries;
+- documentation and validation impact;
+- bounded implementation tasks and real dependencies.
 
-Create or update only:
+Create each chosen task mechanically with `dstackctl feature add-task`.
+Do not create `tasks.md`, workflow status docs, a commit solely for starting,
+or reviewer/coordinator tasks.
 
-```text
-docs/src/features/<slug>/design.md
-```
-
-Do not create `tasks.md`.
-
-The design must state the goal, accepted requirements, non-goals, architecture,
-interfaces and data flow, failure behavior, security and compatibility
-boundaries, rollout or migration concerns, documentation impact, validation,
-and unresolved decisions.
-
-Do not put Beads IDs, workflow status, next-command hints, or other lifecycle
-bookkeeping in the design. The design exists to explain intended product and
-engineering behavior.
-
-## Dynamic implementation work
-
-Create bounded children beneath the implementation epic. Every child must:
-
-- use `--no-inherit-labels`;
-- carry `dstack:work:implementation` and `feature:<slug>`;
-- depend on the implementation-approval milestone;
-- contain context, acceptance criteria, and expected validation.
-
-Do not pass the human gate ID through `--waits-for-gate`; that flag controls
-`all-children`/`any-children` fan-in for a separate `--waits-for` relationship.
-The formula gate blocks the task-sized approval milestone, and implementation
-children become ready when that milestone closes.
-
-Model genuine implementation dependencies with native Beads edges. Leave
-independent children unordered.
-
-The human gate stays open and the approval milestone remains blocked.
-`/start-feature` does not authorize implementation.
-
-## Planning reconciliation
-
-Do not change roadmap/status documentation merely because the workflow started.
-If this feature replaces a `dstack:feature-idea` TODO, close or relate that Beads
-item using native Beads relationships. Keep lifecycle state in Beads.
-
-## Commit behavior
-
-Do not create a commit automatically. Offer exactly two next actions:
-
-1. `/review-feature-spec` (the active feature defaults to this feature);
-2. create one draft-spec commit in the feature worktree.
-
-A draft commit does not close the specification step or resolve the gate.
-
-## Return
-
-- feature root, stable steps, approval milestone, and human gate IDs;
-- base branch, feature branch, and verified worktree path;
-- design path;
-- dynamic implementation tasks and dependency summary;
-- native molecule progress;
-- unresolved decisions;
-- any feature-idea TODO reconciliation;
-- state that this feature is now the default active feature for this Pi session;
-- the two allowed next actions, which may omit the selector:
-  1. `/review-feature-spec`;
-  2. create one draft-spec commit in the feature worktree.
+Leave the specification step and human gate open. Return the design path, task
+graph, unresolved decisions, and `/review-feature-spec` as the next command.

@@ -1,0 +1,161 @@
+# dStack architecture
+
+## System boundary
+
+```text
+User / Pi command
+        |
+        v
+short decision-oriented skill
+        |
+        +---- agent makes engineering decisions
+        |
+        v
+stateless dstackctl operation
+        |
+        +---- native bd commands ------> Beads / Dolt
+        |
+        +---- native git commands -----> Git repository
+```
+
+There is no dStack daemon, database, task store, scheduler, packet protocol, or
+workflow ledger.
+
+## Components
+
+### Beads
+
+Beads owns formulas, poured molecules, tasks, parent/child structure,
+dependencies, gates, claims, readiness, completion, TODOs, decisions, and
+pending validation. dStack never calculates its own ready frontier.
+
+### Git
+
+Git owns source, tests, configuration, durable documentation, branches,
+worktrees, diffs, commits, and delivery history. Workflow commits use a stable
+`Beads: <id>` footer.
+
+### Repository documentation
+
+Documentation is the durable description of product behavior and design. It is
+used by people and agents to detect drift between intent and implementation. It
+is not an execution dashboard.
+
+### `dstackctl`
+
+`dstackctl` is a stateless deterministic adapter. It may:
+
+- query and validate Beads JSON;
+- resolve exact feature/audit selectors and stable steps;
+- run idempotent native Beads transitions;
+- create/reuse conventional Git branches and worktrees;
+- enforce Git footer, aggregate PR-summary, and delivery safety rules;
+- compute a content digest for an approved design;
+- perform narrow, explicit legacy adoption.
+
+It may not:
+
+- persist state outside Beads/Git;
+- compute task readiness independently;
+- invent lifecycle states;
+- save inter-agent packets;
+- cache a Git-to-Beads mapping;
+- poll GitHub instead of using Beads gates.
+
+Every invocation derives truth from the current repository and Beads database.
+Mutation commands load only stable identity, metadata, and lifecycle steps, then
+query the additional native state required for that operation. Full dashboard
+hydration (gates, ready work, progress, and delivery state) is reserved for
+inspection and delivery. Nested transitions reuse the invocation's Beads client;
+no cache or state survives the process.
+
+### Pi skills
+
+Skills are short policy and judgment guides. They tell the agent:
+
+- what evidence to inspect;
+- what decisions it must make;
+- what authority the user granted;
+- when to stop and ask;
+- which deterministic command completes the mechanics.
+
+Exact shell choreography belongs in `dstackctl --help` and tests, not repeated
+across skills.
+
+## Minimal feature molecule
+
+```text
+specification task
+        |
+        v
+approval task <---- human gate
+        |
+        +----> dynamic implementation task
+        +----> dynamic implementation task
+
+implementation epic owns dynamic tasks
+        |
+        v
+closeout waits for children-of(implementation)
+```
+
+The approval task exists because normal Beads blocking relationships must
+connect like issue kinds. The implementation workstream remains an epic and the
+closeout uses native dynamic fan-in.
+
+## Minimal project-alignment molecule
+
+```text
+analysis/plan task
+        |
+        v
+approval task <---- human gate
+        |
+        +----> dynamic correction task
+        +----> dynamic correction task
+
+corrections epic owns dynamic tasks
+        |
+        v
+landing waits for children-of(corrections)
+```
+
+The three authority tiers remain separate: analyze, execute, deliver.
+
+## Minimal metadata
+
+Feature root:
+
+```text
+labels:
+  workflow:feature
+  feature:<slug>
+metadata:
+  dstack.base_branch
+  dstack.design_path
+  dstack.approved_design_sha256   # only after approval
+```
+
+Stable children carry one `dstack:step:*` label. Dynamic work carries one
+`dstack:work:*` label and is associated with the feature through parentage.
+Conventional branch/worktree paths and supersession are derived from Git and the
+Beads graph, not duplicated in metadata.
+
+## Design approval without Git coupling
+
+Specification approval stores a SHA-256 digest of the accepted design file
+content in namespaced Beads metadata. It does not store a commit SHA and does
+not require an empty approval commit.
+
+Before implementation, dStack recomputes the digest from the feature worktree.
+A mismatch means the design changed and must be reviewed again. A rebase,
+cherry-pick, or commit-message rewrite does not affect approval.
+
+## Delivery invariant
+
+Before delivery, all durable code/docs changes are already in the candidate.
+After delivery starts, Beads may be finalized but Git may not change.
+
+`dstackctl delivery` snapshots the target HEAD and tracked status, performs the
+native delivery/finalization operations, and rejects any post-delivery Git
+mutation.

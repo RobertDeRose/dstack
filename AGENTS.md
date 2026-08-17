@@ -1,60 +1,57 @@
-# dstack repository guidance
+# dStack repository contract
 
-Keep dstack a thin policy layer over Beads and Git.
+Read `docs/core-principles.md` and `docs/architecture.md` before changing
+workflow architecture.
 
 ## Authorities
 
-- Beads owns formulas, poured molecules, work, dependencies, gates, readiness,
-  claims, TODOs, comments, relationships, worktree records, and completion.
-- Git owns source, branches, commits, diffs, and delivery boundaries.
-- dstack owns skills, prompt aliases, review policy, and the deterministic
-  formula installer.
+- Beads: work, dependencies, gates, ready/blocked/closed state, decisions.
+- Git: code, tests, configuration, durable docs, commits, delivery history.
+- Documentation: stable product and architecture intent.
+- `dstackctl`: stateless deterministic orchestration only.
+- Pi skills/agents: engineering judgment and user interaction.
 
-## Hard constraints
+## Non-negotiable constraints
 
-- Do not add a dstack task store, workflow-state store, scheduler, ready-work
-  computation, dependency planner, fan-in implementation, approval engine, CI
-  poller, PR poller, ownership ledger, or reviewer lifecycle graph.
-- Do not restore `tasks.md`; implementation and audit work belongs in Beads.
-- Do not replace Beads formulas, molecules, gates, TODOs, claims, worktrees, or
-  graph relationships with wrappers.
-- Do not encode reviewer seats, pass numbers, replacement counters, or
-  coordinator ceremony in formulas.
-- Do not impose a terminal review limit. Explicit user authorization always
-  permits another review.
-- Do not classify a later correctness or test finding as redesign unless the
-  accepted design itself must change.
-- Do not make optional metadata a prerequisite for serial execution.
-- Normal workflows never migrate or rewrite historical workflow topology.
-- One implementation or corrective Bead is one intended Git commit boundary by
-  default.
-- Helpers may install or validate formula source and safely remove verified legacy
-  template artifacts, including orphaned steps and gates, but workflow execution
-  must use native `bd` commands directly.
+- KISS and YAGNI are release requirements.
+- Do not add a dStack database, state file, packet protocol, scheduler, ready
+  calculation, dependency graph, ownership ledger, reviewer topology, or CI/PR
+  poller.
+- Stateless helpers are encouraged for repeatable mechanics. They must query
+  Beads/Git each time, use native operations, be idempotent, and persist no
+  custom state.
+- Never store Git commit hashes in Beads. Commits reference work only through
+  `Beads: <id>` footers.
+- Do not store branch/worktree paths or Git-history mirrors in Beads.
+- Do not duplicate feature identity on children when parentage/root labels
+  already establish it.
+- Do not put transient lifecycle state, Beads IDs, branches, commits, gates, or
+  next commands in user/developer documentation.
+- Durable `planned`, `implemented`, and `deprecated` product classification is
+  allowed. It must be part of the candidate before delivery.
+- After delivery begins, Beads may change but Git may not. Never create a
+  post-merge bookkeeping commit.
+- Do not require a Git commit when specification review changes no repository
+  content; design approval is a content digest.
+- Do not claim independent review without a separate reviewer session.
+- No finite review counter may override explicit user authorization.
+- Normal workflow commands never run legacy repair or rewrite old topology.
 
-## Formula design
+## Formula constraints
 
-Formulas encode only stable lifecycle skeletons. Dynamic implementation and
-audit tasks are created under poured workstream epics and depend on separate,
-task-sized approval milestones. Formula-generated gates must block those tasks,
-not the epics, because Beads ordinary blocking edges cannot cross task/epic
-kinds. Native `children-of(...)` fan-in joins the dynamic work at closeout.
+Formulas contain only the stable four-step lifecycle skeleton. Dynamic product work is ordinary
+child Beads. Use a task-sized approval milestone and native `children-of(...)` fan-in. Do not encode
+reviewer seats or delivery ceremony.
 
-## Phase 1
+## Pi package constraints
 
-Only the original feature lifecycle and the original three-tier project
-alignment lifecycle are in scope. Expert meetings, code intelligence, inline
-review UI, review wisps, and parallel writers are later phases.
+Public slash commands are prompt aliases. Internal skills stay under the `dstack-beads-*` namespace.
+Keep skills short and decision-oriented; exact mechanical choreography belongs in tested scripts.
 
-## Pi package naming
+## Release checks
 
-Public slash commands are prompt aliases. Internal skills must remain under the
-`dstack-beads-*` namespace so user-level skills from older installations cannot
-shadow package resources. Quote YAML frontmatter descriptions and keep the
-frontmatter parser tests passing.
-
-## Formula installation
-
-Install formula source files only. Do not run `bd cook --persist` in a target
-repository: persisted template steps and gates enter the live ready frontier.
-Validate through `bd mol seed` and an isolated temporary `bd mol pour`.
+- YAML/TOML/JSON metadata parses.
+- Python compiles and tests pass.
+- Skills do not reintroduce prohibited state or SHA mappings.
+- Real-Beads integration tests run when `DSTACK_REAL_BD` or `bd` is available.
+- `git diff --check`, `git fsck`, bundle verification, and clean-clone tests pass.

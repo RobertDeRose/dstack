@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Stateful Beads CLI double used by dstack integration tests."""
+"""Small stateful Beads CLI double for deterministic dStack tests.
+
+It models only the supported Beads primitives used by dStack. Real-Beads
+integration tests remain the release authority.
+"""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -19,49 +24,43 @@ def state_path() -> Path:
 
 
 def initial_state() -> dict[str, Any]:
-    return {
-        "next_id": 1,
-        "issues": {},
-        "protos": {},
-        "relations": [],
-        "comments": {},
-    }
+    return {"next_id": 1, "issues": {}, "comments": {}, "relations": []}
 
 
-def load_state() -> dict[str, Any]:
+def load() -> dict[str, Any]:
     path = state_path()
     if not path.exists():
         state = initial_state()
-        save_state(state)
+        save(state)
         return state
     return json.loads(path.read_text())
 
 
-def save_state(state: dict[str, Any]) -> None:
+def save(state: dict[str, Any]) -> None:
     path = state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2, sort_keys=True))
 
 
 def new_id(state: dict[str, Any]) -> str:
-    value = f"bd-{state['next_id']}"
+    issue_id = f"bd-{state['next_id']}"
     state["next_id"] += 1
-    return value
+    return issue_id
 
 
 def values(args: list[str], flag: str) -> list[str]:
-    found: list[str] = []
-    index = 0
-    while index < len(args):
-        item = args[index]
-        if item == flag and index + 1 < len(args):
-            found.append(args[index + 1])
-            index += 2
+    result: list[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == flag and i + 1 < len(args):
+            result.append(args[i + 1])
+            i += 2
             continue
-        if item.startswith(f"{flag}="):
-            found.append(item.split("=", 1)[1])
-        index += 1
-    return found
+        if arg.startswith(flag + "="):
+            result.append(arg.split("=", 1)[1])
+        i += 1
+    return result
 
 
 def value(args: list[str], flag: str, default: str | None = None) -> str | None:
@@ -72,650 +71,568 @@ def value(args: list[str], flag: str, default: str | None = None) -> str | None:
 def csv_values(args: list[str], flag: str) -> list[str]:
     result: list[str] = []
     for raw in values(args, flag):
-        result.extend(part.strip() for part in raw.split(",") if part.strip())
+        result.extend(item.strip() for item in raw.split(",") if item.strip())
     return result
 
 
-def substitute(item: Any, variables: dict[str, str]) -> Any:
-    if isinstance(item, str):
-        result = item
-        for key, replacement in variables.items():
-            result = result.replace(f"{{{{{key}}}}}", replacement)
-        return result
-    if isinstance(item, list):
-        return [substitute(value, variables) for value in item]
-    if isinstance(item, dict):
-        return {key: substitute(value, variables) for key, value in item.items()}
-    return item
+def envelope(payload: Any) -> Any:
+    if os.environ.get("BD_JSON_ENVELOPE") == "1":
+        return {"schema_version": 1, "data": payload}
+    return payload
 
 
-def find_formula(cwd: Path, name: str) -> Path:
-    candidate = cwd / ".beads" / "formulas" / f"{name}.formula.toml"
-    if not candidate.is_file():
-        raise RuntimeError(f"formula not found: {name}")
-    return candidate
+def emit(payload: Any) -> None:
+    print(json.dumps(envelope(payload), indent=2, sort_keys=True))
 
 
-def issue(state: dict[str, Any], issue_id: str) -> dict[str, Any]:
+def item(state: dict[str, Any], issue_id: str) -> dict[str, Any]:
     try:
         return state["issues"][issue_id]
     except KeyError as exc:
         raise RuntimeError(f"issue not found: {issue_id}") from exc
 
 
+def labels(issue: dict[str, Any]) -> list[str]:
+    return issue.setdefault("labels", [])
+
+
+def parent(issue: dict[str, Any]) -> str | None:
+    return issue.get("parent")
+
+
+def children(state: dict[str, Any], parent_id: str) -> list[dict[str, Any]]:
+    return [issue for issue in state["issues"].values() if parent(issue) == parent_id]
+
+
 def descendants(state: dict[str, Any], root_id: str) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     queue = [root_id]
+    seen = {root_id}
     while queue:
-        parent = queue.pop(0)
-        children = [
-            item
-            for item in state["issues"].values()
-            if item.get("parent_id") == parent
-        ]
-        result.extend(children)
-        queue.extend(child["id"] for child in children)
+        current = queue.pop(0)
+        for child in children(state, current):
+            if child["id"] in seen:
+                continue
+            seen.add(child["id"])
+            result.append(child)
+            queue.append(child["id"])
     return result
 
 
-def direct_children(
-    state: dict[str, Any], parent_id: str, *, include_gates: bool = False
-) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in state["issues"].values()
-        if item.get("parent_id") == parent_id
-        and (include_gates or item.get("type") != "gate")
+def dependency_records(issue: dict[str, Any]) -> list[dict[str, Any]]:
+    result = [
+        {
+            "issue_id": issue["id"],
+            "depends_on_id": dependency,
+            "type": "blocks",
+        }
+        for dependency in issue.get("dependencies", [])
     ]
+    if issue.get("parent"):
+        result.append(
+            {
+                "issue_id": issue["id"],
+                "depends_on_id": issue["parent"],
+                "type": "parent-child",
+            }
+        )
+    result.extend(
+        {
+            "issue_id": issue["id"],
+            "depends_on_id": relation["to"],
+            "type": relation["type"],
+        }
+        for relation in issue.get("relations", [])
+    )
+    return result
 
 
-def closed(item: dict[str, Any]) -> bool:
-    return item.get("status") == "closed"
+def serialize(state: dict[str, Any], issue: dict[str, Any]) -> dict[str, Any]:
+    result = dict(issue)
+    result["issue_type"] = result.get("type", "task")
+    result["dependencies"] = dependency_records(issue)
+    result["dependency_count"] = sum(
+        1 for dep in issue.get("dependencies", []) if item(state, dep)["status"] != "closed"
+    )
+    result["dependent_count"] = sum(
+        1 for candidate in state["issues"].values() if issue["id"] in candidate.get("dependencies", [])
+    )
+    result["comment_count"] = len(state["comments"].get(issue["id"], []))
+    if issue.get("parent"):
+        result["parent"] = issue["parent"]
+    return result
 
 
-def is_ready(state: dict[str, Any], item: dict[str, Any]) -> bool:
-    if item.get("status") != "open":
-        return False
-    if item.get("type") in {"gate", "molecule"}:
-        return False
-    for blocker_id in item.get("dependencies", []):
-        if not closed(issue(state, blocker_id)):
-            return False
-    for gate_id in item.get("gate_ids", []):
-        if not closed(issue(state, gate_id)):
-            return False
-
-    waits_for = item.get("waits_for")
-    if waits_for:
+def blocked(state: dict[str, Any], issue: dict[str, Any]) -> list[str]:
+    blockers = [
+        dep
+        for dep in issue.get("dependencies", [])
+        if item(state, dep).get("status") != "closed"
+    ]
+    waits_for = issue.get("waits_for")
+    if isinstance(waits_for, str):
         match = re.fullmatch(r"children-of\(([^)]+)\)", waits_for)
         if match:
-            children = direct_children(state, match.group(1))
-        elif waits_for == "all-children":
-            children = direct_children(state, item["id"])
-        elif waits_for == "any-children":
-            children = direct_children(state, item["id"])
-            if children and not any(closed(child) for child in children):
-                return False
-            children = []
-        else:
-            children = []
-        if any(not closed(child) for child in children):
-            return False
-    return True
+            blockers.extend(
+                child["id"]
+                for child in children(state, match.group(1))
+                if child.get("status") != "closed"
+                and child.get("type") not in {"gate", "molecule", "epic"}
+            )
+    return list(dict.fromkeys(blockers))
 
 
-def emit(payload: Any) -> None:
-    print(json.dumps(payload, indent=2, sort_keys=True))
+def ready(state: dict[str, Any], issue: dict[str, Any]) -> bool:
+    return (
+        issue.get("status") == "open"
+        and issue.get("type") not in {"gate", "molecule"}
+        and not blocked(state, issue)
+    )
 
 
-def command_formula(args: list[str], cwd: Path) -> int:
-    if len(args) < 3 or args[0] != "show":
-        raise RuntimeError("unsupported formula command")
-    name = args[1]
-    data = tomllib.loads(find_formula(cwd, name).read_text())
-    emit(data)
-    return 0
+def substitute(value_: Any, variables: dict[str, str]) -> Any:
+    if isinstance(value_, str):
+        result = value_
+        for key, replacement in variables.items():
+            result = result.replace("{{" + key + "}}", replacement)
+        return result
+    if isinstance(value_, list):
+        return [substitute(item_, variables) for item_ in value_]
+    if isinstance(value_, dict):
+        return {key: substitute(item_, variables) for key, item_ in value_.items()}
+    return value_
 
 
-def iter_formula_steps(steps: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
-    for step in steps:
-        yield step
-        yield from iter_formula_steps(step.get("children", []))
+def formula_path(cwd: Path, name: str) -> Path:
+    path = cwd / ".beads" / "formulas" / f"{name}.formula.toml"
+    if not path.is_file():
+        raise RuntimeError(f"formula not found: {name}")
+    return path
 
 
-def formula_step_is_epic(step: dict[str, Any]) -> bool:
-    """Match Beads cooking: a step with children is promoted to an epic."""
+def load_formula(cwd: Path, name: str, args: list[str]) -> dict[str, Any]:
+    variables: dict[str, str] = {}
+    for raw in values(args, "--var"):
+        key, sep, val = raw.partition("=")
+        if not sep:
+            raise RuntimeError(f"invalid variable: {raw}")
+        variables[key] = val
+    return substitute(tomllib.loads(formula_path(cwd, name).read_text()), variables)
 
+
+def is_epic(step: dict[str, Any]) -> bool:
     return step.get("type", "task") == "epic" or bool(step.get("children"))
 
 
-def validate_blocking_kinds(*, source_is_epic: bool, target_is_epic: bool) -> None:
-    """Model Beads 1.2.2 cross-type ``blocks`` validation exactly."""
-
-    if source_is_epic == target_is_epic:
-        return
-    if source_is_epic:
-        raise RuntimeError("epics can only block other epics, not tasks")
-    raise RuntimeError("tasks can only block other tasks, not epics")
-
-
-def validate_formula_dependencies(formula: dict[str, Any]) -> None:
-    """Model Beads' blocking constraints during formula cooking.
-
-    ``needs`` and ``depends_on`` become ordinary ``blocks`` dependencies.
-    Formula gates create another ``blocks`` dependency from the guarded step to
-    a non-epic gate issue. ``waits_for`` is a separate fan-in relationship and
-    is not subject to the task/epic equality rule.
-    """
-
-    steps = list(iter_formula_steps(formula.get("steps", [])))
+def validate_formula(formula: dict[str, Any]) -> None:
+    steps = formula.get("steps", [])
     by_id = {step["id"]: step for step in steps}
     for dependent in steps:
-        dependent_is_epic = formula_step_is_epic(dependent)
-        for blocker_id in (
-            *dependent.get("needs", []),
-            *dependent.get("depends_on", []),
-        ):
+        for blocker_id in [*dependent.get("needs", []), *dependent.get("depends_on", [])]:
             blocker = by_id.get(blocker_id)
             if blocker is None:
                 raise RuntimeError(f"unknown formula dependency: {blocker_id}")
-            validate_blocking_kinds(
-                source_is_epic=dependent_is_epic,
-                target_is_epic=formula_step_is_epic(blocker),
-            )
-
-        if dependent.get("gate"):
-            validate_blocking_kinds(
-                source_is_epic=dependent_is_epic,
-                target_is_epic=False,
-            )
+            if is_epic(dependent) != is_epic(blocker):
+                if is_epic(dependent):
+                    raise RuntimeError("epics can only block other epics, not tasks")
+                raise RuntimeError("tasks can only block other tasks, not epics")
+        if dependent.get("gate") and is_epic(dependent):
+            raise RuntimeError("epics can only block other epics, not tasks")
 
 
-def load_formula(cwd: Path, state: dict[str, Any], name: str) -> dict[str, Any]:
-    if name in state["protos"]:
-        return state["protos"][name]
-    return tomllib.loads(find_formula(cwd, name).read_text())
-
-
-def persist_proto_graph(name: str, formula: dict[str, Any], state: dict[str, Any]) -> None:
-    """Model the target pollution produced by ``bd cook --persist``."""
-
-    for item_id in [name, *[item["id"] for item in descendants(state, name)]]:
-        state["issues"].pop(item_id, None)
-
-    state["issues"][name] = {
-        "id": name,
-        "title": name,
+def pour(cwd: Path, state: dict[str, Any], name: str, args: list[str]) -> dict[str, Any]:
+    formula = load_formula(cwd, name, args)
+    validate_formula(formula)
+    root_id = new_id(state)
+    root = {
+        "id": root_id,
+        "title": formula.get("formula", name),
+        "description": formula.get("description", ""),
         "type": "molecule",
-        "issue_type": "molecule",
         "status": "open",
-        "parent_id": None,
-        "labels": ["template"],
+        "parent": None,
+        "labels": [],
         "metadata": {},
         "dependencies": [],
-        "gate_ids": [],
-        "is_template": True,
+        "relations": [],
     }
-
-    raw_steps = formula.get("steps", [])
-    step_ids = {step["id"]: f"{name}.{step['id']}" for step in raw_steps}
-    for step in raw_steps:
-        step_id = step_ids[step["id"]]
-        dependencies = [step_ids[item] for item in step.get("needs", [])]
-        dependencies.extend(step_ids[item] for item in step.get("depends_on", []))
+    state["issues"][root_id] = root
+    step_ids = {step["id"]: new_id(state) for step in formula.get("steps", [])}
+    for step in formula.get("steps", []):
         waits_for = step.get("waits_for")
         if isinstance(waits_for, str):
             match = re.fullmatch(r"children-of\(([^)]+)\)", waits_for)
-            if match and match.group(1) in step_ids:
+            if match:
                 waits_for = f"children-of({step_ids[match.group(1)]})"
-        state["issues"][step_id] = {
-            "id": step_id,
+        state["issues"][step_ids[step["id"]]] = {
+            "id": step_ids[step["id"]],
             "formula_step_id": step["id"],
             "title": step["title"],
             "description": step.get("description", ""),
             "type": step.get("type", "task"),
-            "issue_type": step.get("type", "task"),
             "status": "open",
-            "parent_id": name,
+            "priority": step.get("priority", 2),
+            "parent": root_id,
             "labels": step.get("labels", []),
             "metadata": step.get("metadata", {}),
-            "dependencies": dependencies,
-            "gate_ids": [],
+            "dependencies": [step_ids[item_] for item_ in [*step.get("needs", []), *step.get("depends_on", [])]],
+            "relations": [],
             "waits_for": waits_for,
-            "is_template": True,
         }
-
-    for step in raw_steps:
+    for step in formula.get("steps", []):
         gate = step.get("gate")
         if not gate:
             continue
-        gate_id = f"{name}.gate-{step['id']}"
-        waiter_id = step_ids[step["id"]]
-        state["issues"][gate_id] = {
-            "id": gate_id,
-            "title": gate.get("id") or f"gate-{step['id']}",
-            "type": "gate",
-            "issue_type": "gate",
-            "status": "open",
-            "parent_id": name,
-            "labels": [f"gate:{gate['type']}"],
-            "metadata": {},
-            "dependencies": [],
-            "gate_ids": [],
-            "gate_type": gate["type"],
-            "await_id": gate.get("await_id") or gate.get("id"),
-            "waiter_id": waiter_id,
-            "is_template": True,
-        }
-        state["issues"][waiter_id]["gate_ids"].append(gate_id)
-
-
-def command_cook(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
-    if not args:
-        raise RuntimeError("formula name required")
-    name = args[0]
-    data = tomllib.loads(find_formula(cwd, name).read_text())
-    validate_formula_dependencies(data)
-    if "--persist" in args:
-        state["protos"][name] = data
-        persist_proto_graph(name, data, state)
-        save_state(state)
-    emit({"formula": name, "persisted": "--persist" in args})
-    return 0
-
-
-def parse_vars(args: list[str]) -> dict[str, str]:
-    parsed: dict[str, str] = {}
-    for entry in values(args, "--var"):
-        key, separator, raw = entry.partition("=")
-        if not separator:
-            raise RuntimeError(f"invalid --var: {entry}")
-        parsed[key] = raw
-    return parsed
-
-
-def command_pour(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
-    if not args:
-        raise RuntimeError("formula or proto required")
-    name = args[0]
-    formula = load_formula(cwd, state, name)
-    validate_formula_dependencies(formula)
-    variables = parse_vars(args)
-    for key, definition in formula.get("vars", {}).items():
-        if key not in variables and "default" in definition:
-            variables[key] = str(definition["default"])
-        if definition.get("required") and key not in variables:
-            raise RuntimeError(f"required variable missing: {key}")
-
-    root_id = new_id(state)
-    state["issues"][root_id] = {
-        "id": root_id,
-        "title": name,
-        "type": "epic",
-        "issue_type": "epic",
-        "status": "open",
-        "parent_id": None,
-        "labels": [],
-        "metadata": {"formula": name, "variables": variables},
-        "dependencies": [],
-        "gate_ids": [],
-        "is_template": False,
-    }
-
-    raw_steps = [substitute(step, variables) for step in formula.get("steps", [])]
-    step_ids = {step["id"]: new_id(state) for step in raw_steps}
-    for step in raw_steps:
-        step_id = step_ids[step["id"]]
-        dependencies = [step_ids[item] for item in step.get("needs", [])]
-        dependencies.extend(step_ids[item] for item in step.get("depends_on", []))
-        waits_for = step.get("waits_for")
-        if isinstance(waits_for, str):
-            match = re.fullmatch(r"children-of\(([^)]+)\)", waits_for)
-            if match and match.group(1) in step_ids:
-                waits_for = f"children-of({step_ids[match.group(1)]})"
-        state["issues"][step_id] = {
-            "id": step_id,
-            "formula_step_id": step["id"],
-            "title": step["title"],
-            "description": step.get("description", ""),
-            "type": step.get("type", "task"),
-            "issue_type": step.get("type", "task"),
-            "status": "open",
-            "parent_id": root_id,
-            "labels": step.get("labels", []),
-            "metadata": step.get("metadata", {}),
-            "dependencies": dependencies,
-            "gate_ids": [],
-            "waits_for": waits_for,
-            "is_template": False,
-        }
-
-    gate_ids: dict[str, str] = {}
-    for step in raw_steps:
-        gate = step.get("gate")
-        if not gate:
-            continue
-        waiter_id = step_ids[step["id"]]
         gate_id = new_id(state)
-        gate_ids[step["id"]] = gate_id
+        target = state["issues"][step_ids[step["id"]]]
         state["issues"][gate_id] = {
             "id": gate_id,
-            "title": gate.get("id") or f"gate-{step['id']}",
+            "title": f"Gate: {gate['type']}",
             "type": "gate",
-            "issue_type": "gate",
             "status": "open",
-            "parent_id": root_id,
-            "labels": [f"gate:{gate['type']}"],
+            "parent": root_id,
+            "labels": [],
             "metadata": {},
             "dependencies": [],
-            "gate_ids": [],
-            "gate_type": gate["type"],
-            "await_id": gate.get("await_id") or gate.get("id"),
-            "waiter_id": waiter_id,
-            "is_template": False,
+            "relations": [],
+            "await_type": gate["type"],
+            "await_id": gate.get("id", ""),
+            "waiter_id": target["id"],
         }
-        state["issues"][waiter_id]["gate_ids"].append(gate_id)
+        target["dependencies"].append(gate_id)
+    save(state)
+    return {"root_id": root_id}
 
-    save_state(state)
-    emit({"root_id": root_id, "step_ids": step_ids, "gate_ids": gate_ids})
+
+def cmd_formula(args: list[str], cwd: Path) -> int:
+    if args[0] != "show":
+        raise RuntimeError("unsupported formula command")
+    emit(load_formula(cwd, args[1], args[2:]))
     return 0
 
 
-def command_mol(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
-    if not args:
-        raise RuntimeError("mol subcommand required")
-    subcommand = args[0]
-    rest = args[1:]
-    if subcommand == "seed":
-        if not rest:
-            raise RuntimeError("formula required")
-        name = rest[0]
-        formula = load_formula(cwd, state, name)
-        validate_formula_dependencies(formula)
-        emit({"formula": name, "available": True})
+def cmd_mol(args: list[str], cwd: Path, state: dict[str, Any]) -> int:
+    sub = args[0]
+    if sub == "seed":
+        formula = load_formula(cwd, args[1], args[2:])
+        validate_formula(formula)
+        emit({"status": "ok", "formula": args[1]})
         return 0
-    if subcommand == "pour":
-        return command_pour(rest, cwd, state)
-    if subcommand in {"progress", "current"}:
-        root_id = rest[0]
+    if sub == "pour":
+        emit(pour(cwd, state, args[1], args[2:]))
+        return 0
+    if sub in {"progress", "current"}:
+        root_id = args[1]
         items = descendants(state, root_id)
-        ready = [item for item in items if is_ready(state, item)]
         emit(
             {
                 "root_id": root_id,
-                "open": sum(item["status"] != "closed" for item in items),
-                "closed": sum(item["status"] == "closed" for item in items),
-                "ready": [item["id"] for item in ready],
+                "total": len(items),
+                "closed": sum(one.get("status") == "closed" for one in items),
+                "ready": [one["id"] for one in items if ready(state, one)],
             }
         )
         return 0
-    raise RuntimeError(f"unsupported mol command: {subcommand}")
+    raise RuntimeError(f"unsupported mol command: {sub}")
 
 
-def command_update(args: list[str], state: dict[str, Any]) -> int:
-    if not args:
-        raise RuntimeError("issue ID required")
-    item = issue(state, args[0])
-    rest = args[1:]
-    if "--claim" in rest:
-        if not is_ready(state, item):
-            raise RuntimeError(f"issue is not ready: {item['id']}")
-        item["status"] = "in_progress"
-        item["assignee"] = "test-agent"
-    for flag, key in (
-        ("--title", "title"),
-        ("--external-ref", "external_ref"),
-        ("--description", "description"),
-        ("--acceptance", "acceptance"),
-        ("--type", "type"),
-    ):
-        selected = value(rest, flag)
-        if selected is not None:
-            item[key] = selected
-    for label in csv_values(rest, "--add-label"):
-        if label not in item["labels"]:
-            item["labels"].append(label)
-    metadata = value(rest, "--set-metadata")
-    if metadata is not None:
-        item["metadata"] = json.loads(metadata)
-    status = value(rest, "--status")
-    if status is not None:
-        item["status"] = status
-    save_state(state)
-    emit(item)
+def cmd_show(args: list[str], state: dict[str, Any]) -> int:
+    emit([serialize(state, item(state, args[0]))])
     return 0
 
 
-def command_create(args: list[str], state: dict[str, Any]) -> int:
-    if not args:
-        raise RuntimeError("title required")
+def cmd_list(args: list[str], state: dict[str, Any]) -> int:
+    issues = list(state["issues"].values())
+    if "--all" not in args:
+        issues = [one for one in issues if one.get("status") != "closed"]
+    if "--include-templates" not in args:
+        issues = [one for one in issues if not one.get("is_template")]
+    if "--include-gates" not in args:
+        issues = [one for one in issues if one.get("type") != "gate"]
+    if (parent_id := value(args, "--parent")) is not None:
+        issues = [one for one in issues if one.get("parent") == parent_id]
+    if (kind := value(args, "--type")) is not None:
+        issues = [one for one in issues if one.get("type") == kind]
+    required = set(csv_values(args, "--label"))
+    if required:
+        issues = [one for one in issues if required <= set(one.get("labels", []))]
+    excluded = set(csv_values(args, "--exclude-label"))
+    if excluded:
+        issues = [one for one in issues if not excluded.intersection(one.get("labels", []))]
+    limit = int(value(args, "--limit", "50") or "50")
+    issues = sorted(issues, key=lambda one: one["id"])
+    if limit > 0:
+        issues = issues[:limit]
+    emit([serialize(state, one) for one in issues])
+    return 0
+
+
+def cmd_update(args: list[str], state: dict[str, Any]) -> int:
+    issue = item(state, args[0])
+    rest = args[1:]
+    if (title := value(rest, "--title")) is not None:
+        issue["title"] = title
+    if (status := value(rest, "--status")) is not None:
+        issue["status"] = status
+    if "--claim" in rest and issue["status"] == "open":
+        if blocked(state, issue):
+            raise RuntimeError(f"issue is blocked: {issue['id']}")
+        issue["status"] = "in_progress"
+        issue["assignee"] = "test-agent"
+    if (new_parent := value(rest, "--parent")) is not None:
+        issue["parent"] = new_parent or None
+    for label in csv_values(rest, "--add-label"):
+        if label not in labels(issue):
+            labels(issue).append(label)
+    for label in csv_values(rest, "--remove-label"):
+        issue["labels"] = [existing for existing in labels(issue) if existing != label]
+    set_labels = csv_values(rest, "--set-labels")
+    if set_labels:
+        issue["labels"] = set_labels
+    for raw in values(rest, "--set-metadata"):
+        key, sep, val = raw.partition("=")
+        if not sep:
+            raise RuntimeError(f"invalid metadata: {raw}")
+        issue.setdefault("metadata", {})[key] = val
+    for key in values(rest, "--unset-metadata"):
+        issue.setdefault("metadata", {}).pop(key, None)
+    if (metadata := value(rest, "--metadata")) is not None:
+        if metadata.startswith("@"):
+            metadata = Path(metadata[1:]).read_text()
+        issue["metadata"] = json.loads(metadata)
+    save(state)
+    emit([serialize(state, issue)])
+    return 0
+
+
+def validate_dependency_kinds(state: dict[str, Any], kind: str, deps: Iterable[str]) -> None:
+    for dep in deps:
+        dep_kind = item(state, dep).get("type")
+        if (kind == "epic") != (dep_kind == "epic"):
+            if kind == "epic":
+                raise RuntimeError("epics can only block other epics, not tasks")
+            raise RuntimeError("tasks can only block other tasks, not epics")
+
+
+def cmd_create(args: list[str], state: dict[str, Any]) -> int:
     title = args[0]
     rest = args[1:]
-    item_id = new_id(state)
-    parent_id = value(rest, "--parent")
-    dependencies = csv_values(rest, "--deps")
-    item_type = value(rest, "--type", "task")
-
-    for blocker_id in dependencies:
-        blocker = issue(state, blocker_id)
-        validate_blocking_kinds(
-            source_is_epic=item_type == "epic",
-            target_is_epic=blocker.get("type") == "epic",
-        )
-
-    waits_for_id = value(rest, "--waits-for")
-    waits_for: str | None = None
-    if waits_for_id:
-        gate_mode = value(rest, "--waits-for-gate", "all-children")
-        if gate_mode not in {"all-children", "any-children"}:
-            raise RuntimeError(
-                f"invalid --waits-for-gate value '{gate_mode}' "
-                "(valid: all-children, any-children)"
-            )
-        waits_for = f"{gate_mode}({waits_for_id})"
-
-    item = {
-        "id": item_id,
+    kind = value(rest, "--type", "task") or "task"
+    deps = csv_values(rest, "--deps")
+    validate_dependency_kinds(state, kind, deps)
+    issue_id = new_id(state)
+    issue = {
+        "id": issue_id,
         "title": title,
-        "description": value(rest, "--description", ""),
-        "acceptance": value(rest, "--acceptance", ""),
-        "type": item_type,
+        "description": value(rest, "--description", "") or "",
+        "acceptance_criteria": value(rest, "--acceptance", "") or "",
+        "type": kind,
         "status": "open",
-        "parent_id": parent_id,
+        "priority": int(value(rest, "--priority", "2") or "2"),
+        "parent": value(rest, "--parent"),
         "labels": csv_values(rest, "--labels"),
         "metadata": {},
-        "dependencies": dependencies,
-        "gate_ids": [],
-        "waits_for": waits_for,
+        "dependencies": deps,
+        "relations": [],
     }
-    state["issues"][item_id] = item
-    save_state(state)
-    emit(item)
+    state["issues"][issue_id] = issue
+    save(state)
+    emit([serialize(state, issue)])
     return 0
 
 
-def command_list(args: list[str], state: dict[str, Any]) -> int:
-    items = list(state["issues"].values())
-    parent_id = value(args, "--parent")
-    issue_type = value(args, "--type")
-    status = value(args, "--status")
-    required_labels = set(csv_values(args, "--label"))
-    if "--all" not in args:
-        items = [item for item in items if item.get("status") != "closed"]
-    if "--include-templates" not in args:
-        items = [item for item in items if item.get("is_template") is not True]
-    if "--include-gates" not in args:
-        items = [item for item in items if item.get("type") != "gate"]
-    if parent_id is not None:
-        items = [item for item in items if item.get("parent_id") == parent_id]
-    if issue_type is not None:
-        items = [item for item in items if item.get("type") == issue_type]
-    if status is not None:
-        items = [item for item in items if item.get("status") == status]
-    if required_labels:
-        items = [item for item in items if required_labels <= set(item.get("labels", []))]
-    items = sorted(items, key=lambda item: item["id"])
-    limit_raw = value(args, "--limit")
-    if limit_raw is not None and int(limit_raw) > 0:
-        items = items[: int(limit_raw)]
-    emit(items)
-    return 0
-
-
-def command_ready(args: list[str], state: dict[str, Any]) -> int:
-    root_id = value(args, "--mol")
-    if root_id is None:
-        items = list(state["issues"].values())
-    else:
-        items = descendants(state, root_id)
+def cmd_ready(args: list[str], state: dict[str, Any]) -> int:
+    if "--claim" in args and value(args, "--mol") is not None:
+        raise RuntimeError("--claim cannot be combined with --mol")
+    issues = list(state["issues"].values())
+    if (parent_id := value(args, "--parent")) is not None:
+        issues = [one for one in issues if one.get("parent") == parent_id]
+    if (root_id := value(args, "--mol")) is not None:
+        ids = {one["id"] for one in descendants(state, root_id)}
+        issues = [one for one in issues if one["id"] in ids]
+    if (required := set(csv_values(args, "--label"))):
+        issues = [one for one in issues if required <= set(one.get("labels", []))]
     excluded = set(csv_values(args, "--exclude-type"))
-    items = [item for item in items if item.get("type") not in excluded and is_ready(state, item)]
-    items.sort(key=lambda item: item["id"])
-    if "--claim" in args and items:
-        items[0]["status"] = "in_progress"
-        items[0]["assignee"] = "test-agent"
-        save_state(state)
-        items = [items[0]]
-    emit(items)
+    issues = [one for one in issues if one.get("type") not in excluded and ready(state, one)]
+    issues.sort(key=lambda one: (one.get("priority", 2), one["id"]))
+    limit = int(value(args, "--limit", "10") or "10")
+    if limit > 0:
+        issues = issues[:limit]
+    if "--claim" in args and issues:
+        issues = [issues[0]]
+        issues[0]["status"] = "in_progress"
+        issues[0]["assignee"] = "test-agent"
+        save(state)
+    emit([serialize(state, one) for one in issues])
     return 0
 
 
-def command_gate(args: list[str], state: dict[str, Any]) -> int:
-    if not args:
-        raise RuntimeError("gate subcommand required")
-    subcommand = args[0]
-    if subcommand == "list":
-        emit([item for item in state["issues"].values() if item.get("type") == "gate"])
+def cmd_close(args: list[str], state: dict[str, Any]) -> int:
+    issue = item(state, args[0])
+    if issue.get("type") == "epic":
+        open_children = [one for one in children(state, issue["id"]) if one["status"] != "closed"]
+        if open_children and "--force" not in args:
+            raise RuntimeError(f"cannot close epic {issue['id']}: open children")
+    blockers = blocked(state, issue)
+    if blockers and "--force" not in args:
+        raise RuntimeError(f"cannot close {issue['id']}: blocked by {blockers}")
+    issue["status"] = "closed"
+    issue["close_reason"] = value(args, "--reason", "")
+    save(state)
+    emit([serialize(state, issue)])
+    return 0
+
+
+def cmd_gate(args: list[str], state: dict[str, Any]) -> int:
+    sub = args[0]
+    if sub == "list":
+        gates = [one for one in state["issues"].values() if one.get("type") == "gate"]
+        if "--all" not in args:
+            gates = [one for one in gates if one.get("status") != "closed"]
+        emit([serialize(state, one) for one in gates])
         return 0
-    if subcommand == "resolve":
-        item = issue(state, args[1])
-        if item.get("type") != "gate":
-            raise RuntimeError("not a gate")
-        item["status"] = "closed"
-        save_state(state)
-        emit(item)
+    if sub == "resolve":
+        gate = item(state, args[1])
+        gate["status"] = "closed"
+        save(state)
+        emit([serialize(state, gate)])
         return 0
-    if subcommand == "check":
+    if sub == "create":
+        target = value(args, "--blocks")
+        if not target:
+            raise RuntimeError("--blocks is required")
+        gate_id = new_id(state)
+        gate = {
+            "id": gate_id,
+            "title": f"Gate: {value(args, '--type', 'human')}",
+            "type": "gate",
+            "status": "open",
+            "parent": None,
+            "labels": [],
+            "metadata": {},
+            "dependencies": [],
+            "relations": [],
+            "await_type": value(args, "--type", "human"),
+            "await_id": value(args, "--await-id", ""),
+            "waiter_id": target,
+        }
+        state["issues"][gate_id] = gate
+        item(state, target).setdefault("dependencies", []).append(gate_id)
+        save(state)
+        emit([serialize(state, gate)])
+        return 0
+    if sub == "check":
         emit({"checked": True})
         return 0
-    raise RuntimeError(f"unsupported gate command: {subcommand}")
+    raise RuntimeError(f"unsupported gate command: {sub}")
 
 
-def command_close(args: list[str], state: dict[str, Any]) -> int:
-    if not args:
+def cmd_delete(args: list[str], state: dict[str, Any]) -> int:
+    ids = [arg for arg in args if not arg.startswith("-")]
+    if not ids:
         raise RuntimeError("issue ID required")
-    item = issue(state, args[0])
-    item["status"] = "closed"
-    save_state(state)
-    emit(item)
-    return 0
-
-
-def command_show(args: list[str], state: dict[str, Any]) -> int:
-    if not args:
-        raise RuntimeError("issue ID required")
-    emit(issue(state, args[0]))
-    return 0
-
-
-def command_delete(args: list[str], state: dict[str, Any]) -> int:
-    issue_ids = [item for item in args if not item.startswith("-")]
-    if not issue_ids:
-        raise RuntimeError("issue ID required")
-    cascade = "--cascade" in args
-    dry_run = "--dry-run" in args
-
-    all_targets: list[str] = []
-    for root_id in issue_ids:
-        if root_id not in state["issues"]:
-            raise RuntimeError(f"issue not found: {root_id}")
-        targets = [root_id]
-        if cascade:
-            targets.extend(item["id"] for item in descendants(state, root_id))
-        all_targets.extend(targets)
-
-    all_targets = list(dict.fromkeys(all_targets))
-    target_set = set(all_targets)
-    if dry_run:
-        external_dependents = sorted(
-            item["id"]
-            for item in state["issues"].values()
-            if item["id"] not in target_set
-            and any(
-                dependency in target_set
-                for dependency in item.get("dependencies", [])
-            )
-        )
-        if external_dependents:
-            raise RuntimeError(
-                "dependent issues outside deletion set: "
-                + ", ".join(external_dependents)
-            )
-        emit({"would_delete": all_targets, "deleted_count": len(all_targets)})
+    targets = set(ids)
+    if "--cascade" in args:
+        for issue_id in list(targets):
+            targets.update(one["id"] for one in descendants(state, issue_id))
+    if "--dry-run" in args:
+        external = [
+            one["id"]
+            for one in state["issues"].values()
+            if one["id"] not in targets
+            and any(dep in targets for dep in one.get("dependencies", []))
+        ]
+        if external:
+            raise RuntimeError("dependent issues outside deletion set: " + ", ".join(external))
+        emit({"would_delete": sorted(targets)})
         return 0
-
-    deleted: list[str] = []
-    for target in all_targets:
-        if target in state["issues"]:
-            state["issues"].pop(target)
-            deleted.append(target)
-        state["comments"].pop(target, None)
-        state["protos"].pop(target, None)
-    for item in state["issues"].values():
-        item["dependencies"] = [
-            dependency
-            for dependency in item.get("dependencies", [])
-            if dependency not in target_set
-        ]
-        item["gate_ids"] = [
-            gate_id for gate_id in item.get("gate_ids", []) if gate_id not in target_set
-        ]
-    state["relations"] = [
-        relation
-        for relation in state["relations"]
-        if relation.get("from") not in target_set and relation.get("to") not in target_set
-    ]
-    save_state(state)
-    emit({"deleted": deleted, "deleted_count": len(deleted)})
+    for issue_id in targets:
+        state["issues"].pop(issue_id, None)
+        state["comments"].pop(issue_id, None)
+    for one in state["issues"].values():
+        one["dependencies"] = [dep for dep in one.get("dependencies", []) if dep not in targets]
+    save(state)
+    emit({"deleted": sorted(targets)})
     return 0
 
 
-def command_todo(args: list[str], state: dict[str, Any]) -> int:
-    if not args:
-        raise RuntimeError("todo subcommand required")
-    if args[0] == "add":
-        return command_create([args[1], "--type", "task", "--labels", "todo"], state)
-    if args[0] == "done":
-        return command_close(args[1:], state)
-    raise RuntimeError(f"unsupported todo command: {args[0]}")
-
-
-def command_dep(args: list[str], state: dict[str, Any]) -> int:
-    if not args or args[0] != "add" or len(args) < 3:
+def cmd_dep(args: list[str], state: dict[str, Any]) -> int:
+    if args[0] != "add":
         raise RuntimeError("unsupported dep command")
-    subject_id, target_id = args[1], args[2]
-    relation_type = value(args[3:], "--type", "blocks")
-    if relation_type == "blocks":
-        issue(state, subject_id)["dependencies"].append(target_id)
+    source, target = args[1], args[2]
+    relation = value(args[3:], "--type", "blocks") or "blocks"
+    if relation == "blocks":
+        item(state, source).setdefault("dependencies", []).append(target)
     else:
-        state["relations"].append(
-            {"from": subject_id, "to": target_id, "type": relation_type}
-        )
-    save_state(state)
-    emit({"from": subject_id, "to": target_id, "type": relation_type})
+        item(state, source).setdefault("relations", []).append({"to": target, "type": relation})
+    save(state)
+    emit({"from": source, "to": target, "type": relation})
     return 0
 
 
-def command_comments(args: list[str], state: dict[str, Any]) -> int:
-    if len(args) < 3 or args[0] != "add":
+def cmd_comments(args: list[str], state: dict[str, Any]) -> int:
+    if args[0] != "add":
         raise RuntimeError("unsupported comments command")
-    issue_id = args[1]
-    file_path = value(args[2:], "-f")
-    content = Path(file_path).read_text() if file_path else ""
-    state["comments"].setdefault(issue_id, []).append(content)
-    save_state(state)
-    emit({"issue_id": issue_id, "comment": content})
+    path = value(args[2:], "-f")
+    text = Path(path).read_text() if path else ""
+    state["comments"].setdefault(args[1], []).append(text)
+    save(state)
+    emit({"issue_id": args[1], "comment": text})
     return 0
+
+
+def cmd_supersede(args: list[str], state: dict[str, Any]) -> int:
+    old_id = args[0]
+    new_id_ = value(args, "--with")
+    if not new_id_:
+        raise RuntimeError("--with is required")
+    old = item(state, old_id)
+    old["status"] = "closed"
+    old.setdefault("relations", []).append({"to": new_id_, "type": "superseded-by"})
+    item(state, new_id_).setdefault("relations", []).append({"to": old_id, "type": "supersedes"})
+    save(state)
+    emit({"superseded": old_id, "with": new_id_})
+    return 0
+
+
+def cmd_worktree(args: list[str], cwd: Path) -> int:
+    sub = args[0]
+    if sub == "list":
+        output = subprocess.check_output(["git", "worktree", "list", "--porcelain"], cwd=cwd, text=True)
+        records: list[dict[str, Any]] = []
+        current: dict[str, Any] = {}
+        for line in output.splitlines() + [""]:
+            if not line:
+                if current:
+                    records.append(current)
+                    current = {}
+                continue
+            key, _, val = line.partition(" ")
+            current[key] = val or True
+        emit(records)
+        return 0
+    if sub == "create":
+        path = Path(args[1]).resolve()
+        branch = value(args, "--branch") or path.name
+        existing = subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=cwd).returncode == 0
+        command = ["git", "worktree", "add"]
+        if existing:
+            command.extend([str(path), branch])
+        else:
+            command.extend(["-b", branch, str(path)])
+        subprocess.run(command, cwd=cwd, check=True)
+        emit({"path": str(path), "branch": branch})
+        return 0
+    if sub == "remove":
+        path = args[1]
+        command = ["git", "worktree", "remove"]
+        if "--force" in args:
+            command.append("--force")
+        command.append(path)
+        subprocess.run(command, cwd=cwd, check=True)
+        emit({"removed": path})
+        return 0
+    raise RuntimeError(f"unsupported worktree command: {sub}")
 
 
 def main() -> int:
@@ -723,11 +640,13 @@ def main() -> int:
     if args in (["--version"], ["version"]):
         print("bd version 1.2.2")
         return 0
+    if "--help" in args:
+        print("fake help")
+        return 0
     if not args:
         return 2
-
     cwd = Path.cwd()
-    state = load_state()
+    state = load()
     command, rest = args[0], args[1:]
     try:
         if command == "init":
@@ -735,35 +654,37 @@ def main() -> int:
             emit({"initialized": True})
             return 0
         if command == "formula":
-            return command_formula(rest, cwd)
-        if command == "cook":
-            return command_cook(rest, cwd, state)
+            return cmd_formula(rest, cwd)
         if command == "mol":
-            return command_mol(rest, cwd, state)
-        if command == "update":
-            return command_update(rest, state)
-        if command == "create":
-            return command_create(rest, state)
-        if command == "list":
-            return command_list(rest, state)
-        if command == "ready":
-            return command_ready(rest, state)
-        if command == "gate":
-            return command_gate(rest, state)
-        if command == "close":
-            return command_close(rest, state)
+            return cmd_mol(rest, cwd, state)
         if command == "show":
-            return command_show(rest, state)
+            return cmd_show(rest, state)
+        if command == "list":
+            return cmd_list(rest, state)
+        if command == "update":
+            return cmd_update(rest, state)
+        if command == "create":
+            return cmd_create(rest, state)
+        if command == "ready":
+            return cmd_ready(rest, state)
+        if command == "close":
+            return cmd_close(rest, state)
+        if command == "gate":
+            return cmd_gate(rest, state)
         if command == "delete":
-            return command_delete(rest, state)
-        if command == "todo":
-            return command_todo(rest, state)
+            return cmd_delete(rest, state)
         if command == "dep":
-            return command_dep(rest, state)
+            return cmd_dep(rest, state)
         if command == "comments":
-            return command_comments(rest, state)
+            return cmd_comments(rest, state)
+        if command == "supersede":
+            return cmd_supersede(rest, state)
+        if command == "todo" and rest and rest[0] == "add":
+            return cmd_create([rest[1], "--type", "task", "--labels", "todo"], state)
+        if command == "worktree":
+            return cmd_worktree(rest, cwd)
         raise RuntimeError(f"unsupported command: {command}")
-    except (RuntimeError, KeyError, ValueError, json.JSONDecodeError) as exc:
+    except (RuntimeError, KeyError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 

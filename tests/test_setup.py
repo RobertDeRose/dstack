@@ -1,436 +1,157 @@
 from __future__ import annotations
 
 import json
-import os
+import subprocess
 from pathlib import Path
 
-from conftest import SETUP_SCRIPT, run_json
+from conftest import SETUP_SCRIPT, run_command, run_json
 
 
-def fake_state() -> dict:
-    return json.loads(Path(os.environ["DSTACK_FAKE_BD_STATE"]).read_text())
-
-
-def test_setup_installs_and_validates_formula_sources_without_persisted_protos(
-    target_repo: Path,
-) -> None:
-    result = run_json(
-        ["python3", "-S", str(SETUP_SCRIPT), "install", "--root", str(target_repo), "--init"],
-        cwd=target_repo,
+def install(repo: Path, *extra: str):
+    return run_json(
+        ["python3", "-S", str(SETUP_SCRIPT), "install", "--root", str(repo), "--init", *extra],
+        cwd=repo,
     )
+
+
+def test_setup_installs_sources_without_live_proto_pollution(target_repo: Path) -> None:
+    result = install(target_repo)
     assert result["status"] == "ok"
-    assert result["beads_version"] == "bd version 1.2.2"
     assert result["preflight"] == "isolated-formula-pour"
-    assert result["formulas"] == {
-        "dstack-feature": "installed",
-        "dstack-project-alignment": "installed",
-    }
-    assert result["legacy_persisted_protos_removed"] == []
-    for name in result["validated"]:
-        assert (target_repo / ".beads" / "formulas" / f"{name}.formula.toml").is_file()
+    assert (target_repo / ".beads/formulas/dstack-feature.formula.toml").is_file()
+    state = json.loads(Path(__import__("os").environ["DSTACK_FAKE_BD_STATE"]).read_text())
+    assert not state["issues"]
 
-    state = fake_state()
-    assert state["protos"] == {}
-    assert not any(item.get("is_template") for item in state["issues"].values())
 
+def test_setup_is_idempotent_and_doctor_is_setup_only(target_repo: Path) -> None:
+    install(target_repo)
+    second = install(target_repo)
+    assert set(second["formulas"].values()) == {"unchanged"}
     doctor = run_json(
         ["python3", "-S", str(SETUP_SCRIPT), "doctor", "--root", str(target_repo)],
         cwd=target_repo,
     )
     assert doctor["status"] == "ok"
-    assert doctor["persisted_protos"] == "absent"
-    assert set(doctor["formulas"]) == {"dstack-feature", "dstack-project-alignment"}
 
 
-def test_setup_is_idempotent(target_repo: Path) -> None:
-    command = ["python3", "-S", str(SETUP_SCRIPT), "install", "--root", str(target_repo), "--init"]
-    run_json(command, cwd=target_repo)
-    second = run_json(command, cwd=target_repo)
-    assert set(second["formulas"].values()) == {"unchanged"}
-    assert second["legacy_persisted_protos_removed"] == []
-
-
-def test_setup_refuses_formula_conflict_without_force(target_repo: Path) -> None:
-    command = ["python3", "-S", str(SETUP_SCRIPT), "install", "--root", str(target_repo), "--init"]
-    run_json(command, cwd=target_repo)
-    installed = target_repo / ".beads" / "formulas" / "dstack-feature.formula.toml"
-    installed.write_text(installed.read_text() + "\n# local change\n")
-
-    failed = run_json(command, cwd=target_repo, check=False)
-    assert failed.returncode == 1
-    error = json.loads(failed.stderr)
-    assert "formula differs" in error["error"]
-
-    forced = run_json([*command, "--force"], cwd=target_repo)
-    assert forced["formulas"]["dstack-feature"] == "updated"
-
-
-def test_force_setup_recovers_from_previously_copied_invalid_formula(
-    target_repo: Path,
-) -> None:
-    formulas = target_repo / ".beads" / "formulas"
-    formulas.mkdir(parents=True)
-    (formulas / "dstack-feature.formula.toml").write_text(
-        """
-formula = "dstack-feature"
-type = "workflow"
-phase = "liquid"
-pour = true
-
-[[steps]]
-id = "implementation"
-title = "Implementation"
-type = "epic"
-
-[[steps]]
-id = "closeout"
-title = "Closeout"
-type = "task"
-needs = ["implementation"]
-""".lstrip()
-    )
-
-    result = run_json(
-        [
-            "python3",
-            "-S",
-            str(SETUP_SCRIPT),
-            "install",
-            "--root",
-            str(target_repo),
-            "--force",
-        ],
-        cwd=target_repo,
-    )
-
-    assert result["status"] == "ok"
-    assert result["formulas"]["dstack-feature"] == "updated"
-
-
-def test_force_setup_recovers_from_formula_gate_on_epic(target_repo: Path) -> None:
-    formulas = target_repo / ".beads" / "formulas"
-    formulas.mkdir(parents=True)
-    (formulas / "dstack-feature.formula.toml").write_text(
-        """
-formula = "dstack-feature"
-type = "workflow"
-phase = "liquid"
-pour = true
-
-[[steps]]
-id = "implementation"
-title = "Implementation"
-type = "epic"
-
-[steps.gate]
-type = "human"
-id = "approve-implementation"
-""".lstrip()
-    )
-
-    result = run_json(
-        [
-            "python3",
-            "-S",
-            str(SETUP_SCRIPT),
-            "install",
-            "--root",
-            str(target_repo),
-            "--force",
-        ],
-        cwd=target_repo,
-    )
-
-    assert result["status"] == "ok"
-    assert result["formulas"]["dstack-feature"] == "updated"
-
-
-def test_force_setup_removes_legacy_persisted_proto_graphs(target_repo: Path) -> None:
-    install = [
-        "python3",
-        "-S",
-        str(SETUP_SCRIPT),
-        "install",
-        "--root",
-        str(target_repo),
-        "--init",
-    ]
-    run_json(install, cwd=target_repo)
-
-    for formula_name in ("dstack-feature", "dstack-project-alignment"):
-        run_json(
-            ["bd", "cook", formula_name, "--persist", "--force", "--json"],
-            cwd=target_repo,
-        )
-
-    ready = run_json(["bd", "ready", "--json"], cwd=target_repo)
-    assert any(item.get("is_template") for item in ready)
-    gates = run_json(["bd", "gate", "list", "--json"], cwd=target_repo)
-    assert any(item["id"].startswith("dstack-feature.gate-") for item in gates)
-
-    doctor_failed = run_json(
-        ["python3", "-S", str(SETUP_SCRIPT), "doctor", "--root", str(target_repo)],
-        cwd=target_repo,
-        check=False,
-    )
-    assert doctor_failed.returncode == 1
-    assert "legacy persisted dstack template artifacts remain" in json.loads(
-        doctor_failed.stderr
-    )["error"]
-
-    install_failed = run_json(install, cwd=target_repo, check=False)
-    assert install_failed.returncode == 1
-    assert "rerun with --force" in json.loads(install_failed.stderr)["error"]
-
-    repaired = run_json([*install, "--force"], cwd=target_repo)
-    assert repaired["legacy_persisted_protos_removed"] == [
-        "dstack-feature",
-        "dstack-project-alignment",
-    ]
-
-    state = fake_state()
-    assert state["protos"] == {}
-    assert not any(
-        item_id == "dstack-feature"
-        or item_id.startswith("dstack-feature.")
-        or item_id == "dstack-project-alignment"
-        or item_id.startswith("dstack-project-alignment.")
-        for item_id in state["issues"]
-    )
-    assert not any(item.get("is_template") for item in state["issues"].values())
-
-
-def test_force_setup_removes_orphaned_legacy_template_children_and_gates(
-    target_repo: Path,
-) -> None:
-    install = [
-        "python3",
-        "-S",
-        str(SETUP_SCRIPT),
-        "install",
-        "--root",
-        str(target_repo),
-        "--init",
-    ]
-    run_json(install, cwd=target_repo)
-
-    formula_names = ("dstack-feature", "dstack-project-alignment")
-    for formula_name in formula_names:
-        run_json(
-            ["bd", "cook", formula_name, "--persist", "--force", "--json"],
-            cwd=target_repo,
-        )
-
-    # Model the real failure: an earlier cleanup removed only the proto roots.
-    # Template steps and formula-generated gates remain, but no root exists from
-    # which a descendant walk can begin.
-    run_json(
-        ["bd", "delete", *formula_names, "--force", "--json"],
-        cwd=target_repo,
-    )
-    state = fake_state()
-    assert all(name not in state["issues"] for name in formula_names)
-    assert any(
-        item_id.startswith("dstack-feature.")
-        or item_id.startswith("dstack-project-alignment.")
-        for item_id in state["issues"]
-    )
-
-    doctor_failed = run_json(
-        ["python3", "-S", str(SETUP_SCRIPT), "doctor", "--root", str(target_repo)],
-        cwd=target_repo,
-        check=False,
-    )
-    assert doctor_failed.returncode == 1
-    assert "legacy persisted dstack" in json.loads(doctor_failed.stderr)["error"]
-
-    repaired = run_json([*install, "--force"], cwd=target_repo)
-    assert repaired["legacy_persisted_protos_removed"] == [
-        "dstack-feature",
-        "dstack-project-alignment",
-    ]
-
-    state = fake_state()
-    assert not any(
-        item_id.startswith("dstack-feature.")
-        or item_id.startswith("dstack-project-alignment.")
-        for item_id in state["issues"]
-    )
-
-
-def test_force_setup_refuses_orphaned_non_template_in_reserved_namespace(
-    target_repo: Path,
-) -> None:
-    state = fake_state()
-    state["issues"]["dstack-feature.unrelated"] = {
-        "id": "dstack-feature.unrelated",
-        "title": "Ordinary project issue",
-        "type": "task",
-        "issue_type": "task",
-        "status": "open",
-        "parent_id": None,
-        "labels": [],
-        "metadata": {},
-        "dependencies": [],
-        "gate_ids": [],
-        "is_template": False,
-    }
-    Path(os.environ["DSTACK_FAKE_BD_STATE"]).write_text(json.dumps(state))
-
-    failed = run_json(
-        [
-            "python3",
-            "-S",
-            str(SETUP_SCRIPT),
-            "install",
-            "--root",
-            str(target_repo),
-            "--init",
-            "--force",
-        ],
-        cwd=target_repo,
-        check=False,
-    )
-
-    assert failed.returncode == 1
-    assert "reserved template namespace" in json.loads(failed.stderr)["error"]
-    assert "dstack-feature.unrelated" in fake_state()["issues"]
-
-
-def test_force_setup_refuses_cleanup_when_real_work_depends_on_template_artifact(
-    target_repo: Path,
-) -> None:
-    install = [
-        "python3",
-        "-S",
-        str(SETUP_SCRIPT),
-        "install",
-        "--root",
-        str(target_repo),
-        "--init",
-    ]
-    run_json(install, cwd=target_repo)
-    run_json(
-        ["bd", "cook", "dstack-feature", "--persist", "--force", "--json"],
-        cwd=target_repo,
-    )
-
-    state = fake_state()
-    state["issues"]["conduit-real-work"] = {
-        "id": "conduit-real-work",
-        "title": "Real project work",
-        "type": "task",
-        "issue_type": "task",
-        "status": "open",
-        "parent_id": None,
-        "labels": [],
-        "metadata": {},
-        "dependencies": ["dstack-feature.specification"],
-        "gate_ids": [],
-        "is_template": False,
-    }
-    Path(os.environ["DSTACK_FAKE_BD_STATE"]).write_text(json.dumps(state))
-
-    failed = run_json([*install, "--force"], cwd=target_repo, check=False)
-    assert failed.returncode == 1
-    assert "dependent issues outside deletion set" in json.loads(failed.stderr)[
-        "error"
-    ]
-
-    state = fake_state()
-    assert "dstack-feature.specification" in state["issues"]
-    assert "conduit-real-work" in state["issues"]
-
-
-def test_doctor_rejects_cookable_task_workstream_workaround(target_repo: Path) -> None:
-    run_json(
+def test_setup_refuses_formula_drift_without_force(target_repo: Path) -> None:
+    install(target_repo)
+    path = target_repo / ".beads/formulas/dstack-feature.formula.toml"
+    path.write_text(path.read_text() + "\n# drift\n")
+    failed = run_command(
         ["python3", "-S", str(SETUP_SCRIPT), "install", "--root", str(target_repo), "--init"],
         cwd=target_repo,
-    )
-    installed = target_repo / ".beads" / "formulas" / "dstack-feature.formula.toml"
-    text = installed.read_text()
-    marker = 'id = "implementation"\ntitle = "Implementation workstream: {{feature_title}}"\ntype = "epic"'
-    assert marker in text
-    installed.write_text(text.replace(marker, marker.replace('type = "epic"', 'type = "task"')))
-
-    failed = run_json(
-        ["python3", "-S", str(SETUP_SCRIPT), "doctor", "--root", str(target_repo)],
-        cwd=target_repo,
         check=False,
     )
     assert failed.returncode == 1
-    error = json.loads(failed.stderr)
-    assert "installed formula differs from dstack package" in error["error"]
+    assert "--force" in failed.stderr
+    assert install(target_repo, "--force")["formulas"]["dstack-feature"] == "updated"
 
 
-def test_doctor_rejects_formula_source_drift(target_repo: Path) -> None:
+def test_legacy_repair_untracks_interaction_log_without_deleting_it(target_repo: Path) -> None:
+    install(target_repo)
+    runtime = target_repo / ".beads/interactions.jsonl"
+    runtime.write_text('{"event":"test"}\n')
+    subprocess.run(["git", "add", str(runtime.relative_to(target_repo))], cwd=target_repo, check=True)
+    subprocess.run(["git", "commit", "-m", "track legacy log"], cwd=target_repo, check=True, capture_output=True)
+    preview = run_json(
+        ["python3", "-S", str(SETUP_SCRIPT), "repair-legacy", "--root", str(target_repo)],
+        cwd=target_repo,
+        check=False,
+    )
+    assert preview.returncode == 2
+    repaired = run_json(
+        ["python3", "-S", str(SETUP_SCRIPT), "repair-legacy", "--root", str(target_repo), "--force"],
+        cwd=target_repo,
+    )
+    assert repaired["interaction_log_untracked"] is True
+    assert runtime.is_file()
+    assert ".beads/interactions.jsonl" in (target_repo / ".gitignore").read_text()
+    assert subprocess.run(["git", "ls-files", "--error-unmatch", ".beads/interactions.jsonl"], cwd=target_repo).returncode != 0
+
+
+def test_legacy_repair_normalizes_root_and_child_metadata(target_repo: Path) -> None:
+    install(target_repo)
+    poured = run_json(
+        [
+            "bd",
+            "mol",
+            "pour",
+            "dstack-feature",
+            "--var",
+            "feature_title=Legacy Current",
+            "--var",
+            "feature_slug=legacy-current",
+            "--var",
+            "base_branch=dev",
+            "--var",
+            "design_path=docs/src/features/legacy-current/design.md",
+            "--json",
+        ],
+        cwd=target_repo,
+    )
+    root_id = poured["root_id"]
     run_json(
-        ["python3", "-S", str(SETUP_SCRIPT), "install", "--root", str(target_repo), "--init"],
+        [
+            "bd",
+            "update",
+            root_id,
+            "--title",
+            "Feature: Legacy Current",
+            "--add-label",
+            "workflow:feature",
+            "--add-label",
+            "feature:legacy-current",
+            "--set-metadata",
+            "base_branch=dev",
+            "--set-metadata",
+            "design_path=docs/src/features/legacy-current/design.md",
+            "--set-metadata",
+            "feature_slug=legacy-current",
+            "--json",
+        ],
         cwd=target_repo,
     )
-    installed = target_repo / ".beads" / "formulas" / "dstack-feature.formula.toml"
-    installed.write_text(installed.read_text() + "\n# local drift\n")
-
-    failed = run_json(
-        ["python3", "-S", str(SETUP_SCRIPT), "doctor", "--root", str(target_repo)],
+    children = run_json(
+        ["bd", "list", "--parent", root_id, "--all", "--limit", "0", "--json"],
         cwd=target_repo,
-        check=False,
     )
-    assert failed.returncode == 1
-    error = json.loads(failed.stderr)
-    assert "installed formula differs from dstack package" in error["error"]
+    first_child = children[0]
+    run_json(
+        [
+            "bd",
+            "update",
+            first_child["id"],
+            "--set-metadata",
+            "base_branch={{base_branch}}",
+            "--set-metadata",
+            "design_path={{design_path}}",
+            "--add-label",
+            "feature:{{feature_slug}}",
+            "--json",
+        ],
+        cwd=target_repo,
+    )
 
-
-def test_formula_contract_rejects_task_workstream_workaround() -> None:
-    import runpy
-    import tomllib
-
-    namespace = runpy.run_path(str(SETUP_SCRIPT))
-    validate = namespace["validate_dstack_formula_contract"]
-    setup_error = namespace["SetupError"]
-    formula_path = SETUP_SCRIPT.parents[3] / "formulas" / "dstack-feature.formula.toml"
-    formula = tomllib.loads(formula_path.read_text())
-    next(step for step in formula["steps"] if step["id"] == "implementation")["type"] = "task"
-
-    with __import__("pytest").raises(
-        setup_error,
-        match="implementation must remain type=epic",
-    ):
-        validate("dstack-feature", formula)
-
-
-def test_force_setup_refuses_same_named_non_template_issue(target_repo: Path) -> None:
-    state = fake_state()
-    state["issues"]["dstack-feature"] = {
-        "id": "dstack-feature",
-        "title": "Ordinary project issue",
-        "type": "epic",
-        "issue_type": "epic",
-        "status": "open",
-        "parent_id": None,
-        "labels": [],
-        "metadata": {},
-        "dependencies": [],
-        "gate_ids": [],
-        "is_template": False,
-    }
-    Path(os.environ["DSTACK_FAKE_BD_STATE"]).write_text(json.dumps(state))
-
-    failed = run_json(
+    repaired = run_json(
         [
             "python3",
             "-S",
             str(SETUP_SCRIPT),
-            "install",
+            "repair-legacy",
             "--root",
             str(target_repo),
-            "--init",
             "--force",
         ],
         cwd=target_repo,
-        check=False,
     )
-
-    assert failed.returncode == 1
-    assert "not a dstack template" in json.loads(failed.stderr)["error"]
-    assert "dstack-feature" in fake_state()["issues"]
+    assert root_id in repaired["molecule_items_normalized"]
+    root = run_json(["bd", "show", root_id, "--json"], cwd=target_repo)[0]
+    assert root["metadata"]["dstack.base_branch"] == "dev"
+    assert root["metadata"]["dstack.design_path"].endswith("design.md")
+    assert "base_branch" not in root["metadata"]
+    assert "feature_slug" not in root["metadata"]
+    child = run_json(["bd", "show", first_child["id"], "--json"], cwd=target_repo)[0]
+    assert "base_branch" not in child["metadata"]
+    assert "design_path" not in child["metadata"]
+    assert "feature:{{feature_slug}}" not in child["labels"]
