@@ -4,7 +4,7 @@ import hashlib
 import subprocess
 from pathlib import Path
 
-from conftest import DSTACKCTL, ctl, run_command
+from conftest import DSTACKCTL, ctl, run_command, run_json
 
 
 def initialize(repo: Path, title: str = "Leader Election Weighting"):
@@ -21,6 +21,21 @@ def test_initialize_resolves_by_title_slug_and_id_and_is_idempotent(installed_re
     reused = initialize(installed_repo)
     assert reused["created"] is False
     assert reused["root"]["id"] == root_id
+
+
+def test_human_gate_resolution_does_not_require_gate_list_parent(
+    installed_repo: Path,
+) -> None:
+    created = initialize(installed_repo)
+    gates = run_json(
+        ["bd", "gate", "list", "--all", "--limit", "0", "--json"],
+        cwd=installed_repo,
+    )
+    assert len(gates) == 1
+    assert "parent" not in gates[0]
+
+    inspected = ctl(installed_repo, "feature", "inspect", created["root"]["id"])
+    assert inspected["human_gate"]["id"] == created["human_gate"]["id"]
 
 
 def test_spec_approval_uses_design_digest_without_requiring_a_commit(installed_repo: Path) -> None:

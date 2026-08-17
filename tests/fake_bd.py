@@ -489,7 +489,19 @@ def cmd_gate(args: list[str], state: dict[str, Any]) -> int:
         gates = [one for one in state["issues"].values() if one.get("type") == "gate"]
         if "--all" not in args:
             gates = [one for one in gates if one.get("status") != "closed"]
-        emit([serialize(state, one) for one in gates])
+        # Match Beads 1.2.2: ``bd gate list --json`` emits lightweight raw
+        # gate issues and does not project the parent-child dependency into a
+        # ``parent`` field. Workflow code must resolve the gate from the
+        # blocked step or use ``bd list --parent ... --include-gates``.
+        payload = []
+        for one in gates:
+            gate = dict(one)
+            gate["issue_type"] = "gate"
+            gate.pop("parent", None)
+            gate.pop("waiter_id", None)
+            gate.pop("dependencies", None)
+            payload.append(gate)
+        emit(payload)
         return 0
     if sub == "resolve":
         gate = item(state, args[1])
