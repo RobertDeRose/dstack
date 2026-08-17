@@ -540,6 +540,12 @@ def command_list(args: list[str], state: dict[str, Any]) -> int:
     issue_type = value(args, "--type")
     status = value(args, "--status")
     required_labels = set(csv_values(args, "--label"))
+    if "--all" not in args:
+        items = [item for item in items if item.get("status") != "closed"]
+    if "--include-templates" not in args:
+        items = [item for item in items if item.get("is_template") is not True]
+    if "--include-gates" not in args:
+        items = [item for item in items if item.get("type") != "gate"]
     if parent_id is not None:
         items = [item for item in items if item.get("parent_id") == parent_id]
     if issue_type is not None:
@@ -548,7 +554,11 @@ def command_list(args: list[str], state: dict[str, Any]) -> int:
         items = [item for item in items if item.get("status") == status]
     if required_labels:
         items = [item for item in items if required_labels <= set(item.get("labels", []))]
-    emit(sorted(items, key=lambda item: item["id"]))
+    items = sorted(items, key=lambda item: item["id"])
+    limit_raw = value(args, "--limit")
+    if limit_raw is not None and int(limit_raw) > 0:
+        items = items[: int(limit_raw)]
+    emit(items)
     return 0
 
 
@@ -613,34 +623,58 @@ def command_delete(args: list[str], state: dict[str, Any]) -> int:
     if not issue_ids:
         raise RuntimeError("issue ID required")
     cascade = "--cascade" in args
-    deleted: list[str] = []
+    dry_run = "--dry-run" in args
+
+    all_targets: list[str] = []
     for root_id in issue_ids:
         if root_id not in state["issues"]:
             raise RuntimeError(f"issue not found: {root_id}")
         targets = [root_id]
         if cascade:
             targets.extend(item["id"] for item in descendants(state, root_id))
-        for target in targets:
-            if target in state["issues"]:
-                state["issues"].pop(target)
-                deleted.append(target)
-            state["comments"].pop(target, None)
-            state["protos"].pop(target, None)
-        target_set = set(targets)
-        for item in state["issues"].values():
-            item["dependencies"] = [
-                dependency
+        all_targets.extend(targets)
+
+    all_targets = list(dict.fromkeys(all_targets))
+    target_set = set(all_targets)
+    if dry_run:
+        external_dependents = sorted(
+            item["id"]
+            for item in state["issues"].values()
+            if item["id"] not in target_set
+            and any(
+                dependency in target_set
                 for dependency in item.get("dependencies", [])
-                if dependency not in target_set
-            ]
-            item["gate_ids"] = [
-                gate_id for gate_id in item.get("gate_ids", []) if gate_id not in target_set
-            ]
-        state["relations"] = [
-            relation
-            for relation in state["relations"]
-            if relation.get("from") not in target_set and relation.get("to") not in target_set
+            )
+        )
+        if external_dependents:
+            raise RuntimeError(
+                "dependent issues outside deletion set: "
+                + ", ".join(external_dependents)
+            )
+        emit({"would_delete": all_targets, "deleted_count": len(all_targets)})
+        return 0
+
+    deleted: list[str] = []
+    for target in all_targets:
+        if target in state["issues"]:
+            state["issues"].pop(target)
+            deleted.append(target)
+        state["comments"].pop(target, None)
+        state["protos"].pop(target, None)
+    for item in state["issues"].values():
+        item["dependencies"] = [
+            dependency
+            for dependency in item.get("dependencies", [])
+            if dependency not in target_set
         ]
+        item["gate_ids"] = [
+            gate_id for gate_id in item.get("gate_ids", []) if gate_id not in target_set
+        ]
+    state["relations"] = [
+        relation
+        for relation in state["relations"]
+        if relation.get("from") not in target_set and relation.get("to") not in target_set
+    ]
     save_state(state)
     emit({"deleted": deleted, "deleted_count": len(deleted)})
     return 0

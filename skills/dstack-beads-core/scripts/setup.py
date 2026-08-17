@@ -363,55 +363,101 @@ def show_issue_optional(root: Path, issue_id: str) -> dict[str, Any] | None:
     return matches[0]
 
 
-def persisted_proto_artifacts(root: Path, formula_name: str) -> list[dict[str, Any]]:
-    """Return a fully verified accidental proto graph from older dstack setup."""
+def all_issue_inventory(root: Path) -> list[dict[str, Any]]:
+    """Return every issue, including hidden templates and gate issues.
 
-    root_issue = show_issue_optional(root, formula_name)
-    if root_issue is None:
+    ``bd list`` excludes templates and gates by default. Older dstack setup
+    persisted formula protos, and an early cleanup could delete only their
+    roots while leaving template steps and gates orphaned. A root-based walk
+    therefore cannot prove that the repository is clean.
+    """
+
+    result = run(
+        [
+            "bd",
+            "list",
+            "--all",
+            "--include-templates",
+            "--include-gates",
+            "--limit",
+            "0",
+            "--json",
+        ],
+        cwd=root,
+    )
+    return issue_items(parse_json_output(result, context="bd list inventory"))
+
+
+def persisted_proto_artifacts(
+    root: Path,
+    formula_name: str,
+    *,
+    inventory: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return verified legacy template artifacts for one reserved formula ID.
+
+    The exact formula name and its dotted namespace are reserved for the
+    accidental graphs created by older ``bd cook --persist`` setup releases.
+    Detection intentionally does not require the root to exist: a prior partial
+    cleanup may have left only orphaned child steps or gates.
+    """
+
+    source = (
+        list(inventory)
+        if inventory is not None
+        else all_issue_inventory(root)
+    )
+    matching_summaries: list[Mapping[str, Any]] = []
+    prefix = f"{formula_name}."
+    for item in source:
+        item_id = item.get("id")
+        if isinstance(item_id, str) and (
+            item_id == formula_name or item_id.startswith(prefix)
+        ):
+            matching_summaries.append(item)
+
+    if not matching_summaries:
         return []
-    if root_issue.get("is_template") is not True:
-        raise SetupError(
-            f"issue {formula_name} exists but is not a dstack template; refusing to delete it"
-        )
 
-    artifacts: list[dict[str, Any]] = [root_issue]
-    seen = {formula_name}
-    queue = [formula_name]
-    while queue:
-        parent_id = queue.pop(0)
-        result = run(
-            ["bd", "list", "--parent", parent_id, "--all", "--json"],
-            cwd=root,
+    artifacts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for summary in matching_summaries:
+        artifact_id = summary.get("id")
+        if not isinstance(artifact_id, str) or artifact_id in seen:
+            continue
+        seen.add(artifact_id)
+
+        artifact = show_issue_optional(root, artifact_id)
+        if artifact is None:
+            raise SetupError(
+                f"legacy dstack template artifact disappeared during inspection: {artifact_id}"
+            )
+        if artifact.get("is_template") is not True:
+            raise SetupError(
+                f"issue {artifact_id} uses dstack's reserved template namespace "
+                "but is not a dstack template; refusing to delete it"
+            )
+        artifacts.append(artifact)
+
+    artifacts.sort(
+        key=lambda item: (
+            item.get("id") != formula_name,
+            str(item.get("id", "")).count("."),
+            str(item.get("id", "")),
         )
-        children = issue_items(
-            parse_json_output(result, context=f"bd list for {parent_id}")
-        )
-        for child in children:
-            child_id = child.get("id")
-            if not isinstance(child_id, str) or not child_id.startswith(
-                f"{formula_name}."
-            ):
-                raise SetupError(
-                    f"persisted proto {formula_name} has an unexpected descendant: "
-                    f"{child_id!r}"
-                )
-            if child.get("is_template") is not True:
-                raise SetupError(
-                    f"persisted proto {formula_name} has a non-template descendant: "
-                    f"{child_id}"
-                )
-            if child_id in seen:
-                continue
-            seen.add(child_id)
-            artifacts.append(child)
-            queue.append(child_id)
+    )
     return artifacts
 
 
 def find_legacy_persisted_protos(root: Path) -> dict[str, list[dict[str, Any]]]:
+    inventory = all_issue_inventory(root)
     found: dict[str, list[dict[str, Any]]] = {}
     for formula_name in FORMULA_NAMES:
-        artifacts = persisted_proto_artifacts(root, formula_name)
+        artifacts = persisted_proto_artifacts(
+            root,
+            formula_name,
+            inventory=inventory,
+        )
         if artifacts:
             found[formula_name] = artifacts
     return found
@@ -421,28 +467,48 @@ def remove_legacy_persisted_protos(
     root: Path,
     found: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> list[str]:
-    removed: list[str] = []
+    artifact_ids: list[str] = []
     for formula_name, artifacts in found.items():
-        artifact_ids = [
-            artifact_id
-            for artifact in artifacts
-            if isinstance((artifact_id := artifact.get("id")), str)
-        ]
-        if not artifact_ids or artifact_ids[0] != formula_name:
-            raise SetupError(
-                f"legacy persisted proto inventory is invalid for {formula_name}"
-            )
-        run(
-            ["bd", "delete", *artifact_ids, "--force", "--json"],
-            cwd=root,
-        )
-        for artifact_id in artifact_ids:
-            if show_issue_optional(root, artifact_id) is not None:
+        prefix = f"{formula_name}."
+        for artifact in artifacts:
+            artifact_id = artifact.get("id")
+            if not isinstance(artifact_id, str) or not (
+                artifact_id == formula_name or artifact_id.startswith(prefix)
+            ):
                 raise SetupError(
-                    f"failed to remove legacy persisted proto artifact: {artifact_id}"
+                    f"legacy persisted template inventory is invalid for {formula_name}"
                 )
-        removed.append(formula_name)
-    return removed
+            artifact_ids.append(artifact_id)
+
+    artifact_ids = sorted(set(artifact_ids))
+    if not artifact_ids:
+        return []
+
+    # Refuse cleanup if any issue outside the verified set depends on one of
+    # these artifacts. The dry run validates the complete batch before --force
+    # performs the irreversible deletion.
+    run(
+        ["bd", "delete", *artifact_ids, "--dry-run", "--json"],
+        cwd=root,
+    )
+    run(
+        ["bd", "delete", *artifact_ids, "--force", "--json"],
+        cwd=root,
+    )
+
+    remaining = find_legacy_persisted_protos(root)
+    if remaining:
+        remaining_ids = sorted(
+            str(item.get("id"))
+            for artifacts in remaining.values()
+            for item in artifacts
+        )
+        raise SetupError(
+            "failed to remove legacy persisted dstack template artifacts: "
+            + ", ".join(remaining_ids)
+        )
+
+    return sorted(found)
 
 
 def restore_formula_files(snapshots: Mapping[Path, bytes | None]) -> None:
@@ -470,7 +536,8 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     if legacy_protos and not force:
         names = ", ".join(sorted(legacy_protos))
         raise SetupError(
-            "legacy persisted dstack protos pollute Beads ready work and gates: "
+            "legacy persisted dstack template artifacts pollute Beads ready "
+            "work and gates: "
             f"{names}; rerun with --force to remove only those verified template graphs"
         )
 
@@ -535,7 +602,7 @@ def doctor(root_arg: Path) -> dict[str, Any]:
     if legacy_protos:
         names = ", ".join(sorted(legacy_protos))
         raise SetupError(
-            "legacy persisted dstack protos remain in Beads: "
+            "legacy persisted dstack template artifacts remain in Beads: "
             f"{names}; rerun /setup-project --force"
         )
 

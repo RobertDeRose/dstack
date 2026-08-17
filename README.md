@@ -151,8 +151,10 @@ it. Existing different formula files are not overwritten unless the user runs:
 
 Older dstack releases persisted formula protos with `bd cook --persist`. Beads
 then exposed those template steps and template gates in the normal ready and gate
-views. Forced setup verifies that a same-named graph is entirely template-owned
-before deleting it. It never deletes an ordinary same-named Bead.
+views. An early cleanup could delete only the roots and leave orphaned template
+steps or gates. Forced setup scans Beads with templates and gates explicitly
+included, verifies every artifact in dstack's reserved formula namespaces, and
+removes the complete batch. It never deletes a non-template issue.
 
 ## Formula installer
 
@@ -173,8 +175,8 @@ The helper only:
    and dependency insertion;
 6. installs the two formula source files in the target only after that preflight
    succeeds;
-7. removes verified accidental template graphs from older dstack setup when
-   `--force` is explicit;
+7. removes verified accidental template graphs, including orphaned steps and
+   gates left after partial cleanup, when `--force` is explicit;
 8. verifies that the installed formulas remain directly pourable by name.
 
 It does not persist protos in the target repository. `bd mol pour` cooks the

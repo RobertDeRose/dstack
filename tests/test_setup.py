@@ -174,7 +174,9 @@ def test_force_setup_removes_legacy_persisted_proto_graphs(target_repo: Path) ->
         check=False,
     )
     assert doctor_failed.returncode == 1
-    assert "legacy persisted dstack protos remain" in json.loads(doctor_failed.stderr)["error"]
+    assert "legacy persisted dstack template artifacts remain" in json.loads(
+        doctor_failed.stderr
+    )["error"]
 
     install_failed = run_json(install, cwd=target_repo, check=False)
     assert install_failed.returncode == 1
@@ -196,6 +198,148 @@ def test_force_setup_removes_legacy_persisted_proto_graphs(target_repo: Path) ->
         for item_id in state["issues"]
     )
     assert not any(item.get("is_template") for item in state["issues"].values())
+
+
+def test_force_setup_removes_orphaned_legacy_template_children_and_gates(
+    target_repo: Path,
+) -> None:
+    install = [
+        "python3",
+        "-S",
+        str(SETUP_SCRIPT),
+        "install",
+        "--root",
+        str(target_repo),
+        "--init",
+    ]
+    run_json(install, cwd=target_repo)
+
+    formula_names = ("dstack-feature", "dstack-project-alignment")
+    for formula_name in formula_names:
+        run_json(
+            ["bd", "cook", formula_name, "--persist", "--force", "--json"],
+            cwd=target_repo,
+        )
+
+    # Model the real failure: an earlier cleanup removed only the proto roots.
+    # Template steps and formula-generated gates remain, but no root exists from
+    # which a descendant walk can begin.
+    run_json(
+        ["bd", "delete", *formula_names, "--force", "--json"],
+        cwd=target_repo,
+    )
+    state = fake_state()
+    assert all(name not in state["issues"] for name in formula_names)
+    assert any(
+        item_id.startswith("dstack-feature.")
+        or item_id.startswith("dstack-project-alignment.")
+        for item_id in state["issues"]
+    )
+
+    doctor_failed = run_json(
+        ["python3", "-S", str(SETUP_SCRIPT), "doctor", "--root", str(target_repo)],
+        cwd=target_repo,
+        check=False,
+    )
+    assert doctor_failed.returncode == 1
+    assert "legacy persisted dstack" in json.loads(doctor_failed.stderr)["error"]
+
+    repaired = run_json([*install, "--force"], cwd=target_repo)
+    assert repaired["legacy_persisted_protos_removed"] == [
+        "dstack-feature",
+        "dstack-project-alignment",
+    ]
+
+    state = fake_state()
+    assert not any(
+        item_id.startswith("dstack-feature.")
+        or item_id.startswith("dstack-project-alignment.")
+        for item_id in state["issues"]
+    )
+
+
+def test_force_setup_refuses_orphaned_non_template_in_reserved_namespace(
+    target_repo: Path,
+) -> None:
+    state = fake_state()
+    state["issues"]["dstack-feature.unrelated"] = {
+        "id": "dstack-feature.unrelated",
+        "title": "Ordinary project issue",
+        "type": "task",
+        "issue_type": "task",
+        "status": "open",
+        "parent_id": None,
+        "labels": [],
+        "metadata": {},
+        "dependencies": [],
+        "gate_ids": [],
+        "is_template": False,
+    }
+    Path(os.environ["DSTACK_FAKE_BD_STATE"]).write_text(json.dumps(state))
+
+    failed = run_json(
+        [
+            "python3",
+            "-S",
+            str(SETUP_SCRIPT),
+            "install",
+            "--root",
+            str(target_repo),
+            "--init",
+            "--force",
+        ],
+        cwd=target_repo,
+        check=False,
+    )
+
+    assert failed.returncode == 1
+    assert "reserved template namespace" in json.loads(failed.stderr)["error"]
+    assert "dstack-feature.unrelated" in fake_state()["issues"]
+
+
+def test_force_setup_refuses_cleanup_when_real_work_depends_on_template_artifact(
+    target_repo: Path,
+) -> None:
+    install = [
+        "python3",
+        "-S",
+        str(SETUP_SCRIPT),
+        "install",
+        "--root",
+        str(target_repo),
+        "--init",
+    ]
+    run_json(install, cwd=target_repo)
+    run_json(
+        ["bd", "cook", "dstack-feature", "--persist", "--force", "--json"],
+        cwd=target_repo,
+    )
+
+    state = fake_state()
+    state["issues"]["conduit-real-work"] = {
+        "id": "conduit-real-work",
+        "title": "Real project work",
+        "type": "task",
+        "issue_type": "task",
+        "status": "open",
+        "parent_id": None,
+        "labels": [],
+        "metadata": {},
+        "dependencies": ["dstack-feature.specification"],
+        "gate_ids": [],
+        "is_template": False,
+    }
+    Path(os.environ["DSTACK_FAKE_BD_STATE"]).write_text(json.dumps(state))
+
+    failed = run_json([*install, "--force"], cwd=target_repo, check=False)
+    assert failed.returncode == 1
+    assert "dependent issues outside deletion set" in json.loads(failed.stderr)[
+        "error"
+    ]
+
+    state = fake_state()
+    assert "dstack-feature.specification" in state["issues"]
+    assert "conduit-real-work" in state["issues"]
 
 
 def test_doctor_rejects_cookable_task_workstream_workaround(target_repo: Path) -> None:

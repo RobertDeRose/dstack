@@ -24,9 +24,10 @@ repository has not been initialized.
    molecule from each formula. This exercises real gate and dependency creation
    before the target repository is modified.
 4. Add `--force` only when the user explicitly supplied it. This replaces
-   differing formula source and removes only verified legacy template graphs
-   named `dstack-feature` and `dstack-project-alignment` that older dstack
-   versions created with `bd cook --persist`.
+   differing formula source and removes only verified legacy template artifacts
+   in the reserved `dstack-feature` and `dstack-project-alignment` namespaces.
+   This includes orphaned steps or gates left when an earlier cleanup removed
+   only the proto roots.
 5. Read the JSON result and report:
    - target Git root;
    - Beads version;

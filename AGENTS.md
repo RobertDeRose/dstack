@@ -29,7 +29,8 @@ Keep dstack a thin policy layer over Beads and Git.
 - One implementation or corrective Bead is one intended Git commit boundary by
   default.
 - Helpers may install or validate formula source and safely remove verified legacy
-  template artifacts, but workflow execution must use native `bd` commands directly.
+  template artifacts, including orphaned steps and gates, but workflow execution
+  must use native `bd` commands directly.
 
 ## Formula design
 
