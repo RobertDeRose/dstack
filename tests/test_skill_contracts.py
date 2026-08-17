@@ -105,3 +105,31 @@ def test_beads_interaction_log_is_runtime_state() -> None:
     assert "Never recommend `git restore`" in core
     assert "/setup-project --force" in close
     assert "git rm --cached -- .beads/interactions.jsonl" in setup
+
+
+def test_feature_skills_do_not_duplicate_git_history_or_workflow_state() -> None:
+    root = Path(__file__).parents[1]
+    feature_skills = [
+        root / "skills" / "dstack-beads-start-feature" / "SKILL.md",
+        root / "skills" / "dstack-beads-review-feature-spec" / "SKILL.md",
+        root / "skills" / "dstack-beads-implement-feature" / "SKILL.md",
+        root / "skills" / "dstack-beads-close-feature" / "SKILL.md",
+    ]
+    text = "\n".join(path.read_text() for path in feature_skills)
+    assert "external reference `git:" not in text
+    assert "set the specification step's external reference" not in text
+    assert "Update the roadmap entry" not in text
+    assert "update the roadmap" not in text
+    assert "committed specification SHA" not in text
+
+
+def test_commit_footer_is_the_only_git_beads_evidence_contract() -> None:
+    root = Path(__file__).parents[1]
+    core = (root / "skills" / "dstack-beads-core" / "SKILL.md").read_text()
+    review = (root / "skills" / "dstack-beads-review-feature-spec" / "SKILL.md").read_text()
+    implement = (root / "skills" / "dstack-beads-implement-feature" / "SKILL.md").read_text()
+    close = (root / "skills" / "dstack-beads-close-feature" / "SKILL.md").read_text()
+    assert "Beads: <work-item-id>" in core
+    assert "Beads: <specification-step-id>" in review
+    assert "Beads: <task-id>" in implement
+    assert "Beads: <closeout-step-id>" in close

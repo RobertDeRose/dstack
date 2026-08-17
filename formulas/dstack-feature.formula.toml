@@ -40,8 +40,8 @@ labels = ["dstack:step:specification"]
 metadata = { dstack_step = "specification" }
 description = """
 Review and reconcile {{design_path}} and the proposed implementation graph.
-Resolve genuine product or architecture decisions, commit the accepted
-specification, and record its Git commit on this Bead.
+Resolve genuine product or architecture decisions and commit the accepted
+specification with this Bead ID in the commit footer.
 """
 
 [[steps]]

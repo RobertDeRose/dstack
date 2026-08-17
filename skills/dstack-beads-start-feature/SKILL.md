@@ -21,7 +21,8 @@ do not create a custom state file, label, or database record for it.
 ## Preconditions
 
 1. Run the setup doctor.
-2. Read `docs/src/planned-features.md` when present.
+2. Read planning and feature documentation when present for product context.
+   Treat it as design input, never as lifecycle state.
 3. Resolve the feature selector before deriving anything new:
    - If the selector is an exact Bead ID, inspect that Bead directly.
    - Otherwise inspect feature roots and planned feature epics and match, in
@@ -42,7 +43,7 @@ do not create a custom state file, label, or database record for it.
 5. Search existing feature molecule roots one final time by the resolved slug
    before pouring another. Reuse the exact existing open current molecule or
    stop on ambiguity.
-6. Verify the intended base branch and capture its commit.
+6. Verify the intended base branch.
 
 ## Native worktree
 
@@ -71,9 +72,8 @@ Capture the returned molecule root ID. Update the root using native Beads fields
 
 - title `Feature: <title>`;
 - labels `workflow:feature` and `feature:<slug>`;
-- external reference `git:<base-commit>`;
 - metadata containing the slug, base branch, branch, design path, and worktree
-  path.
+  path. Do not store a Git commit SHA or Git-history mirror in Beads.
 
 Resolve exactly one specification step, implementation-approval milestone,
 implementation workstream, closeout step, and open human gate using the core
@@ -94,9 +94,9 @@ interfaces and data flow, failure behavior, security and compatibility
 boundaries, rollout or migration concerns, documentation impact, validation,
 and unresolved decisions.
 
-Include a small workflow section listing the feature molecule ID and telling
-agents to inspect live work through `bd mol show` or `bd mol progress` rather
-than duplicating task details in Markdown.
+Do not put Beads IDs, workflow status, next-command hints, or other lifecycle
+bookkeeping in the design. The design exists to explain intended product and
+engineering behavior.
 
 ## Dynamic implementation work
 
@@ -120,8 +120,9 @@ The human gate stays open and the approval milestone remains blocked.
 
 ## Planning reconciliation
 
-Update the roadmap entry to `in-spec`. Complete any `dstack:feature-idea` TODO
-that this molecule replaces and comment with the molecule ID.
+Do not change roadmap/status documentation merely because the workflow started.
+If this feature replaces a `dstack:feature-idea` TODO, close or relate that Beads
+item using native Beads relationships. Keep lifecycle state in Beads.
 
 ## Commit behavior
 
@@ -135,12 +136,12 @@ A draft commit does not close the specification step or resolve the gate.
 ## Return
 
 - feature root, stable steps, approval milestone, and human gate IDs;
-- base branch/commit, feature branch, and verified worktree path;
+- base branch, feature branch, and verified worktree path;
 - design path;
 - dynamic implementation tasks and dependency summary;
 - native molecule progress;
 - unresolved decisions;
-- roadmap/TODO reconciliation;
+- any feature-idea TODO reconciliation;
 - state that this feature is now the default active feature for this Pi session;
 - the two allowed next actions, which may omit the selector:
   1. `/review-feature-spec`;

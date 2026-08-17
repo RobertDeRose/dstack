@@ -80,12 +80,30 @@ additional review. Do not claim approval when unresolved risk remains; record
 `accepted risk` when the user explicitly accepts it and repository policy allows
 that result.
 
-## Commit boundaries
+## Separation of concerns
 
-One dynamic implementation or correction Bead is one intended Git commit by
-default. Specification and closeout/landing work may each produce their own
-bounded commits. Beads comments record durable evidence; do not create
-bookkeeping-only Git commits.
+Beads owns work identity, dependencies, readiness, decisions, validation state,
+and durable review findings. Git owns source/docs and commit history. Repository
+docs explain the product and design; they are not workflow state.
+
+Do not duplicate Git history into Beads. Never store implementation/specification
+commit SHAs in Beads fields, metadata, comments, or external references. Every
+dstack-created commit instead carries a stable footer:
+
+```text
+Beads: <work-item-id>
+```
+
+That footer is the only Git↔Beads implementation linkage. If Git history is
+rewritten, the footer moves with the rewritten commit and no Beads repair is
+required. One dynamic implementation or correction Bead is one intended Git
+commit by default. Specification and closeout/landing work may each produce one
+bounded commit when repository content actually changes. Never create a commit
+whose only purpose is workflow bookkeeping.
+
+Use `scripts/git_evidence.py` for deterministic evidence lookup and design-drift
+checks instead of making the agent reason about commit ancestry or copy SHAs into
+Beads.
 
 ## Beads runtime state and Git
 

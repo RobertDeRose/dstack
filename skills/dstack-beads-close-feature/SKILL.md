@@ -35,10 +35,14 @@ When the closeout step is open:
 
 1. compare accepted design, implementation, tests, reader/operator docs, Beads
    decisions/findings, and actual behavior;
-2. reconcile documentation and any bounded closeout defects;
+2. reconcile durable product/developer/user documentation and any bounded
+   closeout defects. Implemented-feature records may explain what was added, why,
+   and how it works, but must not contain workflow status, Beads IDs, branch
+   names, commit IDs, or next-command bookkeeping;
 3. run feature-level and repository-required validation;
 4. verify all accepted external-validation obligations for this stage;
-5. create one closeout candidate commit when source/docs changed;
+5. create one closeout candidate commit with footer `Beads: <closeout-step-id>`
+   when source/docs changed;
 6. run the shared review loop against the final committed candidate;
 7. correct findings and revalidate;
 8. add a durable Markdown review/validation comment to the closeout Bead;
@@ -53,8 +57,8 @@ The poured feature root remains open after closeout. This is the native
 When mode is `ready`:
 
 - leave the feature root open;
-- add a concise root comment containing the candidate commit, target branch,
-  validation, review result, and any delivery-stage validation;
+- add a concise root comment containing the target branch, validation, review
+  result, and any delivery-stage validation; do not copy a Git SHA into Beads;
 - optionally add a `dstack:delivery-ready` label as a query aid;
 - do not open a PR or merge.
 
@@ -70,8 +74,11 @@ The explicit `merge` argument authorizes a fast-forward delivery attempt.
 4. verify the target worktree is clean;
 5. run `git merge --ff-only <feature-branch>` from the target worktree;
 6. stop rather than creating a merge commit when fast-forward is impossible;
-7. close the feature root only after the target branch contains the candidate;
-8. update the roadmap entry to `completed` and remove the delivery-ready label.
+7. close the feature root only after the target branch contains the delivered
+   feature history;
+8. remove the delivery-ready label;
+9. make no repository changes after the merge. Delivery-state changes belong in
+   Beads only.
 
 ## `pr`
 
@@ -119,9 +126,9 @@ closeout commit.
 12. leave the root open.
 
 On a later invocation, run `bd gate check`. If the PR gate is still open, report
-and stop. If it confirms merge, verify the target contains the candidate, close
-the feature root, and update the roadmap to `completed`. Do not implement a
-dstack PR polling loop.
+and stop. If it confirms merge, verify the target contains the PR head, close the feature
+root, and remove the delivery-ready label. Do not edit repository documentation
+after merge and do not implement a dstack PR polling loop.
 
 ## Cleanup
 
@@ -141,6 +148,6 @@ work.
 - delivery mode and candidate;
 - root state;
 - PR/gate or fast-forward result when applicable;
-- roadmap update;
+- confirmation that no post-delivery Git bookkeeping was created;
 - worktree cleanup result;
 - exact next action when delivery remains pending.

@@ -19,7 +19,8 @@ does not authorize final delivery.
 1. Run the setup doctor.
 2. Resolve exactly one open project-alignment root and its stable steps.
 3. Verify the analysis step is closed and contains a durable plan summary.
-4. Verify the recorded baseline commit and target branch still exist.
+4. Verify the recorded target branch still exists and report material drift
+   from the approved Tier 1 evidence before source mutation.
 5. Resolve the unique open human gate blocking the alignment-approval
    milestone.
 6. Resolve that gate.
@@ -40,8 +41,8 @@ Create or reuse a Beads-managed worktree on:
 audit/<audit-slug>
 ```
 
-Create the branch from the recorded baseline or current target as dictated by
-the approved plan. Verify the exact path and branch before source changes. Tier
+Create the branch from the current target unless the approved plan explicitly
+requires another existing branch point. Verify the exact path and branch before source changes. Tier
 2 source mutations occur only in this worktree.
 
 ## Select and claim correction work
@@ -67,7 +68,8 @@ blockers. Do not compute an execution schedule or require global metadata.
 2. implement only the bounded corrective outcome;
 3. reconcile documentation when the correction changes supported behavior;
 4. run focused validation and repository checks required by risk/policy;
-5. create one correction-sized candidate commit;
+5. create one correction-sized candidate commit with footer
+   `Beads: <correction-id>`;
 6. run the shared independent review loop;
 7. correct findings, revalidate, and safely amend the private commit;
 8. use the discovery policy for incidental work;

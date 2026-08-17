@@ -22,9 +22,10 @@ Read, when present:
 
 ## Behavior
 
-1. Compare the roadmap, existing feature designs, and poured feature molecules.
-2. Report mismatches without changing live workflow state merely to make the
-   views agree.
+1. Compare planning documentation, existing feature designs, and current Beads
+   work to understand product intent and dependencies.
+2. Do not reconcile documentation to Beads lifecycle state. They have different
+   responsibilities.
 3. Ask targeted questions one at a time when product intent is genuinely
    unresolved.
 4. Challenge scope, coupling, security, operability, and untestable requirements
@@ -41,9 +42,9 @@ Use `bd todo add` only for lightweight ideas that are worth retaining but are
 not ready for a full roadmap entry. Label them `dstack:feature-idea` with
 `bd update` and add a short description when useful.
 
-When a TODO is incorporated into the roadmap or started as a feature, mark it
-done and comment with the resulting roadmap entry or feature molecule ID. Do
-not keep the TODO and roadmap entry as competing status authorities.
+When a TODO becomes real planned work or a started feature, close or relate the
+TODO using native Beads relationships. Do not copy workflow IDs into planning
+documentation.
 
 ## Roadmap shape
 
@@ -62,7 +63,6 @@ Use this human-readable structure:
 
 ### `<feature-slug>`
 
-- Status: planned | in-spec | in-progress | completed | deferred
 - Overview:
 - Requirements:
 - Constraints:
@@ -71,15 +71,16 @@ Use this human-readable structure:
 - Risks and tradeoffs:
 - Dependencies:
 - Suggested validation:
-- Next command: `/start-feature <feature-slug>`
 ```
 
-Executable status comes from Beads. The roadmap status is a human planning view
-and must be reconciled when a feature actually starts or delivers.
+Planning documentation describes what should exist and why. It does not carry
+workflow status, Beads IDs, branch names, commit IDs, or next-command state.
+Completed/implemented behavior belongs in durable feature/user/developer docs,
+not in lifecycle bookkeeping fields.
 
 ## Return
 
-- roadmap status and changes;
+- planning-document changes;
 - feature molecules and designs found;
 - feature-idea TODOs retained, promoted, or completed;
 - incomplete and deferred features;

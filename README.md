@@ -13,12 +13,33 @@ dependencies, gates, ready work, claims, TODOs, comments, and native worktrees.
 - **Beads** owns workflow templates and instances, work, dependencies, gates,
   readiness, claims, comments, TODOs, and completion state.
 - **Git** owns source, branches, commits, diffs, and delivery boundaries.
-- **Repository documentation** owns intended and supported behavior.
-- **dstack** owns the workflow policy, review rules, one installation helper that installs and validates the bundled
-  formula source, and one compatibility skill for adopting active legacy features.
+- **Repository documentation** explains intended/supported behavior and durable
+  product/design context; it never mirrors workflow state.
+- **dstack** owns workflow policy, review guidance, a formula setup helper, one
+  rewrite-safe Git-evidence helper, and the compatibility skill for adopting
+  active legacy features.
 
 There is no dstack task database, readiness engine, scheduler, approval state
 machine, reviewer topology, migration engine, or interaction ledger.
+
+## Foundational boundaries
+
+KISS and YAGNI apply to the workflow itself. dstack should make deterministic
+mechanics boring and leave agent attention for engineering decisions.
+
+- Beads answers: what work exists, what depends on what, what is ready, what was
+  decided, and what validation/review is still pending.
+- Git answers: what changed in source/docs and why.
+- Documentation answers: how the product is designed and behaves.
+- dstack scripts may automate deterministic checks/transitions, but dstack does
+  not duplicate those systems into packets, ledgers, schedulers, or shadow state.
+
+Git↔Beads linkage is deliberately one-way and rewrite-safe. Every workflow-created
+commit has a `Beads: <id>` footer. Beads does not store commit hashes. Rewriting a
+commit message therefore requires no Beads migration or remapping.
+
+Lifecycle commands do not flip roadmap statuses, write Beads IDs into design
+docs, or create post-merge bookkeeping commits.
 
 ## Commands
 

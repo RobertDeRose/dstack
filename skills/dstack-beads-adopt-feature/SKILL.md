@@ -29,9 +29,10 @@ Never delete the legacy graph. Preserve it as closed historical evidence.
 3. Refuse a root that is already a current dstack molecule with the stable
    `dstack:step:*` children.
 4. Read the complete legacy descendant graph, including closed descendants,
-   comments, metadata, dependencies, and external references.
-5. Read the design path, base branch, feature branch/worktree when present, and
-   current Git HEAD. Do not create a new feature branch or rewrite history.
+   comments, metadata, and dependencies. Ignore legacy commit-SHA mappings; they
+   are not migrated into the current workflow.
+5. Read the design path, base branch, and feature branch/worktree when present.
+   Do not create a new feature branch or rewrite history.
 
 ## 2. Classify legacy descendants
 
@@ -66,8 +67,9 @@ Update the new root with concrete feature-level state only:
 - title `Feature: <title>`;
 - labels `workflow:feature` and `feature:<slug>`;
 - metadata: `feature_slug`, `base_branch`, `design_path`, `adopted_from`, plus
-  existing `branch` and `worktree_path` when known;
-- external reference `git:<existing-base-or-merge-base-commit>` when known.
+  existing `branch` and `worktree_path` when known.
+
+Do not carry legacy Git SHAs or external Git references into the new workflow.
 
 Formula child steps intentionally contain only stable `dstack_step` identity.
 Do not duplicate feature slug, branch, or design metadata onto stable children.
@@ -84,8 +86,8 @@ under the new implementation epic:
 - labels: `dstack:work:implementation` and `feature:<slug>`;
 - depend on the new approval milestone;
 - preserve the bounded outcome, acceptance criteria, and required validation;
-- note existing commits or completed prerequisite legacy tasks that must be
-  reconciled rather than reimplemented.
+- note completed prerequisite legacy tasks that must be reconciled rather than
+  reimplemented.
 
 Supersede the legacy implementation task with its replacement.
 
@@ -121,7 +123,7 @@ an old graph look tidy.
 Add one Markdown comment to the new root containing:
 
 - legacy root;
-- branch/worktree and adopted Git HEAD when known;
+- branch/worktree when known;
 - completed legacy implementation work retained as history;
 - legacy-to-new replacement mappings;
 - obsolete ceremony superseded;
@@ -138,7 +140,7 @@ Then verify:
 4. the new approval milestone is blocked;
 5. implementation replacement tasks are blocked on approval;
 6. the new specification task is the only feature task eligible to proceed;
-7. the feature branch/worktree and Git HEAD are unchanged;
+7. the feature branch/worktree are unchanged;
 8. no poured current-dstack child contains unresolved `{{...}}` metadata or
    labels.
 
@@ -149,7 +151,7 @@ Do not close the new specification step or resolve its gate during adoption.
 Report only:
 
 - new root and stable step/gate IDs;
-- branch/worktree and adopted HEAD;
+- branch/worktree;
 - completed work preserved;
 - replacement implementation tasks;
 - pending closeout validation and unresolved decisions;

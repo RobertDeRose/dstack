@@ -26,7 +26,6 @@ PREFLIGHT_VARS: dict[str, dict[str, str]] = {
         "audit_title": "Dstack Alignment Preflight",
         "audit_slug": "dstack-alignment-preflight",
         "target_branch": "main",
-        "baseline_commit": "0000000000000000000000000000000000000000",
         "scope": "formula validation",
     },
 }

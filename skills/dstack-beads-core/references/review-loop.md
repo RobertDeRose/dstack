@@ -54,12 +54,14 @@ bd comments add <task-id> -f <review-summary.md>
 
 Record only durable evidence:
 
-- reviewed commit;
 - validation performed;
 - material findings;
-- corrections and resulting commit;
+- corrections made;
 - final outcome;
 - pending external validation or accepted risk.
+
+Do not copy Git commit IDs into Beads. The corresponding Git commit is found by
+its `Beads: <work-item-id>` footer.
 
 Do not persist model transcripts, hidden reasoning, pass counters, or reviewer
 replacement topology.

@@ -36,10 +36,19 @@ active feature.
    resolved. If either is incomplete, route to `/review-feature-spec`; never
    recommend migration.
 4. Resolve the Beads-managed `feat/<slug>` worktree and verify it exactly.
-5. Read the specification step's `git:<commit>` external reference.
-6. Verify with Git that the commit exists and is an ancestor of the feature
-   worktree HEAD. Stop on an absent, invalid, or uncommitted specification
-   boundary.
+5. Run the deterministic evidence check from the feature worktree:
+
+   ```bash
+   python3 "{baseDir}/../dstack-beads-core/scripts/git_evidence.py" \
+     --root <feature-worktree> \
+     --bead <specification-step-id> \
+     --path <design-path>
+   ```
+
+6. Require `status: ok`. Missing evidence means the accepted specification was
+   never committed with its Beads footer; `status: drifted` means the design
+   changed after approval and routes back to `/review-feature-spec`. Do not
+   repair either case by writing a commit SHA into Beads.
 7. Stop for unrelated dirty changes that would be overwritten, mixed into the
    selected task commit, or make review evidence ambiguous.
 
@@ -81,8 +90,8 @@ then become ready through native dependencies and dynamic fan-in; recommend
 4. Reconcile user/operator documentation in the same task when behavior changes.
 5. Run focused validation appropriate to the task. Run broad validation only
    when repository policy or cross-cutting risk requires it.
-6. Create one task-sized candidate commit unless the user explicitly requested a
-   dry run or no commit.
+6. Create one task-sized candidate commit with footer `Beads: <task-id>` unless
+   the user explicitly requested a dry run or no commit.
 7. Run the shared review loop against the committed candidate.
 8. Correct actionable findings, rerun validation, and safely amend the private
    task commit when the boundary remains the same.
@@ -128,12 +137,12 @@ when all required children are complete or explicitly deferred/accepted.
 
 ## Return
 
-- feature, worktree, reviewed specification SHA;
+- feature, worktree, and specification evidence status;
 - selected/claimed task;
 - behavior and files changed;
 - validation and pending stage-specific evidence;
 - review findings, corrections, and extra-review authorization;
-- task commit and Beads comment;
+- task commit and Beads review/validation comment;
 - task closure and native molecule progress;
 - currently ready and blocked work;
 - exact next command.

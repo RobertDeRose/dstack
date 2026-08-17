@@ -62,7 +62,8 @@ workflow.
 - update/rebase the candidate onto the current target when required;
 - rerun final validation;
 - perform a fast-forward-only merge;
-- close the molecule root only after the target contains the candidate.
+- close the molecule root only after the target contains the delivered feature;
+- make no Git-tracked workflow-state edits after delivery.
 
 `pr` means:
 

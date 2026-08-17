@@ -16,10 +16,10 @@ the target to `dev` only when that branch exists and no target was supplied.
 ## Establish the audit
 
 1. Run the setup doctor.
-2. Verify the target branch and capture its immutable commit.
+2. Verify the target branch and capture the current tree for this analysis run.
 3. Search existing open project-alignment roots. Reuse an exact matching audit
-   or stop on ambiguity; do not pour duplicate audits for the same intended
-   baseline and scope.
+   or stop on ambiguity; do not pour duplicate audits for the same target and
+   scope.
 4. Resolve a stable audit slug.
 5. Pour the installed formula directly:
 
@@ -28,7 +28,6 @@ the target to `dev` only when that branch exists and no target was supplied.
      --var audit_title="<title>" \
      --var audit_slug="<slug>" \
      --var target_branch="<target>" \
-     --var baseline_commit="<commit>" \
      --var scope="<scope>" \
      --json
    ```
@@ -36,8 +35,11 @@ the target to `dev` only when that branch exists and no target was supplied.
 6. Update the returned root:
    - title `Project alignment: <title>`;
    - labels `workflow:project-alignment` and `audit:<slug>`;
-   - external reference `git:<baseline-commit>`;
-   - metadata containing slug, target branch, baseline, and scope.
+   - metadata containing slug, target branch, and scope.
+
+   Put the current Git revision only in the human-readable Tier 1 analysis
+   output when useful for reproducibility; do not persist Git SHAs as Beads
+   workflow metadata or external references.
 7. Resolve exactly one analysis step, alignment-approval milestone,
    corrections workstream, landing step, and open human gate.
 8. Claim the analysis step atomically.
@@ -111,15 +113,15 @@ When resuming an existing Tier 1 audit:
 
 - preserve resolved decisions and completed analysis;
 - update the plan idempotently;
-- compare current target history with the recorded baseline;
-- ask whether to refresh a materially stale baseline rather than silently
-  replacing it;
+- compare the current target with the evidence used by the existing plan;
+- ask whether to refresh materially stale analysis rather than silently
+  replacing accepted findings;
 - never migrate workflow topology.
 
 ## Return
 
 - audit root, stable steps, approval milestone, and human gate;
-- target branch and immutable baseline;
+- target branch and analysis boundary;
 - executive alignment assessment;
 - findings and evidence;
 - decisions resolved and still required;

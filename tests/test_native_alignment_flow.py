@@ -19,8 +19,6 @@ def test_alignment_approval_dynamic_work_and_fan_in(installed_repo: Path) -> Non
             "--var",
             "target_branch=dev",
             "--var",
-            "baseline_commit=deadbeef",
-            "--var",
             "scope=whole repository",
             "--json",
         ],

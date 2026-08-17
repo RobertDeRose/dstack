@@ -34,7 +34,8 @@ When the landing step is open:
 4. stop for unresolved conflicts that require new product or architecture
    intent;
 5. run final repository validation and all required landing-stage evidence;
-6. create one final reconciliation commit when source/docs changed;
+6. create one final reconciliation commit with footer `Beads: <landing-step-id>`
+   when source/docs changed;
 7. run the shared integration review loop against the committed candidate;
 8. correct findings and rerun validation;
 9. add a durable Markdown summary to the landing Bead;
@@ -47,8 +48,8 @@ landing coordinator or pipeline-state document.
 ## `ready`
 
 - leave the audit root open;
-- comment with candidate commit, target, validation, review outcome, and pending
-  delivery evidence;
+- comment with target, validation, review outcome, and pending delivery
+  evidence; do not copy a Git SHA into Beads;
 - optionally label it `dstack:delivery-ready`;
 - perform no PR or merge action.
 
@@ -61,7 +62,8 @@ The explicit `merge` argument authorizes a fast-forward delivery attempt.
 3. run `git merge --ff-only <audit-branch>`;
 4. stop rather than creating a merge commit when fast-forward is impossible;
 5. close the audit root only after the target contains the candidate;
-6. remove the delivery-ready label and record the delivered commit.
+6. remove the delivery-ready label and make no post-delivery Git bookkeeping
+   change.
 
 ## `pr`
 

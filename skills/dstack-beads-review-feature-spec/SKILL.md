@@ -75,18 +75,22 @@ ordering. Do not create reviewer/coordinator tasks.
 
 When the design and task graph are accepted:
 
-1. commit the specification changes in the feature worktree;
-2. capture the commit SHA;
-3. run the verification review against that committed boundary;
-4. correct findings and amend the private specification commit when safe;
-5. record the final commit and review evidence in a Markdown Beads comment;
-6. set the specification step's external reference to `git:<commit>`;
-7. close the specification step;
-8. resolve the unique human gate blocking the implementation-approval milestone;
-9. claim the now-ready approval milestone, add a concise authorization comment,
+1. commit the specification changes in the feature worktree with footer
+   `Beads: <specification-step-id>`;
+2. run the verification review against that committed boundary;
+3. correct findings and amend the private specification commit when safe,
+   preserving the footer;
+4. use `git_evidence.py --bead <specification-step-id> --path <design-path>` to
+   verify the commit evidence exists and the accepted design has not drifted;
+5. record only durable review findings, validation, decisions, outcome, and any
+   pending external validation in a concise Beads comment; do not record a Git
+   SHA;
+6. close the specification step;
+7. resolve the unique human gate blocking the implementation-approval milestone;
+8. claim the now-ready approval milestone, add a concise authorization comment,
    and close it;
-10. verify the implementation children now participate in the native ready
-    frontier according to their remaining dependencies.
+9. verify the implementation children now participate in the native ready
+   frontier according to their remaining dependencies.
 
 Invocation of `/review-feature-spec` supplies the human authorization represented
 by the gate once the interactive review has resolved all product decisions. Do
@@ -97,16 +101,13 @@ open, the gate unresolved, and the approval milestone blocked. If an interruptio
 occurs after gate resolution but before milestone closure, resume the existing
 milestone rather than creating another approval record.
 
-Update the roadmap entry to `in-progress` only after the gate is resolved and
-the approval milestone is closed.
-
 ## Return
 
 - feature, worktree, and design boundary;
 - specification review findings and corrections;
 - user decisions;
 - implementation graph changes;
-- committed specification SHA;
+- specification commit evidence status;
 - review/verification outcomes;
 - specification close result, gate resolution, and approval-milestone closure;
 - native ready and blocked work;

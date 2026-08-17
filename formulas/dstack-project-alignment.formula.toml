@@ -8,7 +8,7 @@ like kinds. Corrective tasks are created dynamically beneath the corrections
 epic and depend on that approved milestone. Tier 3 uses native dynamic fan-in
 and performs final reconciliation and delivery.
 """
-version = 4
+version = 5
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -26,10 +26,6 @@ pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$"
 description = "Branch that the completed audit will land into"
 default = "dev"
 
-[vars.baseline_commit]
-description = "Immutable Git commit audited during Tier 1"
-required = true
-
 [vars.scope]
 description = "Human-readable audit scope"
 default = "whole repository"
@@ -42,7 +38,7 @@ priority = 1
 labels = ["dstack:step:alignment-analysis"]
 metadata = { dstack_step = "alignment-analysis" }
 description = """
-Analyze {{scope}} at {{baseline_commit}}. Compare specifications, reader
+Analyze {{scope}} on the selected target branch. Compare specifications, reader
 documentation, implementation, tests, Beads work, and delivery evidence.
 Create a bounded corrective plan beneath the corrections workstream without
 modifying source.
