@@ -29,6 +29,16 @@ def test_feature_skills_use_native_beads_workflow_primitives() -> None:
     assert "docs-only" in close
 
 
+def test_start_feature_accepts_slug_bead_id_or_exact_title() -> None:
+    start = skill("start-feature")
+    assert "feature slug, a Bead ID, or an exact" in start
+    assert "exact Bead ID" in start
+    assert "Title matching is case-insensitive" in start
+    assert "ignores a leading `Feature: ` prefix" in start
+    assert "/adopt-feature <bead-id>" in start
+    assert "Do not use fuzzy matching" in start
+
+
 def test_alignment_skills_preserve_three_authority_tiers() -> None:
     review = skill("project-alignment-review")
     execute = skill("project-alignment-execute")

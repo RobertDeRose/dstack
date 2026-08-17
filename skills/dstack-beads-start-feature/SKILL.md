@@ -8,17 +8,35 @@ description: "Pour the native dstack feature molecule, create its worktree and d
 Read the `dstack-beads-core` skill and every core reference before acting.
 
 Use the user's input as the feature selector, goal, constraints, non-goals, and
-optional base branch. Default the base branch to `dev` only when that branch
-exists and the user did not provide another target.
+optional base branch. The selector may be a feature slug, a Bead ID, or an exact
+feature title such as `Leader Election Weighting`. Default the base branch to
+`dev` only when that branch exists and the user did not provide another target.
 
 ## Preconditions
 
 1. Run the setup doctor.
 2. Read `docs/src/planned-features.md` when present.
-3. Resolve a stable kebab-case slug. Do not guess major product intent.
-4. Search existing feature molecule roots before pouring another. Reuse the
-   exact existing open molecule or stop on ambiguity.
-5. Verify the intended base branch and capture its commit.
+3. Resolve the feature selector before deriving anything new:
+   - If the selector is an exact Bead ID, inspect that Bead directly.
+   - Otherwise inspect feature roots and planned feature epics and match, in
+     order, an exact slug or an exact title. Title matching is case-insensitive
+     and ignores a leading `Feature: ` prefix. Do not use fuzzy matching.
+   - Prefer one open current dstack molecule when the same feature also has a
+     closed legacy root.
+   - If more than one viable open feature matches, stop and show the candidate
+     IDs instead of guessing.
+   - If the selected Bead is a closed delivered feature, stop.
+   - If the selected Bead is an active legacy dstack feature, stop and direct
+     the user to `/adopt-feature <bead-id>`; do not pour a duplicate workflow.
+   - If the selected Bead is a planned feature epic, use its concrete
+     `metadata.feature_slug`, `metadata.feature_name`/title, design path, and
+     base branch when available.
+4. If no existing feature matches, derive a stable kebab-case slug and title
+   from the user's input. Do not guess major product intent.
+5. Search existing feature molecule roots one final time by the resolved slug
+   before pouring another. Reuse the exact existing open current molecule or
+   stop on ambiguity.
+6. Verify the intended base branch and capture its commit.
 
 ## Native worktree
 

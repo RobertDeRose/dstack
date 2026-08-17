@@ -30,7 +30,7 @@ After installing the Pi package and running `/setup-project` in a repository:
 ```text
 /plan-features
 /adopt-feature <legacy-feature>
-/start-feature <feature>
+/start-feature <slug | bead-id | exact-title>
 /review-feature-spec <feature>
 /implement-feature <feature> [task | --all]
 /close-feature <feature> [ready | pr | merge]
