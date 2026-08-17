@@ -323,14 +323,24 @@ class BeadsClient:
         return self.show(issue_id)
 
     def resolve_gate(self, gate_id: str, reason: str) -> dict[str, Any]:
+        """Resolve a gate, then read its authoritative state.
+
+        Beads 1.2.2 accepts the global ``--json`` flag for ``gate resolve`` but
+        still emits human-readable text. Treat the command as a state-changing
+        operation rather than a JSON endpoint, then query the gate separately.
+        """
+
         current = self.show(gate_id)
         if current.get("status") == "closed":
             return current
-        payload = self.json(
-            ["bd", "gate", "resolve", gate_id, "--reason", reason, "--json"]
+        run(
+            ["bd", "gate", "resolve", gate_id, "--reason", reason],
+            cwd=self.root,
         )
-        items = as_items(payload)
-        return items[0] if items else self.show(gate_id)
+        resolved = self.show(gate_id)
+        if resolved.get("status") != "closed":
+            raise DstackError(f"gate did not resolve: {gate_id}")
+        return resolved
 
     def create_gate(
         self,
@@ -465,8 +475,16 @@ class BeadsClient:
             return
         run(["bd", "supersede", old_id, "--with", new_id], cwd=self.root)
 
-    def gate_check(self) -> Any:
-        return self.json(["bd", "gate", "check", "--json"])
+    def gate_check(self) -> builtins.list[dict[str, Any]]:
+        """Evaluate native gates and return their refreshed state.
+
+        Beads 1.2.2 mixes progress text with JSON for ``gate check --json``.
+        dStack needs only the side effect, so run the command in its supported
+        human-output mode and read gates through ``gate list --json`` afterward.
+        """
+
+        run(["bd", "gate", "check"], cwd=self.root)
+        return self.gates(all_statuses=True)
 
 
 def step_by_label(children: Sequence[Mapping[str, Any]], label: str) -> dict[str, Any]:

@@ -105,7 +105,8 @@ persists formula protos in the live ready frontier.
 ## Development
 
 ```bash
-python -m pytest
+uv run pytest
 ```
 
+The default uv development group installs pytest and PyYAML automatically.
 Set `DSTACK_REAL_BD=/path/to/bd` to require the real-Beads integration suite.

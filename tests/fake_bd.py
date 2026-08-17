@@ -495,7 +495,9 @@ def cmd_gate(args: list[str], state: dict[str, Any]) -> int:
         gate = item(state, args[1])
         gate["status"] = "closed"
         save(state)
-        emit([serialize(state, gate)])
+        # Match Beads 1.2.2: gate resolve emits human-readable output even
+        # when the global --json flag is present.
+        print(f"Gate resolved: {gate['id']}")
         return 0
     if sub == "create":
         target = value(args, "--blocks")
@@ -522,7 +524,8 @@ def cmd_gate(args: list[str], state: dict[str, Any]) -> int:
         emit([serialize(state, gate)])
         return 0
     if sub == "check":
-        emit({"checked": True})
+        # Match Beads 1.2.2's progress-oriented gate check output.
+        print("Checked gates")
         return 0
     raise RuntimeError(f"unsupported gate command: {sub}")
 

@@ -31,13 +31,24 @@ def run_json(command: list[str], *, cwd: Path):
     result = subprocess.run(
         command,
         cwd=cwd,
-        check=True,
+        check=False,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env={**os.environ, "BD_JSON_ENVELOPE": "1"},
     )
-    return unwrap(json.loads(result.stdout))
+    if result.returncode != 0:
+        raise AssertionError(
+            f"command failed ({' '.join(command)}):\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+    try:
+        return unwrap(json.loads(result.stdout))
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            f"command returned non-JSON ({' '.join(command)}):\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        ) from exc
 
 
 @pytest.mark.skipif(real_bd() is None, reason="real Beads binary is unavailable")

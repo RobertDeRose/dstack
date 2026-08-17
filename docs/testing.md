@@ -1,5 +1,14 @@
 # Testing dStack
 
+## Running the suite
+
+```bash
+uv run pytest
+```
+
+The default uv development group includes pytest and PyYAML, so a clean clone
+does not require manual `uv add` commands.
+
 ## Test layers
 
 1. Pure/unit tests validate parsing, selector rules, Git evidence, docs policy,
