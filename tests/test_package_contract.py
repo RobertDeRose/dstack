@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_package_version_and_resources() -> None:
     package = json.loads((ROOT / "package.json").read_text())
     assert package["name"] == "dstack"
-    assert package["version"] == "0.4.2"
+    assert package["version"] == "0.4.3"
     assert package["pi"]["skills"] == ["./skills"]
     assert package["pi"]["prompts"] == ["./prompts"]
 

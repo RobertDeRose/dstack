@@ -287,3 +287,57 @@ def test_pr_preflight_rejects_docs_only_title_for_code_feature(
     )
     assert accepted["pr_copy"]["title"] == "feat: add delivery feature"
     assert "delivery.txt" in accepted["pr_copy"]["non_documentation_paths"]
+
+
+def test_delivery_allows_tracked_beads_repository_configuration(installed_repo: Path) -> None:
+    config_files = {
+        ".beads/.gitignore": "embeddeddolt/\ninteractions.jsonl\n",
+        ".beads/README.md": "# Beads\n",
+        ".beads/config.yaml": "# project configuration\n",
+        ".beads/metadata.json": "{}\n",
+    }
+    for name, content in config_files.items():
+        path = installed_repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    subprocess.run(["git", "add", *config_files], cwd=installed_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "chore: track Beads repository configuration"],
+        cwd=installed_repo,
+        check=True,
+        capture_output=True,
+    )
+    created = prepare_deliverable(installed_repo)
+    inspected = ctl(installed_repo, "delivery", "inspect", created["root"]["id"])
+    assert inspected["tracked_runtime_beads"] == []
+    assert ctl(installed_repo, "delivery", "merge", created["root"]["id"])["status"] == "ok"
+
+
+def test_delivery_rejects_true_tracked_beads_runtime(installed_repo: Path) -> None:
+    runtime = installed_repo / ".beads/sync-state.json"
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    runtime.write_text("{}\n")
+    subprocess.run(["git", "add", "-f", str(runtime.relative_to(installed_repo))], cwd=installed_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "test: track runtime state"],
+        cwd=installed_repo,
+        check=True,
+        capture_output=True,
+    )
+    created = prepare_deliverable(installed_repo)
+    failed = run_command(
+        [
+            "python3",
+            "-S",
+            str(DSTACKCTL),
+            "--root",
+            str(installed_repo),
+            "delivery",
+            "merge",
+            created["root"]["id"],
+        ],
+        cwd=installed_repo,
+        check=False,
+    )
+    assert failed.returncode == 1
+    assert ".beads/sync-state.json" in failed.stderr

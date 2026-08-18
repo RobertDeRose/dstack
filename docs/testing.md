@@ -26,6 +26,9 @@ A release must verify, when a real `bd` binary is available:
 
 - formula install and isolated pour;
 - no persisted template pollution;
+- legitimate tracked Beads configuration versus forbidden runtime state;
+- local/untracked `.beads/interactions.jsonl`;
+- a committed repository setup boundary before feature execution;
 - human gate and approval milestone;
 - dynamic task creation and atomic claim;
 - dynamic child fan-in;

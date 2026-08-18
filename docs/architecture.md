@@ -35,6 +35,13 @@ Git owns source, tests, configuration, durable documentation, branches,
 worktrees, diffs, commits, and delivery history. Workflow commits use a stable
 `Beads: <id>` footer.
 
+Beads repository configuration may also be tracked when it is stable project
+configuration (`.beads/config.yaml`, `.beads/metadata.json`, `.beads/README.md`,
+`.beads/.gitignore`, and dStack formulas). Machine-local databases, locks,
+sockets, backup state, and the dStack-local interaction audit log are not Git
+history. Delivery guards classify those paths explicitly instead of treating
+every `.beads/` file as runtime state.
+
 ### Repository documentation
 
 Documentation is the durable description of product behavior and design. It is

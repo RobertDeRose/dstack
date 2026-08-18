@@ -232,6 +232,7 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     client.check_capabilities()
     source_dir = package_root() / "formulas"
     validate_bundle(source_dir)
+    interaction_policy = ensure_interaction_log_policy(root)
 
     installed: dict[str, str] = {}
     for name in FORMULA_NAMES:
@@ -247,6 +248,7 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
         "beads_version": version,
         "formulas": installed,
         "preflight": "isolated-formula-pour",
+        **interaction_policy,
     }
 
 
@@ -308,16 +310,46 @@ def legacy_template_artifacts(client: BeadsClient) -> list[dict[str, Any]]:
     return result
 
 
-def add_gitignore_line(root: Path, line: str) -> bool:
-    path = root / ".gitignore"
+def add_gitignore_line(path: Path, line: str, *, header: str | None = None) -> bool:
     existing = path.read_text().splitlines() if path.exists() else []
     if line in existing:
         return False
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         if existing and existing[-1] != "":
             handle.write("\n")
+        if header and header not in existing:
+            handle.write(header + "\n")
         handle.write(line + "\n")
     return True
+
+
+def ensure_interaction_log_policy(root: Path) -> dict[str, bool]:
+    """Keep the Beads audit log local under dStack's Git-decoupling policy."""
+
+    ignore_changed = add_gitignore_line(
+        root / ".beads" / ".gitignore",
+        "interactions.jsonl",
+        header="# dStack: local Beads audit state (not repository history)",
+    )
+    was_tracked = tracked(root, ".beads/interactions.jsonl")
+    if was_tracked:
+        run(
+            [
+                "git",
+                "rm",
+                "--cached",
+                "--force",
+                "--ignore-unmatch",
+                "--",
+                ".beads/interactions.jsonl",
+            ],
+            cwd=root,
+        )
+    return {
+        "interaction_log_untracked": was_tracked,
+        "beads_gitignore_changed": ignore_changed,
+    }
 
 
 def tracked(root: Path, path: str) -> bool:
@@ -443,13 +475,17 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
         set(normalize_current_features(client, force=force)) | set(normalize_current_alignments(client, force=force))
     )
     interaction_tracked = tracked(root, ".beads/interactions.jsonl")
+    beads_ignore = root / ".beads" / ".gitignore"
+    ignore_lines = beads_ignore.read_text().splitlines() if beads_ignore.exists() else []
+    interaction_ignore_missing = "interactions.jsonl" not in ignore_lines
 
-    if (templates or normalized or interaction_tracked) and not force:
+    if (templates or normalized or interaction_tracked or interaction_ignore_missing) and not force:
         return {
             "status": "repair-required",
             "template_artifacts": [item["id"] for item in templates],
             "molecule_items_to_normalize": normalized,
             "interaction_log_tracked": interaction_tracked,
+            "interaction_log_ignore_missing": interaction_ignore_missing,
         }
 
     removed: list[str] = []
@@ -459,19 +495,13 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
         run(["bd", "delete", *ids, "--force", "--json"], cwd=root)
         removed = ids
 
-    gitignore_changed = False
-    interaction_untracked = False
-    if interaction_tracked:
-        gitignore_changed = add_gitignore_line(root, ".beads/interactions.jsonl")
-        run(["git", "rm", "--cached", "--", ".beads/interactions.jsonl"], cwd=root)
-        interaction_untracked = True
+    interaction_policy = ensure_interaction_log_policy(root)
 
     return {
         "status": "ok",
         "template_artifacts_removed": removed,
         "molecule_items_normalized": normalized,
-        "interaction_log_untracked": interaction_untracked,
-        "gitignore_changed": gitignore_changed,
+        **interaction_policy,
     }
 
 

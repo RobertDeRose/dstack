@@ -118,6 +118,23 @@ def test_real_beads_feature_gate_claim_fan_in_and_delivery(
         cwd=repo,
     )
     assert inventory == []
+    assert subprocess.run(
+        ["git", "ls-files", "--error-unmatch", ".beads/interactions.jsonl"],
+        cwd=repo,
+        check=False,
+        capture_output=True,
+    ).returncode != 0
+    assert "interactions.jsonl" in (repo / ".beads/.gitignore").read_text()
+
+    # Repository setup is a separate Git boundary. Feature delivery begins only
+    # after the Beads/dStack configuration baseline is committed.
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "chore: initialize dstack"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
 
     created = run_json(
         [

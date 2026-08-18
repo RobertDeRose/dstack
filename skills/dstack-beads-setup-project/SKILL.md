@@ -28,6 +28,7 @@ Finally run the setup doctor once:
 python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" doctor --root .
 ```
 
-Report formula install/validation, Beads version, and any staged legacy-repair
-changes. Do not commit automatically. Normal feature commands do not run setup
-doctor or legacy repair.
+Report formula install/validation, Beads version, the local interaction-log
+policy, and any staged legacy-repair changes. Do not commit automatically. Ask
+the user to review and commit the setup boundary before starting feature work.
+Normal feature commands do not run setup doctor or legacy repair.

@@ -9,6 +9,7 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import re
 import sys
@@ -46,11 +47,52 @@ from dstacklib import (
     worktree_for_branch,
 )
 
-RUNTIME_BEADS_PREFIXES = (
+# Beads repository configuration is allowed to be tracked. Only machine-local
+# runtime/sensitive artifacts are forbidden. This mirrors the Beads 1.2.2
+# doctor classification, with interactions.jsonl additionally excluded by the
+# dStack Git-decoupling policy.
+DSTACK_UNTRACKED_BEADS_FILES = {
     ".beads/interactions.jsonl",
+}
+BEADS_RUNTIME_DIR_PREFIXES = (
+    ".beads/dolt/",
     ".beads/embeddeddolt/",
-    ".beads/dolt-backup",
+    ".beads/proxieddb/",
+    ".beads/backup/",
+    ".beads/export-state/",
+    ".beads/dolt-pprof/",
 )
+BEADS_RUNTIME_TOP_LEVEL_PATTERNS = (
+    "*.lock",
+    "*.pid.lock",
+    "daemon.*",
+    "dolt-server.pid",
+    "dolt-server.log",
+    "dolt-server.lock",
+    "dolt-server.port",
+    "dolt-server.activity",
+    "bd.sock",
+    "bd.sock.startlock",
+    ".exclusive-lock",
+    "push-state.json",
+    "export-state.json",
+    "sync-state.json",
+    "last-touched",
+    "last_pull",
+    ".local_version",
+    "redirect",
+    ".sync.lock",
+    "ephemeral.sqlite3",
+    "ephemeral.sqlite3-journal",
+    "ephemeral.sqlite3-wal",
+    "ephemeral.sqlite3-shm",
+    "proxied_server_client_info.json",
+    ".env",
+)
+BEADS_SENSITIVE_BASENAMES = {
+    ".beads-credential-key",
+    "credential-key",
+}
 FORBIDDEN_DOC_PATTERNS = (
     re.compile(r"(?i)^\s*[-*]?\s*status:\s*(in[- ]?progress|delivery[- ]?ready|blocked|review[- ]?active|completed)\b"),
     re.compile(r"(?i)^\s*[-*]?\s*beads?\s+(root|id|task):"),
@@ -565,11 +607,31 @@ def staged_paths(root: Path) -> list[str]:
     return [line for line in output.splitlines() if line]
 
 
+def is_forbidden_tracked_beads_path(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    if normalized in DSTACK_UNTRACKED_BEADS_FILES:
+        return True
+    if not normalized.startswith(".beads/"):
+        return False
+    if any(normalized.startswith(prefix) for prefix in BEADS_RUNTIME_DIR_PREFIXES):
+        return True
+    relative = normalized[len(".beads/") :]
+    if ".corrupt.backup/" in relative:
+        return True
+    if relative.rsplit("/", 1)[-1] in BEADS_SENSITIVE_BASENAMES:
+        return True
+    if "/" in relative:
+        return False
+    return any(fnmatch.fnmatch(relative, pattern) for pattern in BEADS_RUNTIME_TOP_LEVEL_PATTERNS)
+
+
 def reject_runtime_beads(paths: Sequence[str]) -> None:
+    # Feature/audit commits may contain dStack formula source but no other
+    # .beads content. Repository setup/configuration is committed separately.
     invalid = [
         path
         for path in paths
-        if any(path == prefix or path.startswith(prefix) for prefix in RUNTIME_BEADS_PREFIXES)
+        if is_forbidden_tracked_beads_path(path)
         or (path.startswith(".beads/") and not path.startswith(".beads/formulas/"))
     ]
     if invalid:
@@ -731,12 +793,7 @@ def cmd_docs_check(args: argparse.Namespace) -> int:
 
 def tracked_runtime_beads(root: Path) -> list[str]:
     output = run(["git", "ls-files", ".beads"], cwd=root).stdout.splitlines()
-    return [
-        path
-        for path in output
-        if any(path == prefix or path.startswith(prefix) for prefix in RUNTIME_BEADS_PREFIXES)
-        or (path.startswith(".beads/") and not path.startswith(".beads/formulas/"))
-    ]
+    return sorted(path for path in output if is_forbidden_tracked_beads_path(path))
 
 
 def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:

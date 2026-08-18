@@ -6,14 +6,16 @@ legacy features.
 
 ## Setup repair
 
-Normal setup installs and validates formula source. It does not scan or rewrite
-all Beads work.
+Normal setup installs and validates formula source. It also applies dStack's
+standard Git boundary: `.beads/interactions.jsonl` stays local and untracked,
+while legitimate Beads repository configuration remains trackable. Normal setup
+does not scan or rewrite all Beads work.
 
 Explicit legacy repair may:
 
 - remove verified persisted formula-template artifacts;
 - remove obsolete duplicated metadata/labels from current molecules;
-- stop tracking `.beads/interactions.jsonl` while preserving the local file.
+- repair an older repository that still tracks `.beads/interactions.jsonl`.
 
 Run repair only through `/setup-project --force` or the explicit setup repair
 command. Normal feature execution never runs it.

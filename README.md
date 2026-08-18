@@ -98,9 +98,15 @@ Reload Pi, then run in the target repository:
 /setup-project
 ```
 
+Setup preserves legitimate tracked Beads repository configuration such as
+`.beads/config.yaml`, `.beads/metadata.json`, `.beads/README.md`, and
+`.beads/.gitignore`. It keeps `.beads/interactions.jsonl` local and untracked so
+normal Beads transitions cannot dirty Git history.
+
 Use `/setup-project --force` only to replace changed formula source or perform
-explicit known legacy repair. It preserves local Beads runtime data and never
-persists formula protos in the live ready frontier.
+explicit known legacy repair. It preserves local Beads/Dolt runtime data and
+never persists formula protos in the live ready frontier. Review and commit the
+repository setup boundary before starting feature work.
 
 ## Development
 

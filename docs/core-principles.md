@@ -57,6 +57,11 @@ commands or translating the same state between tools.
 
 No concern should have two writable sources of truth.
 
+Stable Beads project configuration may be committed, but Beads runtime and
+audit churn must not become feature history. dStack follows Beads' own runtime
+classification and additionally keeps `.beads/interactions.jsonl` local so
+state transitions do not dirty the repository.
+
 ## Beads and Git are deliberately decoupled
 
 Never store Git commit hashes in Beads. A commit references its work item with:

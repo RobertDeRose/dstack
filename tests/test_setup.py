@@ -19,6 +19,7 @@ def test_setup_installs_sources_without_live_proto_pollution(target_repo: Path) 
     assert result["status"] == "ok"
     assert result["preflight"] == "isolated-formula-pour"
     assert (target_repo / ".beads/formulas/dstack-feature.formula.toml").is_file()
+    assert "interactions.jsonl" in (target_repo / ".beads/.gitignore").read_text()
     state = json.loads(Path(__import__("os").environ["DSTACK_FAKE_BD_STATE"]).read_text())
     assert not state["issues"]
 
@@ -50,9 +51,20 @@ def test_setup_refuses_formula_drift_without_force(target_repo: Path) -> None:
 
 def test_legacy_repair_untracks_interaction_log_without_deleting_it(target_repo: Path) -> None:
     install(target_repo)
+    ignore = target_repo / ".beads/.gitignore"
+    ignore.write_text(
+        "\n".join(
+            line
+            for line in ignore.read_text().splitlines()
+            if line != "interactions.jsonl"
+            and line != "# dStack: local Beads audit state (not repository history)"
+        )
+        + "\n"
+    )
     runtime = target_repo / ".beads/interactions.jsonl"
     runtime.write_text('{"event":"test"}\n')
-    subprocess.run(["git", "add", str(runtime.relative_to(target_repo))], cwd=target_repo, check=True)
+    subprocess.run(["git", "add", "-f", str(runtime.relative_to(target_repo))], cwd=target_repo, check=True)
+    subprocess.run(["git", "add", str(ignore.relative_to(target_repo))], cwd=target_repo, check=True)
     subprocess.run(["git", "commit", "-m", "track legacy log"], cwd=target_repo, check=True, capture_output=True)
     preview = run_json(
         ["python3", "-S", str(SETUP_SCRIPT), "repair-legacy", "--root", str(target_repo)],
@@ -66,7 +78,7 @@ def test_legacy_repair_untracks_interaction_log_without_deleting_it(target_repo:
     )
     assert repaired["interaction_log_untracked"] is True
     assert runtime.is_file()
-    assert ".beads/interactions.jsonl" in (target_repo / ".gitignore").read_text()
+    assert "interactions.jsonl" in ignore.read_text()
     assert subprocess.run(["git", "ls-files", "--error-unmatch", ".beads/interactions.jsonl"], cwd=target_repo).returncode != 0
 
 
