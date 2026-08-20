@@ -653,6 +653,17 @@ def evidence_for_bead(root: Path, bead_id: str, ref_range: str) -> list[dict[str
     return commit_footer_ids(root, ref_range).get(bead_id, [])
 
 
+def completion_reason(args: argparse.Namespace, default: str) -> str:
+    if args.no_repository_change:
+        reason = (args.reason or "").strip()
+        if not reason:
+            raise DstackError(
+                "--no-repository-change requires a non-empty --reason"
+            )
+        return f"{NO_REPOSITORY_CHANGE_PREFIX}{reason}"
+    return (args.reason or default).strip() or default
+
+
 def cmd_feature_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_view(client, args.selector)
@@ -662,15 +673,22 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
         raise DstackError(f"task {args.task} is not in feature implementation {implementation_id}")
 
     branch, worktree, base = feature_branch_context(client, view)
+    reason = completion_reason(args, "Implementation completed")
     evidence = evidence_for_bead(worktree, args.task, f"{base}..{branch}")
-    if not evidence and not args.allow_no_commit:
+    if args.no_repository_change:
+        ensure_clean_tracked(worktree)
+        if evidence:
+            raise DstackError(
+                "--no-repository-change conflicts with reachable commit evidence"
+            )
+    elif not evidence:
         raise DstackError(
             f"no reachable commit on {branch} has footer 'Beads: {args.task}'"
         )
     summary = read_text_file(args.summary_file)
     if summary:
         client.add_comment(args.task, summary)
-    client.close(args.task, args.reason)
+    client.close(args.task, reason)
     cmd_feature_finish_workstream(
         argparse.Namespace(root=client.root, selector=str(view["root"]["id"]), quiet=True)
     )
@@ -841,40 +859,102 @@ def cmd_evidence_commits(args: argparse.Namespace) -> int:
     return 0
 
 
+NO_REPOSITORY_CHANGE_PREFIX = "no-repository-change: "
+
+
+def evidence_audit(
+    client: BeadsClient,
+    *,
+    worktree: Path,
+    base: str,
+    branch: str,
+    tasks: Sequence[Mapping[str, Any]],
+    allowed_ids: Sequence[str],
+) -> dict[str, Any]:
+    mapping = commit_footer_ids(worktree, f"{base}..{branch}")
+    closed = [item for item in tasks if item.get("status") == "closed"]
+    no_repository_change = sorted(
+        str(item["id"])
+        for item in closed
+        if str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
+    )
+    expected = {
+        str(item["id"])
+        for item in closed
+        if str(item["id"]) not in no_repository_change
+    }
+    allowed = expected | {str(item) for item in allowed_ids}
+    missing = sorted(item for item in expected if not mapping.get(item))
+    duplicate = {
+        key: value
+        for key, value in mapping.items()
+        if key in expected and len(value) > 1
+    }
+    unexpected = sorted(key for key in mapping if key not in allowed)
+    orphaned = sorted(
+        bead_id for bead_id in unexpected if client.show_optional(bead_id) is None
+    )
+    return {
+        "status": "ok" if not missing and not unexpected else "issues",
+        "range": f"{base}..{branch}",
+        "missing": missing,
+        "no_repository_change": no_repository_change,
+        "multiple_commits": duplicate,
+        "unexpected_footer_ids": unexpected,
+        "orphaned_footer_ids": orphaned,
+        "mapping": {key: value for key, value in mapping.items() if key in expected},
+    }
+
+
+def feature_evidence_audit(
+    client: BeadsClient, view: Mapping[str, Any]
+) -> dict[str, Any]:
+    branch, worktree, base = feature_branch_context(client, view)
+    steps = view["steps"]
+    audit = evidence_audit(
+        client,
+        worktree=worktree,
+        base=base,
+        branch=branch,
+        tasks=view["work_items"],
+        allowed_ids=[
+            str(steps["specification"]["id"]),
+            str(steps["closeout"]["id"]),
+        ],
+    )
+    return {"feature": view["root"]["id"], **audit}
+
+
+def alignment_evidence_audit(
+    client: BeadsClient, view: Mapping[str, Any]
+) -> dict[str, Any]:
+    slug = str(view["slug"] or "")
+    branch = f"audit/{slug}"
+    base = str(view["target_branch"] or "")
+    worktree = worktree_for_branch(client.root, branch)
+    if worktree is None:
+        raise DstackError(f"no worktree is registered for {branch}")
+    steps = view["steps"]
+    audit = evidence_audit(
+        client,
+        worktree=worktree,
+        base=base,
+        branch=branch,
+        tasks=view["corrections"],
+        allowed_ids=[
+            str(steps["analysis"]["id"]),
+            str(steps["landing"]["id"]),
+        ],
+    )
+    return {"alignment": view["root"]["id"], **audit}
+
+
 def cmd_evidence_audit_feature(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_view(client, args.selector)
-    branch, worktree, base = feature_branch_context(client, view)
-    mapping = commit_footer_ids(worktree, f"{base}..{branch}")
-    tasks = [
-        item
-        for item in view["work_items"]
-        if item.get("status") == "closed"
-    ]
-    expected = {str(item["id"]) for item in tasks}
-    missing = sorted(item for item in expected if not mapping.get(item))
-    duplicate = {key: value for key, value in mapping.items() if key in expected and len(value) > 1}
-    orphaned: list[str] = []
-    for bead_id in mapping:
-        if bead_id in expected or bead_id in {
-            str(view["steps"]["specification"]["id"]),
-            str(view["steps"]["closeout"]["id"]),
-        }:
-            continue
-        if client.show_optional(bead_id) is None:
-            orphaned.append(bead_id)
-    emit(
-        {
-            "status": "ok" if not missing and not orphaned else "issues",
-            "feature": view["root"]["id"],
-            "range": f"{base}..{branch}",
-            "missing": missing,
-            "multiple_commits": duplicate,
-            "orphaned_footer_ids": sorted(orphaned),
-            "mapping": {key: value for key, value in mapping.items() if key in expected},
-        }
-    )
-    return 0 if not missing and not orphaned else 3
+    audit = feature_evidence_audit(client, view)
+    emit(audit)
+    return 0 if audit["status"] == "ok" else 3
 
 
 def diff_paths(root: Path, base: str, head: str) -> list[str]:
@@ -987,12 +1067,27 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
 
     if terminal.get("status") != "closed":
         raise DstackError(f"{kind} terminal step is not closed")
+    if kind == "feature":
+        require_approved_design(view)
+        evidence = feature_evidence_audit(client, view)
+    else:
+        evidence = alignment_evidence_audit(client, view)
+    if evidence["status"] != "ok":
+        details = []
+        for key in ("missing", "unexpected_footer_ids", "orphaned_footer_ids"):
+            values = evidence.get(key) or []
+            if values:
+                details.append(f"{key}={','.join(str(value) for value in values)}")
+        raise DstackError(
+            f"{kind} delivery evidence audit failed"
+            + (": " + "; ".join(details) if details else "")
+        )
     candidate_worktree = worktree_for_branch(client.root, branch)
     if candidate_worktree is None:
         raise DstackError(f"no worktree found for {branch}")
-    target_worktree = worktree_for_branch(client.root, target) or client.root
+    target_worktree = worktree_for_branch(client.root, target)
     candidate = current_head(candidate_worktree)
-    target_head = current_head(target_worktree)
+    target_head = current_head(client.root, target)
     remote_ref = f"origin/{target}"
     remote_head = (
         current_head(client.root, remote_ref)
@@ -1029,7 +1124,7 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
         "slug": slug,
         "target_branch": target,
         "candidate_branch": branch,
-        "target_worktree": str(target_worktree),
+        "target_worktree": str(target_worktree) if target_worktree else None,
         "candidate_worktree": str(candidate_worktree),
         "target_head": target_head,
         "remote_target_head": remote_head,
@@ -1041,6 +1136,7 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
         "commits": commits,
         "paths": paths,
         "tracked_runtime_beads": tracked_runtime_beads(client.root),
+        "evidence": evidence,
         "diff_stat": stats,
         "docs": docs_check(client.root, target, branch),
     }
@@ -1189,7 +1285,12 @@ def cmd_delivery_merge(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)
     validate_delivery(payload, require_remote=False)
-    target_worktree = Path(str(payload["target_worktree"]))
+    target_worktree_value = payload.get("target_worktree")
+    if not target_worktree_value:
+        raise DstackError(
+            "target branch has no registered worktree for fast-forward merge"
+        )
+    target_worktree = Path(str(target_worktree_value))
     candidate_worktree = Path(str(payload["candidate_worktree"]))
     ensure_clean_tracked(target_worktree)
     ensure_clean_tracked(candidate_worktree)
@@ -1240,7 +1341,11 @@ def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:
     if not ancestry(client.root, str(payload["candidate_head"]), remote_target):
         raise DstackError("PR gate closed but origin target does not contain the candidate commit")
     target_ref = str(payload["target_branch"])
-    target_worktree = worktree_for_branch(client.root, target_ref) or client.root
+    target_worktree = worktree_for_branch(client.root, target_ref)
+    if target_worktree is None:
+        raise DstackError(
+            "target branch has no registered worktree for PR finalization"
+        )
     before_head = current_head(target_worktree)
     before_status = run(
         ["git", "status", "--short", "--untracked-files=no"], cwd=target_worktree
@@ -1401,12 +1506,19 @@ def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
     worktree = worktree_for_branch(client.root, branch)
     if worktree is None:
         raise DstackError(f"no worktree for {branch}")
+    reason = completion_reason(args, "Correction completed")
     evidence = evidence_for_bead(worktree, args.task, f"{base}..{branch}")
-    if not evidence and not args.allow_no_commit:
+    if args.no_repository_change:
+        ensure_clean_tracked(worktree)
+        if evidence:
+            raise DstackError(
+                "--no-repository-change conflicts with reachable commit evidence"
+            )
+    elif not evidence:
         raise DstackError(f"no commit on {branch} references Bead {args.task}")
     if args.summary_file:
         client.add_comment(args.task, read_text_file(args.summary_file))
-    client.close(args.task, args.reason)
+    client.close(args.task, reason)
     cmd_alignment_finish_workstream(
         argparse.Namespace(root=client.root, selector=str(view["root"]["id"]), quiet=True)
     )
@@ -1714,9 +1826,9 @@ def build_parser() -> argparse.ArgumentParser:
     finish = feature_sub.add_parser("finish-task")
     finish.add_argument("selector")
     finish.add_argument("--task", required=True)
-    finish.add_argument("--reason", default="Implementation completed")
+    finish.add_argument("--reason")
     finish.add_argument("--summary-file", type=Path)
-    finish.add_argument("--allow-no-commit", action="store_true")
+    finish.add_argument("--no-repository-change", action="store_true")
     finish.set_defaults(func=cmd_feature_finish_task)
     finish_workstream = feature_sub.add_parser("finish-workstream")
     finish_workstream.add_argument("selector")
@@ -1765,9 +1877,9 @@ def build_parser() -> argparse.ArgumentParser:
     alignment_finish = alignment_sub.add_parser("finish-task")
     alignment_finish.add_argument("selector")
     alignment_finish.add_argument("--task", required=True)
-    alignment_finish.add_argument("--reason", default="Correction completed")
+    alignment_finish.add_argument("--reason")
     alignment_finish.add_argument("--summary-file", type=Path)
-    alignment_finish.add_argument("--allow-no-commit", action="store_true")
+    alignment_finish.add_argument("--no-repository-change", action="store_true")
     alignment_finish.set_defaults(func=cmd_alignment_finish_task)
     alignment_workstream = alignment_sub.add_parser("finish-workstream")
     alignment_workstream.add_argument("selector")

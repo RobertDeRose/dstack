@@ -30,6 +30,10 @@ The controller verifies the design digest and atomically claims the next native
 ready implementation task. The agent implements, validates, documents, and
 reviews the task. A deterministic Git helper creates the commit with the Bead
 footer. The controller closes the task and, when appropriate, its workstream.
+If a task intentionally changes no repository content, finish it with
+`--no-repository-change --reason "..."`; the native close reason records that
+outcome for delivery audit. Ordinary completed tasks still require a reachable
+Bead footer.
 
 ### `/close-feature [feature] [ready|pr|merge]`
 

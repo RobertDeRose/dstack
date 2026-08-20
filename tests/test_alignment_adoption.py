@@ -56,6 +56,73 @@ def test_alignment_add_correction_requires_nonblank_acceptance(
     )
 
 
+def test_alignment_no_repository_change_requires_explicit_reason(installed_repo: Path) -> None:
+    audit = ctl(
+        installed_repo,
+        "alignment",
+        "initialize",
+        "--title",
+        "No Repository Change Alignment",
+        "--target-branch",
+        "dev",
+    )
+    root_id = audit["root"]["id"]
+    correction = ctl(
+        installed_repo,
+        "alignment",
+        "add-correction",
+        root_id,
+        "--title",
+        "No source change",
+        "--acceptance",
+        "The correction closes with an explicit reason.",
+    )["correction"]
+    ctl(installed_repo, "alignment", "finish-plan", root_id)
+    ctl(installed_repo, "alignment", "approve", root_id)
+    ctl(installed_repo, "alignment", "claim-next", root_id)
+
+    old_flag = ctl(
+        installed_repo,
+        "alignment",
+        "finish-task",
+        root_id,
+        "--task",
+        correction["id"],
+        "--allow-no-commit",
+        check=False,
+    )
+    assert getattr(old_flag, "returncode", None) is not None
+    assert "allow-no-commit" in getattr(old_flag, "stderr", "")
+
+    missing_reason = ctl(
+        installed_repo,
+        "alignment",
+        "finish-task",
+        root_id,
+        "--task",
+        correction["id"],
+        "--no-repository-change",
+        check=False,
+    )
+    assert getattr(missing_reason, "returncode", None) == 1
+    assert "reason" in getattr(missing_reason, "stderr", "").casefold()
+
+    finished = ctl(
+        installed_repo,
+        "alignment",
+        "finish-task",
+        root_id,
+        "--task",
+        correction["id"],
+        "--no-repository-change",
+        "--reason",
+        "No repository change was required.",
+    )
+    assert finished["correction"]["close_reason"] == (
+        "no-repository-change: No repository change was required."
+    )
+
+
 def test_alignment_three_tiers_use_native_tasks_and_current_evidence(installed_repo: Path) -> None:
     audit = ctl(
         installed_repo,

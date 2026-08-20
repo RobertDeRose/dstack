@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from conftest import DSTACKCTL, ctl, run_command
+from conftest import DSTACKCTL, ctl, run_command, run_json
 from test_feature_controller import initialize
 
 
@@ -100,6 +100,121 @@ def test_docs_guard_allows_domain_vocabulary_but_rejects_workflow_records(
     )
     assert failed.returncode == 4
     assert "Worktree" in failed.stdout
+
+
+def test_delivery_rejects_design_drift_after_approval(installed_repo: Path) -> None:
+    created = prepare_deliverable(installed_repo)
+    design = Path(created["worktree"]) / created["design_path"]
+    design.write_text("changed after approval\n")
+
+    failed = ctl(
+        installed_repo,
+        "delivery",
+        "inspect",
+        created["root"]["id"],
+        check=False,
+    )
+    assert getattr(failed, "returncode", None) is not None
+    assert "differs from the approved specification" in getattr(failed, "stderr", "")
+
+
+def test_delivery_accepts_explicit_no_repository_change_task(
+    installed_repo: Path,
+) -> None:
+    created = ctl(
+        installed_repo,
+        "feature",
+        "initialize",
+        "No Evidence Delivery",
+        "--base-branch",
+        "dev",
+    )
+    root_id = created["root"]["id"]
+    design = Path(created["worktree"]) / created["design_path"]
+    design.parent.mkdir(parents=True, exist_ok=True)
+    design.write_text("approved\n")
+    ctl(installed_repo, "feature", "claim-spec", root_id)
+    ctl(installed_repo, "feature", "approve-spec", root_id)
+    task = ctl(
+        installed_repo,
+        "feature",
+        "add-task",
+        root_id,
+        "--title",
+        "No source change",
+        "--acceptance",
+        "The task is explicitly complete without repository changes.",
+    )["task"]
+    ctl(installed_repo, "feature", "claim-next", root_id)
+    ctl(
+        installed_repo,
+        "feature",
+        "finish-task",
+        root_id,
+        "--task",
+        task["id"],
+        "--no-repository-change",
+        "--reason",
+        "No source change is required.",
+    )
+    ctl(installed_repo, "feature", "finish-workstream", root_id)
+    ctl(installed_repo, "feature", "claim-closeout", root_id)
+    ctl(installed_repo, "feature", "finish-closeout", root_id)
+
+    inspected = ctl(installed_repo, "delivery", "inspect", root_id)
+    assert inspected["evidence"]["status"] == "ok"
+    assert inspected["evidence"]["missing"] == []
+    assert inspected["evidence"]["no_repository_change"] == [task["id"]]
+
+
+def test_delivery_reports_unchecked_out_target_ref(installed_repo: Path) -> None:
+    created = prepare_deliverable(installed_repo)
+    subprocess.run(
+        ["git", "branch", "delivery-target", "dev"],
+        cwd=installed_repo,
+        check=True,
+        capture_output=True,
+    )
+    run_json(
+        [
+            "bd",
+            "update",
+            created["root"]["id"],
+            "--set-metadata",
+            "dstack.base_branch=delivery-target",
+            "--json",
+        ],
+        cwd=installed_repo,
+    )
+
+    inspected = ctl(installed_repo, "delivery", "inspect", created["root"]["id"])
+    expected_head = subprocess.check_output(
+        ["git", "rev-parse", "delivery-target"], cwd=installed_repo, text=True
+    ).strip()
+    assert inspected["target_branch"] == "delivery-target"
+    assert inspected["target_worktree"] is None
+    assert inspected["target_head"] == expected_head
+
+
+def test_delivery_rejects_unknown_footer_evidence(installed_repo: Path) -> None:
+    created = prepare_deliverable(installed_repo)
+    worktree = Path(created["worktree"])
+    subprocess.run(
+        ["git", "commit", "--amend", "-m", "feat: delivery\n\nBeads: bd-unknown"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+    )
+
+    failed = ctl(
+        installed_repo,
+        "delivery",
+        "inspect",
+        created["root"]["id"],
+        check=False,
+    )
+    assert getattr(failed, "returncode", None) is not None
+    assert "footer" in getattr(failed, "stderr", "").casefold()
 
 
 def prepare_deliverable(repo: Path):
