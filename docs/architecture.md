@@ -76,6 +76,13 @@ hydration (gates, ready work, progress, and delivery state) is reserved for
 inspection and delivery. Nested transitions reuse the invocation's Beads client;
 no cache or state survives the process.
 
+Compatibility is an explicit boundary: legacy adoption is dispatched only by
+`adopt`, and repository repair is dispatched only by the explicit setup repair
+operation. Normal feature, alignment, evidence, and delivery operations do not
+run either path or rewrite historical workflow data. The isolated compatibility
+module can be retired once supported repositories no longer contain active
+legacy workflows.
+
 ### Pi skills
 
 Skills are short policy and judgment guides. They tell the agent:
