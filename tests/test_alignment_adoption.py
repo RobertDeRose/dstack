@@ -6,6 +6,56 @@ from pathlib import Path
 from conftest import ctl, run_json
 
 
+def test_alignment_add_correction_requires_nonblank_acceptance(
+    installed_repo: Path,
+) -> None:
+    audit = ctl(
+        installed_repo,
+        "alignment",
+        "initialize",
+        "--title",
+        "Acceptance Boundary",
+        "--target-branch",
+        "dev",
+    )
+    root_id = audit["root"]["id"]
+    acceptance_file = installed_repo / "alignment-whitespace-acceptance.txt"
+    acceptance_file.write_text(" \n")
+
+    cases = [
+        ["--title", "Missing"],
+        ["--title", "Empty", "--acceptance", ""],
+        ["--title", "Whitespace", "--acceptance", " \t"],
+        ["--title", "File whitespace", "--acceptance-file", str(acceptance_file)],
+    ]
+    for args in cases:
+        failed = ctl(
+            installed_repo,
+            "alignment",
+            "add-correction",
+            root_id,
+            *args,
+            check=False,
+        )
+        assert getattr(failed, "returncode", None) == 1
+        assert "acceptance criteria is required" in getattr(failed, "stderr", "")
+
+    assert ctl(installed_repo, "alignment", "inspect", root_id)["corrections"] == []
+    correction = ctl(
+        installed_repo,
+        "alignment",
+        "add-correction",
+        root_id,
+        "--title",
+        "Valid outcome",
+        "--acceptance",
+        "A valid configuration remains unchanged after restart.",
+    )["correction"]
+    assert correction["acceptance_criteria"] == (
+        "A valid configuration remains unchanged after restart."
+    )
+
+
 def test_alignment_three_tiers_use_native_tasks_and_current_evidence(installed_repo: Path) -> None:
     audit = ctl(
         installed_repo,

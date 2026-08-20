@@ -23,6 +23,46 @@ def test_initialize_resolves_by_title_slug_and_id_and_is_idempotent(installed_re
     assert reused["root"]["id"] == root_id
 
 
+def test_feature_add_task_requires_nonblank_acceptance(installed_repo: Path) -> None:
+    created = initialize(installed_repo)
+    root_id = created["root"]["id"]
+    acceptance_file = installed_repo / "whitespace-acceptance.txt"
+    acceptance_file.write_text(" \t\n")
+
+    cases = [
+        ["--title", "Missing"],
+        ["--title", "Empty", "--acceptance", ""],
+        ["--title", "Whitespace", "--acceptance", " \t"],
+        ["--title", "File whitespace", "--acceptance-file", str(acceptance_file)],
+    ]
+    for args in cases:
+        failed = ctl(
+            installed_repo,
+            "feature",
+            "add-task",
+            root_id,
+            *args,
+            check=False,
+        )
+        assert getattr(failed, "returncode", None) == 1
+        assert "acceptance criteria is required" in getattr(failed, "stderr", "")
+
+    assert ctl(installed_repo, "feature", "inspect", root_id)["work_items"] == []
+    task = ctl(
+        installed_repo,
+        "feature",
+        "add-task",
+        root_id,
+        "--title",
+        "Valid outcome",
+        "--acceptance",
+        "Invalid input is rejected without changing active state.",
+    )["task"]
+    assert task["acceptance_criteria"] == (
+        "Invalid input is rejected without changing active state."
+    )
+
+
 def test_human_gate_resolution_does_not_require_gate_list_parent(
     installed_repo: Path,
 ) -> None:

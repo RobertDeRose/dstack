@@ -374,6 +374,13 @@ def task_text(path: Path | None, inline: str | None) -> str:
     return (inline or "").strip()
 
 
+def required_task_text(path: Path | None, inline: str | None) -> str:
+    text = task_text(path, inline)
+    if not text:
+        raise DstackError("acceptance criteria is required")
+    return text
+
+
 def cmd_feature_add_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_view(client, args.selector)
@@ -388,7 +395,7 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
         labels=["dstack:work:implementation"],
         dependencies=dependencies,
         description=task_text(args.description_file, args.description),
-        acceptance=task_text(args.acceptance_file, args.acceptance),
+        acceptance=required_task_text(args.acceptance_file, args.acceptance),
         priority=args.priority,
     )
     emit({"status": "ok", "task": item})
@@ -1178,7 +1185,7 @@ def cmd_alignment_add_correction(args: argparse.Namespace) -> int:
         labels=["dstack:work:correction"],
         dependencies=[str(view["steps"]["approval"]["id"]), *args.depends_on],
         description=task_text(args.description_file, args.description),
-        acceptance=task_text(args.acceptance_file, args.acceptance),
+        acceptance=required_task_text(args.acceptance_file, args.acceptance),
         priority=args.priority,
     )
     emit({"status": "ok", "correction": item})
