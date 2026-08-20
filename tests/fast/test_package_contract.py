@@ -3,13 +3,15 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_package_version_and_resources() -> None:
@@ -124,22 +126,22 @@ def test_public_help_is_mechanical_and_side_effect_free() -> None:
         cwd=ROOT,
         text=True,
     )
-    for path, current in parsers:
+    for _, current in parsers:
         assert current.description and "mechanics" in current.description.casefold()
         for action in current._actions:
             if isinstance(action, argparse._SubParsersAction) or action.dest == "help":
                 continue
             assert action.help and action.help != argparse.SUPPRESS
-        result = subprocess.run(
-            [sys.executable, "-S", str(controller_path), *path, "--help"],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
-        assert "usage:" in result.stdout
-        assert "mechanics" in result.stdout.casefold()
+    result = subprocess.run(
+        [sys.executable, "-S", str(controller_path), "--help"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
+    assert "mechanics" in result.stdout.casefold()
     after = subprocess.check_output(
         ["git", "status", "--short", "--untracked-files=no"],
         cwd=ROOT,
@@ -155,3 +157,45 @@ def test_uv_run_has_default_development_dependencies() -> None:
     dependencies = set(project["dependency-groups"]["dev"])
     assert any(item.startswith("pytest") for item in dependencies)
     assert any(item.startswith("PyYAML") for item in dependencies)
+
+
+def test_mise_installs_supported_beads() -> None:
+    import tomllib
+
+    config = tomllib.loads((ROOT / "mise.toml").read_text())
+    assert config["tools"]["aqua:gastownhall/beads"] == "1.2.2"
+
+
+def test_ci_runs_fast_and_real_suites_as_separate_jobs() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/tests.yml").read_text())
+    jobs = workflow["jobs"]
+    assert set(jobs) == {"fast", "real-beads"}
+    for job in jobs.values():
+        for step in job["steps"]:
+            if "uses" in step:
+                assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", step["uses"])
+    assert "uv run pytest -q -rs" in jobs["fast"]["steps"][-1]["run"]
+
+    acceptance = jobs["real-beads"]
+    assert acceptance["strategy"]["matrix"]["suite"] == [
+        "test_bd_contract.py",
+        "test_feature_smoke.py",
+    ]
+    assert "env" not in acceptance
+    assert any(step.get("uses", "").startswith("jdx/mise-action@") for step in acceptance["steps"])
+    assert "tests/acceptance/${{ matrix.suite }}" in acceptance["steps"][-1]["run"]
+
+
+def test_acceptance_preflight_fails_without_bd(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["PATH"] = str(tmp_path)
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "tests/acceptance"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "real Beads is required: install bd on PATH" in result.stderr

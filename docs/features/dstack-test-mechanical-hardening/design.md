@@ -11,17 +11,17 @@ handling.
 ## User-visible behavior
 
 - `dstackctl.py` remains the single executable entry point with the existing
-  command names, selectors, JSON envelope, and successful result shapes.
+  command names, selectors, and JSON envelope. Mutations return touched native
+  objects; inspect commands return full current dashboards.
 - Every public command and flag has concise help that explains its mechanics,
   required inputs, failure boundaries, and at least one useful example where
   the operation is not self-explanatory.
-- Real-Beads acceptance scenarios can be run against an isolated repository in
-  JSON-envelope mode. Local runs may skip them when `bd` is unavailable, while
-  `DSTACK_REQUIRE_REAL_BD=1` fails clearly rather than silently substituting
-  the fake.
-- The test fake returns declared protocol responses, records arguments, and can
-  inject command failures. It does not calculate readiness, gates, dependency
-  fan-in, ownership, or lifecycle transitions.
+- Real-Beads acceptance scenarios run against isolated repositories in
+  JSON-envelope mode and fail when the selected `bd` binary is unavailable.
+  Required CI jobs run each real scenario separately from the fast suite.
+- Fast tests use ordered, immutable call/response snapshots. They do not
+  calculate readiness, gates, dependency fan-in, ownership, or lifecycle
+  transitions.
 - Repeated read-heavy controller operations use bounded subprocess work within
   one invocation. A write invalidates any request-local read cache; no cache or
   command history persists outside the process.
@@ -49,55 +49,42 @@ handling.
 - Reuse `dstackctl.py` as the only public executable and `dstacklib.py` as the
   standard-library adapter for Beads JSON envelopes, Git primitives, worktrees,
   and stateless errors.
-- Reuse the existing fake executable fixture boundary for fast tests, but
-  replace its lifecycle model with a small response/recording harness rather
-  than adding more fake state behavior.
-- Reuse the existing isolated temporary-repository fixtures and
-  `tests/test_real_beads_integration.py`; extend them to cover native Beads
-  behavior instead of creating a second integration framework.
-- Reuse `DSTACK_REAL_BD` as the explicit binary override and add one
-  fail-closed required-binary policy rather than detecting or installing Beads
-  implicitly.
+- Reuse the existing `BeadsClient` and command-handler boundaries with a small
+  ordered response harness rather than adding fake state behavior.
+- Use two isolated real-Beads scenarios: one native contract and one complete
+  dStack feature smoke journey.
+- Require `bd` on `PATH` and fail acceptance during session preflight when it
+  is unavailable.
 - Reuse `argparse`, `subprocess.run` with argument lists, `git log`, and native
   Beads commands. No new dependency is needed.
 
 ## Design
 
-### Protocol-only fast fake
+### Fast controller boundary
 
-Replace the stateful `tests/fake_bd.py` lifecycle simulator with an executable
-protocol stub. A test-owned temporary scenario describes expected argument
-patterns, canned stdout payloads, return codes, and optional stderr. A separate
-optional recorder appends the exact argument vector and working directory to a temporary JSONL file. An injected command failure uses the same path as a real
-nonzero subprocess result.
+Fast tests call controller handlers in-process with ordered Beads call/response
+snapshots. Adapter tests replace only the native command runner to verify exact
+arguments, JSON parsing, cache invalidation, and failures. The harness has no
+lifecycle state and unsupported calls fail loudly.
 
-The stub may answer stable capability/version/help probes, but it must not
-create issues, infer readiness, resolve gates, mutate ownership, calculate
-fan-in, or model dependency transitions. Unsupported commands fail loudly.
-Tests that need those outcomes use the real `bd` fixture; tests that need only
-controller parsing, command construction, or failure propagation use canned
-protocol responses and assert the recorded command boundary.
+Tests that need readiness, ownership, gates, fan-in, or supersession use the
+real `bd` boundary. Tests for controller validation, command construction, Git
+policy, and failure propagation use declared snapshots and real temporary Git
+repositories.
 
 ### Real-Beads acceptance boundary
 
-Extend the isolated real-Beads harness into focused scenarios for:
+The isolated real-Beads harness contains two focused scenarios:
 
-- setup, formula validation, and native molecule shape;
-- feature and project-alignment lifecycle transitions, native claims, gates,
-  dependencies, and dynamic child fan-in;
-- design drift, competing claims, rewritten footer history, missing evidence,
-  explicit no-change completion, and stale target rejection;
-- PR preflight, native `gh:pr` gate registration/finalization, and no tracked
-  Git mutation during Beads finalization;
-- legacy adoption and explicit setup repair; and
-- one complete dogfood lifecycle ending in a clean isolated repository.
+- a native contract covering both formula shapes and pours, gates, readiness,
+  claims, ownership, child fan-in, supersession, and worktrees; and
+- one complete feature journey covering full setup, specification approval,
+  Git-backed implementation, closeout, and delivery.
 
-The harness resolves `DSTACK_REAL_BD` first and otherwise uses a non-test
-`bd` on `PATH`. With `DSTACK_REQUIRE_REAL_BD=1`, absence, an invalid override,
-or a non-working binary becomes a test failure. Without that mode, the
-scenarios are clearly marked as skipped for developer machines that do not have
-Beads installed. Each scenario creates a temporary Git/Beads repository and
-never uses the project's live workflow database.
+The harness requires `bd` on `PATH`; absence fails the session before test
+collection. Each scenario creates a temporary Git/Beads repository and never
+uses the project's live workflow database. CI installs the locked Beads version
+through mise and runs the scenarios as separate required jobs.
 
 ### Internal controller boundaries
 

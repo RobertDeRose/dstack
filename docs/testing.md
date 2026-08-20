@@ -1,45 +1,49 @@
 # Testing dStack
 
-## Running the suite
+## Fast suite
+
+The default suite exercises controller decisions in-process with immutable
+Beads protocol snapshots. It uses disposable Git repositories where Git is the
+authority and never invokes a real `bd` binary.
 
 ```bash
-uv run pytest
+uv run pytest -q -rs
 ```
 
-The default uv development group includes pytest and PyYAML, so a clean clone
-does not require manual `uv add` commands.
+This suite must complete quickly, with zero skipped tests. The scripted client
+is a protocol stub only: it matches ordered calls and returns declared
+snapshots; it does not calculate readiness, dependencies, ownership, gates, or
+lifecycle transitions.
 
-## Test layers
+## Real-Beads acceptance
 
-1. Pure/unit tests validate parsing, selector rules, Git evidence, docs policy,
-   and idempotent transition decisions.
-2. A fast Beads test double exercises failure injection and expected command
-   sequences.
-3. Real-Beads integration tests exercise the supported `bd` binary, formulas,
-   gates, ready work, claims, fan-in, JSON envelope mode, and cleanup.
+Acceptance uses exactly two real-boundary scenarios in `tests/acceptance`:
 
-The test double is never release authority for Beads behavior.
+```bash
+uv run pytest -q tests/acceptance/test_bd_contract.py
 
-## Release acceptance
+uv run pytest -q tests/acceptance/test_feature_smoke.py
+```
 
-A release must verify, when a real `bd` binary is available:
+An unavailable or invalid `bd` is an acceptance failure, never a skip. The
+contract scenario initializes Beads directly and verifies the supported JSON
+envelope, both formula structures and pours, native gates/readiness/claims,
+child fan-in, supersession, and worktree primitives. The smoke scenario alone
+runs full dStack setup, then one minimal shipped feature through approval, one
+Git-backed task, closeout, and fast-forward delivery.
 
-- formula install and isolated pour;
-- no persisted template pollution;
-- legitimate tracked Beads configuration versus forbidden runtime state;
-- local/untracked `.beads/interactions.jsonl`;
-- a committed repository setup boundary before feature execution;
-- human gate and approval milestone;
-- dynamic task creation and atomic claim;
-- dynamic child fan-in;
-- design digest approval;
-- commit footer audit after history rewriting;
-- stale remote-base PR refusal;
-- no post-delivery Git mutation;
-- explicit legacy adoption;
-- `BD_JSON_ENVELOPE=1` output.
+GitHub Actions runs the fast suite and each real-Beads scenario as separate
+jobs. The acceptance matrix installs the locked Beads version through mise, and
+the acceptance preflight fails immediately unless `bd` is on `PATH`.
 
-Set `DSTACK_REAL_BD` to the binary path to force the real integration suite.
-Set `DSTACK_REQUIRE_REAL_BD=1` in release validation to fail closed when the
-binary is absent or the explicit override is invalid; without it, unavailable
-real-Beads scenarios are skipped locally rather than replaced by the fake.
+## Test ownership
+
+- Beads owns lifecycle behavior; acceptance tests verify the supported binary.
+- dStack owns selector, validation, refusal, Git evidence, documentation, and
+  delivery policy; fast tests verify those decisions without reimplementing
+  Beads.
+- Git owns repository state; fast tests use real temporary Git repositories for
+  Git behavior.
+
+No coverage threshold or fixed test count is used. Every test asserts an
+observable result, invariant, refusal, or failure boundary.
