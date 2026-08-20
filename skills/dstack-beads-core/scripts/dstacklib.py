@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, TextIO, cast
 
 MIN_BEADS_VERSION = (1, 2, 2)
 FEATURE_STEPS = {
@@ -236,6 +236,15 @@ class BeadsClient:
 
     def __init__(self, root: Path):
         self.root = git_root(root)
+        self._read_cache: dict[tuple[Any, ...], Any] = {}
+
+    def _invalidate_reads(self) -> None:
+        self._read_cache.clear()
+
+    def _cached(self, key: tuple[Any, ...], loader: Callable[[], Any]) -> Any:
+        if key not in self._read_cache:
+            self._read_cache[key] = loader()
+        return self._read_cache[key]
 
     def json(self, command: Sequence[str], *, check: bool = True) -> Any:
         result = run(command, cwd=self.root, check=check)
@@ -264,13 +273,22 @@ class BeadsClient:
             run(command, cwd=self.root)
 
     def show_optional(self, issue_id: str) -> dict[str, Any] | None:
+        key = ("show", issue_id)
+        if key in self._read_cache:
+            return self._read_cache[key]
         result = run(["bd", "show", issue_id, "--json"], cwd=self.root, check=False)
         if result.returncode != 0:
             detail = f"{result.stdout}\n{result.stderr}".casefold()
             if "not found" in detail or "no issues found" in detail:
+                self._read_cache[key] = None
                 return None
             raise DstackError(result.stderr.strip() or result.stdout.strip())
-        return first_item(parse_json(result.stdout, context=f"bd show {issue_id}"), context=f"bd show {issue_id}")
+        issue = first_item(
+            parse_json(result.stdout, context=f"bd show {issue_id}"),
+            context=f"bd show {issue_id}",
+        )
+        self._read_cache[key] = issue
+        return issue
 
     def show(self, issue_id: str) -> dict[str, Any]:
         issue = self.show_optional(issue_id)
@@ -301,7 +319,16 @@ class BeadsClient:
             command.append("--include-templates")
         if issue_type_filter:
             command.extend(["--type", issue_type_filter])
-        return as_items(self.json(command))
+        key = (
+            "list",
+            all_statuses,
+            parent,
+            tuple(labels),
+            include_gates,
+            include_templates,
+            issue_type_filter,
+        )
+        return self._cached(key, lambda: as_items(self.json(command)))
 
     def children(self, parent: str, *, all_statuses: bool = True) -> builtins.list[dict[str, Any]]:
         return self.list(all_statuses=all_statuses, parent=parent)
@@ -310,21 +337,30 @@ class BeadsClient:
         command = ["bd", "gate", "list", "--limit", "0", "--json"]
         if all_statuses:
             command.append("--all")
-        return as_items(self.json(command))
+        key = ("gates", all_statuses)
+        return self._cached(key, lambda: as_items(self.json(command)))
 
     def update(self, issue_id: str, *arguments: str) -> dict[str, Any]:
-        payload = self.json(["bd", "update", issue_id, *arguments, "--json"])
-        return first_item(payload, context=f"bd update {issue_id}")
+        self._invalidate_reads()
+        try:
+            payload = self.json(["bd", "update", issue_id, *arguments, "--json"])
+            return first_item(payload, context=f"bd update {issue_id}")
+        finally:
+            self._invalidate_reads()
 
     def close(self, issue_id: str, reason: str) -> dict[str, Any]:
         current = self.show(issue_id)
         if current.get("status") == "closed":
             return current
-        payload = self.json(["bd", "close", issue_id, "--reason", reason, "--json"])
-        items = as_items(payload)
-        if items:
-            return items[0]
-        return self.show(issue_id)
+        self._invalidate_reads()
+        try:
+            payload = self.json(["bd", "close", issue_id, "--reason", reason, "--json"])
+            items = as_items(payload)
+            if items:
+                return items[0]
+            return self.show(issue_id)
+        finally:
+            self._invalidate_reads()
 
     def resolve_gate(self, gate_id: str, reason: str) -> dict[str, Any]:
         """Resolve a gate, then read its authoritative state.
@@ -337,14 +373,18 @@ class BeadsClient:
         current = self.show(gate_id)
         if current.get("status") == "closed":
             return current
-        run(
-            ["bd", "gate", "resolve", gate_id, "--reason", reason],
-            cwd=self.root,
-        )
-        resolved = self.show(gate_id)
-        if resolved.get("status") != "closed":
-            raise DstackError(f"gate did not resolve: {gate_id}")
-        return resolved
+        self._invalidate_reads()
+        try:
+            run(
+                ["bd", "gate", "resolve", gate_id, "--reason", reason],
+                cwd=self.root,
+            )
+            resolved = self.show(gate_id)
+            if resolved.get("status") != "closed":
+                raise DstackError(f"gate did not resolve: {gate_id}")
+            return resolved
+        finally:
+            self._invalidate_reads()
 
     def create_gate(
         self,
@@ -368,15 +408,21 @@ class BeadsClient:
             command.extend(["--await-id", await_id])
         if reason:
             command.extend(["--reason", reason])
-        return first_item(self.json(command), context="bd gate create")
+        self._invalidate_reads()
+        try:
+            return first_item(self.json(command), context="bd gate create")
+        finally:
+            self._invalidate_reads()
 
     def add_comment(self, issue_id: str, text: str) -> None:
         if not text.strip():
             return
         handle = write_temp_text(text.rstrip() + "\n")
+        self._invalidate_reads()
         try:
             run(["bd", "comments", "add", issue_id, "-f", handle.name], cwd=self.root)
         finally:
+            self._invalidate_reads()
             Path(handle.name).unlink(missing_ok=True)
 
     def create(
@@ -413,7 +459,11 @@ class BeadsClient:
             command.extend(["--description", description])
         if acceptance:
             command.extend(["--acceptance", acceptance])
-        return first_item(self.json(command), context="bd create")
+        self._invalidate_reads()
+        try:
+            return first_item(self.json(command), context="bd create")
+        finally:
+            self._invalidate_reads()
 
     def ready_children(
         self,
@@ -437,20 +487,38 @@ class BeadsClient:
             command.extend(["--label", label])
         if claim:
             command.append("--claim")
-        return as_items(self.json(command))
+        key = ("ready", parent, label, claim)
+        if claim:
+            self._invalidate_reads()
+        try:
+            result = as_items(self.json(command))
+        finally:
+            if claim:
+                self._invalidate_reads()
+        if not claim:
+            self._read_cache[key] = result
+        return result
 
     def progress(self, root_id: str) -> Any:
-        return self.json(["bd", "mol", "progress", root_id, "--json"])
+        key = ("progress", root_id)
+        return self._cached(
+            key,
+            lambda: self.json(["bd", "mol", "progress", root_id, "--json"]),
+        )
 
     def pour(self, formula: str, variables: Mapping[str, str]) -> dict[str, Any]:
         command = ["bd", "mol", "pour", formula]
         for key, value in variables.items():
             command.extend(["--var", f"{key}={value}"])
         command.append("--json")
-        payload = self.json(command)
-        if not isinstance(payload, dict):
-            raise DstackError(f"bd mol pour {formula} returned a non-object")
-        return payload
+        self._invalidate_reads()
+        try:
+            payload = self.json(command)
+            if not isinstance(payload, dict):
+                raise DstackError(f"bd mol pour {formula} returned a non-object")
+            return payload
+        finally:
+            self._invalidate_reads()
 
     def add_dependency(
         self,
@@ -459,25 +527,33 @@ class BeadsClient:
         *,
         relation_type: str = "blocks",
     ) -> None:
-        run(
-            [
-                "bd",
-                "dep",
-                "add",
-                issue_id,
-                depends_on_id,
-                "--type",
-                relation_type,
-            ],
-            cwd=self.root,
-        )
+        self._invalidate_reads()
+        try:
+            run(
+                [
+                    "bd",
+                    "dep",
+                    "add",
+                    issue_id,
+                    depends_on_id,
+                    "--type",
+                    relation_type,
+                ],
+                cwd=self.root,
+            )
+        finally:
+            self._invalidate_reads()
 
     def supersede(self, old_id: str, new_id: str) -> None:
         old = self.show(old_id)
         if old.get("status") == "closed":
             # Existing supersession is sufficient; do not reopen history.
             return
-        run(["bd", "supersede", old_id, "--with", new_id], cwd=self.root)
+        self._invalidate_reads()
+        try:
+            run(["bd", "supersede", old_id, "--with", new_id], cwd=self.root)
+        finally:
+            self._invalidate_reads()
 
     def gate_check(self) -> builtins.list[dict[str, Any]]:
         """Evaluate native gates and return their refreshed state.
@@ -487,8 +563,12 @@ class BeadsClient:
         human-output mode and read gates through ``gate list --json`` afterward.
         """
 
-        run(["bd", "gate", "check"], cwd=self.root)
-        return self.gates(all_statuses=True)
+        self._invalidate_reads()
+        try:
+            run(["bd", "gate", "check"], cwd=self.root)
+            return self.gates(all_statuses=True)
+        finally:
+            self._invalidate_reads()
 
 
 def step_by_label(children: Sequence[Mapping[str, Any]], label: str) -> dict[str, Any]:
@@ -851,30 +931,23 @@ def current_head(root: Path, ref: str = "HEAD") -> str:
 def commit_footer_ids(root: Path, ref_range: str) -> dict[str, list[dict[str, Any]]]:
     """Return every reachable commit grouped by its ``Beads:`` footer."""
 
-    format_string = "%H%x00%s%x00%B%x00"
-    output = run(["git", "log", f"--format={format_string}", ref_range], cwd=root).stdout
-    chunks = output.split("\x00")
+    format_string = "%x1e%H%x00%s%x00%B%x00"
+    output = run(
+        ["git", "log", f"--format={format_string}", "--name-only", ref_range],
+        cwd=root,
+    ).stdout
     result: dict[str, list[dict[str, Any]]] = {}
-    for index in range(0, len(chunks) - 2, 3):
-        commit = chunks[index].strip()
-        subject = chunks[index + 1].strip()
-        body = chunks[index + 2]
+    for record in output.split("\x1e"):
+        if not record.strip():
+            continue
+        parts = record.split("\x00", 3)
+        if len(parts) != 4:
+            continue
+        commit, subject, body, path_text = parts
+        commit = commit.strip()
         if not commit:
             continue
-        paths = run(
-            [
-                "git",
-                "diff-tree",
-                "--no-commit-id",
-                "--name-only",
-                "-r",
-                "--root",
-                commit,
-            ],
-            cwd=root,
-        ).stdout.splitlines()
+        paths = [line for line in path_text.splitlines() if line.strip()]
         for match in re.finditer(r"(?m)^Beads:\s*([^\s]+)\s*$", body):
-            result.setdefault(match.group(1), []).append(
-                {"commit": commit, "subject": subject, "paths": paths}
-            )
+            result.setdefault(match.group(1), []).append({"commit": commit, "subject": subject.strip(), "paths": paths})
     return result
