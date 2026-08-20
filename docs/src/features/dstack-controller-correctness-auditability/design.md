@@ -13,12 +13,15 @@ ownership, dependencies, gates, and completion and Git remains authoritative for
 - Claims and finishes use Beads' native ownership semantics. Reclaiming work by
   its current owner is idempotent; another owner's claim or finish fails
   without a dStack ownership ledger.
-- Delivery refuses a completed feature when any closed implementation task lacks
-  reachable `Beads: <id>` evidence. History rewrites remain valid because the
-  audit searches current reachable commits rather than storing commit hashes.
+- Delivery refuses a completed feature when any normal closed implementation
+  task lacks reachable `Beads: <id>` evidence. A task explicitly closed as
+  requiring no repository change is accepted through its native close reason.
+  History rewrites remain valid because the audit searches current reachable
+  commits rather than storing commit hashes.
 - A task that intentionally changes no repository content must use an explicit
-  no-repository-change option and a non-empty reason. The reason is stored only
-  through the native Beads close reason; the old ambiguous bypass is removed.
+  no-repository-change option and a non-empty reason. The reason and its
+  no-change classification are stored only through the native Beads close
+  reason; the old ambiguous bypass is removed.
 - Feature skills pass their selected root explicitly. Automatic selection works
   only from the matching feature worktree, and ambiguous or unrelated contexts
   fail instead of silently acting on another feature.
@@ -75,18 +78,17 @@ returned; no owner is copied into metadata or comments.
 
 ### Evidence and explicit no-change completion
 
-At delivery boundaries, derive implementation-task evidence from the candidate
-branch's current reachable commits. Require every closed implementation task to
-have a reachable footer and reject unknown footer IDs, while retaining support
-for multiple commits and rewritten commit identities. The resulting audit is
-computed in memory and exposed in the existing inspection result; no mapping is
-persisted.
+At delivery boundaries, derive implementation-task evidence from the candidate branch's current reachable commits.
+Require every normally closed implementation task to have a reachable footer and reject unknown footer IDs, while
+retaining support for multiple commits and rewritten commit identities. A task closed through the explicit
+no-repository-change path is the only exception; its stable native `no-repository-change: <reason>` close-reason marker
+is checked instead of a Git footer. The resulting audit is computed in memory and exposed in the existing inspection
+result; no mapping is persisted.
 
-Replace `--allow-no-commit` on feature and alignment task completion with
-`--no-repository-change --reason <text>`. The option is valid only with a
-non-empty reason and closes through the native Beads reason. A normal task
-still requires a reachable footer. A no-change completion does not make Git
-content or a workflow bookkeeping commit appear in the candidate.
+Replace `--allow-no-commit` on feature and alignment task completion with `--no-repository-change --reason <text>`. The
+option is valid only with a non-empty reason and closes through the native Beads reason using the
+`no-repository-change: <reason>` marker needed by delivery audit. A normal task still requires a reachable footer. A
+no-change completion does not make Git content or a workflow bookkeeping commit appear in the candidate.
 
 ### Truthful selection and planned-feature reuse
 
@@ -131,11 +133,10 @@ other callers receive deterministic nonzero failures rather than a silently chan
 
 ## Failure / security / compatibility behavior
 
-- Design drift, missing design files, invalid paths, ambiguous selectors,
-  missing worktrees, missing footer evidence, unknown footer IDs, stale targets,
-  and non-fast-forward delivery all fail before the relevant mutation.
-- A competing owner cannot claim or finish a task; the current owner may repeat
-  the claim safely. Beads remains the authority for the race boundary.
+- Design drift, missing design files, invalid paths, ambiguous selectors, missing worktrees, missing footer evidence for
+  normal tasks, unknown footer IDs, stale targets, and non-fast-forward delivery all fail before the relevant mutation.
+- A competing owner cannot claim or finish a task; the current owner may repeat the claim safely. Beads remains the
+  authority for the race boundary.
 - A malformed or empty no-change reason is rejected before Beads is changed.
 - Path resolution rejects absolute paths, parent traversal, and symlink escapes.
   The controller does not execute content from a selected design file.
@@ -149,7 +150,8 @@ other callers receive deterministic nonzero failures rather than a silently chan
 - Add behavior-first fake-Beads tests for design drift at each listed boundary,
   same-owner and competing-owner claims, finish ownership enforcement,
   rewritten and missing footer evidence, unknown footer rejection, explicit
-  no-change reasons, selector passing and wrong-worktree rejection, planned
+  no-change reasons and delivery exemption, selector passing and
+  wrong-worktree rejection, planned
   source reuse/dependency preservation, and target-ref reporting.
 - Add tests using both documentation layouts and a domain document containing
   legitimate `blocked`/`review` vocabulary. Cover explicit, default, invalid,
