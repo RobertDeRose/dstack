@@ -380,11 +380,20 @@ def cmd_update(args: list[str], state: dict[str, Any]) -> int:
         issue["priority"] = int(priority)
     if (status := value(rest, "--status")) is not None:
         issue["status"] = status
-    if "--claim" in rest and issue["status"] == "open":
-        if blocked(state, issue):
-            raise RuntimeError(f"issue is blocked: {issue['id']}")
-        issue["status"] = "in_progress"
-        issue["assignee"] = "test-agent"
+    if "--claim" in rest:
+        actor = os.environ.get("BEADS_ACTOR", "test-agent")
+        if issue["status"] == "in_progress":
+            assignee = issue.get("assignee")
+            if assignee and assignee != actor:
+                raise RuntimeError(
+                    f"issue {issue['id']} is already claimed by another owner"
+                )
+            issue["assignee"] = actor
+        elif issue["status"] == "open":
+            if blocked(state, issue):
+                raise RuntimeError(f"issue is blocked: {issue['id']}")
+            issue["status"] = "in_progress"
+            issue["assignee"] = actor
     if (new_parent := value(rest, "--parent")) is not None:
         issue["parent"] = new_parent or None
     for label in csv_values(rest, "--add-label"):

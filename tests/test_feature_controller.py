@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -317,6 +319,154 @@ def test_no_repository_change_requires_explicit_reason(installed_repo: Path) -> 
     assert finished["task"]["close_reason"] == (
         "no-repository-change: No repository change was required."
     )
+
+
+def test_design_drift_blocks_task_and_closeout_finishes(installed_repo: Path) -> None:
+    created = initialize(installed_repo, "Finish Boundary Drift")
+    root_id = created["root"]["id"]
+    worktree = Path(created["worktree"])
+    design = worktree / created["design_path"]
+    design.parent.mkdir(parents=True, exist_ok=True)
+    design.write_text("v1\n")
+    ctl(installed_repo, "feature", "claim-spec", root_id)
+    ctl(installed_repo, "feature", "approve-spec", root_id)
+    task = ctl(
+        installed_repo,
+        "feature",
+        "add-task",
+        root_id,
+        "--title",
+        "Implement boundary",
+        "--acceptance",
+        "The task finishes only with the approved design.",
+    )["task"]
+    ctl(installed_repo, "feature", "claim-next", root_id)
+    (worktree / "boundary.txt").write_text("done\n")
+    subprocess.run(["git", "add", "boundary.txt"], cwd=worktree, check=True)
+    ctl(
+        worktree,
+        "git",
+        "commit",
+        "--bead",
+        task["id"],
+        "--subject",
+        "feat: implement finish boundary",
+    )
+
+    design.write_text("v2\n")
+    failed_finish = ctl(
+        installed_repo,
+        "feature",
+        "finish-task",
+        root_id,
+        "--task",
+        task["id"],
+        check=False,
+    )
+    assert getattr(failed_finish, "returncode", None) == 1
+    assert "differs from the approved specification" in getattr(
+        failed_finish, "stderr", ""
+    )
+
+    design.write_text("v1\n")
+    ctl(installed_repo, "feature", "finish-task", root_id, "--task", task["id"])
+    ctl(installed_repo, "feature", "finish-workstream", root_id)
+
+    design.write_text("v2\n")
+    failed_claim = ctl(
+        installed_repo,
+        "feature",
+        "claim-closeout",
+        root_id,
+        check=False,
+    )
+    assert getattr(failed_claim, "returncode", None) == 1
+    assert "differs from the approved specification" in getattr(
+        failed_claim, "stderr", ""
+    )
+
+    design.write_text("v1\n")
+    ctl(installed_repo, "feature", "claim-closeout", root_id)
+    design.write_text("v2\n")
+    failed_close = ctl(
+        installed_repo,
+        "feature",
+        "finish-closeout",
+        root_id,
+        check=False,
+    )
+    assert getattr(failed_close, "returncode", None) == 1
+    assert "differs from the approved specification" in getattr(
+        failed_close, "stderr", ""
+    )
+    design.write_text("v1\n")
+    ctl(installed_repo, "feature", "finish-closeout", root_id)
+
+
+def test_task_claim_is_idempotent_but_other_owner_cannot_claim_or_finish(
+    installed_repo: Path,
+) -> None:
+    created = initialize(installed_repo, "Native Ownership")
+    root_id = created["root"]["id"]
+    worktree = Path(created["worktree"])
+    design = worktree / created["design_path"]
+    design.parent.mkdir(parents=True, exist_ok=True)
+    design.write_text("approved\n")
+    ctl(installed_repo, "feature", "claim-spec", root_id)
+    ctl(installed_repo, "feature", "approve-spec", root_id)
+    task = ctl(
+        installed_repo,
+        "feature",
+        "add-task",
+        root_id,
+        "--title",
+        "Claim task",
+        "--acceptance",
+        "Only the owner can finish this task.",
+    )["task"]
+    first = ctl(installed_repo, "feature", "claim-next", root_id)
+    second = ctl(
+        installed_repo,
+        "feature",
+        "claim-next",
+        root_id,
+        "--task",
+        task["id"],
+    )
+    assert first["task"]["status"] == "in_progress"
+    assert second["task"]["status"] == "in_progress"
+
+    state_path = Path(os.environ["DSTACK_FAKE_BD_STATE"])
+    state = json.loads(state_path.read_text())
+    state["issues"][task["id"]]["assignee"] = "another-owner"
+    state_path.write_text(json.dumps(state))
+
+    failed_claim = ctl(
+        installed_repo,
+        "feature",
+        "claim-next",
+        root_id,
+        "--task",
+        task["id"],
+        check=False,
+    )
+    assert getattr(failed_claim, "returncode", None) == 1
+    assert "owner" in getattr(failed_claim, "stderr", "").casefold()
+
+    failed_finish = ctl(
+        installed_repo,
+        "feature",
+        "finish-task",
+        root_id,
+        "--task",
+        task["id"],
+        "--no-repository-change",
+        "--reason",
+        "No source change is required.",
+        check=False,
+    )
+    assert getattr(failed_finish, "returncode", None) == 1
+    assert "owner" in getattr(failed_finish, "stderr", "").casefold()
 
 
 def test_task_commit_footer_closeout_and_rewrite_safe_audit(installed_repo: Path) -> None:

@@ -549,8 +549,6 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
 
 
 def claim_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any]) -> dict[str, Any]:
-    if issue.get("status") == "in_progress":
-        return dict(issue)
     if issue.get("status") == "closed":
         return dict(issue)
     return client.update(str(issue["id"]), "--claim")
@@ -667,10 +665,12 @@ def completion_reason(args: argparse.Namespace, default: str) -> str:
 def cmd_feature_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_view(client, args.selector)
+    require_approved_design(view)
     implementation_id = str(view["steps"]["implementation"]["id"])
     task = client.show(args.task)
     if issue_parent(task) != implementation_id:
         raise DstackError(f"task {args.task} is not in feature implementation {implementation_id}")
+    task = claim_issue_if_needed(client, task)
 
     branch, worktree, base = feature_branch_context(client, view)
     reason = completion_reason(args, "Implementation completed")
@@ -726,6 +726,7 @@ def cmd_feature_finish_workstream(args: argparse.Namespace) -> int:
 def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_view(client, args.selector)
+    require_approved_design(view)
     closeout = client.show(str(view["steps"]["closeout"]["id"]))
     if closeout.get("status") == "closed":
         emit({"status": "ok", "closeout": closeout, "already_closed": True})
@@ -748,6 +749,7 @@ def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
 def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_view(client, args.selector)
+    require_approved_design(view)
     closeout_id = str(view["steps"]["closeout"]["id"])
     closeout = client.show(closeout_id)
     if closeout.get("status") != "closed":
@@ -1500,6 +1502,7 @@ def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
     task = client.show(args.task)
     if issue_parent(task) != parent:
         raise DstackError(f"task {args.task} is not a correction under {parent}")
+    task = claim_issue_if_needed(client, task)
     slug = str(view["slug"])
     branch = f"audit/{slug}"
     base = str(view["target_branch"])
