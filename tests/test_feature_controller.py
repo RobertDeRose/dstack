@@ -23,6 +23,45 @@ def test_initialize_resolves_by_title_slug_and_id_and_is_idempotent(installed_re
     assert reused["root"]["id"] == root_id
 
 
+def test_initialize_detects_design_layouts_and_explicit_paths(installed_repo: Path) -> None:
+    layouts = {
+        "docs/src/features/src-layout/design.md": "# src layout\n",
+        "docs/features/features-layout/design.md": "# features layout\n",
+    }
+    for relative, content in layouts.items():
+        path = installed_repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    subprocess.run(["git", "add", *layouts], cwd=installed_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "test: provide design layouts"],
+        cwd=installed_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    src_layout = initialize(installed_repo, "Src Layout")
+    assert src_layout["design_path"] == "docs/src/features/src-layout/design.md"
+
+    features_layout = initialize(installed_repo, "Features Layout")
+    assert features_layout["design_path"] == "docs/features/features-layout/design.md"
+
+    default_layout = initialize(installed_repo, "Default Layout")
+    assert default_layout["design_path"] == "docs/features/default-layout/design.md"
+
+    explicit = ctl(
+        installed_repo,
+        "feature",
+        "initialize",
+        "Explicit Layout",
+        "--base-branch",
+        "dev",
+        "--design-path",
+        "docs/specs/explicit.md",
+    )
+    assert explicit["design_path"] == "docs/specs/explicit.md"
+
+
 def test_feature_add_task_requires_nonblank_acceptance(installed_repo: Path) -> None:
     created = initialize(installed_repo)
     root_id = created["root"]["id"]

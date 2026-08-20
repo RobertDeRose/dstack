@@ -45,6 +45,63 @@ def test_docs_guard_allows_durable_docs_but_rejects_transient_and_status_only(in
     assert "violations" in failed.stdout
 
 
+def test_docs_guard_allows_domain_vocabulary_but_rejects_workflow_records(
+    installed_repo: Path,
+) -> None:
+    base = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=installed_repo, text=True
+    ).strip()
+    docs = installed_repo / "docs/domain.md"
+    docs.parent.mkdir(parents=True, exist_ok=True)
+    docs.write_text(
+        "# Request lifecycle\n\n"
+        "A request can be blocked by policy, and review may complete later.\n"
+    )
+    subprocess.run(["git", "add", str(docs.relative_to(installed_repo))], cwd=installed_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "docs: describe domain lifecycle"],
+        cwd=installed_repo,
+        check=True,
+        capture_output=True,
+    )
+    assert ctl(installed_repo, "docs", "check", "--base", base, "--head", "HEAD")["status"] == "ok"
+
+    prior = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=installed_repo, text=True
+    ).strip()
+    docs.write_text(
+        "# Request lifecycle\n\n"
+        "A request can be blocked by policy, and review may complete later.\n"
+        "- Worktree: /tmp/request\n"
+    )
+    subprocess.run(["git", "add", str(docs.relative_to(installed_repo))], cwd=installed_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "docs: add workflow record"],
+        cwd=installed_repo,
+        check=True,
+        capture_output=True,
+    )
+    failed = run_command(
+        [
+            "python3",
+            "-S",
+            str(DSTACKCTL),
+            "--root",
+            str(installed_repo),
+            "docs",
+            "check",
+            "--base",
+            prior,
+            "--head",
+            "HEAD",
+        ],
+        cwd=installed_repo,
+        check=False,
+    )
+    assert failed.returncode == 4
+    assert "Worktree" in failed.stdout
+
+
 def prepare_deliverable(repo: Path):
     created = initialize(repo, "Delivery Feature")
     root_id = created["root"]["id"]

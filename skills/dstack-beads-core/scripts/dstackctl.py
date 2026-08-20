@@ -256,6 +256,13 @@ def is_planned_legacy_feature(issue: Mapping[str, Any]) -> bool:
     )
 
 
+def default_design_path(root: Path, slug: str) -> str:
+    for prefix in ("docs/src/features", "docs/features"):
+        if (root / prefix / slug).is_dir():
+            return f"{prefix}/{slug}/design.md"
+    return f"docs/features/{slug}/design.md"
+
+
 def cmd_feature_initialize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     selector = (args.selector or args.title or "").strip()
@@ -316,7 +323,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     design_path = (
         args.design_path
         or inherited_design
-        or f"docs/src/features/{slug}/design.md"
+        or default_design_path(client.root, slug)
     )
     require_installed_formula(client.root, "dstack-feature")
     pour = client.pour(
