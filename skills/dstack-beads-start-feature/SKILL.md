@@ -24,15 +24,20 @@ Treat the returned root as the conversational active feature.
 
 ## Agent decisions
 
-In the returned worktree, write or reconcile only the durable design. Decide:
+In the returned worktree, write or reconcile only the durable design. Use
+`dstackctl feature scaffold-design <feature>` when the design file is absent;
+it never overwrites an existing design. Decide:
 
-- requirements and non-goals;
-- architecture, interfaces, data flow, and failure behavior;
-- security/compatibility/migration boundaries;
-- documentation and validation impact;
-- bounded implementation tasks and real dependencies.
+- the user/developer outcome and non-goals;
+- existing patterns and reuse, plus why any new abstraction is necessary;
+- architecture, interfaces, data flow, and observable success behavior;
+- failure, security, compatibility, and migration boundaries;
+- validation, including negative behavior and failure recovery; and
+- Documentation impact for end users/operators, developers/reviewers, and
+  future agents/auditors (each may be `N/A` with a reason).
 
-Create each chosen task mechanically with `dstackctl feature add-task`.
+Create each chosen task mechanically with `dstackctl feature add-task` and use
+acceptance criteria stated as observable outcomes, not implementation names.
 Do not create `tasks.md`, workflow status docs, a commit solely for starting,
 or reviewer/coordinator tasks.
 

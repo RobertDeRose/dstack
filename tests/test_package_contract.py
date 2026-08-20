@@ -39,6 +39,34 @@ def test_core_principles_and_architecture_are_first_class_docs() -> None:
     assert "post-merge bookkeeping commit" in agents
 
 
+def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
+    principles = (ROOT / "docs/core-principles.md").read_text()
+    start = (ROOT / "skills/dstack-beads-start-feature/SKILL.md").read_text()
+    review = (ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md").read_text()
+    implement = (ROOT / "skills/dstack-beads-implement-feature/SKILL.md").read_text()
+    close = (ROOT / "skills/dstack-beads-close-feature/SKILL.md").read_text()
+
+    for phrase in (
+        "Feature design quality contract",
+        "user/developer outcome",
+        "observable behavior",
+        "Tests prove externally meaningful behavior",
+        "End user/operator",
+        "Developer/reviewer",
+        "Future agent/auditor",
+        "coverage-percentage gate",
+    ):
+        assert phrase in principles
+    for phrase in ("scaffold-design", "observable outcomes", "Documentation impact"):
+        assert phrase in " ".join(start.split())
+    for phrase in ("happy path", "failure recovery", "Documentation impact"):
+        assert phrase in " ".join(review.split())
+    for phrase in ("externally meaningful behavior", "failure handling", "Documentation impact"):
+        assert phrase in " ".join(implement.split())
+    for phrase in ("externally meaningful behavior", "failure handling", "Documentation impact"):
+        assert phrase in " ".join(close.split())
+
+
 def test_skills_are_short_and_decision_oriented() -> None:
     for path in ROOT.glob("skills/*/SKILL.md"):
         lines = path.read_text().splitlines()

@@ -15,6 +15,47 @@ A proposal should answer both questions:
 1. What demonstrated problem does this solve?
 2. Why can Beads, Git, or a small stateless command not already solve it?
 
+## Feature design quality contract
+
+A feature design must make the following explicit:
+
+- the user/developer outcome;
+- non-goals;
+- existing patterns and reuse;
+- why any additional abstraction is necessary;
+- observable behavior that proves success;
+- failure, negative, security, and compatibility behavior;
+- the validation strategy; and
+- the documentation impact.
+
+Prefer an existing pattern over a new abstraction. Add complexity only when a
+concrete requirement requires it. Do not add scoring systems, design grades,
+approval matrices, or additional Beads metadata.
+
+Tests prove externally meaningful behavior, invariants, failure handling, and
+regression boundaries. They should fail when behavior is wrong, not merely
+confirm that the current implementation was executed. Review should consider
+happy-path outcomes, invalid/input rejection, state-transition or persistence
+behavior, failure recovery, security boundaries where relevant, and
+compatibility/regression behavior. Avoid tests tied to private methods solely to
+raise coverage, assertions about implementation structure when behavior is what
+matters, and mocks that prevent the tested behavior from occurring. Do not add a
+coverage-percentage gate.
+
+Documentation impact considers three perspectives without requiring three
+documents:
+
+- **End user/operator:** what users need to use, configure, troubleshoot, or
+  understand the behavior;
+- **Developer/reviewer:** where design constraints, interfaces, architecture,
+  and maintenance expectations are documented; and
+- **Future agent/auditor:** which durable docs and tests establish intent well
+  enough to detect implementation drift later.
+
+Each perspective may be `N/A` only with a reason. Future agents use the same
+durable architecture, design, user documentation, tests, and Beads intent as
+people do; no separate agent documentation is required.
+
 ## Automate deterministic work
 
 Mechanical work belongs in tested, idempotent commands. Examples include:

@@ -18,9 +18,12 @@ Input is an optional feature selector and mode: `ready` (default), `pr`, or
    ```
 
 2. Compare accepted design, actual code/tests, durable docs, decisions, and
-   required validation. Reconcile real behavior and documentation. Allowed docs
-   describe what is planned/implemented, why, and how; they must not contain
-   transient workflow state or IDs.
+   required validation. Reconcile real behavior and documentation. Confirm tests
+   prove externally meaningful behavior, invariants, failure handling, and
+   regression boundaries. Reconcile every declared Documentation impact surface
+   for end users/operators, developers/reviewers, and future agents/auditors.
+   Allowed docs describe what is planned/implemented, why, and how; they must
+   not contain transient workflow state or IDs.
 3. Run validation and review. Commit only real code/docs changes with the
    closeout Bead footer.
 4. Run the documentation policy guard against the target and candidate, then:

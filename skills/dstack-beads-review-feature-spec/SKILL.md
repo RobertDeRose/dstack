@@ -16,10 +16,15 @@ slug, or title/current `feat/<slug>` worktree.
    ```
 
 2. Review the design, task outcomes/dependencies, relevant existing code/docs,
-   failure/security/compatibility boundaries, and validation plan.
-3. Resolve clear findings directly. Ask the user only for genuine product or
+   failure/security/compatibility boundaries, and validation plan. Confirm the
+   happy path, invalid/input rejection, state or persistence behavior, failure
+   recovery, security boundaries where relevant, and compatibility/regression
+   behavior.
+3. Confirm `Documentation impact` covers end user/operator, developer/reviewer,
+   and future agent/auditor perspectives, allowing `N/A` only with a reason.
+4. Resolve clear findings directly. Ask the user only for genuine product or
    architecture decisions.
-4. When repository contents changed, commit the actual change with:
+5. When repository contents changed, commit the actual change with:
 
    ```bash
    dstackctl.py git commit --bead <spec-id> --subject "<subject>"
@@ -27,9 +32,9 @@ slug, or title/current `feat/<slug>` worktree.
 
    No commit is required when the accepted design contents were already
    correct.
-5. Perform a review of the final boundary. Use a separate reviewer only when
+6. Perform a review of the final boundary. Use a separate reviewer only when
    actually available; do not claim independence otherwise.
-6. Approve mechanically:
+7. Approve mechanically:
 
    ```bash
    dstackctl.py feature approve-spec [selector] [--summary-file <durable.md>]

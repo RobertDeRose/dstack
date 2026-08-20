@@ -21,7 +21,10 @@ For each task:
 2. Read the selected Bead, accepted design, relevant source/tests/docs, and only
    the context needed to decide the implementation.
 3. Implement the smallest correct solution. Update durable docs when behavior or
-   design requires it. Run focused and repository-required validation.
+   design requires it. Run focused and repository-required validation. Tests
+   should prove externally meaningful behavior, invariants, failure handling,
+   and regression boundaries rather than private implementation structure.
+   Keep the declared Documentation impact surfaces consistent with the result.
 4. Review the committed candidate. Correct material findings; ask only for a
    genuine intent decision. Persist a summary only when it contains durable
    evidence.
