@@ -57,8 +57,7 @@ No post-delivery Git commit is permitted.
 Fast tests use a protocol-only Beads stub for command construction and failure
 handling; they are not authority for readiness, gates, ownership, or fan-in.
 Release acceptance uses isolated real-Beads repositories in JSON-envelope mode.
-Set `DSTACK_REAL_BD` to choose a binary and `DSTACK_REQUIRE_REAL_BD=1` to make
-missing or invalid real-Beads prerequisites fail closed.
+Acceptance preflight fails immediately unless `bd` is available on `PATH`.
 
 ## Project-alignment lifecycle
 

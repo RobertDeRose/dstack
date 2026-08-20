@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "skills/dstack-beads-core/scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -62,8 +62,6 @@ def test_footer_audit_reads_commit_paths_with_one_git_log(
 
     monkeypatch.setattr(dstacklib, "run", fake_run)
     assert dstacklib.commit_footer_ids(tmp_path, "main..feature") == {
-        "bd-1": [
-            {"commit": "abc123", "subject": "subject", "paths": ["file.py"]}
-        ]
+        "bd-1": [{"commit": "abc123", "subject": "subject", "paths": ["file.py"]}]
     }
     assert len(calls) == 1

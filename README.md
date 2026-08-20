@@ -114,5 +114,11 @@ repository setup boundary before starting feature work.
 uv run pytest
 ```
 
-The default uv development group installs pytest and PyYAML automatically.
-Set `DSTACK_REAL_BD=/path/to/bd` to require the real-Beads integration suite.
+The default uv development group installs pytest and PyYAML automatically. Real-Beads acceptance runs separately and
+fails when `bd` is unavailable:
+
+```bash
+uv run pytest tests/acceptance
+```
+
+CI runs the fast suite and each real-Beads scenario as separate required jobs.

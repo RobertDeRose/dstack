@@ -20,6 +20,7 @@ from typing import Any, Mapping, Sequence
 from dstacklib import (
     BeadsClient,
     DstackError,
+    FEATURE_STEPS,
     alignment_view,
     ancestry,
     blocker_ids,

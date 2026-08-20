@@ -1,11 +1,11 @@
 [project]
 name = "dstack"
 version = "0.4.3"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 
 [tool.pytest.ini_options]
 addopts = "-q"
-testpaths = ["tests"]
+testpaths = ["tests/fast"]
 
 [dependency-groups]
 dev = [

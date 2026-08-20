@@ -53,5 +53,5 @@ Keep skills short and decision-oriented; exact mechanical choreography belongs i
 - YAML/TOML/JSON metadata parses.
 - Python compiles and tests pass.
 - Skills do not reintroduce prohibited state or SHA mappings.
-- Real-Beads integration tests run when `DSTACK_REAL_BD` or `bd` is available.
+- Required CI jobs run fast tests and each real-Beads acceptance scenario separately.
 - `git diff --check`, `git fsck`, bundle verification, and clean-clone tests pass.
