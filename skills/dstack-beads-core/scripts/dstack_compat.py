@@ -35,6 +35,7 @@ from dstacklib import (
     git_root,
     has_label,
     issue_labels,
+    issue_type,
     issue_metadata,
     issue_parent,
     read_text_file,
@@ -116,7 +117,8 @@ def current_feature_for_slug(
     matches = [
         root
         for root in client.list(all_statuses=True, labels=["workflow:feature"])
-        if str(root.get("id")) != exclude_id
+        if issue_type(root) in {"epic", "molecule"}
+        and str(root.get("id")) != exclude_id
         and root.get("status") != "closed"
         and feature_slug(root) == slug
         and feature_context(client, str(root["id"]))["current"]

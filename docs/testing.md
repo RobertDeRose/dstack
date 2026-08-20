@@ -40,3 +40,6 @@ A release must verify, when a real `bd` binary is available:
 - `BD_JSON_ENVELOPE=1` output.
 
 Set `DSTACK_REAL_BD` to the binary path to force the real integration suite.
+Set `DSTACK_REQUIRE_REAL_BD=1` in release validation to fail closed when the
+binary is absent or the explicit override is invalid; without it, unavailable
+real-Beads scenarios are skipped locally rather than replaced by the fake.
