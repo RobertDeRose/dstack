@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -94,6 +98,54 @@ def test_no_git_sha_mapping_or_shadow_state_contract() -> None:
     assert "dstack:delivery-ready" not in text
     assert "tasks.md" not in text or "Do not create `tasks.md`" in text
     assert not (ROOT / "skills/dstack-beads-core/scripts/git_evidence.py").exists()
+
+
+def test_public_help_is_mechanical_and_side_effect_free() -> None:
+    controller_path = ROOT / "skills/dstack-beads-core/scripts/dstackctl.py"
+    sys.path.insert(0, str(controller_path.parent))
+    spec = importlib.util.spec_from_file_location("dstackctl_help", controller_path)
+    assert spec and spec.loader
+    controller = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(controller)
+    parser = controller.build_parser()
+
+    parsers: list[tuple[tuple[str, ...], argparse.ArgumentParser]] = []
+
+    def collect(current: argparse.ArgumentParser, path: tuple[str, ...]) -> None:
+        parsers.append((path, current))
+        for action in current._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, child in action.choices.items():
+                    collect(child, (*path, name))
+
+    collect(parser, ())
+    before = subprocess.check_output(
+        ["git", "status", "--short", "--untracked-files=no"],
+        cwd=ROOT,
+        text=True,
+    )
+    for path, current in parsers:
+        assert current.description and "mechanics" in current.description.casefold()
+        for action in current._actions:
+            if isinstance(action, argparse._SubParsersAction) or action.dest == "help":
+                continue
+            assert action.help and action.help != argparse.SUPPRESS
+        result = subprocess.run(
+            [sys.executable, "-S", str(controller_path), *path, "--help"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "usage:" in result.stdout
+        assert "mechanics" in result.stdout.casefold()
+    after = subprocess.check_output(
+        ["git", "status", "--short", "--untracked-files=no"],
+        cwd=ROOT,
+        text=True,
+    )
+    assert after == before
 
 
 def test_uv_run_has_default_development_dependencies() -> None:
