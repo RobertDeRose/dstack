@@ -171,9 +171,11 @@ def update_root_identity(
     slug: str,
     base_branch: str,
     design_path: str,
+    description: str | None = None,
+    acceptance: str | None = None,
+    priority: int | None = None,
 ) -> dict[str, Any]:
-    return client.update(
-        root_id,
+    arguments = [
         "--title",
         f"Feature: {title}",
         "--add-label",
@@ -184,7 +186,14 @@ def update_root_identity(
         f"dstack.base_branch={base_branch}",
         "--set-metadata",
         f"dstack.design_path={design_path}",
-    )
+    ]
+    if description:
+        arguments.extend(["--description", description])
+    if acceptance:
+        arguments.extend(["--acceptance", acceptance])
+    if priority is not None:
+        arguments.extend(["--priority", str(priority)])
+    return client.update(root_id, *arguments)
 
 
 def ensure_feature_worktree(client: BeadsClient, slug: str, base_branch: str) -> tuple[str, Path, bool, bool]:
@@ -263,6 +272,27 @@ def default_design_path(root: Path, slug: str) -> str:
     return f"docs/features/{slug}/design.md"
 
 
+def preserve_external_blockers(
+    client: BeadsClient,
+    source: Mapping[str, Any],
+    target_id: str,
+) -> list[str]:
+    source_id = str(source["id"])
+    source_ids = {source_id, *[str(item["id"]) for item in descendants(client, source_id)]}
+    preserved: list[str] = []
+    for record in dependency_records(source):
+        relation = str(record.get("type") or record.get("dependency_type") or "blocks")
+        target = record.get("depends_on_id") or record.get("id")
+        if relation != "blocks" or not isinstance(target, str) or target in source_ids:
+            continue
+        blocker = client.show_optional(target)
+        if blocker is None or blocker.get("status") == "closed":
+            continue
+        client.add_dependency(target_id, target)
+        preserved.append(target)
+    return preserved
+
+
 def cmd_feature_initialize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     selector = (args.selector or args.title or "").strip()
@@ -280,6 +310,26 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     if existing is not None:
         view = feature_view(client, str(existing["id"]))
         if existing.get("status") == "closed":
+            replacement = superseded_target(existing)
+            if replacement:
+                replacement_view = feature_view(client, replacement)
+                if replacement_view["current"] and not replacement_view["closed"]:
+                    branch, worktree, _, _ = ensure_feature_worktree(
+                        client,
+                        str(replacement_view["slug"]),
+                        str(replacement_view.get("base_branch") or args.base_branch),
+                    )
+                    emit(
+                        {
+                            "status": "ok",
+                            "created": False,
+                            "planned_source": existing["id"],
+                            "branch": branch,
+                            "worktree": str(worktree),
+                            **replacement_view,
+                        }
+                    )
+                    return 0
             raise DstackError(f"feature is already closed: {existing['id']}")
         if view["current"]:
             branch, worktree, _, _ = ensure_feature_worktree(
@@ -338,8 +388,26 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     if not root_id:
         raise DstackError("bd mol pour returned no feature root")
 
+    source_description = (
+        str(planned_source.get("description") or "") if planned_source else ""
+    )
+    source_acceptance = (
+        str(
+            planned_source.get("acceptance_criteria")
+            or planned_source.get("acceptance")
+            or ""
+        )
+        if planned_source
+        else ""
+    )
+    source_priority = (
+        int(planned_source["priority"])
+        if planned_source and planned_source.get("priority") is not None
+        else None
+    )
     created_branch = False
     created_worktree = False
+    preserved_blockers: list[str] = []
     try:
         update_root_identity(
             client,
@@ -348,11 +416,17 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
             slug=slug,
             base_branch=base_branch,
             design_path=design_path,
+            description=source_description or None,
+            acceptance=source_acceptance or None,
+            priority=source_priority,
         )
         branch, worktree, created_branch, created_worktree = ensure_feature_worktree(
             client, slug, base_branch
         )
         if planned_source is not None:
+            preserved_blockers = preserve_external_blockers(
+                client, planned_source, root_id
+            )
             client.supersede(str(planned_source["id"]), root_id)
     except Exception:
         if created_worktree:
@@ -385,6 +459,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
             "status": "ok",
             "created": True,
             "planned_source": planned_source["id"] if planned_source else None,
+            "preserved_blockers": preserved_blockers,
             "branch": branch,
             "worktree": str(worktree),
             **feature_view(client, root_id),
@@ -1573,19 +1648,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
             read_text_file(args.closeout_note_file),
         )
 
-    legacy_ids = {str(legacy["id"]), *[str(item["id"]) for item in descendants(client, str(legacy["id"]))]}
-    preserved_blockers: list[str] = []
-    for record in dependency_records(legacy):
-        relation = str(record.get("type") or record.get("dependency_type") or "blocks")
-        target = record.get("depends_on_id") or record.get("id")
-        if relation != "blocks" or not isinstance(target, str) or target in legacy_ids:
-            continue
-        blocker = client.show_optional(target)
-        if blocker is None or blocker.get("status") == "closed":
-            continue
-        client.add_dependency(root_id, target)
-        preserved_blockers.append(target)
-
+    preserved_blockers = preserve_external_blockers(client, legacy, root_id)
     client.supersede(str(legacy["id"]), root_id)
     emit(
         {

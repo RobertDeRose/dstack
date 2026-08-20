@@ -540,8 +540,9 @@ def is_current_feature(client: BeadsClient, root_issue: Mapping[str, Any]) -> bo
 def feature_roots(client: BeadsClient) -> list[dict[str, Any]]:
     return [
         item
-        for item in client.list(all_statuses=True, labels=["workflow:feature"])
+        for item in client.list(all_statuses=True)
         if issue_type(item) in {"epic", "molecule"}
+        and (has_label(item, "workflow:feature") or (has_label(item, "dstack:feature-idea") and feature_slug(item)))
     ]
 
 

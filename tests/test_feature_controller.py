@@ -312,6 +312,125 @@ def test_starting_a_planned_legacy_epic_pours_current_workflow(installed_repo: P
     assert ctl(installed_repo, "feature", "inspect", planned["id"])["root"]["status"] == "closed"
 
 
+def test_initialize_upserts_normal_planned_epic_and_preserves_external_intent(
+    installed_repo: Path,
+) -> None:
+    blocker = run_json(
+        ["bd", "create", "Prerequisite", "--type", "epic", "--json"],
+        cwd=installed_repo,
+    )[0]
+    planned = run_json(
+        [
+            "bd",
+            "create",
+            "Planned Feature",
+            "--type",
+            "epic",
+            "--priority",
+            "1",
+            "--description",
+            "Stable planned behavior",
+            "--acceptance",
+            "Users observe the planned behavior.",
+            "--labels",
+            "dstack:feature-idea",
+            "--labels",
+            "feature:planned-feature",
+            "--json",
+        ],
+        cwd=installed_repo,
+    )[0]
+    run_command(
+        ["bd", "dep", "add", planned["id"], blocker["id"], "--type", "blocks"],
+        cwd=installed_repo,
+    )
+
+    started = ctl(
+        installed_repo,
+        "feature",
+        "initialize",
+        "planned-feature",
+        "--base-branch",
+        "dev",
+    )
+    root_id = started["root"]["id"]
+    assert started["planned_source"] == planned["id"]
+    assert started["root"]["description"] == "Stable planned behavior"
+    assert started["root"]["acceptance_criteria"] == "Users observe the planned behavior."
+    assert started["root"]["priority"] == 1
+    assert blocker["id"] in {
+        str(record["depends_on_id"])
+        for record in started["steps"]["implementation"]["dependencies"]
+        if record.get("type") == "blocks"
+    }
+
+    reused_by_id = ctl(
+        installed_repo,
+        "feature",
+        "initialize",
+        planned["id"],
+        "--base-branch",
+        "dev",
+    )
+    reused_by_title = ctl(
+        installed_repo,
+        "feature",
+        "initialize",
+        "Planned Feature",
+        "--base-branch",
+        "dev",
+    )
+    assert reused_by_id["created"] is False
+    assert reused_by_title["created"] is False
+    assert reused_by_id["root"]["id"] == root_id
+    assert reused_by_title["root"]["id"] == root_id
+    assert ctl(installed_repo, "feature", "resolve", "planned-feature")["root"]["id"] == root_id
+
+    planned_after = run_json(["bd", "show", planned["id"], "--json"], cwd=installed_repo)[0]
+    assert planned_after["status"] == "closed"
+    current_roots = [
+        issue
+        for issue in run_json(
+            ["bd", "list", "--all", "--label", "workflow:feature", "--json"],
+            cwd=installed_repo,
+        )
+        if issue.get("issue_type", issue.get("type")) == "molecule"
+        and "feature:planned-feature" in issue.get("labels", [])
+    ]
+    assert [issue["id"] for issue in current_roots] == [root_id]
+
+
+def test_initialize_rejects_ambiguous_planned_feature_identity(installed_repo: Path) -> None:
+    for title in ("First Planned", "Second Planned"):
+        run_json(
+            [
+                "bd",
+                "create",
+                title,
+                "--type",
+                "epic",
+                "--labels",
+                "dstack:feature-idea",
+                "--labels",
+                "feature:ambiguous-planned",
+                "--json",
+            ],
+            cwd=installed_repo,
+        )
+
+    failed = ctl(
+        installed_repo,
+        "feature",
+        "initialize",
+        "ambiguous-planned",
+        "--base-branch",
+        "dev",
+        check=False,
+    )
+    assert getattr(failed, "returncode", None) == 1
+    assert "ambiguous" in getattr(failed, "stderr", "").casefold()
+
+
 def test_existing_molecule_survives_formula_upgrade_but_new_pour_requires_setup(
     installed_repo: Path,
 ) -> None:

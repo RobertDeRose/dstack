@@ -372,6 +372,12 @@ def cmd_update(args: list[str], state: dict[str, Any]) -> int:
     rest = args[1:]
     if (title := value(rest, "--title")) is not None:
         issue["title"] = title
+    if (description := value(rest, "--description")) is not None:
+        issue["description"] = description
+    if (acceptance := value(rest, "--acceptance")) is not None:
+        issue["acceptance_criteria"] = acceptance
+    if (priority := value(rest, "--priority")) is not None:
+        issue["priority"] = int(priority)
     if (status := value(rest, "--status")) is not None:
         issue["status"] = status
     if "--claim" in rest and issue["status"] == "open":
