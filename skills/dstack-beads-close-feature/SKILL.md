@@ -5,7 +5,8 @@ description: "Reconcile a completed feature and deliver it safely without post-d
 
 # Close feature
 
-Input is an optional feature selector and mode: `ready` (default), `pr`, or
+Pass the selected root explicitly after `/start-feature`; omission is safe only
+from its registered feature worktree. Input mode is `ready` (default), `pr`, or
 `merge`.
 
 ## Closeout

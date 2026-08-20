@@ -5,8 +5,8 @@ description: "Review and approve the active or selected feature design without c
 
 # Review feature specification
 
-The selector is optional after `/start-feature`; otherwise use an exact ID,
-slug, or title/current `feat/<slug>` worktree.
+Pass the selected root explicitly after `/start-feature`; omission is safe only
+from its registered feature worktree. Otherwise use an exact ID, slug, or title.
 
 1. Claim the specification:
 

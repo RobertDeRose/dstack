@@ -20,7 +20,9 @@ python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
 
 The command resolves an existing current feature, refuses a closed/legacy
 feature, or transactionally pours one molecule and creates/reuses its worktree.
-Treat the returned root as the conversational active feature.
+Treat the returned root as the conversational active feature. Pass that root
+explicitly to later controller commands; omitted selectors are safe only from
+its registered feature worktree.
 
 ## Agent decisions
 

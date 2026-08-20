@@ -62,6 +62,20 @@ def test_initialize_detects_design_layouts_and_explicit_paths(installed_repo: Pa
     assert explicit["design_path"] == "docs/specs/explicit.md"
 
 
+def test_implicit_feature_resolution_is_worktree_scoped(installed_repo: Path) -> None:
+    first = initialize(installed_repo, "First Context")
+    second = initialize(installed_repo, "Second Context")
+
+    first_view = ctl(Path(first["worktree"]), "feature", "resolve")
+    second_view = ctl(Path(second["worktree"]), "feature", "resolve")
+    assert first_view["root"]["id"] == first["root"]["id"]
+    assert second_view["root"]["id"] == second["root"]["id"]
+
+    failed = ctl(installed_repo, "feature", "resolve", check=False)
+    assert getattr(failed, "returncode", None) == 1
+    assert "selector" in getattr(failed, "stderr", "").casefold()
+
+
 def test_feature_add_task_requires_nonblank_acceptance(installed_repo: Path) -> None:
     created = initialize(installed_repo)
     root_id = created["root"]["id"]

@@ -560,6 +560,9 @@ def resolve_feature(client: BeadsClient, selector: str | None) -> dict[str, Any]
     if not selector:
         branch = run(["git", "branch", "--show-current"], cwd=client.root).stdout.strip()
         if branch.startswith("feat/"):
+            registered = worktree_for_branch(client.root, branch)
+            if registered != client.root.resolve():
+                raise DstackError("no feature selector was supplied outside its registered feature worktree")
             selector = branch[5:]
         else:
             raise DstackError("no feature selector was supplied and the current branch is not feat/<slug>")

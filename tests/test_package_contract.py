@@ -67,6 +67,19 @@ def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
         assert phrase in " ".join(close.split())
 
 
+def test_feature_lifecycle_skills_pass_explicit_feature_context() -> None:
+    skill_paths = [
+        ROOT / "skills/dstack-beads-start-feature/SKILL.md",
+        ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md",
+        ROOT / "skills/dstack-beads-implement-feature/SKILL.md",
+        ROOT / "skills/dstack-beads-close-feature/SKILL.md",
+    ]
+    for path in skill_paths:
+        text = " ".join(path.read_text().split())
+        assert "pass" in text.casefold() and "explicit" in text.casefold()
+        assert "worktree" in text.casefold()
+
+
 def test_skills_are_short_and_decision_oriented() -> None:
     for path in ROOT.glob("skills/*/SKILL.md"):
         lines = path.read_text().splitlines()
