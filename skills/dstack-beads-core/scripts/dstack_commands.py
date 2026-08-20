@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+"""Stateless deterministic controller for dstack workflows.
+
+The controller delegates durable state to Beads and repository history to Git.
+It performs mechanical validation and idempotent transitions so the agent can
+focus on engineering decisions.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import re
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from dstacklib import (
+    BeadsClient,
+    DstackError,
+    alignment_view,
+    ancestry,
+    blocker_ids,
+    branch_exists,
+    commit_footer_ids,
+    conventional_worktree,
+    current_head,
+    dependency_records,
+    display_title,
+    ensure_clean_tracked,
+    feature_slug,
+    feature_view,
+    file_sha256,
+    git_root,
+    has_label,
+    issue_labels,
+    issue_metadata,
+    issue_parent,
+    issue_type,
+    read_text_file,
+    ref_exists,
+    resolve_feature,
+    root_metadata_value,
+    run,
+    slugify,
+    worktree_for_branch,
+)
+
+# Beads repository configuration is allowed to be tracked. Only machine-local
+# runtime/sensitive artifacts are forbidden. This mirrors the Beads 1.2.2
+# doctor classification, with interactions.jsonl additionally excluded by the
+# dStack Git-decoupling policy.
+DSTACK_UNTRACKED_BEADS_FILES = {
+    ".beads/interactions.jsonl",
+}
+BEADS_RUNTIME_DIR_PREFIXES = (
+    ".beads/dolt/",
+    ".beads/embeddeddolt/",
+    ".beads/proxieddb/",
+    ".beads/backup/",
+    ".beads/export-state/",
+    ".beads/dolt-pprof/",
+)
+BEADS_RUNTIME_TOP_LEVEL_PATTERNS = (
+    "*.lock",
+    "*.pid.lock",
+    "daemon.*",
+    "dolt-server.pid",
+    "dolt-server.log",
+    "dolt-server.lock",
+    "dolt-server.port",
+    "dolt-server.activity",
+    "bd.sock",
+    "bd.sock.startlock",
+    ".exclusive-lock",
+    "push-state.json",
+    "export-state.json",
+    "sync-state.json",
+    "last-touched",
+    "last_pull",
+    ".local_version",
+    "redirect",
+    ".sync.lock",
+    "ephemeral.sqlite3",
+    "ephemeral.sqlite3-journal",
+    "ephemeral.sqlite3-wal",
+    "ephemeral.sqlite3-shm",
+    "proxied_server_client_info.json",
+    ".env",
+)
+BEADS_SENSITIVE_BASENAMES = {
+    ".beads-credential-key",
+    "credential-key",
+}
+FORBIDDEN_DOC_PATTERNS = (
+    re.compile(r"(?i)^\s*[-*]?\s*status:\s*(in[- ]?progress|delivery[- ]?ready|blocked|review[- ]?active|completed)\b"),
+    re.compile(r"(?i)^\s*[-*]?\s*beads?\s+(root|id|task):"),
+    re.compile(
+        r"(?i)^\s*[-*]?\s*(gate id|feature branch|worktree|candidate commit|"
+        r"reviewed commit|delivery commit):"
+    ),
+    re.compile(
+        r"(?i)^\s*[-*]?\s*(next command|next action|resume with|suggested command):"
+        r"\s*/(start-feature|review-feature-spec|implement-feature|close-feature)\b"
+    ),
+)
+DURABLE_STATUS_PATTERN = re.compile(
+    r"(?i)^\s*[-*]?\s*status:\s*(planned|implemented|deprecated)\s*$"
+)
+DESIGN_SCAFFOLD = """# Feature design
+
+## Goal
+
+## User-visible behavior
+
+## Non-goals
+
+## Existing patterns and reuse
+
+## Design
+
+## Failure / security / compatibility behavior
+
+## Validation strategy
+
+## Documentation impact
+"""
+
+NO_REPOSITORY_CHANGE_PREFIX = "no-repository-change: "
+
+def emit(payload: Any) -> None:
+    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+
+
+def fail(message: str) -> int:
+    json.dump({"status": "error", "error": message}, sys.stderr)
+    sys.stderr.write("\n")
+    return 1
+
+
+def package_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def client_for(root: Path) -> BeadsClient:
+    client = BeadsClient(root)
+    client.check_version()
+    return client
+
+
+def require_installed_formula(root: Path, name: str) -> None:
+    source = package_root() / "formulas" / f"{name}.formula.toml"
+    installed = root / ".beads" / "formulas" / f"{name}.formula.toml"
+    if not installed.is_file():
+        raise DstackError(f"dStack formula is not installed: {name}; run /setup-project")
+    if installed.read_bytes() != source.read_bytes():
+        raise DstackError(
+            f"installed formula {name} differs from this dStack package; "
+            "run /setup-project --force before pouring new work"
+        )
+
+
+def update_root_identity(
+    client: BeadsClient,
+    root_id: str,
+    *,
+    title: str,
+    slug: str,
+    base_branch: str,
+    design_path: str,
+    description: str | None = None,
+    acceptance: str | None = None,
+    priority: int | None = None,
+) -> dict[str, Any]:
+    arguments = [
+        "--title",
+        f"Feature: {title}",
+        "--add-label",
+        "workflow:feature",
+        "--add-label",
+        f"feature:{slug}",
+        "--set-metadata",
+        f"dstack.base_branch={base_branch}",
+        "--set-metadata",
+        f"dstack.design_path={design_path}",
+    ]
+    if description:
+        arguments.extend(["--description", description])
+    if acceptance:
+        arguments.extend(["--acceptance", acceptance])
+    if priority is not None:
+        arguments.extend(["--priority", str(priority)])
+    return client.update(root_id, *arguments)
+
+
+def ensure_feature_worktree(client: BeadsClient, slug: str, base_branch: str) -> tuple[str, Path, bool, bool]:
+    branch = f"feat/{slug}"
+    if not ref_exists(client.root, base_branch):
+        raise DstackError(f"base branch/ref does not exist: {base_branch}")
+
+    created_branch = False
+    created_worktree = False
+    worktree = worktree_for_branch(client.root, branch)
+    if worktree is not None:
+        return branch, worktree, created_branch, created_worktree
+
+    worktree = conventional_worktree(client.root, branch)
+    if worktree.exists():
+        raise DstackError(f"conventional worktree path exists but is not registered for {branch}: {worktree}")
+
+    if not branch_exists(client.root, branch):
+        run(["git", "branch", branch, base_branch], cwd=client.root)
+        created_branch = True
+
+    try:
+        run(
+            ["bd", "worktree", "create", str(worktree), "--branch", branch],
+            cwd=client.root,
+        )
+        created_worktree = True
+    except Exception:
+        if created_branch and branch_exists(client.root, branch):
+            run(["git", "branch", "-D", branch], cwd=client.root, check=False)
+        raise
+
+    resolved = worktree_for_branch(client.root, branch)
+    if resolved is None:
+        raise DstackError(f"Beads created no discoverable worktree for {branch}")
+    return branch, resolved, created_branch, created_worktree
+
+
+def descendants(client: BeadsClient, root_id: str) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    queue = [root_id]
+    seen = {root_id}
+    while queue:
+        parent = queue.pop(0)
+        for child in client.children(parent):
+            child_id = str(child["id"])
+            if child_id in seen:
+                continue
+            seen.add(child_id)
+            result.append(child)
+            queue.append(child_id)
+    return result
+
+
+def superseded_target(issue: Mapping[str, Any]) -> str | None:
+    for record in dependency_records(issue):
+        relation = str(record.get("type") or record.get("dependency_type") or "")
+        if relation not in {"superseded-by", "superseded_by", "supersedes"}:
+            continue
+        target = record.get("depends_on_id") or record.get("id")
+        if isinstance(target, str) and target != issue.get("id"):
+            return target
+    return None
+
+
+def task_text(path: Path | None, inline: str | None) -> str:
+    if path:
+        return path.read_text().strip()
+    return (inline or "").strip()
+
+
+def required_task_text(path: Path | None, inline: str | None) -> str:
+    text = task_text(path, inline)
+    if not text:
+        raise DstackError("acceptance criteria is required")
+    return text
+
+
+def claim_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any]) -> dict[str, Any]:
+    if issue.get("status") == "closed":
+        return dict(issue)
+    return client.update(str(issue["id"]), "--claim")
+
+
+def feature_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tuple[str, Path, str]:
+    slug = str(view.get("slug") or "")
+    base = str(view.get("base_branch") or "")
+    if not slug or not base:
+        raise DstackError("feature root lacks slug or base branch")
+    branch = f"feat/{slug}"
+    worktree = worktree_for_branch(client.root, branch)
+    if worktree is None:
+        raise DstackError(f"no worktree is registered for {branch}")
+    return branch, worktree, base
+
+
+def evidence_for_bead(root: Path, bead_id: str, ref_range: str) -> list[dict[str, Any]]:
+    return commit_footer_ids(root, ref_range).get(bead_id, [])
+
+
+def completion_reason(args: argparse.Namespace, default: str) -> str:
+    if args.no_repository_change:
+        reason = (args.reason or "").strip()
+        if not reason:
+            raise DstackError("--no-repository-change requires a non-empty --reason")
+        return f"{NO_REPOSITORY_CHANGE_PREFIX}{reason}"
+    return (args.reason or default).strip() or default
+
+
+def require_approved_design(view: Mapping[str, Any]) -> None:
+    if not view.get("approved_design_sha256"):
+        raise DstackError("feature specification has no approved design digest")
+    if not view.get("design_approved"):
+        raise DstackError(
+            "feature design differs from the approved specification; rerun /review-feature-spec"
+        )
+
+
+def preserve_external_blockers(
+    client: BeadsClient,
+    source: Mapping[str, Any],
+    target_id: str,
+) -> list[str]:
+    source_id = str(source["id"])
+    source_ids = {source_id, *[str(item["id"]) for item in descendants(client, source_id)]}
+    target = client.show(target_id)
+    target_kind = issue_type(target)
+    compatible_target = target_id
+    if target_kind == "molecule":
+        children = client.children(target_id)
+        compatible_steps = {
+            "epic": [
+                item
+                for item in children
+                if issue_type(item) == "epic" and has_label(item, FEATURE_STEPS["implementation"])
+            ],
+            "task": [
+                item for item in children if issue_type(item) == "task" and has_label(item, FEATURE_STEPS["approval"])
+            ],
+        }
+    else:
+        compatible_steps = {}
+
+    preserved: list[str] = []
+    for record in dependency_records(source):
+        relation = str(record.get("type") or record.get("dependency_type") or "blocks")
+        blocker_id = record.get("depends_on_id") or record.get("id")
+        if relation != "blocks" or not isinstance(blocker_id, str) or blocker_id in source_ids:
+            continue
+        blocker = client.show_optional(blocker_id)
+        if blocker is None or blocker.get("status") == "closed":
+            continue
+        blocker_kind = issue_type(blocker)
+        destination = compatible_target
+        if blocker_kind != target_kind:
+            candidates = compatible_steps.get(blocker_kind, [])
+            if len(candidates) != 1:
+                raise DstackError(f"cannot preserve {blocker_kind} blocker {blocker_id} on {target_id} ({target_kind})")
+            destination = str(candidates[0]["id"])
+        client.add_dependency(destination, blocker_id)
+        preserved.append(blocker_id)
+    return preserved

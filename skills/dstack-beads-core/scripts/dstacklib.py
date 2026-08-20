@@ -176,6 +176,10 @@ def has_label(issue: Mapping[str, Any], label: str) -> bool:
     return label in issue_labels(issue)
 
 
+def gate_type(issue: Mapping[str, Any]) -> str:
+    return str(issue.get("await_type") or issue.get("gate_type") or "")
+
+
 def label_value(issue: Mapping[str, Any], prefix: str) -> str | None:
     matches = [label[len(prefix) :] for label in issue_labels(issue) if label.startswith(prefix)]
     return matches[0] if len(matches) == 1 and matches[0] else None
@@ -636,6 +640,7 @@ def human_gate_for_step(
 
 def feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     """Return stable feature identity and steps without dashboard queries."""
+
     root = resolve_feature(client, selector)
     root_id = str(root["id"])
     children = client.children(root_id)
