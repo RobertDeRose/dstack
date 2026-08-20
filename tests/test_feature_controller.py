@@ -63,6 +63,83 @@ def test_feature_add_task_requires_nonblank_acceptance(installed_repo: Path) -> 
     )
 
 
+def test_scaffold_design_is_idempotent_and_preserves_existing_content(
+    installed_repo: Path,
+) -> None:
+    created = initialize(installed_repo, "Scaffold Design")
+    root_id = created["root"]["id"]
+    design = Path(created["worktree"]) / created["design_path"]
+
+    first = ctl(installed_repo, "feature", "scaffold-design", root_id)
+    assert first["created"] is True
+    assert first["design_path"] == created["design_path"]
+    assert [
+        line for line in design.read_text().splitlines() if line.startswith("## ")
+    ] == [
+        "## Goal",
+        "## User-visible behavior",
+        "## Non-goals",
+        "## Existing patterns and reuse",
+        "## Design",
+        "## Failure / security / compatibility behavior",
+        "## Validation strategy",
+        "## Documentation impact",
+    ]
+
+    scaffolded = design.read_bytes()
+    second = ctl(installed_repo, "feature", "scaffold-design", root_id)
+    assert second["created"] is False
+    assert design.read_bytes() == scaffolded
+
+    design.write_text("# Authored design\n\nKeep this content.\n")
+    third = ctl(installed_repo, "feature", "scaffold-design", root_id)
+    assert third["created"] is False
+    assert design.read_text() == "# Authored design\n\nKeep this content.\n"
+
+
+def test_scaffold_design_rejects_missing_features_and_unsafe_paths(
+    installed_repo: Path,
+) -> None:
+    missing = ctl(
+        installed_repo,
+        "feature",
+        "scaffold-design",
+        "missing-feature",
+        check=False,
+    )
+    assert getattr(missing, "returncode", None) == 1
+
+    created = initialize(installed_repo, "Unsafe Scaffold")
+    root_id = created["root"]["id"]
+    outside = installed_repo.parent / "outside-design.md"
+    outside.unlink(missing_ok=True)
+    escape_link = Path(created["worktree"]) / "escape-link"
+    escape_link.symlink_to(outside.parent, target_is_directory=True)
+
+    for path in ("../outside-design.md", str(outside), "escape-link/design.md"):
+        run_json(
+            [
+                "bd",
+                "update",
+                root_id,
+                "--set-metadata",
+                f"dstack.design_path={path}",
+                "--json",
+            ],
+            cwd=installed_repo,
+        )
+        failed = ctl(
+            installed_repo,
+            "feature",
+            "scaffold-design",
+            root_id,
+            check=False,
+        )
+        assert getattr(failed, "returncode", None) == 1
+        assert "design path" in getattr(failed, "stderr", "")
+        assert not outside.exists()
+
+
 def test_human_gate_resolution_does_not_require_gate_list_parent(
     installed_repo: Path,
 ) -> None:

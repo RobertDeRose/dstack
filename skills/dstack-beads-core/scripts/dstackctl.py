@@ -108,6 +108,24 @@ FORBIDDEN_DOC_PATTERNS = (
 DURABLE_STATUS_PATTERN = re.compile(
     r"(?i)^\s*[-*]?\s*status:\s*(planned|implemented|deprecated)\s*$"
 )
+DESIGN_SCAFFOLD = """# Feature design
+
+## Goal
+
+## User-visible behavior
+
+## Non-goals
+
+## Existing patterns and reuse
+
+## Design
+
+## Failure / security / compatibility behavior
+
+## Validation strategy
+
+## Documentation impact
+"""
 
 
 def emit(payload: Any) -> None:
@@ -365,6 +383,52 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
             **feature_view(client, root_id),
         }
     )
+    return 0
+
+
+def safe_design_file(worktree: Path, design_path: str) -> tuple[Path, str]:
+    relative = Path(design_path)
+    if not design_path.strip() or relative.is_absolute() or ".." in relative.parts:
+        raise DstackError("design path must be repository-relative without parent traversal")
+
+    repository = worktree.resolve()
+    resolved = (repository / relative).resolve()
+    try:
+        resolved.relative_to(repository)
+    except ValueError as exc:
+        raise DstackError("design path escapes the feature repository") from exc
+    if resolved == repository:
+        raise DstackError("design path must name a file")
+    return resolved, relative.as_posix()
+
+
+def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    view = feature_view(client, args.selector)
+    if not view["current"]:
+        raise DstackError("feature is not a current dstack molecule")
+    design_path = str(view.get("design_path") or "")
+    if not design_path:
+        raise DstackError("feature root has no dstack.design_path metadata")
+
+    _, worktree, _ = feature_branch_context(client, view)
+    design_file, relative = safe_design_file(worktree, design_path)
+    if design_file.exists():
+        if not design_file.is_file():
+            raise DstackError("design path exists but is not a file")
+        emit({"status": "ok", "created": False, "design_path": relative})
+        return 0
+
+    design_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with design_file.open("x", encoding="utf-8") as handle:
+            handle.write(DESIGN_SCAFFOLD)
+    except FileExistsError:
+        if not design_file.is_file():
+            raise DstackError("design path exists but is not a file")
+        emit({"status": "ok", "created": False, "design_path": relative})
+        return 0
+    emit({"status": "ok", "created": True, "design_path": relative})
     return 0
 
 
@@ -1553,6 +1617,9 @@ def build_parser() -> argparse.ArgumentParser:
     initialize.add_argument("--base-branch", default="main")
     initialize.add_argument("--design-path")
     initialize.set_defaults(func=cmd_feature_initialize)
+    scaffold_design = feature_sub.add_parser("scaffold-design")
+    scaffold_design.add_argument("selector")
+    scaffold_design.set_defaults(func=cmd_feature_scaffold_design)
     add_task = feature_sub.add_parser("add-task")
     add_task.add_argument("selector")
     add_task.add_argument("--title", required=True)
