@@ -460,7 +460,7 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
     if summary:
         client.add_comment(args.task, summary)
     task = client.close(args.task, reason)
-    workstream = finish_feature_workstream(client, view)
+    workstream = finish_feature_workstream(client, view, close=False)
     emit(
         {
             "status": "ok",
@@ -474,7 +474,10 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
 
 
 def finish_feature_workstream(
-    client: BeadsClient, view: Mapping[str, Any]
+    client: BeadsClient,
+    view: Mapping[str, Any],
+    *,
+    close: bool = True,
 ) -> dict[str, Any]:
     implementation = client.show(str(view["steps"]["implementation"]["id"]))
     children = [
@@ -484,7 +487,7 @@ def finish_feature_workstream(
     ]
     open_items = [item for item in children if item.get("status") != "closed"]
     closed = False
-    if not open_items and implementation.get("status") != "closed":
+    if close and not open_items and implementation.get("status") != "closed":
         client.close(str(implementation["id"]), "All implementation work completed")
         closed = True
     return {
@@ -504,6 +507,14 @@ def cmd_feature_finish_workstream(args: argparse.Namespace) -> int:
     return 0
 
 
+def require_closed_feature_workstream(
+    client: BeadsClient, view: Mapping[str, Any]
+) -> None:
+    implementation = client.show(str(view["steps"]["implementation"]["id"]))
+    if implementation.get("status") != "closed":
+        raise DstackError("implementation workstream is not closed")
+
+
 def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
@@ -511,6 +522,7 @@ def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     if closeout.get("status") == "closed":
         emit({"status": "ok", "closeout": closeout, "already_closed": True})
         return 0
+    require_closed_feature_workstream(client, view)
     if blocker_ids(closeout):
         open_blockers = [
             blocker
@@ -532,6 +544,7 @@ def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
     closeout_id = str(view["steps"]["closeout"]["id"])
     closeout = client.show(closeout_id)
     if closeout.get("status") != "closed":
+        require_closed_feature_workstream(client, view)
         closeout = claim_issue_if_needed(client, closeout)
         if args.summary_file:
             client.add_comment(closeout_id, read_text_file(args.summary_file))

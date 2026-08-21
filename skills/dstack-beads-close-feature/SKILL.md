@@ -25,8 +25,13 @@ from its registered feature worktree. Input mode is `ready` (default), `pr`, or
    for end users/operators, developers/reviewers, and future agents/auditors.
    Allowed docs describe what is planned/implemented, why, and how; they must
    not contain transient workflow state or IDs.
-3. Run validation and review. Commit only real code/docs changes with the
-   closeout Bead footer.
+3. Run the repository's full/release validation and review the complete
+   candidate diff. If a required check fails, times out, is interrupted, runs
+   the wrong scope, unexpectedly skips required tests, or substitutes weaker
+   coverage, report the exact command, scope, and outcome and stop before
+   `feature finish-closeout` or delivery. Correct material findings, rerun
+   affected checks, and commit only real code/docs changes with the closeout
+   Bead footer.
 4. Run the documentation policy guard against the target and candidate, then:
 
    ```bash
