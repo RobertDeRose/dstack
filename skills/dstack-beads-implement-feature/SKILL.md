@@ -11,7 +11,7 @@ default to one task.
 
 For each task:
 
-1. Claim native ready work:
+1. Inspect and claim native ready work:
 
    ```bash
    python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
@@ -19,27 +19,31 @@ For each task:
    ```
 
    This verifies the approved design digest and uses Beads' atomic ready claim.
-2. Read the selected Bead, accepted design, relevant source/tests/docs, and only
-   the context needed to decide the implementation.
-3. Implement the smallest correct solution. Update durable docs when behavior or
-   design requires it. Run focused and repository-required validation. Tests
-   should prove externally meaningful behavior, invariants, failure handling,
-   and regression boundaries rather than private implementation structure.
-   Keep the declared Documentation impact surfaces consistent with the result.
-4. Review the committed candidate. Correct material findings; ask only for a
-   genuine intent decision. Persist a summary only when it contains durable
-   evidence.
-5. Stage the intended task boundary and commit through:
+2. Read the selected Bead, accepted design, relevant source/tests/docs, and only the context needed to decide the
+   implementation.
+3. Implement the smallest correct solution. Update durable docs when behavior or design requires it. Run focused
+   validation and any additional check required by the accepted task. Tests should prove externally meaningful behavior,
+   invariants, failure handling, and regression boundaries rather than private structure. Keep the declared
+   Documentation impact surfaces consistent.
+4. Treat validation as incomplete when a required check fails, times out, is interrupted, runs the wrong scope,
+   unexpectedly skips required tests, or is replaced by weaker coverage. When incomplete, report the exact command,
+   scope, and outcome, then stop before commit or task completion. Persist a Beads comment only when missing evidence
+   must survive the session and is not otherwise derivable.
+5. Review the complete candidate diff before staging. Correct material findings and rerun affected checks; ask only for
+   a genuine intent decision.
+6. Stage only the intended task boundary and commit through:
 
    ```bash
    dstackctl.py git commit --bead <task-id> --subject "<subject>"
    ```
 
-6. Complete the task mechanically:
+7. Verify the committed footer and changed paths before completion:
 
    ```bash
+   dstackctl.py evidence commits --bead <task-id> --ref <base>..HEAD
    dstackctl.py feature finish-task <feature> --task <task-id>
    ```
 
-`--all` repeats until no native ready implementation task remains. It does not
-parallelize writers. Do not create bookkeeping commits or Git-SHA mappings.
+`--all` repeats only over native ready implementation tasks. When none remain, report completion and stop. Do not run
+`feature finish-workstream`, claim or run closeout, load `/close-feature`, or invoke delivery; those require a separate
+user command. Do not parallelize writers or create bookkeeping commits or Git-SHA mappings.

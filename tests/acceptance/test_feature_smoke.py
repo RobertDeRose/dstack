@@ -97,6 +97,21 @@ def test_feature_smoke_runs_shipped_lifecycle(acceptance_repo: Path) -> None:
         check=True,
     )
     run_ctl(acceptance_repo, "feature", "finish-task", root_id, "--task", task["id"])
+    refused = run_ctl(
+        acceptance_repo,
+        "feature",
+        "finish-closeout",
+        root_id,
+        check=False,
+    )
+    assert refused.returncode != 0
+    assert "implementation workstream is not closed" in refused.stderr
+    run_command(
+        ["bd", "close", blocker_b["id"], "--reason", "External dependency shipped"],
+        cwd=acceptance_repo,
+    )
+    run_ctl(acceptance_repo, "feature", "finish-workstream", root_id)
+    run_ctl(acceptance_repo, "feature", "claim-closeout", root_id)
     run_ctl(acceptance_repo, "feature", "finish-closeout", root_id)
 
     delivered = run_ctl(acceptance_repo, "delivery", "merge", root_id)

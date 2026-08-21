@@ -73,6 +73,47 @@ def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
         assert phrase in " ".join(close.split())
 
 
+def test_feature_execution_stops_and_validation_fail_closed() -> None:
+    implement = " ".join(
+        (ROOT / "skills/dstack-beads-implement-feature/SKILL.md").read_text().split()
+    )
+    close = " ".join(
+        (ROOT / "skills/dstack-beads-close-feature/SKILL.md").read_text().split()
+    )
+
+    for phrase in (
+        "Review the complete candidate diff",
+        "git commit --bead",
+        "evidence commits",
+        "feature finish-task",
+    ):
+        assert phrase in implement
+    assert implement.index("Review the complete candidate diff") < implement.index("git commit --bead")
+    assert implement.index("git commit --bead") < implement.index("evidence commits")
+    assert implement.index("evidence commits") < implement.index("feature finish-task")
+    for phrase in (
+        "fails",
+        "times out",
+        "is interrupted",
+        "wrong scope",
+        "unexpectedly skips",
+        "weaker coverage",
+        "report the exact command",
+    ):
+        assert phrase in implement
+    assert "`--all` repeats only over native ready implementation tasks" in implement
+    assert "focused validation" in implement
+    assert "Do not run `feature finish-workstream`" in implement
+    assert "those require a separate user command" in implement
+    assert "feature finish-workstream" in close
+    assert "full/release validation" in close
+    assert "stop before `feature finish-closeout` or delivery" in close
+
+    workflow = (ROOT / "docs/workflow-reference.md").read_text()
+    assert "fresh agent session" in workflow
+    assert "Beads, Git, and durable repository documentation alone" in workflow
+
+
 def test_feature_lifecycle_skills_pass_explicit_feature_context() -> None:
     skill_paths = [
         ROOT / "skills/dstack-beads-start-feature/SKILL.md",

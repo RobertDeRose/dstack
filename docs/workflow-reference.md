@@ -29,18 +29,26 @@ gate, and closes the approval milestone idempotently.
 ### `/implement-feature [feature] [task|--all]`
 
 The controller verifies the design digest and atomically claims the next native
-ready implementation task. The agent implements, validates, documents, and
-reviews the task. A deterministic Git helper creates the commit with the Bead
-footer. The controller closes the task and, when appropriate, its workstream.
-If a task intentionally changes no repository content, finish it with
-`--no-repository-change --reason "..."`; the native close reason records that
-outcome for delivery audit. Ordinary completed tasks still require a reachable
-Bead footer.
+ready implementation task. The agent implements, runs focused and task-required
+checks, reviews and corrects the complete candidate diff, commits through the
+Git helper, verifies the reachable Bead footer and changed paths, then closes
+only that task. If validation fails, times out, is interrupted, runs the wrong
+scope, unexpectedly skips required tests, or substitutes weaker coverage, the
+agent reports the exact check and stops before commit or completion.
+
+`--all` repeats only over native ready implementation tasks and stops when none
+remain. It never closes the implementation workstream, claims closeout, or
+starts delivery. If a task intentionally changes no repository content, finish
+it with `--no-repository-change --reason "..."`; the native close reason records
+that outcome for delivery audit. Ordinary completed tasks still require a
+reachable Bead footer.
 
 ### `/close-feature [feature] [ready|pr|merge]`
 
-The controller claims closeout only after implementation fan-in is complete.
-The agent reconciles actual behavior, tests, and durable documentation. A docs
+The controller closes implementation fan-in and claims closeout only under this
+explicit command. The agent reconciles actual behavior, tests, and durable
+documentation, then runs the complete repository's full/release validation. An
+incomplete required check leaves closeout open and prevents delivery. A docs
 policy guard rejects namespaced dStack lifecycle fields and structured identity,
 Git, worktree, or next-command bookkeeping; generic domain status prose remains
 valid. The closeout step is then closed.
@@ -65,6 +73,13 @@ Fast tests use a protocol-only Beads stub for command construction and failure
 handling; they are not authority for readiness, gates, ownership, or fan-in.
 Release acceptance uses isolated real-Beads repositories in JSON-envelope mode.
 Acceptance preflight fails immediately unless `bd` is available on `PATH`.
+
+## Session boundaries
+
+After a stable boundary, prefer a fresh agent session before starting another
+substantial independent feature. The new session must resume from Beads, Git,
+and durable repository documentation alone; no handoff packet or session state
+is required.
 
 ## Project-alignment lifecycle
 
