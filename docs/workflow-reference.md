@@ -14,7 +14,9 @@ new molecule and creates/reuses its conventional worktree. The agent writes the
 design and decides task decomposition. `dstackctl feature add-task` performs the
 mechanical task creation.
 
-No Git commit is required. No roadmap execution status is changed.
+No Git commit is required. No roadmap execution status is changed. New designs
+follow the repository convention: `docs/src/features/<slug>/design.md` when
+`docs/src/features/` exists, otherwise `docs/features/<slug>/design.md`.
 
 ### `/review-feature-spec [feature]`
 
@@ -39,8 +41,9 @@ Bead footer.
 
 The controller claims closeout only after implementation fan-in is complete.
 The agent reconciles actual behavior, tests, and durable documentation. A docs
-policy guard rejects transient workflow bookkeeping. The closeout step is then
-closed.
+policy guard rejects namespaced dStack lifecycle fields and structured identity,
+Git, worktree, or next-command bookkeeping; generic domain status prose remains
+valid. The closeout step is then closed.
 
 - `ready`: stop with an inspected delivery candidate and an open root.
 - `pr`: preflight the complete feature diff against a synchronized remote base;
