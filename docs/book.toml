@@ -1,0 +1,10 @@
+[book]
+title = "dStack"
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+additional-css = ["src/assets/css/center_images.css"]

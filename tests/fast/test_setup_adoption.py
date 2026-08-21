@@ -103,9 +103,37 @@ def test_legacy_repair_reports_required_changes_before_mutation(
     beads.assert_exhausted()
 
 
-def test_adopt_inspect_classifies_without_mutation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) -> None:
+    root = {
+        "id": "feature-1",
+        "labels": ["workflow:feature", "feature:feature"],
+        "metadata": {
+            "dstack.base_branch": "main",
+            "dstack.design_path": "docs/features/feature/design.md",
+        },
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "list",
+            all_statuses=True,
+            labels=["workflow:feature"],
+            result=[root],
+        ),
+        call(
+            "update",
+            "feature-1",
+            "--set-metadata",
+            "dstack.design_path=docs/src/features/feature/design.md",
+            result={**root, "metadata": {**root["metadata"], "dstack.design_path": "docs/src/features/feature/design.md"}},
+        ),
+        call("children", "feature-1", result=[]),
+    )
+    assert setup.normalize_current_features(beads, force=True) == ["feature-1"]
+    beads.assert_exhausted()
+
+
+def test_adopt_inspect_classifies_without_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     legacy = {"id": "legacy-1", "status": "open", "title": "Feature: Old"}
     beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
@@ -123,9 +151,31 @@ def test_adopt_inspect_classifies_without_mutation(
     assert output[0]["classified"]["implementation-coordinator"][0]["id"] == "old-task"
 
 
-def test_adopt_apply_is_idempotent_for_native_supersession(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_adopt_apply_rejects_noncanonical_design_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    legacy = {"id": "legacy-1", "status": "open", "title": "Feature: Old"}
+    beads = ScriptedClient(tmp_path)
+    monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_compat, "resolve_feature", lambda *args: legacy)
+    monkeypatch.setattr(dstack_compat, "feature_context", lambda *args: {"current": False})
+    args = type(
+        "Args",
+        (),
+        {
+            "root": tmp_path,
+            "selector": "legacy-1",
+            "title": None,
+            "slug": "old",
+            "base_branch": "main",
+            "design_path": "docs/features/old/design.md",
+            "remaining": [],
+        },
+    )()
+    with pytest.raises(DstackError, match="docs/src/features/old/design.md"):
+        dstack_compat.cmd_adopt_apply(args)
+    beads.assert_exhausted()
+
+
+def test_adopt_apply_is_idempotent_for_native_supersession(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     legacy = {
         "id": "legacy-1",
         "status": "closed",

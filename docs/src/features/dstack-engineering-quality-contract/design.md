@@ -63,22 +63,17 @@ remain the source of truth for task input.
 
 ## Design
 
-The quality contract is durable guidance in `docs/core-principles.md` and the
-feature lifecycle skills. The start-feature guidance points authors at the
-scaffold and quality questions. Specification review, implementation, and
-closeout guidance share the behavioral-testing principle and the documentation
-impact check.
+The quality contract is durable guidance in `docs/src/development/index.md` and the feature lifecycle skills. The
+start-feature guidance points authors at the scaffold and quality questions. Specification review, implementation, and
+closeout guidance share the behavioral-testing principle and the documentation impact check.
 
-The scaffold command resolves the selected current feature, reads its existing
-repository-relative design path, and writes a fixed template only when the file
-is absent. It returns the resolved path and whether a file was created. An
-existing file is never merged, normalized, or overwritten. The command derives
-all context from Beads and Git during the invocation and persists nothing beyond
-the design file itself.
+The scaffold command resolves the selected current feature, reads its existing repository-relative design path, and
+writes a fixed template only when the file is absent. It returns the resolved path and whether a file was created. An
+existing file is never merged, normalized, or overwritten. The command derives all context from Beads and Git during the
+invocation and persists nothing beyond the design file itself.
 
-The task-creation guards apply after reading either inline or file-based
-acceptance text and before any native Beads create operation. They use the
-existing task-text normalization for presence checking and preserve the current
+The task-creation guards apply after reading either inline or file-based acceptance text and before any native Beads
+create operation. They use the existing task-text normalization for presence checking and preserve the current
 meaningful-input behavior sent to Beads. No semantic acceptance parser is added.
 
 ## Failure / security / compatibility behavior

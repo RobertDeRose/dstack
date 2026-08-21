@@ -46,7 +46,6 @@ from its registered feature worktree. Input mode is `ready` (default), `pr`, or
   and run `delivery register-pr --pr-number <n>`. On later invocation run `delivery finalize-pr`.
 - `merge`: run `delivery merge`.
 
-The controller requires linear ancestry, synchronized PR base state, clean
-worktrees, and no transient-doc violations. After delivery begins it snapshots
-Git, finalizes Beads, and fails if tracked Git state changes. Never create a
-post-merge status commit.
+The controller requires linear ancestry, synchronized PR base state, clean worktrees, and no transient-doc violations.
+During normal delivery, Beads finalization must not mutate the delivered Git state or create bookkeeping commits.
+Explicit user-authorized recovery after a failed or incorrect delivery is a separate native Git operation.

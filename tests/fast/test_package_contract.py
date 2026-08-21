@@ -30,9 +30,29 @@ def test_all_skill_and_prompt_frontmatter_parses() -> None:
         assert isinstance(yaml.safe_load(frontmatter), dict)
 
 
+def test_mdbook_documentation_layout() -> None:
+    docs = ROOT / "docs"
+    source = docs / "src"
+    assert (docs / "book.toml").is_file()
+    assert (source / "SUMMARY.md").is_file()
+    assert all(path.is_relative_to(source) for path in docs.rglob("*.md"))
+    assert not (docs / "features").exists()
+    assert list((source / "features").glob("*/design.md"))
+
+    summary = (source / "SUMMARY.md").read_text()
+    feature_index = (source / "features/index.md").read_text()
+    for target in re.findall(r"\]\(([^)]+\.md)\)", summary):
+        assert (source / target).is_file(), target
+    for design in (source / "features").glob("*/design.md"):
+        summary_target = design.relative_to(source).as_posix()
+        index_target = design.relative_to(source / "features").as_posix()
+        assert f"]({summary_target})" in summary
+        assert f"]({index_target})" in feature_index
+
+
 def test_core_principles_and_architecture_are_first_class_docs() -> None:
-    principles = (ROOT / "docs/core-principles.md").read_text()
-    architecture = (ROOT / "docs/architecture.md").read_text()
+    principles = (ROOT / "docs/src/development/index.md").read_text()
+    architecture = (ROOT / "docs/src/architecture/index.md").read_text()
     agents = (ROOT / "AGENTS.md").read_text()
     for phrase in (
         "KISS and YAGNI",
@@ -41,12 +61,28 @@ def test_core_principles_and_architecture_are_first_class_docs() -> None:
     ):
         assert phrase in principles
     assert "stateless dstackctl" in architecture
-    assert "docs/core-principles.md" in agents
+    assert "docs/src/development/index.md" in agents
     assert "post-merge bookkeeping commit" in agents
 
 
+def test_active_instructions_preserve_explicit_delivery_recovery() -> None:
+    paths = [
+        ROOT / "AGENTS.md",
+        ROOT / "skills/dstack-beads-core/SKILL.md",
+        ROOT / "skills/dstack-beads-close-feature/SKILL.md",
+        ROOT / "skills/dstack-beads-project-alignment-land/SKILL.md",
+    ]
+    for path in paths:
+        text = " ".join(path.read_text().split())
+        assert "During normal delivery" in text
+        assert "must not mutate" in text
+        assert "bookkeeping commit" in text
+        assert "Explicit user-authorized recovery" in text
+        assert "separate native Git operation" in text
+
+
 def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
-    principles = (ROOT / "docs/core-principles.md").read_text()
+    principles = (ROOT / "docs/src/development/index.md").read_text()
     start = (ROOT / "skills/dstack-beads-start-feature/SKILL.md").read_text()
     review = (ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md").read_text()
     implement = (ROOT / "skills/dstack-beads-implement-feature/SKILL.md").read_text()
@@ -109,7 +145,7 @@ def test_feature_execution_stops_and_validation_fail_closed() -> None:
     assert "full/release validation" in close
     assert "stop before `feature finish-closeout` or delivery" in close
 
-    workflow = (ROOT / "docs/workflow-reference.md").read_text()
+    workflow = " ".join((ROOT / "docs/src/development/feature-lifecycle.md").read_text().split())
     assert "fresh agent session" in workflow
     assert "Beads, Git, and durable repository documentation alone" in workflow
 
@@ -141,6 +177,8 @@ def test_no_git_sha_mapping_or_shadow_state_contract() -> None:
     assert "dstack:delivery-ready" not in text
     assert "tasks.md" not in text or "Do not create `tasks.md`" in text
     assert not (ROOT / "skills/dstack-beads-core/scripts/git_evidence.py").exists()
+    setup = (ROOT / "skills/dstack-beads-core/scripts/setup.py").read_text()
+    assert "DSTACK_FAKE_BD_STATE" not in setup
 
 
 def test_public_help_is_mechanical_and_side_effect_free() -> None:

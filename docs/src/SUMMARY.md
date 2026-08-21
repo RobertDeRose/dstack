@@ -1,0 +1,14 @@
+# Summary
+
+- [dStack](index.md)
+- [Architecture](architecture/index.md)
+- [Core principles](development/index.md)
+  - [Feature lifecycle](development/feature-lifecycle.md)
+  - [Testing](development/tooling.md)
+- [Reference](reference/index.md)
+  - [Compatibility and legacy repair](reference/compatibility.md)
+- [Feature designs](features/index.md)
+  - [Controller correctness and auditability](features/dstack-controller-correctness-auditability/design.md)
+  - [Engineering quality contract](features/dstack-engineering-quality-contract/design.md)
+  - [Test and mechanical-layer hardening](features/dstack-test-mechanical-hardening/design.md)
+  - [Workflow boundary hardening](features/dstack-workflow-boundary-hardening/design.md)

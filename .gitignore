@@ -2,6 +2,7 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 .venv/
+/docs/book/
 
 # Beads / Dolt files (added by bd init)
 .dolt/

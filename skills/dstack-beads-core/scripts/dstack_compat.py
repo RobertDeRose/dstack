@@ -23,6 +23,7 @@ from dstacklib import (
     ancestry,
     blocker_ids,
     branch_exists,
+    canonical_feature_design_path,
     commit_footer_ids,
     conventional_worktree,
     current_head,
@@ -154,11 +155,11 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
     title = args.title or display_title(str(legacy.get("title", "")))
     slug = args.slug or feature_slug(legacy) or slugify(title)
     base = args.base_branch or root_metadata_value(legacy, "base_branch") or "main"
-    design = (
-        args.design_path
-        or root_metadata_value(legacy, "design_path")
-        or f"docs/src/features/{slug}/design.md"
-    )
+    design = canonical_feature_design_path(slug)
+    if args.design_path and args.design_path != design:
+        raise DstackError(
+            f"feature design path must be {design} for the mdBook layout"
+        )
 
     current = current_feature_for_slug(
         client, slug, exclude_id=str(legacy["id"])

@@ -14,9 +14,8 @@ Apply these rules to every dStack command.
 - `dstackctl` owns repeatable stateless mechanics.
 - The agent owns engineering decisions and user interaction.
 
-Read `docs/core-principles.md` and `docs/architecture.md` when changing the
-workflow itself. Ordinary command execution does not require loading every
-reference document.
+Read `docs/src/development/index.md` and `docs/src/architecture/index.md` when changing the workflow itself. Ordinary
+command execution does not require loading every reference document.
 
 ## Hard rules
 
@@ -26,7 +25,8 @@ reference document.
 - Do not calculate readiness; query Beads.
 - Do not put transient workflow state or IDs in repository docs.
 - `planned`, `implemented`, and `deprecated` are durable product context.
-- No Git changes are permitted after delivery begins.
+- During normal delivery, Beads finalization must not mutate the delivered Git state or create bookkeeping commits.
+  Explicit user-authorized recovery after a failed or incorrect delivery is a separate native Git operation.
 - Use “independent review” only for a separate agent/session.
 - Another review is always allowed when the user authorizes it.
 
