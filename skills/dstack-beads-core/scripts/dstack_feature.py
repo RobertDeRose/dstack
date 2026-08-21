@@ -23,6 +23,7 @@ from dstacklib import (
     ancestry,
     blocker_ids,
     branch_exists,
+    canonical_feature_design_path,
     commit_footer_ids,
     conventional_worktree,
     current_head,
@@ -115,11 +116,8 @@ def is_planned_legacy_feature(issue: Mapping[str, Any]) -> bool:
     return classification == "planned" or "planned" in roadmap or has_label(issue, "dstack:feature-idea")
 
 
-def default_design_path(root: Path, slug: str) -> str:
-    for prefix in ("docs/src/features", "docs/features"):
-        if (root / prefix).is_dir():
-            return f"{prefix}/{slug}/design.md"
-    return f"docs/features/{slug}/design.md"
+def default_design_path(_root: Path, slug: str) -> str:
+    return canonical_feature_design_path(slug)
 
 
 def cmd_feature_initialize(args: argparse.Namespace) -> int:
@@ -185,23 +183,12 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     title = (
         args.title or (display_title(str(planned_source.get("title", ""))) if planned_source else selector)
     ).strip()
-    slug = (
-        args.slug
-        or (feature_slug(planned_source) if planned_source else None)
-        or slugify(title)
-    )
-    inherited_design = (
-        root_metadata_value(planned_source, "design_path") if planned_source else None
-    )
-    inherited_base = (
-        root_metadata_value(planned_source, "base_branch") if planned_source else None
-    )
+    slug = args.slug or (feature_slug(planned_source) if planned_source else None) or slugify(title)
+    inherited_base = root_metadata_value(planned_source, "base_branch") if planned_source else None
     base_branch = inherited_base or args.base_branch
-    design_path = (
-        args.design_path
-        or inherited_design
-        or default_design_path(client.root, slug)
-    )
+    design_path = default_design_path(client.root, slug)
+    if args.design_path and args.design_path != design_path:
+        raise DstackError(f"feature design path must be {design_path} for the mdBook layout")
     require_installed_formula(client.root, "dstack-feature")
     pour = client.pour(
         "dstack-feature",
@@ -299,6 +286,43 @@ def safe_design_file(worktree: Path, design_path: str) -> tuple[Path, str]:
     return resolved, relative.as_posix()
 
 
+def ensure_feature_navigation(
+    worktree: Path,
+    *,
+    slug: str,
+    title: str,
+) -> None:
+    safe_title = title.replace("[", "").replace("]", "") or slug
+    feature_source = worktree / "docs/src/features"
+    feature_source.mkdir(parents=True, exist_ok=True)
+
+    index = feature_source / "index.md"
+    index_target = f"{slug}/design.md"
+    index_text = index.read_text() if index.is_file() else "# Feature designs\n"
+    if f"]({index_target})" not in index_text:
+        index.write_text(
+            index_text.rstrip() + f"\n\n- [{safe_title}]({index_target})\n"
+        )
+
+    summary = worktree / "docs/src/SUMMARY.md"
+    summary_target = f"features/{slug}/design.md"
+    summary_line = f"  - [{safe_title}]({summary_target})"
+    summary_text = summary.read_text() if summary.is_file() else "# Summary\n"
+    if f"]({summary_target})" in summary_text:
+        return
+    lines = summary_text.rstrip().splitlines()
+    anchor = "- [Feature designs](features/index.md)"
+    if anchor not in lines:
+        lines.extend(["", anchor, summary_line])
+    else:
+        position = lines.index(anchor) + 1
+        while position < len(lines) and lines[position].startswith("  "):
+            position += 1
+        lines.insert(position, summary_line)
+    summary.parent.mkdir(parents=True, exist_ok=True)
+    summary.write_text("\n".join(lines) + "\n")
+
+
 def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
@@ -310,22 +334,26 @@ def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
 
     _, worktree, _ = feature_branch_context(client, view)
     design_file, relative = safe_design_file(worktree, design_path)
+    created = False
     if design_file.exists():
         if not design_file.is_file():
             raise DstackError("design path exists but is not a file")
-        emit({"status": "ok", "created": False, "design_path": relative})
-        return 0
+    else:
+        design_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with design_file.open("x", encoding="utf-8") as handle:
+                handle.write(DESIGN_SCAFFOLD)
+            created = True
+        except FileExistsError:
+            if not design_file.is_file():
+                raise DstackError("design path exists but is not a file")
 
-    design_file.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with design_file.open("x", encoding="utf-8") as handle:
-            handle.write(DESIGN_SCAFFOLD)
-    except FileExistsError:
-        if not design_file.is_file():
-            raise DstackError("design path exists but is not a file")
-        emit({"status": "ok", "created": False, "design_path": relative})
-        return 0
-    emit({"status": "ok", "created": True, "design_path": relative})
+    ensure_feature_navigation(
+        worktree,
+        slug=str(view["slug"]),
+        title=display_title(str(view["root"].get("title") or view["slug"])),
+    )
+    emit({"status": "ok", "created": created, "design_path": relative})
     return 0
 
 
@@ -515,6 +543,20 @@ def require_closed_feature_workstream(
         raise DstackError("implementation workstream is not closed")
 
 
+def require_unblocked_closeout(
+    client: BeadsClient, closeout: Mapping[str, Any]
+) -> None:
+    if not blocker_ids(closeout):
+        return
+    open_blockers = [
+        blocker
+        for blocker in blocker_ids(closeout)
+        if client.show(blocker).get("status") != "closed"
+    ]
+    if open_blockers:
+        raise DstackError("closeout remains blocked by: " + ", ".join(open_blockers))
+
+
 def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
@@ -523,19 +565,19 @@ def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
         emit({"status": "ok", "closeout": closeout, "already_closed": True})
         return 0
     require_closed_feature_workstream(client, view)
-    if blocker_ids(closeout):
-        open_blockers = [
-            blocker
-            for blocker in blocker_ids(closeout)
-            if client.show(blocker).get("status") != "closed"
-        ]
-        if open_blockers:
-            raise DstackError(
-                "closeout remains blocked by: " + ", ".join(open_blockers)
-            )
+    require_unblocked_closeout(client, closeout)
     claimed = claim_issue_if_needed(client, closeout)
     emit({"status": "ok", "closeout": claimed, "feature": view["root"]["id"]})
     return 0
+
+
+def keep_feature_open_for_delivery(
+    client: BeadsClient, view: Mapping[str, Any]
+) -> None:
+    root_id = str(view["root"]["id"])
+    root = client.show(root_id)
+    if root.get("status") == "closed" and root.get("close_reason") == "all steps complete":
+        client.reopen(root_id, "Await delivery")
 
 
 def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
@@ -545,10 +587,12 @@ def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
     closeout = client.show(closeout_id)
     if closeout.get("status") != "closed":
         require_closed_feature_workstream(client, view)
+        require_unblocked_closeout(client, closeout)
         closeout = claim_issue_if_needed(client, closeout)
         if args.summary_file:
             client.add_comment(closeout_id, read_text_file(args.summary_file))
         closeout = client.close(closeout_id, args.reason)
+    keep_feature_open_for_delivery(client, view)
     emit(
         {
             "status": "ok",

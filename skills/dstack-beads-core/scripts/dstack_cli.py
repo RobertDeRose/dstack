@@ -53,7 +53,7 @@ HELP_BY_DEST = {
     "title": "Human-readable title for the created or submitted item.",
     "slug": "Stable slug used for derived paths and branch names.",
     "base_branch": "Git branch from which the feature is based.",
-    "design_path": "Repository-relative design file path.",
+    "design_path": "Must equal docs/src/features/<slug>/design.md.",
     "description": "Durable description of the work or correction.",
     "description_file": "Read the durable description from this file.",
     "acceptance": "Observable acceptance criteria for the work.",

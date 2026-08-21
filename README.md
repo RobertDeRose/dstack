@@ -18,11 +18,11 @@ Pi command -> short skill -> engineering decisions -> stateless dstackctl -> Bea
 
 See:
 
-- [Core principles](docs/core-principles.md)
-- [Architecture](docs/architecture.md)
-- [Workflow reference](docs/workflow-reference.md)
-- [Compatibility](docs/compatibility.md)
-- [Testing](docs/testing.md)
+- [Core principles](docs/src/development/index.md)
+- [Architecture](docs/src/architecture/index.md)
+- [Workflow reference](docs/src/development/feature-lifecycle.md)
+- [Compatibility](docs/src/reference/compatibility.md)
+- [Testing](docs/src/development/tooling.md)
 
 ## Git and Beads linkage
 

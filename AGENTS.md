@@ -1,7 +1,7 @@
 # dStack repository contract
 
-Read `docs/core-principles.md` and `docs/architecture.md` before changing
-workflow architecture.
+Read `docs/src/development/index.md` and `docs/src/architecture/index.md` before changing workflow
+architecture.
 
 ## Authorities
 
@@ -23,16 +23,16 @@ workflow architecture.
 - Never store Git commit hashes in Beads. Commits reference work only through
   `Beads: <id>` footers.
 - Do not store branch/worktree paths or Git-history mirrors in Beads.
-- Do not duplicate feature identity on children when parentage/root labels
-  already establish it.
-- Do not put transient lifecycle state, Beads IDs, branches, commits, gates, or
-  next commands in user/developer documentation.
-- Durable `planned`, `implemented`, and `deprecated` product classification is
-  allowed. It must be part of the candidate before delivery.
-- After delivery begins, Beads may change but Git may not. Never create a
-  post-merge bookkeeping commit.
-- Do not require a Git commit when specification review changes no repository
-  content; design approval is a content digest.
+- Do not duplicate feature identity on children when parentage/root labels already establish it.
+- Do not put transient lifecycle state, Beads IDs, branches, commits, gates, or next commands in
+  user/developer documentation.
+- Durable `planned`, `implemented`, and `deprecated` product classification is allowed. It must be
+  part of the candidate before delivery.
+- During normal delivery, Beads finalization must not mutate the delivered Git state or create a
+  post-merge bookkeeping commit. Explicit user-authorized recovery after a failed or incorrect
+  delivery is a separate native Git operation.
+- Do not require a Git commit when specification review changes no repository content; design
+  approval is a content digest.
 - Do not claim independent review without a separate reviewer session.
 - No finite review counter may override explicit user authorization.
 - Normal workflow commands never run legacy repair or rewrite old topology.

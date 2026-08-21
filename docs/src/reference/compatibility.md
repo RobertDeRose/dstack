@@ -1,15 +1,13 @@
 # Compatibility and legacy repair
 
-Compatibility code is intentionally isolated from normal workflow execution.
-It exists only to remove known historical dStack artifacts and adopt active
-legacy features.
+Compatibility code is intentionally isolated from normal workflow execution. It exists only to remove known historical
+dStack artifacts and adopt active legacy features.
 
 ## Setup repair
 
-Normal setup installs and validates formula source. It also applies dStack's
-standard Git boundary: `.beads/interactions.jsonl` stays local and untracked,
-while legitimate Beads repository configuration remains trackable. Normal setup
-does not scan or rewrite all Beads work.
+Normal setup installs and validates formula source. It also applies dStack's standard Git boundary:
+`.beads/interactions.jsonl` stays local and untracked, while legitimate Beads repository configuration remains
+trackable. Normal setup does not scan or rewrite all Beads work.
 
 Explicit legacy repair may:
 

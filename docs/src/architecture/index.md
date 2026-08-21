@@ -31,9 +31,8 @@ pending validation. dStack never calculates its own ready frontier.
 
 ### Git
 
-Git owns source, tests, configuration, durable documentation, branches,
-worktrees, diffs, commits, and delivery history. Workflow commits use a stable
-`Beads: <id>` footer.
+Git owns source, tests, configuration, durable documentation, branches, worktrees, diffs, commits, and delivery history.
+Workflow commits use a stable `Beads: <id>` footer.
 
 Beads repository configuration may also be tracked when it is stable project
 configuration (`.beads/config.yaml`, `.beads/metadata.json`, `.beads/README.md`,
@@ -93,8 +92,7 @@ Skills are short policy and judgment guides. They tell the agent:
 - when to stop and ask;
 - which deterministic command completes the mechanics.
 
-Exact shell choreography belongs in `dstackctl --help` and tests, not repeated
-across skills.
+Exact shell choreography belongs in `dstackctl --help` and tests, not repeated across skills.
 
 ## Minimal feature molecule
 
@@ -113,9 +111,8 @@ implementation epic owns dynamic tasks
 closeout waits for children-of(implementation)
 ```
 
-The approval task exists because normal Beads blocking relationships must
-connect like issue kinds. The implementation workstream remains an epic and the
-closeout uses native dynamic fan-in.
+The approval task exists because normal Beads blocking relationships must connect like issue kinds. The implementation
+workstream remains an epic and the closeout uses native dynamic fan-in.
 
 ## Minimal project-alignment molecule
 
@@ -150,10 +147,9 @@ metadata:
   dstack.approved_design_sha256   # only after approval
 ```
 
-Stable children carry one `dstack:step:*` label. Dynamic work carries one
-`dstack:work:*` label and is associated with the feature through parentage.
-Conventional branch/worktree paths and supersession are derived from Git and the
-Beads graph, not duplicated in metadata.
+Stable children carry one `dstack:step:*` label. Dynamic work carries one `dstack:work:*` label and is associated with
+the feature through parentage. Conventional branch/worktree paths and supersession are derived from Git and the Beads
+graph, not duplicated in metadata.
 
 ## Design approval without Git coupling
 
@@ -167,8 +163,8 @@ cherry-pick, or commit-message rewrite does not affect approval.
 
 ## Delivery invariant
 
-Before delivery, all durable code/docs changes are already in the candidate.
-After delivery starts, Beads may be finalized but Git may not change.
+Before delivery, all durable code/docs changes are already in the candidate. After delivery starts, Beads may be
+finalized but Git may not change.
 
 `dstackctl delivery` snapshots the target HEAD and tracked status, performs the
 native delivery/finalization operations, and rejects any Git mutation caused by

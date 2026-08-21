@@ -362,6 +362,17 @@ class BeadsClient:
         finally:
             self._invalidate_reads()
 
+    def reopen(self, issue_id: str, reason: str) -> dict[str, Any]:
+        current = self.show(issue_id)
+        if current.get("status") != "closed":
+            return current
+        self._invalidate_reads()
+        try:
+            payload = self.json(["bd", "reopen", issue_id, "--reason", reason, "--json"])
+            return first_item(payload, context=f"bd reopen {issue_id}")
+        finally:
+            self._invalidate_reads()
+
     def resolve_gate(self, gate_id: str, reason: str) -> dict[str, Any]:
         """Resolve a gate, then read its authoritative state.
 
@@ -596,6 +607,12 @@ def feature_slug(issue: Mapping[str, Any]) -> str | None:
     return None
 
 
+def canonical_feature_design_path(slug: str) -> str:
+    if not slug or slugify(slug) != slug:
+        raise DstackError("feature slug must be canonical lowercase kebab-case")
+    return f"docs/src/features/{slug}/design.md"
+
+
 def root_metadata_value(issue: Mapping[str, Any], *keys: str) -> str | None:
     metadata = issue_metadata(issue)
     for key in keys:
@@ -725,26 +742,28 @@ def feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]
     root_id = str(root["id"])
     children = client.children(root_id)
     current = has_current_feature_steps(children)
+    slug = feature_slug(root)
     result: dict[str, Any] = {
         "root": root,
-        "slug": feature_slug(root),
+        "slug": slug,
         "current": current,
         "closed": root.get("status") == "closed",
     }
     if not current:
         return result
 
+    if not slug:
+        raise DstackError(f"current feature {root_id} has no feature slug")
+    design_path = root_metadata_value(root, "dstack.design_path", "design_path")
+    expected_design_path = canonical_feature_design_path(slug)
+    if design_path != expected_design_path:
+        raise DstackError(f"feature design path must be {expected_design_path} for the mdBook layout")
+
     result.update(
         {
-            "steps": {
-                name: step_by_label(children, label) for name, label in FEATURE_STEPS.items()
-            },
-            "base_branch": root_metadata_value(
-                root, "dstack.base_branch", "base_branch"
-            ),
-            "design_path": root_metadata_value(
-                root, "dstack.design_path", "design_path"
-            ),
+            "steps": {name: step_by_label(children, label) for name, label in FEATURE_STEPS.items()},
+            "base_branch": root_metadata_value(root, "dstack.base_branch", "base_branch"),
+            "design_path": design_path,
             "approved_design_sha256": root_metadata_value(
                 root, "dstack.approved_design_sha256"
             ),

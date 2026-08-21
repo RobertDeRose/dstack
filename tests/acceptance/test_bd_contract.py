@@ -51,9 +51,16 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     assert next(step for step in feature["steps"] if step["id"] == "approval")["gate"]["type"] == "human"
 
     poured_feature = run_json(
-        acceptance_repo, "mol", "pour", "dstack-feature",
-        "--var", "feature_title=Contract Feature", "--var", "feature_slug=contract-feature",
-        "--var", "design_path=docs/features/contract-feature/design.md",
+        acceptance_repo,
+        "mol",
+        "pour",
+        "dstack-feature",
+        "--var",
+        "feature_title=Contract Feature",
+        "--var",
+        "feature_slug=contract-feature",
+        "--var",
+        "design_path=docs/src/features/contract-feature/design.md",
     )
     poured_alignment = run_json(
         acceptance_repo,

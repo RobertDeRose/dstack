@@ -4,6 +4,8 @@ import hashlib
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstacklib
@@ -13,6 +15,41 @@ from scripted import ScriptedClient, call
 
 
 def test_feature_context_reads_only_root_and_stable_steps(tmp_path: Path) -> None:
+    root = {
+        "id": "feature-1",
+        "issue_type": "molecule",
+        "status": "open",
+        "labels": ["workflow:feature", "feature:feature"],
+        "metadata": {
+            "dstack.base_branch": "main",
+            "dstack.design_path": "docs/src/features/feature/design.md",
+        },
+    }
+    steps = [
+        {"id": f"{name}-1", "issue_type": kind, "labels": [label]}
+        for name, label, kind in (
+            ("specification", FEATURE_STEPS["specification"], "task"),
+            ("approval", FEATURE_STEPS["approval"], "task"),
+            ("implementation", FEATURE_STEPS["implementation"], "epic"),
+            ("closeout", FEATURE_STEPS["closeout"], "task"),
+        )
+    ]
+    beads = ScriptedClient(
+        tmp_path,
+        call("show_optional", "feature-1", result=root),
+        call("children", "feature-1", result=steps),
+    )
+    observed = dstacklib.feature_context(beads, "feature-1")
+    assert observed["steps"]["implementation"]["id"] == "implementation-1"
+    assert observed["base_branch"] == "main"
+    assert "ready_work" not in observed
+    assert "progress" not in observed
+    beads.assert_exhausted()
+
+
+def test_current_feature_context_rejects_noncanonical_design_path(
+    tmp_path: Path,
+) -> None:
     root = {
         "id": "feature-1",
         "issue_type": "molecule",
@@ -37,11 +74,8 @@ def test_feature_context_reads_only_root_and_stable_steps(tmp_path: Path) -> Non
         call("show_optional", "feature-1", result=root),
         call("children", "feature-1", result=steps),
     )
-    observed = dstacklib.feature_context(beads, "feature-1")
-    assert observed["steps"]["implementation"]["id"] == "implementation-1"
-    assert observed["base_branch"] == "main"
-    assert "ready_work" not in observed
-    assert "progress" not in observed
+    with pytest.raises(dstacklib.DstackError, match="docs/src/features/feature/design.md"):
+        dstacklib.feature_context(beads, "feature-1")
     beads.assert_exhausted()
 
 
@@ -98,7 +132,7 @@ def test_alignment_context_reads_only_root_and_stable_steps(tmp_path: Path) -> N
 def test_feature_view_projects_real_steps_gate_design_and_ready_work(
     tmp_path: Path, monkeypatch
 ) -> None:
-    design = tmp_path / "docs/features/feature/design.md"
+    design = tmp_path / "docs/src/features/feature/design.md"
     design.parent.mkdir(parents=True)
     design.write_text("accepted design\n")
     digest = hashlib.sha256(design.read_bytes()).hexdigest()
@@ -109,7 +143,7 @@ def test_feature_view_projects_real_steps_gate_design_and_ready_work(
         "labels": ["workflow:feature", "feature:feature"],
         "metadata": {
             "dstack.base_branch": "main",
-            "dstack.design_path": "docs/features/feature/design.md",
+            "dstack.design_path": "docs/src/features/feature/design.md",
             "dstack.approved_design_sha256": digest,
         },
     }

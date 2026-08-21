@@ -113,6 +113,8 @@ def test_feature_smoke_runs_shipped_lifecycle(acceptance_repo: Path) -> None:
     run_ctl(acceptance_repo, "feature", "finish-workstream", root_id)
     run_ctl(acceptance_repo, "feature", "claim-closeout", root_id)
     run_ctl(acceptance_repo, "feature", "finish-closeout", root_id)
+    ready_root = run_json(acceptance_repo, "show", root_id)
+    assert ready_root[0]["status"] == "open"
 
     delivered = run_ctl(acceptance_repo, "delivery", "merge", root_id)
     assert delivered["root"] == root_id

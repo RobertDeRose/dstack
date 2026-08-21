@@ -1,9 +1,8 @@
 # dStack workflow reference
 
-Mutation commands return the root identifier and the native objects they touch.
-Use `feature inspect`, `alignment inspect`, or `delivery inspect` when the full
-current dashboard is required; mutations do not hydrate unrelated ready work or
-progress.
+Mutation commands return the root identifier and the native objects they touch. Use `feature inspect`,
+`alignment inspect`, or `delivery inspect` when the full current dashboard is required; mutations do not hydrate
+unrelated ready work or progress.
 
 ## Feature lifecycle
 
@@ -11,12 +10,12 @@ progress.
 
 `dstackctl feature initialize` resolves an existing current feature or pours one
 new molecule and creates/reuses its conventional worktree. The agent writes the
-design and decides task decomposition. `dstackctl feature add-task` performs the
-mechanical task creation.
+design and decides task decomposition. `feature scaffold-design` also adds the
+design to the mdBook summary and feature index. `dstackctl feature add-task`
+performs the mechanical task creation.
 
-No Git commit is required. No roadmap execution status is changed. New designs
-follow the repository convention: `docs/src/features/<slug>/design.md` when
-`docs/src/features/` exists, otherwise `docs/features/<slug>/design.md`.
+No Git commit is required. No roadmap execution status is changed. Every feature
+design uses `docs/src/features/<slug>/design.md`, the mdBook feature directory.
 
 ### `/review-feature-spec [feature]`
 
@@ -54,9 +53,8 @@ Git, worktree, or next-command bookkeeping; generic domain status prose remains
 valid. The closeout step is then closed.
 
 - `ready`: stop with an inspected delivery candidate and an open root.
-- `pr`: preflight the complete feature diff against a synchronized remote base;
-  the agent drafts the PR from those facts; after user approval the controller
-  validates the approved title/body against the aggregate change before the PR
+- `pr`: preflight the complete feature diff against a synchronized remote base; the agent drafts the PR from those
+  facts; after user approval the controller validates the approved title/body against the aggregate change before the PR
   is created and registered as a native `gh:pr` gate.
 - `merge`: perform a clean fast-forward-only delivery and close the root.
 - a later `pr` invocation checks the gate and closes the root after merge.
@@ -69,25 +67,22 @@ native Git operation; it is not a dStack recovery lifecycle.
 
 ## Validation layers
 
-Fast tests use a protocol-only Beads stub for command construction and failure
-handling; they are not authority for readiness, gates, ownership, or fan-in.
-Release acceptance uses isolated real-Beads repositories in JSON-envelope mode.
+Fast tests use a protocol-only Beads stub for command construction and failure handling; they are not authority for
+readiness, gates, ownership, or fan-in. Release acceptance uses isolated real-Beads repositories in JSON-envelope mode.
 Acceptance preflight fails immediately unless `bd` is available on `PATH`.
 
 ## Session boundaries
 
-After a stable boundary, prefer a fresh agent session before starting another
-substantial independent feature. The new session must resume from Beads, Git,
-and durable repository documentation alone; no handoff packet or session state
-is required.
+After a stable boundary, prefer a fresh agent session before starting another substantial independent feature. The new
+session must resume from Beads, Git, and durable repository documentation alone; no handoff packet or session state is
+required.
 
 ## Project-alignment lifecycle
 
 ### `/project-alignment-review`
 
-Analyze the current target, decide bounded corrections, and create them beneath
-the correction workstream. Tier 1 is read-only for repository source. Finish the
-plan and leave the human gate open.
+Analyze the current target, decide bounded corrections, and create them beneath the correction workstream. Tier 1 is
+read-only for repository source. Finish the plan and leave the human gate open.
 
 ### `/project-alignment-execute`
 
@@ -104,14 +99,12 @@ or already-corrected findings are updated or closed based on current evidence.
 ## Discovery
 
 - Fix clear in-scope work inside the current task.
-- Capture a small incidental follow-up with `bd todo add` and
-  `discovered-from`.
+- Capture a small incidental follow-up with `bd todo add` and `discovered-from`.
 - Create a full task/bug for significant separate work.
 - Use a nonblocking relation for context only.
 
 ## Review records
 
-By default, write at most one final durable review summary per task or stage.
-Intermediate comments are reserved for product decisions, accepted risk,
-deferred validation, material separate work, or unavailable review that affects
+By default, write at most one final durable review summary per task or stage. Intermediate comments are reserved for
+product decisions, accepted risk, deferred validation, material separate work, or unavailable review that affects
 execution.

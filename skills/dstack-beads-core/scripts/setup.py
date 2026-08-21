@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -18,6 +17,7 @@ from dstacklib import (
     BeadsClient,
     DstackError,
     as_items,
+    canonical_feature_design_path,
     feature_slug,
     git_root,
     has_label,
@@ -172,9 +172,6 @@ def validate_bundle(source_dir: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="dstack-preflight-") as raw:
         scratch = Path(raw)
         run(["git", "init", "-q"], cwd=scratch)
-        env: dict[str, str] = {}
-        if "DSTACK_FAKE_BD_STATE" in os.environ:
-            env["DSTACK_FAKE_BD_STATE"] = str(scratch / "fake-bd-state.json")
         run(
             [
                 "bd",
@@ -185,7 +182,6 @@ def validate_bundle(source_dir: Path) -> None:
                 "--non-interactive",
             ],
             cwd=scratch,
-            env=env,
         )
         formula_dir = scratch / ".beads" / "formulas"
         formula_dir.mkdir(parents=True, exist_ok=True)
@@ -195,11 +191,10 @@ def validate_bundle(source_dir: Path) -> None:
                 formula_dir / f"{name}.formula.toml",
             )
         for name in FORMULA_NAMES:
-            validate_formula(scratch, name, env=env)
+            validate_formula(scratch, name)
             result = run(
                 ["bd", "mol", "pour", name, *formula_vars(name), "--json"],
                 cwd=scratch,
-                env=env,
             )
             payload = parse_json(result.stdout, context=f"bd mol pour {name}")
             if not isinstance(payload, dict) or not (
@@ -377,8 +372,12 @@ def normalize_current_features(client: BeadsClient, *, force: bool) -> list[str]
         root_metadata = issue_metadata(root)
         if base and not root_metadata.get("dstack.base_branch"):
             root_args.extend(["--set-metadata", f"dstack.base_branch={base}"])
-        if design and not root_metadata.get("dstack.design_path"):
-            root_args.extend(["--set-metadata", f"dstack.design_path={design}"])
+        if slug:
+            canonical_design = canonical_feature_design_path(slug)
+            if design != canonical_design or not root_metadata.get("dstack.design_path"):
+                root_args.extend(
+                    ["--set-metadata", f"dstack.design_path={canonical_design}"]
+                )
         for key in ("feature_slug", "base_branch", "branch", "worktree_path", "adopted_from"):
             if key in issue_metadata(root):
                 root_args.extend(["--unset-metadata", key])

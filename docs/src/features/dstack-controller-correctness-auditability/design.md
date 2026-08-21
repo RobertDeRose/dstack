@@ -8,35 +8,25 @@ ownership, dependencies, gates, and completion and Git remains authoritative for
 
 ## User-visible behavior
 
-- A changed approved design is rejected at every implementation and delivery
-  boundary with an actionable request to review the specification again.
-- Claims and finishes use Beads' native ownership semantics. Reclaiming work by
-  its current owner is idempotent; another owner's claim or finish fails
-  without a dStack ownership ledger.
-- Delivery refuses a completed feature when any normal closed implementation
-  task lacks reachable `Beads: <id>` evidence. A task explicitly closed as
-  requiring no repository change is accepted through its native close reason.
-  History rewrites remain valid because the audit searches current reachable
-  commits rather than storing commit hashes.
-- A task that intentionally changes no repository content must use an explicit
-  no-repository-change option and a non-empty reason. The reason and its
-  no-change classification are stored only through the native Beads close
-  reason; the old ambiguous bypass is removed.
-- Feature skills pass their selected root explicitly. Automatic selection works
-  only from the matching feature worktree, and ambiguous or unrelated contexts
-  fail instead of silently acting on another feature.
-- Repeated planning or initialization of a normal planned Beads epic with the
-  same feature identity reuses one planned source, preserves native external
-  dependencies, and creates at most one current workflow molecule.
-- Design files work in the existing `docs/src/features` layout, the
-  `docs/features` layout, and a new repository using the default
-  `docs/features/<slug>/design.md` path. An explicit design path remains
-  authoritative.
-- Documentation checks reject dStack lifecycle bookkeeping while allowing
-  ordinary domain language such as a document describing a blocked request.
-- Delivery inspection reports the actual target branch ref. It never presents
-  the candidate worktree as the target merely because the target branch has no
-  checked-out worktree; merge operations fail closed when a writable target
+- A changed approved design is rejected at every implementation and delivery boundary with an actionable request to
+  review the specification again.
+- Claims and finishes use Beads' native ownership semantics. Reclaiming work by its current owner is idempotent; another
+  owner's claim or finish fails without a dStack ownership ledger.
+- Delivery refuses a completed feature when any normal closed implementation task lacks reachable `Beads: <id>`
+  evidence. A task explicitly closed as requiring no repository change is accepted through its native close reason.
+  History rewrites remain valid because the audit searches current reachable commits rather than storing commit hashes.
+- A task that intentionally changes no repository content must use an explicit no-repository-change option and a
+  non-empty reason. The reason and its no-change classification are stored only through the native Beads close reason;
+  the old ambiguous bypass is removed.
+- Feature skills pass their selected root explicitly. Automatic selection works only from the matching feature worktree,
+  and ambiguous or unrelated contexts fail instead of silently acting on another feature.
+- Repeated planning or initialization of a normal planned Beads epic with the same feature identity reuses one planned
+  source, preserves native external dependencies, and creates at most one current workflow molecule.
+- Every feature design uses the mdBook path `docs/src/features/<slug>/design.md`; nonconforming explicit paths fail.
+- Documentation checks reject dStack lifecycle bookkeeping while allowing ordinary domain language such as a document
+  describing a blocked request.
+- Delivery inspection reports the actual target branch ref. It never presents the candidate worktree as the target
+  merely because the target branch has no checked-out worktree; merge operations fail closed when a writable target
   worktree is unavailable.
 
 ## Non-goals
@@ -106,11 +96,9 @@ transition after branch/worktree creation succeeds. Existing current molecules a
 
 ### Design paths and documentation policy
 
-Resolve paths in this order: an explicit path from the planned source or
-command, an existing matching directory under `docs/src/features`, an
-existing matching directory under `docs/features`, then the default
-`docs/features/<slug>/design.md`. Validate every resolved path as a
-repository-relative file without parent traversal or symlink escape.
+Resolve every new feature design to `docs/src/features/<slug>/design.md`. Reject a command-supplied path that does not
+match this mdBook convention. Validate the resolved path as a repository-relative file without parent traversal or
+symlink escape.
 
 The documentation guard examines changed documentation lines for structured dStack bookkeeping such as lifecycle status
 fields, Beads/gate identity, branch/worktree or commit records, and next-command instructions. It does not reject
@@ -138,39 +126,32 @@ other callers receive deterministic nonzero failures rather than a silently chan
 - A competing owner cannot claim or finish a task; the current owner may repeat the claim safely. Beads remains the
   authority for the race boundary.
 - A malformed or empty no-change reason is rejected before Beads is changed.
-- Path resolution rejects absolute paths, parent traversal, and symlink escapes.
-  The controller does not execute content from a selected design file.
-- The controller never writes Git hashes or transient lifecycle data to Beads.
-  It preserves native Beads errors and JSON-envelope behavior for callers.
-- Existing repositories using either supported documentation layout continue to
-  resolve their design files; explicit metadata paths remain compatible.
+- Path resolution rejects absolute paths, parent traversal, and symlink escapes. The controller does not execute content
+  from a selected design file.
+- The controller never writes Git hashes or transient lifecycle data to Beads. It preserves native Beads errors and
+  JSON-envelope behavior for callers.
+- Repositories migrate feature designs and stable metadata to the mdBook path; new nonconforming explicit paths fail
+  before Beads mutation.
 
 ## Validation strategy
 
-- Add behavior-first fake-Beads tests for design drift at each listed boundary,
-  same-owner and competing-owner claims, finish ownership enforcement,
-  rewritten and missing footer evidence, unknown footer rejection, explicit
-  no-change reasons and delivery exemption, selector passing and
-  wrong-worktree rejection, planned
-  source reuse/dependency preservation, and target-ref reporting.
-- Add tests using both documentation layouts and a domain document containing
-  legitimate `blocked`/`review` vocabulary. Cover explicit, default, invalid,
-  and symlink-escaping design paths.
-- Exercise the supported real `bd` binary in JSON-envelope mode for native
-  claims, gates, dependencies, fan-in, and delivery behavior when available.
-- Run focused controller tests, the full repository suite, `git diff --check`,
-  Python compilation, and the repository's existing setup/formula checks. Do
-  not add a coverage-percentage gate.
+- Add behavior-first fake-Beads tests for design drift at each listed boundary, same-owner and competing-owner claims,
+  finish ownership enforcement, rewritten and missing footer evidence, unknown footer rejection, explicit no-change
+  reasons and delivery exemption, selector passing and wrong-worktree rejection, planned source reuse/dependency
+  preservation, and target-ref reporting.
+- Add tests for the required mdBook feature path and a domain document containing legitimate `blocked`/`review`
+  vocabulary. Cover invalid and symlink-escaping design paths.
+- Exercise the supported real `bd` binary in JSON-envelope mode for native claims, gates, dependencies, fan-in, and
+  delivery behavior when available.
+- Run focused controller tests, the full repository suite, `git diff --check`, Python compilation, and the repository's
+  existing setup/formula checks. Do not add a coverage-percentage gate.
 
 ## Documentation impact
 
-- **End user/operator:** document only the observable selector, no-change
-  completion, design-drift, and delivery failure behavior in existing workflow
-  reference material; no separate workflow-state document is needed.
-- **Developer/reviewer:** update the controller/skill guidance and tests to
-  make native ownership, digest checks, evidence, target identity, and generic
-  documentation layouts durable maintenance constraints.
-- **Future agent/auditor:** preserve the feature design, Beads acceptance
-  criteria, rewrite-safe footer audit, and regression tests as the durable
-  evidence of why each fail-closed boundary exists; no agent-only instructions
-  or state file is required.
+- **End user/operator:** document only the observable selector, no-change completion, design-drift, and delivery failure
+  behavior in existing workflow reference material; no separate workflow-state document is needed.
+- **Developer/reviewer:** update the controller/skill guidance and tests to make native ownership, digest checks,
+  evidence, target identity, and the mdBook documentation layout durable maintenance constraints.
+- **Future agent/auditor:** preserve the feature design, Beads acceptance criteria, rewrite-safe footer audit, and
+  regression tests as the durable evidence of why each fail-closed boundary exists; no agent-only instructions or state
+  file is required.

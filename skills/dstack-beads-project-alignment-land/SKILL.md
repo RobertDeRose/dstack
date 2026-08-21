@@ -14,5 +14,6 @@ Input includes the audit selector and `ready`, `pr`, or `merge` mode.
 4. Use the same `delivery inspect/pr-preflight/register-pr/finalize-pr/merge`
    controller as feature delivery.
 
-No post-delivery Git mutation or bookkeeping commit is allowed. Close the audit
-root only after actual delivery.
+During normal delivery, Beads finalization must not mutate the delivered Git state or create bookkeeping commits.
+Explicit user-authorized recovery after a failed or incorrect delivery is a separate native Git operation. Close the
+audit root only after actual delivery.
