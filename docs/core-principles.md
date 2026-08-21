@@ -137,8 +137,10 @@ Forbidden transient workflow content includes:
 - agent ownership or the next dStack command.
 
 A planned-to-implemented documentation change belongs in the feature candidate
-before delivery. After delivery, dStack may change Beads state only; it may not
-create a Git bookkeeping commit.
+before delivery. During normal delivery, dStack may change Beads state after the
+Git update but may not mutate Git or create a bookkeeping commit. Explicit
+user-authorized Git recovery after a failed or incorrect delivery is a separate
+operation, not another lifecycle state.
 
 ## Comments are for irreducible evidence
 

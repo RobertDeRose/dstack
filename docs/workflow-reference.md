@@ -50,7 +50,11 @@ closed.
 - `merge`: perform a clean fast-forward-only delivery and close the root.
 - a later `pr` invocation checks the gate and closes the root after merge.
 
-No post-delivery Git commit is permitted.
+Normal delivery snapshots tracked Git state around Beads finalization and fails
+if finalization changes HEAD or tracked status. It never creates a post-delivery
+bookkeeping commit. If a failed or incorrect delivery needs rollback, reset,
+repair, correction, or history rewrite, the user must authorize that separate
+native Git operation; it is not a dStack recovery lifecycle.
 
 ## Validation layers
 
