@@ -309,6 +309,52 @@ def test_delivery_merge_checks_post_delivery_git_invariant(
     beads.assert_exhausted()
 
 
+@pytest.mark.parametrize(
+    ("after_head", "after_status"),
+    [("mutated-head", ""), ("candidate-head", " M tracked.md")],
+)
+def test_delivery_merge_rejects_git_mutation_during_finalization(
+    monkeypatch, tmp_path: Path, after_head: str, after_status: str
+) -> None:
+    target = tmp_path / "target"
+    candidate = tmp_path / "candidate"
+    target.mkdir()
+    candidate.mkdir()
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "close",
+            "feature-1",
+            "Delivered by fast-forward merge",
+            result={"id": "feature-1", "status": "closed"},
+        ),
+    )
+    observed = payload(
+        root={"id": "feature-1"},
+        target_worktree=str(target),
+        candidate_worktree=str(candidate),
+        candidate_branch="feat/feature",
+        candidate_head="candidate-head",
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_tracked", lambda path: None)
+    heads = iter(["target-head", "candidate-head", after_head])
+    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
+    statuses = iter(["", after_status])
+
+    def run(command, **kwargs):
+        output = next(statuses) if command[1:3] == ["status", "--short"] else ""
+        return CommandResult(0, output, "")
+
+    monkeypatch.setattr(dstack_delivery, "run", run)
+    with pytest.raises(DstackError, match="Beads finalization changed tracked Git state"):
+        dstack_delivery.cmd_delivery_merge(
+            argparse.Namespace(root=tmp_path, selector="feature-1")
+        )
+    beads.assert_exhausted()
+
+
 def test_finalize_pr_waits_without_closing_root(monkeypatch, tmp_path: Path) -> None:
     gate = {"id": "gate-1", "status": "open", "await_type": "gh:pr"}
     beads = ScriptedClient(
@@ -336,4 +382,67 @@ def test_finalize_pr_waits_without_closing_root(monkeypatch, tmp_path: Path) -> 
     monkeypatch.setattr(dstack_delivery, "emit", outputs.append)
     assert dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1")) == 2
     assert outputs == [{"status": "waiting", "root": "feature-1", "gate": gate}]
+    beads.assert_exhausted()
+
+
+@pytest.mark.parametrize(
+    ("after_head", "after_status"),
+    [("mutated-head", ""), ("target-head", " M tracked.md")],
+)
+def test_finalize_pr_rejects_git_mutation_during_finalization(
+    monkeypatch, tmp_path: Path, after_head: str, after_status: str
+) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    gate = {
+        "id": "gate-1",
+        "status": "closed",
+        "await_type": "gh:pr",
+    }
+    root = {
+        "id": "feature-1",
+        "dependencies": [{"depends_on_id": "gate-1", "type": "blocks"}],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("gate_check", result=[gate]),
+        call("show", "feature-1", result=root),
+        call("gates", all_statuses=True, result=[gate]),
+        call("show", "gate-1", result=gate),
+        call(
+            "close",
+            "feature-1",
+            "Delivered through merged pull request",
+            result={"id": "feature-1", "status": "closed"},
+        ),
+    )
+    observed = payload(
+        root=root,
+        target_branch="main",
+        candidate_head="candidate-head",
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "worktree_for_branch",
+        lambda *args: target,
+    )
+    heads = iter(["target-head", after_head])
+    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
+    statuses = iter(["", after_status])
+
+    def run(command, **kwargs):
+        output = next(statuses) if command[1:3] == ["status", "--short"] else ""
+        return CommandResult(0, output, "")
+
+    monkeypatch.setattr(dstack_delivery, "run", run)
+    with pytest.raises(
+        DstackError,
+        match="Beads finalization changed tracked Git state after PR delivery",
+    ):
+        dstack_delivery.cmd_delivery_finalize_pr(
+            argparse.Namespace(root=tmp_path, selector="feature-1")
+        )
     beads.assert_exhausted()

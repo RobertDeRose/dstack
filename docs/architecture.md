@@ -171,5 +171,9 @@ Before delivery, all durable code/docs changes are already in the candidate.
 After delivery starts, Beads may be finalized but Git may not change.
 
 `dstackctl delivery` snapshots the target HEAD and tracked status, performs the
-native delivery/finalization operations, and rejects any post-delivery Git
-mutation.
+native delivery/finalization operations, and rejects any Git mutation caused by
+Beads finalization. It never creates a post-delivery bookkeeping commit.
+
+This invariant governs normal delivery. An explicit user-authorized rollback,
+reset, repair, correction, or history rewrite after a failed or incorrect
+delivery is a separate native Git operation, not a dStack recovery lifecycle.
