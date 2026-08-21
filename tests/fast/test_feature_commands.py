@@ -76,6 +76,22 @@ def test_resolve_and_inspect_emit_observed_state(monkeypatch, tmp_path: Path) ->
     assert output[1]["steps"]["implementation"]["id"] == "implementation-1"
 
 
+@pytest.mark.parametrize(
+    ("feature_directory", "expected"),
+    [
+        ("docs/src/features", "docs/src/features/feature/design.md"),
+        ("docs/features", "docs/features/feature/design.md"),
+        (None, "docs/features/feature/design.md"),
+    ],
+)
+def test_default_design_path_uses_repository_convention(
+    tmp_path: Path, feature_directory: str | None, expected: str
+) -> None:
+    if feature_directory:
+        (tmp_path / feature_directory).mkdir(parents=True)
+    assert dstack_feature.default_design_path(tmp_path, "feature") == expected
+
+
 def test_initialize_pours_formula_and_records_only_stable_identity(
     monkeypatch, tmp_path: Path
 ) -> None:

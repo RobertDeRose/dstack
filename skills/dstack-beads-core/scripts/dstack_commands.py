@@ -96,7 +96,9 @@ BEADS_SENSITIVE_BASENAMES = {
     "credential-key",
 }
 FORBIDDEN_DOC_PATTERNS = (
-    re.compile(r"(?i)^\s*[-*]?\s*status:\s*(in[- ]?progress|delivery[- ]?ready|blocked|review[- ]?active|completed)\b"),
+    re.compile(
+        r"(?i)^\s*[-*]?\s*dstack(?:\s+workflow)?\s+status:\s*(in[- ]?progress|delivery[- ]?ready|blocked|review[- ]?active|completed)\b"
+    ),
     re.compile(r"(?i)^\s*[-*]?\s*beads?\s+(root|id|task):"),
     re.compile(
         r"(?i)^\s*[-*]?\s*(gate id|feature branch|worktree|candidate commit|"

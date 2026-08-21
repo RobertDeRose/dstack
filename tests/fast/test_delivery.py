@@ -73,18 +73,41 @@ def test_validate_pr_copy_rejects_docs_title_for_code(tmp_path: Path) -> None:
         validate_pr_copy(payload(), title="docs: update", body_file=body)
 
 
-def test_docs_check_accepts_durable_docs(git_repo: Path) -> None:
+@pytest.mark.parametrize("status", ["blocked", "completed", "implemented"])
+def test_docs_check_accepts_domain_status(git_repo: Path, status: str) -> None:
     docs = git_repo / "docs.md"
-    docs.write_text("Status: implemented\n\nThis is durable product behavior.\n")
+    docs.write_text(f"Status: {status}\n\nThis is durable product behavior.\n")
     subprocess.run(["git", "add", "docs.md"], cwd=git_repo, check=True)
     subprocess.run(["git", "commit", "-qm", "docs"], cwd=git_repo, check=True)
     result = docs_check(git_repo, "HEAD~1", "HEAD")
     assert result["status"] == "ok"
 
 
-def test_git_commit_amend_and_evidence_commands_use_real_git(
-    git_repo: Path, monkeypatch
-) -> None:
+@pytest.mark.parametrize(
+    "bookkeeping",
+    [
+        "dStack Status: blocked",
+        "- dStack Workflow Status: review-active",
+        "Beads task: task-1",
+        "Gate ID: gate-1",
+        "Candidate commit: abc123",
+        "Reviewed commit: def456",
+        "Delivery commit: fed789",
+        "Feature branch: feat/example",
+        "Worktree: /tmp/example",
+        "Next command: /implement-feature example",
+    ],
+)
+def test_docs_check_rejects_structured_dstack_bookkeeping(git_repo: Path, bookkeeping: str) -> None:
+    docs = git_repo / "docs.md"
+    docs.write_text(f"{bookkeeping}\n")
+    subprocess.run(["git", "add", "docs.md"], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "docs"], cwd=git_repo, check=True)
+    result = docs_check(git_repo, "HEAD~1", "HEAD")
+    assert result["status"] == "violations"
+
+
+def test_git_commit_amend_and_evidence_commands_use_real_git(git_repo: Path, monkeypatch) -> None:
     outputs = []
     monkeypatch.setattr(dstack_delivery, "emit", outputs.append)
     change = git_repo / "change.py"

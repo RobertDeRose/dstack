@@ -117,7 +117,7 @@ def is_planned_legacy_feature(issue: Mapping[str, Any]) -> bool:
 
 def default_design_path(root: Path, slug: str) -> str:
     for prefix in ("docs/src/features", "docs/features"):
-        if (root / prefix / slug).is_dir():
+        if (root / prefix).is_dir():
             return f"{prefix}/{slug}/design.md"
     return f"docs/features/{slug}/design.md"
 
