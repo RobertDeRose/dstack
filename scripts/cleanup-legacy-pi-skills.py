@@ -16,6 +16,7 @@ LEGACY_NAMES = (
     "implement-feature",
     "implement-task",
     "migrate-workflow",
+    "plan-feature",
     "plan-features",
     "project-alignment-execute",
     "project-alignment-land",

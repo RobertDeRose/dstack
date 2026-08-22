@@ -5,9 +5,8 @@ description: "Reconcile a completed feature and deliver it safely without post-d
 
 # Close feature
 
-Pass the selected root explicitly after `/start-feature`; omission is safe only
-from its registered feature worktree. Input mode is `ready` (default), `pr`, or
-`merge`.
+Pass the selected authorized feature root explicitly; omission is safe only from its registered feature worktree. Input
+mode is `ready` (default), `pr`, or `merge`.
 
 ## Closeout
 

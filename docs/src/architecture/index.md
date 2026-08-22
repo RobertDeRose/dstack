@@ -25,9 +25,10 @@ workflow ledger.
 
 ### Beads
 
-Beads owns formulas, poured molecules, tasks, parent/child structure,
-dependencies, gates, claims, readiness, completion, TODOs, decisions, and
-pending validation. dStack never calculates its own ready frontier.
+Beads owns planned feature intent, formulas, poured molecules, tasks,
+parent/child structure, dependencies, gates, claims, readiness, completion,
+TODOs, decisions, and pending validation. dStack never calculates its own ready
+frontier.
 
 ### Git
 
@@ -43,9 +44,10 @@ every `.beads/` file as runtime state.
 
 ### Repository documentation
 
-Documentation is the durable description of product behavior and design. It is
-used by people and agents to detect drift between intent and implementation. It
-is not an execution dashboard.
+Documentation is the durable accepted product and architecture specification and description of product behavior. It is
+materialized during repository-aware review and used by people and agents to detect drift between intent and
+implementation. Unreviewed planned feature intent remains in Beads, so abandoned ideas create no Git artifacts.
+Documentation is not an execution dashboard.
 
 ### `dstackctl`
 
@@ -95,6 +97,10 @@ Skills are short policy and judgment guides. They tell the agent:
 Exact shell choreography belongs in `dstackctl --help` and tests, not repeated across skills.
 
 ## Minimal feature molecule
+
+Before a molecule exists, `/plan-feature` preserves complete planned intent in a normal Beads feature epic without
+changing Git. `/review-feature-spec` consumes that intent, materializes the canonical design and stable molecule, and
+obtains human authorization.
 
 ```text
 specification task

@@ -40,9 +40,9 @@ remapping.
 
 ```text
 /setup-project [--force]
-/plan-features
+/plan-feature [id|slug|title|request]
+/plan-features [deprecated alias]
 /adopt-feature <legacy-feature>
-/start-feature [id|slug|title]
 /review-feature-spec [feature]
 /implement-feature [feature] [task|--all]
 /close-feature [feature] [ready|pr|merge]
@@ -52,8 +52,15 @@ remapping.
 /project-alignment-land <audit> [ready|pr|merge]
 ```
 
-`/start-feature` makes its resolved feature the conversational default for the
-next feature commands. No dStack state file is created.
+The four feature stages follow the decisions being made:
+
+- `/plan-feature` discovers what to build and why, then preserves complete planned intent in Beads without changing Git.
+- `/review-feature-spec` materializes that intent as the canonical design, reconciles it with the repository, builds the
+  implementation graph, and asks for authorization.
+- `/implement-feature` implements only authorized outcomes.
+- `/close-feature` reconciles intent, implementation, tests, documentation, and delivery.
+
+`/plan-features` is a deprecated thin alias to `/plan-feature`; it has no separate behavior.
 
 ## Minimal feature workflow
 

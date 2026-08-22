@@ -121,6 +121,7 @@ def test_docs_check_accepts_domain_status(git_repo: Path, status: str) -> None:
         "Delivery commit: fed789",
         "Feature branch: feat/example",
         "Worktree: /tmp/example",
+        "Next command: /plan-feature example",
         "Next command: /implement-feature example",
     ],
 )
