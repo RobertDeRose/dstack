@@ -1,8 +1,6 @@
 ---
-description: "Deprecated alias for /plan-feature"
+description: "Discover and preserve complete planned feature intent in Beads"
 ---
-
-Deprecated: use `/plan-feature`.
 
 Load and follow the `dstack-beads-plan-feature` skill.
 

@@ -30,6 +30,49 @@ def test_all_skill_and_prompt_frontmatter_parses() -> None:
         assert isinstance(yaml.safe_load(frontmatter), dict)
 
 
+def test_feature_planning_is_one_lossless_beads_only_methodology() -> None:
+    prompt = (ROOT / "prompts/plan-feature.md").read_text()
+    alias = (ROOT / "prompts/plan-features.md").read_text()
+    skill = (ROOT / "skills/dstack-beads-plan-feature/SKILL.md").read_text()
+
+    assert "dstack-beads-plan-feature" in prompt
+    assert "dstack-beads-plan-feature" in alias
+    assert "deprecated" in alias.casefold()
+    assert not (ROOT / "skills/dstack-beads-plan-features").exists()
+
+    compact = " ".join(skill.split())
+    for phrase in (
+        "relevant repository context",
+        "consequential ambiguity",
+        "alternatives",
+        "Decisions and rationale",
+        "Failure and compatibility expectations",
+        "Documentation expectations",
+        "Deferred questions",
+        "bd create",
+        "bd update",
+        "--title",
+        "--body-file",
+        "--acceptance",
+        "--priority",
+        "bd show",
+        "bd dep add",
+        "bd dep remove",
+        "open planned feature",
+        "current molecule",
+        "stable",
+        "/review-feature-spec",
+    ):
+        assert phrase in compact
+    for forbidden in (
+        "feature initialize",
+        "scaffold-design",
+        "add-task",
+        "git commit",
+    ):
+        assert forbidden not in compact
+
+
 def test_mdbook_documentation_layout() -> None:
     docs = ROOT / "docs"
     source = docs / "src"
