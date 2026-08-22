@@ -73,6 +73,33 @@ def test_feature_planning_is_one_lossless_beads_only_methodology() -> None:
         assert forbidden not in compact
 
 
+def test_review_materializes_and_authorizes_repository_aware_specification() -> None:
+    review = " ".join((ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md").read_text().split())
+
+    for phrase in (
+        "feature initialize",
+        "feature scaffold-design",
+        "feature claim-spec",
+        "feature inspect",
+        "canonical design",
+        "architecture, source, tests",
+        "observable outcomes",
+        "feature add-task",
+        "native `bd update`",
+        "native `bd dep add`",
+        "explicit human authorization",
+        "invocation itself is not authorization",
+        "feature approve-spec",
+        "already initialized",
+    ):
+        assert phrase in review
+    assert review.index("feature initialize") < review.index("feature claim-spec")
+    assert review.index("feature claim-spec") < review.index("feature scaffold-design")
+    assert review.index("feature scaffold-design") < review.index("feature inspect")
+    assert review.index("feature inspect") < review.index("explicit human authorization")
+    assert review.index("explicit human authorization") < review.index("feature approve-spec")
+
+
 def test_mdbook_documentation_layout() -> None:
     docs = ROOT / "docs"
     source = docs / "src"
