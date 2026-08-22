@@ -6,24 +6,32 @@ unrelated ready work or progress.
 
 ## Feature lifecycle
 
-### `/start-feature [id|slug|title]`
+### `/plan-feature [id|slug|title|request]`
 
-`dstackctl feature initialize` resolves an existing current feature or pours one
-new molecule and creates/reuses its conventional worktree. The agent writes the
-design and decides task decomposition. `feature scaffold-design` also adds the
-design to the mdBook summary and feature index. `dstackctl feature add-task`
-performs the mechanical task creation.
+The agent inspects relevant product and repository context, identifies consequential ambiguity, asks focused questions,
+and explores material alternatives. It creates or updates one open planned feature Bead whose structured description
+preserves the outcome and why, requirements, decisions and rationale, alternatives, non-goals, observable acceptance,
+failure and compatibility expectations, documentation expectations, dependencies, and deferred questions.
 
-No Git commit is required. No roadmap execution status is changed. Every feature
-design uses `docs/src/features/<slug>/design.md`, the mdBook feature directory.
+Planning changes Beads only. It does not pour a molecule, create a branch or worktree, write a design file, create
+implementation tasks, or change Git. `/plan-features` is a deprecated thin alias with no separate behavior.
 
 ### `/review-feature-spec [feature]`
 
-The controller claims the specification step. The agent reviews design intent,
-implementation boundaries, tasks, dependencies, documentation impact, and
-validation. It commits only actual repository changes using the specification
-Bead footer. Approval records the design-content digest, resolves the human
-gate, and closes the approval milestone idempotently.
+The controller resolves planned intent or an existing current molecule, then
+idempotently pours or reuses the stable workflow and conventional worktree. It
+claims specification ownership and scaffolds the canonical
+`docs/src/features/<slug>/design.md` only when absent.
+
+The agent reconciles the complete planned intent with current architecture,
+source, tests, durable docs, dependencies, and related work. It resolves holes
+and collisions, refines the canonical design, and creates or updates bounded
+implementation outcomes with observable acceptance and real native
+dependencies. It commits only actual repository changes using the specification
+Bead footer, reviews the complete design and graph, and asks for explicit human
+authorization. Invocation alone is not approval. After authorization, the
+controller records the design-content digest, resolves the human gate, and
+closes the approval milestone idempotently.
 
 ### `/implement-feature [feature] [task|--all]`
 

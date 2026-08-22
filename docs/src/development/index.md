@@ -81,9 +81,9 @@ tools.
 
 | Concern | Authority |
 |---|---|
-| Work, dependencies, gates, ready/blocked/closed state | Beads |
+| Work, planned feature intent, dependencies, gates, ready/blocked/closed state | Beads |
 | Code, tests, configuration, durable docs, commit history | Git |
-| Product and architecture intent | Repository documentation |
+| Accepted product and architecture specification | Repository documentation |
 | Mechanical orchestration | Stateless `dstackctl` commands |
 | Engineering judgment and user interaction | Pi skills/agent |
 
@@ -110,8 +110,9 @@ still required, and accepted risk. It must not become a duplicate Git log.
 
 ## Documentation is not workflow state
 
-Documentation explains what is planned or implemented, why it exists, how it
-works, and which stable design constraints apply.
+Documentation explains accepted product and architecture intent, what is planned or implemented, why it exists, how it
+works, and which stable design constraints apply. Before specification review, sufficiently lossless planned feature
+intent belongs to the feature Bead and creates no repository artifact.
 
 Allowed durable product classifications include:
 

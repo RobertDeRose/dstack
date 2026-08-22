@@ -106,7 +106,7 @@ FORBIDDEN_DOC_PATTERNS = (
     ),
     re.compile(
         r"(?i)^\s*[-*]?\s*(next command|next action|resume with|suggested command):"
-        r"\s*/(start-feature|review-feature-spec|implement-feature|close-feature)\b"
+        r"\s*/(plan-features?|start-feature|review-feature-spec|implement-feature|close-feature)\b"
     ),
 )
 DURABLE_STATUS_PATTERN = re.compile(

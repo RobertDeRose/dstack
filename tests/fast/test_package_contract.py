@@ -153,7 +153,7 @@ def test_active_instructions_preserve_explicit_delivery_recovery() -> None:
 
 def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
     principles = (ROOT / "docs/src/development/index.md").read_text()
-    start = (ROOT / "skills/dstack-beads-start-feature/SKILL.md").read_text()
+    plan = (ROOT / "skills/dstack-beads-plan-feature/SKILL.md").read_text()
     review = (ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md").read_text()
     implement = (ROOT / "skills/dstack-beads-implement-feature/SKILL.md").read_text()
     close = (ROOT / "skills/dstack-beads-close-feature/SKILL.md").read_text()
@@ -169,8 +169,8 @@ def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
         "coverage-percentage gate",
     ):
         assert phrase in principles
-    for phrase in ("scaffold-design", "observable outcomes", "Documentation impact"):
-        assert phrase in " ".join(start.split())
+    for phrase in ("outcome and why", "observable success", "documentation expectations"):
+        assert phrase in " ".join(plan.split())
     for phrase in ("happy path", "failure recovery", "Documentation impact"):
         assert phrase in " ".join(review.split())
     for phrase in ("externally meaningful behavior", "failure handling", "Documentation impact"):
@@ -179,13 +179,48 @@ def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
         assert phrase in " ".join(close.split())
 
 
+def test_public_feature_lifecycle_has_no_start_methodology() -> None:
+    assert not (ROOT / "prompts/start-feature.md").exists()
+    assert not (ROOT / "skills/dstack-beads-start-feature").exists()
+
+    for path in (ROOT / "README.md", ROOT / "docs/src/development/feature-lifecycle.md"):
+        text = path.read_text()
+        for command in (
+            "/plan-feature",
+            "/review-feature-spec",
+            "/implement-feature",
+            "/close-feature",
+        ):
+            assert command in text
+        assert "/start-feature" not in text
+
+    for path in (
+        ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md",
+        ROOT / "skills/dstack-beads-implement-feature/SKILL.md",
+        ROOT / "skills/dstack-beads-close-feature/SKILL.md",
+    ):
+        assert "/start-feature" not in path.read_text()
+
+    cleanup = (ROOT / "scripts/cleanup-legacy-pi-skills.py").read_text()
+    assert '"start-feature"' in cleanup
+    assert '"plan-feature"' in cleanup
+
+    cli = (ROOT / "skills/dstack-beads-core/scripts/dstack_cli.py").read_text()
+    for operation in ("initialize", "scaffold-design", "add-task"):
+        assert f'feature_sub, "{operation}"' in cli
+
+    authority = " ".join(
+        (
+            (ROOT / "docs/src/development/index.md").read_text() + (ROOT / "docs/src/architecture/index.md").read_text()
+        ).split()
+    )
+    assert "planned feature intent" in authority
+    assert "accepted product and architecture" in authority
+
+
 def test_feature_execution_stops_and_validation_fail_closed() -> None:
-    implement = " ".join(
-        (ROOT / "skills/dstack-beads-implement-feature/SKILL.md").read_text().split()
-    )
-    close = " ".join(
-        (ROOT / "skills/dstack-beads-close-feature/SKILL.md").read_text().split()
-    )
+    implement = " ".join((ROOT / "skills/dstack-beads-implement-feature/SKILL.md").read_text().split())
+    close = " ".join((ROOT / "skills/dstack-beads-close-feature/SKILL.md").read_text().split())
 
     for phrase in (
         "Review the complete candidate diff",
@@ -222,7 +257,6 @@ def test_feature_execution_stops_and_validation_fail_closed() -> None:
 
 def test_feature_lifecycle_skills_pass_explicit_feature_context() -> None:
     skill_paths = [
-        ROOT / "skills/dstack-beads-start-feature/SKILL.md",
         ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md",
         ROOT / "skills/dstack-beads-implement-feature/SKILL.md",
         ROOT / "skills/dstack-beads-close-feature/SKILL.md",

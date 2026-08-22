@@ -5,9 +5,8 @@ description: "Claim native ready feature work, implement it, and complete it wit
 
 # Implement feature
 
-Pass the selected root explicitly after `/start-feature`; omission is safe only
-from its registered feature worktree. Accept an optional task ID or `--all`;
-default to one task.
+Pass the selected authorized feature root explicitly; omission is safe only from its registered feature worktree. Accept
+an optional task ID or `--all`; default to one task.
 
 For each task:
 

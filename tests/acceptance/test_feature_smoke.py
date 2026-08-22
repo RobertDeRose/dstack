@@ -3,7 +3,15 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from conftest import run_ctl, run_json
+from conftest import run_command, run_ctl, run_json
+
+
+def items(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict) and isinstance(payload.get("issues"), list):
+        return payload["issues"]
+    return [payload] if isinstance(payload, dict) and payload.get("id") else []
 
 
 def dependency_ids(issue: dict, relation: str = "blocks") -> set[str]:
@@ -19,9 +27,129 @@ def resolved_id(repo: Path, selector: str) -> str:
 
 
 def test_feature_smoke_runs_shipped_lifecycle(acceptance_repo: Path) -> None:
-    created = run_ctl(
-        acceptance_repo, "feature", "initialize", "Acceptance smoke", "--base-branch", "main"
+    before = run_command(["git", "status", "--porcelain=v1", "--branch"], cwd=acceptance_repo).stdout
+    blocker_a = items(run_json(acceptance_repo, "create", "External blocker A", "--type", "epic"))[0]
+    blocker_b = items(run_json(acceptance_repo, "create", "External blocker B", "--type", "epic"))[0]
+    unrelated = items(run_json(acceptance_repo, "create", "Related planning context", "--type", "epic"))[0]
+    body_file = acceptance_repo.parent / "planned-feature.md"
+    initial_body = """# Goal
+
+Ship detailed smoke behavior without losing multiline intent.
+
+# Requirements
+
+- Preserve native Beads fields.
+- Keep the accepted four-stage workflow.
+
+# Dependencies
+
+External blocker A must ship first.
+"""
+    initial_acceptance = "Multiline planned intent survives materialization."
+    body_file.write_text(initial_body)
+    planned = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "--type",
+            "epic",
+            "--title",
+            "Acceptance smoke",
+            "--labels",
+            "dstack:feature-idea,feature:acceptance-smoke",
+            "--body-file",
+            str(body_file),
+            "--acceptance",
+            initial_acceptance,
+            "--priority",
+            "1",
+        )
+    )[0]
+    run_command(["bd", "dep", "add", planned["id"], blocker_a["id"]], cwd=acceptance_repo)
+    run_command(
+        [
+            "bd",
+            "dep",
+            "add",
+            planned["id"],
+            unrelated["id"],
+            "--type",
+            "tracks",
+        ],
+        cwd=acceptance_repo,
     )
+    planned = items(run_json(acceptance_repo, "show", planned["id"]))[0]
+    assert planned["description"] == initial_body
+    assert planned["acceptance_criteria"] == initial_acceptance
+    assert planned["priority"] == 1
+    assert dependency_ids(planned) == {blocker_a["id"]}
+    assert dependency_ids(planned, "tracks") == {unrelated["id"]}
+    for selector in (planned["id"], "acceptance-smoke", "Acceptance smoke"):
+        assert resolved_id(acceptance_repo, selector) == planned["id"]
+
+    revised_body = """# Goal
+
+Ship revised smoke behavior while retaining every durable planning decision.
+
+# Requirements
+
+- Preserve revised multiline native Beads intent.
+- Keep the accepted four-stage workflow.
+
+# Dependencies
+
+External blocker B replaces blocker A.
+"""
+    revised_acceptance = "Revised intent, priority, and blocker survive materialization."
+    revised_title = "Acceptance smoke revised"
+    body_file.write_text(revised_body)
+    run_json(
+        acceptance_repo,
+        "update",
+        planned["id"],
+        "--title",
+        revised_title,
+        "--body-file",
+        str(body_file),
+        "--acceptance",
+        revised_acceptance,
+        "--priority",
+        "3",
+    )
+    run_command(
+        ["bd", "dep", "remove", planned["id"], blocker_a["id"]],
+        cwd=acceptance_repo,
+    )
+    run_command(["bd", "dep", "add", planned["id"], blocker_b["id"]], cwd=acceptance_repo)
+    body_file.unlink()
+
+    planned = items(run_json(acceptance_repo, "show", planned["id"]))[0]
+    assert planned["title"] == revised_title
+    assert planned["description"] == revised_body
+    assert planned["acceptance_criteria"] == revised_acceptance
+    assert planned["priority"] == 3
+    assert dependency_ids(planned) == {blocker_b["id"]}
+    assert dependency_ids(planned, "tracks") == {unrelated["id"]}
+    for selector in (planned["id"], "acceptance-smoke", revised_title):
+        assert resolved_id(acceptance_repo, selector) == planned["id"]
+    assert (
+        len(
+            [
+                issue
+                for issue in items(run_json(acceptance_repo, "list", "--all"))
+                if "dstack:feature-idea" in issue.get("labels", [])
+            ]
+        )
+        == 1
+    )
+    assert run_command(["git", "status", "--porcelain=v1", "--branch"], cwd=acceptance_repo).stdout == before
+
+    created = run_ctl(acceptance_repo, "feature", "initialize", planned["id"], "--base-branch", "main")
+    assert created["planned_source"] == planned["id"]
+    assert created["root"]["description"] == revised_body
+    assert created["root"]["acceptance_criteria"] == revised_acceptance
+    assert created["root"]["priority"] == 3
+    assert created["preserved_blockers"] == [blocker_b["id"]]
     root_id = created["root"]["id"]
     worktree = Path(created["worktree"])
     run_ctl(acceptance_repo, "feature", "claim-spec", root_id)
