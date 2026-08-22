@@ -131,11 +131,18 @@ def test_mdbook_documentation_layout() -> None:
     feature_index = (source / "features/index.md").read_text()
     for target in re.findall(r"\]\(([^)]+\.md)\)", summary):
         assert (source / target).is_file(), target
-    for design in (source / "features").glob("*/design.md"):
+    assert summary.count("- [Feature Records](features/index.md)") == 1
+    designs = list((source / "features").glob("*/design.md"))
+    for design in designs:
         summary_target = design.relative_to(source).as_posix()
-        index_target = design.relative_to(source / "features").as_posix()
         assert f"]({summary_target})" in summary
-        assert f"]({index_target})" in feature_index
+        if design.parent.name == "canonical-mdbook-documentation-system":
+            assert f"]({design.relative_to(source / 'features').as_posix()})" in feature_index
+            continue
+        implementation = design.with_name("index.md")
+        assert implementation.is_file()
+        assert f"]({implementation.relative_to(source).as_posix()})" in summary
+        assert f"]({implementation.relative_to(source / 'features').as_posix()})" in feature_index
 
 
 def test_core_principles_and_architecture_are_first_class_docs() -> None:
@@ -265,6 +272,8 @@ def test_feature_execution_stops_and_validation_fail_closed() -> None:
     assert "Do not run `feature finish-workstream`" in implement
     assert "those require a separate user command" in implement
     assert "feature finish-workstream" in close
+    assert "feature scaffold-reconciliation" in close
+    assert "docs validate" in close
     assert "full/release validation" in close
     assert "stop before `feature finish-closeout` or delivery" in close
 

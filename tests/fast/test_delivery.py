@@ -29,6 +29,7 @@ def payload(**overrides):
         "target_is_ancestor": True,
         "merge_commits": [],
         "docs": {"status": "ok"},
+        "documentation": {"status": "ok"},
         "remote_target_head": "target",
         "remote_matches_local": True,
     }
@@ -59,6 +60,7 @@ def test_commit_message_rejects_user_footer(tmp_path: Path) -> None:
         {"target_is_ancestor": False},
         {"merge_commits": ["merge"]},
         {"docs": {"status": "violations"}},
+        {"documentation": {"status": "error"}},
     ],
 )
 def test_validate_delivery_rejects_safety_boundary(bad: dict) -> None:

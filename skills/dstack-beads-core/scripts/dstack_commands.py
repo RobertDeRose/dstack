@@ -114,21 +114,66 @@ DURABLE_STATUS_PATTERN = re.compile(
 )
 DESIGN_SCAFFOLD = """# Feature design
 
-## Goal
+## Feature summary
 
-## User-visible behavior
+## User intent
+
+## Goals
 
 ## Non-goals
 
+## User-visible behavior
+
+## Requirements
+
 ## Existing patterns and reuse
 
-## Design
+## Proposed design
 
-## Failure / security / compatibility behavior
+## Architecture consistency
+
+## Interfaces and data flow
+
+## Failure behavior
+
+## Security implications
+
+## Compatibility and migration implications
 
 ## Validation strategy
 
 ## Documentation impact
+
+## Risks and tradeoffs
+
+## Rejected alternatives
+
+## Open or intentionally deferred decisions
+"""
+
+RECONCILIATION_SCAFFOLD = """# {title}
+
+[Design record](design.md)
+
+## Delivered capability
+
+## User-visible behavior
+
+## Architecture integration
+
+## Design reconciliation
+
+### Delivered as designed
+
+### Intentional differences
+
+### Deferred scope
+
+### Removed or rejected scope
+
+## Documentation
+
+## Validation and limitations
 """
 
 NO_REPOSITORY_CHANGE_PREFIX = "no-repository-change: "

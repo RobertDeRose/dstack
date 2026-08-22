@@ -85,9 +85,9 @@ Docs may say a feature is `planned`, `implemented`, or `deprecated`, and must ex
 must not contain `in-progress`, `delivery-ready`, Beads/gate IDs, branch names, commit hashes, agent ownership, or
 next-command bookkeeping.
 
-Any durable planned-to-implemented update belongs in the feature candidate. A
-successful merge/PR finalizer changes Beads only and is forbidden from creating
-a Git commit.
+Accepted feature intent remains in `design.md`; closeout reconciles delivered reality in `index.md` and updates
+authoritative current-product documentation. Any durable planned-to-implemented update belongs in the feature candidate.
+A successful merge/PR finalizer changes Beads only and is forbidden from creating a Git commit.
 
 ## Requirements
 

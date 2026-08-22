@@ -26,7 +26,8 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
     found = dict(leaves(dstack_cli.build_parser()))
     expected = {
         ("feature", command) for command in (
-            "resolve", "inspect", "initialize", "scaffold-design", "add-task",
+            "resolve", "inspect", "initialize", "scaffold-design",
+            "scaffold-reconciliation", "add-task",
             "claim-spec", "approve-spec", "claim-next", "finish-task",
             "finish-workstream", "claim-closeout", "finish-closeout",
         )
