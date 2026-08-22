@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -20,6 +21,23 @@ def test_package_version_and_resources() -> None:
     assert package["version"] == "0.4.3"
     assert package["pi"]["skills"] == ["./skills"]
     assert package["pi"]["prompts"] == ["./prompts"]
+
+
+def test_mdbook_is_pinned_and_validated_in_ci() -> None:
+    mise = tomllib.loads((ROOT / "mise.toml").read_text())
+    assert mise["tools"]["aqua:rust-lang/mdBook"] == "0.5.3"
+    workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+    assert "docs validate" in workflow
+    conventions = (ROOT / "docs/src/development/documentation.md").read_text()
+    for phrase in (
+        "Put documentation where a reader would look",
+        "End users and operators",
+        "Developers and reviewers",
+        "Future agents and auditors",
+        "SUMMARY.md",
+        "No separate agent",
+    ):
+        assert phrase in conventions
 
 
 def test_all_skill_and_prompt_frontmatter_parses() -> None:

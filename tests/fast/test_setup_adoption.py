@@ -74,6 +74,101 @@ def test_setup_without_authorization_refuses_to_initialize(tmp_path: Path) -> No
         setup.ensure_beads(tmp_path, initialize=False)
 
 
+def test_install_initializes_and_reports_canonical_documentation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Client:
+        def check_version(self):
+            return "bd 1.2.2"
+
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "ensure_beads", lambda *args, **kwargs: None)
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(setup, "validate_bundle", lambda source: None)
+    monkeypatch.setattr(setup, "ensure_interaction_log_policy", lambda root: {})
+    monkeypatch.setattr(setup, "copy_formula", lambda *args, **kwargs: "installed")
+    monkeypatch.setattr(setup, "validate_formula", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        setup,
+        "initialize_docs",
+        lambda root: {
+            "created_documentation": ["docs/book.toml"],
+            "documentation": {"status": "ok"},
+        },
+    )
+
+    result = setup.install(tmp_path, initialize=True, force=False)
+
+    assert result["created_documentation"] == ["docs/book.toml"]
+    assert result["documentation"] == {"status": "ok"}
+
+
+def test_forced_install_repairs_legacy_before_strict_documentation_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+
+    class Client:
+        def check_version(self):
+            return "bd 1.2.2"
+
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "ensure_beads", lambda *args, **kwargs: None)
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(setup, "validate_bundle", lambda source: None)
+    monkeypatch.setattr(
+        setup,
+        "require_mdbook",
+        lambda: events.append("require-mdbook") or "/usr/bin/mdbook",
+    )
+    monkeypatch.setattr(
+        setup,
+        "initialize_docs",
+        lambda root: pytest.fail("forced install validated documentation before repair"),
+    )
+    monkeypatch.setattr(
+        setup,
+        "copy_formula",
+        lambda *args, **kwargs: events.append("formula") or "installed",
+    )
+    monkeypatch.setattr(setup, "validate_formula", lambda *args, **kwargs: None)
+
+    def repair(root: Path, *, force: bool):
+        assert force is True
+        events.append("repair")
+        return {
+            "status": "ok",
+            "template_artifacts_removed": ["legacy-template"],
+            "molecule_items_normalized": ["feature-1"],
+            "missing_feature_reconciliations": ["docs/src/features/old/index.md"],
+            "created_documentation": ["docs/src/index.md"],
+            "documentation_migration": {
+                "configured_source_moves": [],
+                "referenced_content_moves": [],
+                "unresolved_outside_markdown": [],
+            },
+            "documentation": {"status": "ok"},
+            "interaction_log_untracked": True,
+            "beads_gitignore_changed": False,
+        }
+
+    monkeypatch.setattr(setup, "repair_legacy", repair)
+
+    result = setup.install(tmp_path, initialize=True, force=True)
+
+    assert events[0] == "require-mdbook"
+    assert events[-1] == "repair"
+    assert events.index("repair") > events.index("formula")
+    assert result["created_documentation"] == ["docs/src/index.md"]
+    assert result["documentation"] == {"status": "ok"}
+    assert result["template_artifacts_removed"] == ["legacy-template"]
+    assert result["molecule_items_normalized"] == ["feature-1"]
+    assert result["missing_feature_reconciliations"] == [
+        "docs/src/features/old/index.md"
+    ]
+    assert result["interaction_log_untracked"] is True
+
+
 def test_legacy_repair_reports_required_changes_before_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

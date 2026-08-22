@@ -56,6 +56,8 @@ Documentation is not an execution dashboard.
 - query and validate Beads JSON;
 - resolve exact feature/audit selectors and stable steps;
 - run idempotent native Beads transitions;
+- initialize and validate the canonical mdBook foundation without storing a second navigation manifest or validation
+  state;
 - create/reuse conventional Git branches and worktrees;
 - enforce Git footer, aggregate PR-summary, and delivery safety rules;
 - compute a content digest for an approved design;

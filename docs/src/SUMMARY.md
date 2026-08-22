@@ -4,6 +4,7 @@
 - [Architecture](architecture/index.md)
 - [Core principles](development/index.md)
   - [Feature lifecycle](development/feature-lifecycle.md)
+  - [Documentation](development/documentation.md)
   - [Testing](development/tooling.md)
 - [Reference](reference/index.md)
   - [Compatibility and legacy repair](reference/compatibility.md)

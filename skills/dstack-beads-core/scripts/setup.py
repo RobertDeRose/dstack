@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from dstack_docs import initialize_docs, validate_docs
 from dstacklib import (
     ALIGNMENT_STEPS,
     FEATURE_STEPS,
@@ -227,7 +228,17 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     client.check_capabilities()
     source_dir = package_root() / "formulas"
     validate_bundle(source_dir)
-    interaction_policy = ensure_interaction_log_policy(root)
+
+    # Non-forced setup is deliberately strict. A forced setup is the explicit
+    # compatibility boundary and lets repair normalize legacy documentation
+    # before the completed book is validated.
+    if force:
+        require_mdbook()
+        documentation_payload: dict[str, Any] = {}
+        interaction_policy: dict[str, bool] = {}
+    else:
+        documentation_payload = initialize_docs(root)
+        interaction_policy = ensure_interaction_log_policy(root)
 
     installed: dict[str, str] = {}
     for name in FORMULA_NAMES:
@@ -243,6 +254,7 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
         "beads_version": version,
         "formulas": installed,
         "preflight": "isolated-formula-pour",
+        **documentation_payload,
         **interaction_policy,
     }
 
@@ -255,6 +267,7 @@ def doctor(root_arg: Path) -> dict[str, Any]:
     version = client.check_version()
     client.check_capabilities()
     source_dir = package_root() / "formulas"
+    documentation = validate_docs(root)
     statuses: dict[str, str] = {}
     for name in FORMULA_NAMES:
         installed = root / ".beads" / "formulas" / f"{name}.formula.toml"
@@ -272,6 +285,7 @@ def doctor(root_arg: Path) -> dict[str, Any]:
         "root": str(root),
         "beads_version": version,
         "formulas": statuses,
+        "documentation": documentation,
     }
 
 

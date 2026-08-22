@@ -21,6 +21,7 @@ See:
 - [Core principles](docs/src/development/index.md)
 - [Architecture](docs/src/architecture/index.md)
 - [Workflow reference](docs/src/development/feature-lifecycle.md)
+- [Documentation](docs/src/development/documentation.md)
 - [Compatibility](docs/src/reference/compatibility.md)
 - [Testing](docs/src/development/tooling.md)
 
@@ -76,10 +77,13 @@ design contents drift.
 
 ## Documentation policy
 
-Docs may say a feature is `planned`, `implemented`, or `deprecated`, and must
-explain what it does, why, and how. They must not contain `in-progress`,
-`delivery-ready`, Beads/gate IDs, branch names, commit hashes, agent ownership,
-or next-command bookkeeping.
+mdBook is canonical for managed projects. Setup creates only the missing core foundation without overwriting project
+content; `docs/src/SUMMARY.md` remains the sole navigation manifest and optional sections follow actual reader needs.
+The same durable book serves users/operators, developers/reviewers, and future agents/auditors.
+
+Docs may say a feature is `planned`, `implemented`, or `deprecated`, and must explain what it does, why, and how. They
+must not contain `in-progress`, `delivery-ready`, Beads/gate IDs, branch names, commit hashes, agent ownership, or
+next-command bookkeeping.
 
 Any durable planned-to-implemented update belongs in the feature candidate. A
 successful merge/PR finalizer changes Beads only and is forbidden from creating
@@ -90,6 +94,7 @@ a Git commit.
 - Git
 - Python 3.12+
 - Pi
+- mdBook on `PATH`
 - Beads 1.2.2+ with formulas, molecules, gates, JSON output, atomic claims, and
   native worktree support
 
@@ -105,8 +110,10 @@ Reload Pi, then run in the target repository:
 /setup-project
 ```
 
-Setup preserves legitimate tracked Beads repository configuration such as
-`.beads/config.yaml`, `.beads/metadata.json`, `.beads/README.md`, and
+Setup creates and validates the canonical mdBook foundation without overwriting
+existing pages or creating optional taxonomy. It preserves legitimate tracked
+Beads repository configuration such as `.beads/config.yaml`,
+`.beads/metadata.json`, `.beads/README.md`, and
 `.beads/.gitignore`. It keeps `.beads/interactions.jsonl` local and untracked so
 normal Beads transitions cannot dirty Git history.
 

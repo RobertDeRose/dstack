@@ -1,5 +1,16 @@
 # Testing dStack
 
+## Documentation
+
+The tested mdBook release is pinned through mise. Validate required pages, chapter navigation, local links, orphan
+Markdown, and the build with:
+
+```bash
+python3 skills/dstack-beads-core/scripts/dstackctl.py docs validate
+```
+
+The build uses temporary output and external URLs are not fetched.
+
 ## Fast suite
 
 The default suite exercises controller decisions in-process with immutable Beads protocol snapshots. It uses disposable
@@ -28,9 +39,10 @@ and verifies the supported JSON envelope, both formula structures and pours, nat
 fan-in, supersession, and worktree primitives. The smoke scenario alone runs full dStack setup, then one minimal shipped
 feature through approval, one Git-backed task, closeout, and fast-forward delivery.
 
-GitHub Actions runs the fast suite and each real-Beads scenario as separate
-jobs. The acceptance matrix installs the locked Beads version through mise, and
-the acceptance preflight fails immediately unless `bd` is on `PATH`.
+GitHub Actions validates the mdBook, then runs the fast suite and each
+real-Beads scenario as separate jobs. The acceptance matrix installs the locked
+Beads version through mise, and the acceptance preflight fails immediately
+unless `bd` is on `PATH`.
 
 ## Test ownership
 
