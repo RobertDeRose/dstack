@@ -1,2 +1,21 @@
 [tools]
 "aqua:gastownhall/beads" = "1.2.2"
+"aqua:rust-lang/mdBook" = "0.5.3"
+uv = "latest"
+ruff = "latest"
+ty = "latest"
+rumdl = "latest"
+actionlint = "latest"
+"aqua:owenlamont/ryl" = "latest"
+pkl = "latest"
+yamlfmt = "latest"
+tombi = "latest"
+
+[tasks."docs:build"]
+description = "Build the documentation site"
+run = "mdbook build docs"
+
+[tasks."docs:serve"]
+description = "Serve the documentation site locally"
+usage = 'arg "[port]" help="Port to serve on" default="3000"'
+run = 'mdbook serve docs --port "${usage_port:-3000}"'

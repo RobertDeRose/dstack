@@ -13,8 +13,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
         with:
-           enable-cache: true
+          enable-cache: true
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
       - run: uv sync --dev
+      - run: python3 skills/dstack-beads-core/scripts/dstackctl.py docs validate
       - run: uv run pytest -q -rs
 
   real-beads:

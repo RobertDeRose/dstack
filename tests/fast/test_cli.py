@@ -40,7 +40,7 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
         ("git", command) for command in ("commit", "amend")
     } | {
         ("evidence", command) for command in ("commits", "audit-feature")
-    } | {("docs", "check")} | {
+    } | {("docs", command) for command in ("check", "validate")} | {
         ("delivery", command) for command in (
             "inspect", "pr-preflight", "register-pr", "merge", "finalize-pr",
         )

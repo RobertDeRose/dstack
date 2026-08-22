@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Sequence
 
 from dstack_commands import DstackError, fail
+from dstack_docs import cmd_docs_validate
 from dstack_feature import (
     cmd_feature_resolve,
     cmd_feature_inspect,
@@ -267,6 +268,8 @@ def build_parser() -> argparse.ArgumentParser:
     docs_check_parser.add_argument("--base", required=True)
     docs_check_parser.add_argument("--head", required=True)
     docs_check_parser.set_defaults(func=cmd_docs_check)
+    docs_validate_parser = mechanical_parser(docs_sub, "validate", "validate the current mdBook documentation")
+    docs_validate_parser.set_defaults(func=cmd_docs_validate)
 
     delivery = mechanical_parser(top, "delivery", "inspect and execute safe delivery operations")
     delivery_sub = delivery.add_subparsers(dest="command", required=True)
