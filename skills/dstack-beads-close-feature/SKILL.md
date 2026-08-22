@@ -15,6 +15,7 @@ mode is `ready` (default), `pr`, or `merge`.
    ```bash
    dstackctl.py feature finish-workstream [feature]
    dstackctl.py feature claim-closeout [feature]
+   dstackctl.py feature scaffold-reconciliation [feature]
    ```
 
 2. Compare accepted design, actual code/tests, durable docs, decisions, and
@@ -31,9 +32,11 @@ mode is `ready` (default), `pr`, or `merge`.
    `feature finish-closeout` or delivery. Correct material findings, rerun
    affected checks, and commit only real code/docs changes with the closeout
    Bead footer.
-4. Run the documentation policy guard against the target and candidate, then:
+4. Validate the current mdBook and run the documentation policy guard against
+   the target and candidate, then:
 
    ```bash
+   dstackctl.py docs validate
    dstackctl.py feature finish-closeout [feature]
    ```
 

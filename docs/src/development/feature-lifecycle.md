@@ -21,7 +21,9 @@ implementation tasks, or change Git. `/plan-features` is a deprecated thin alias
 The controller resolves planned intent or an existing current molecule, then
 idempotently pours or reuses the stable workflow and conventional worktree. It
 claims specification ownership and scaffolds the canonical
-`docs/src/features/<slug>/design.md` only when absent.
+`docs/src/features/<slug>/design.md` only when absent. The scaffold covers
+accepted intent, behavior, architecture, failure, security, compatibility,
+validation, documentation impact, risks, alternatives, and deferred decisions.
 
 The agent reconciles the complete planned intent with current architecture,
 source, tests, durable docs, dependencies, and related work. It resolves holes
@@ -52,13 +54,15 @@ reachable Bead footer.
 
 ### `/close-feature [feature] [ready|pr|merge]`
 
-The controller closes implementation fan-in and claims closeout only under this
-explicit command. The agent reconciles actual behavior, tests, and durable
-documentation, then runs the complete repository's full/release validation. An
-incomplete required check leaves closeout open and prevents delivery. A docs
-policy guard rejects namespaced dStack lifecycle fields and structured identity,
-Git, worktree, or next-command bookkeeping; generic domain status prose remains
-valid. The closeout step is then closed.
+The controller closes implementation fan-in and claims closeout only under this explicit command. It scaffolds a missing
+`docs/src/features/<slug>/index.md` without overwriting authored content. The agent reconciles actual behavior, accepted
+design, tests, authoritative current-product documentation, and the durable feature record, then runs the complete
+repository's full/release validation.
+
+Current mdBook validation requires the foundation, chapter navigation, local links, declared documentation surfaces,
+orphan checks, and build to succeed. A docs policy guard rejects namespaced dStack lifecycle fields and structured
+identity, Git, worktree, or next-command bookkeeping; generic domain status prose remains valid. An incomplete required
+check leaves closeout open and prevents delivery.
 
 - `ready`: stop with an inspected delivery candidate and an open root.
 - `pr`: preflight the complete feature diff against a synchronized remote base; the agent drafts the PR from those
@@ -66,6 +70,10 @@ valid. The closeout step is then closed.
   is created and registered as a native `gh:pr` gate.
 - `merge`: perform a clean fast-forward-only delivery and close the root.
 - a later `pr` invocation checks the gate and closes the root after merge.
+
+The feature catalog links delivered capabilities to `index.md`, which links back
+to accepted `design.md`. `SUMMARY.md` keeps one top-level Feature Records section
+and nests both pages so native mdBook renders them.
 
 Normal delivery snapshots tracked Git state around Beads finalization and fails
 if finalization changes HEAD or tracked status. It never creates a post-delivery

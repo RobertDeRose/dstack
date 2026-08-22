@@ -10,4 +10,4 @@ decision-oriented skills with stateless automation that uses Beads as the workfl
 - [Documentation](development/documentation.md)
 - [Testing](development/tooling.md)
 - [Reference](reference/index.md)
-- [Feature designs](features/index.md)
+- [Feature records](features/index.md)

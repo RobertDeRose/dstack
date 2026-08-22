@@ -49,6 +49,7 @@ from dstacklib import (
     worktree_for_branch,
 )
 
+from dstack_docs import validate_docs
 from dstack_commands import (
     BEADS_RUNTIME_DIR_PREFIXES,
     BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
@@ -461,6 +462,7 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
         "evidence": evidence,
         "diff_stat": stats,
         "docs": docs_check(client.root, target, branch),
+        "documentation": validate_docs(candidate_worktree),
     }
 
 
@@ -501,6 +503,8 @@ def validate_delivery(payload: Mapping[str, Any], *, require_remote: bool) -> No
         raise DstackError("candidate contains merge commits; dStack delivery requires a linear feature history")
     if payload.get("docs", {}).get("status") != "ok":
         raise DstackError("documentation policy check failed")
+    if payload.get("documentation", {}).get("status") != "ok":
+        raise DstackError("mdBook documentation validation failed")
 
 
 def validate_pr_copy(

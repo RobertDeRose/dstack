@@ -54,6 +54,16 @@ elsewhere in `docs/src`.
 Current behavior belongs in current-product documentation. A reader should not
 need to know which feature introduced a capability to understand or use it.
 
+## Feature records
+
+Each feature keeps accepted intent in `features/<slug>/design.md` and delivered reconciliation in
+`features/<slug>/index.md`. The implementation record explains what exists, where current behavior is documented, how
+the design was delivered or intentionally changed, and which durable limitations remain. It does not copy task, branch,
+commit, pull-request, or delivery history.
+
+`features/index.md` catalogs records. `SUMMARY.md` has one top-level Feature Records entry and nests each implementation
+record and design because native mdBook renders only listed chapters.
+
 ## Durable truth
 
 Documentation may describe durable product classifications such as `planned`, `implemented`, and `deprecated`. It does

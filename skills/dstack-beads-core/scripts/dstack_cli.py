@@ -13,6 +13,7 @@ from dstack_feature import (
     cmd_feature_inspect,
     cmd_feature_initialize,
     cmd_feature_scaffold_design,
+    cmd_feature_scaffold_reconciliation,
     cmd_feature_add_task,
     cmd_feature_claim_spec,
     cmd_feature_approve_spec,
@@ -139,6 +140,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scaffold_design.add_argument("selector")
     scaffold_design.set_defaults(func=cmd_feature_scaffold_design)
+    scaffold_reconciliation = mechanical_parser(
+        feature_sub,
+        "scaffold-reconciliation",
+        "create a missing feature reconciliation without overwriting",
+    )
+    scaffold_reconciliation.add_argument("selector")
+    scaffold_reconciliation.set_defaults(func=cmd_feature_scaffold_reconciliation)
     add_task = mechanical_parser(feature_sub, "add-task", "create an implementation task through native Beads")
     add_task.add_argument("selector")
     add_task.add_argument("--title", required=True)

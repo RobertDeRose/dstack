@@ -29,6 +29,7 @@ def payload(**overrides):
         "target_is_ancestor": True,
         "merge_commits": [],
         "docs": {"status": "ok"},
+        "documentation": {"status": "ok"},
         "remote_target_head": "target",
         "remote_matches_local": True,
     }
@@ -85,6 +86,7 @@ def test_commit_rejects_beads_type_changes_with_other_staged_changes(git_repo: P
         {"target_is_ancestor": False},
         {"merge_commits": ["merge"]},
         {"docs": {"status": "violations"}},
+        {"documentation": {"status": "error"}},
     ],
 )
 def test_validate_delivery_rejects_safety_boundary(bad: dict) -> None:

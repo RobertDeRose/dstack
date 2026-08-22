@@ -9,70 +9,58 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
-import fnmatch
-import json
-import re
-import sys
-import tempfile
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from dstacklib import (
     BeadsClient,
     DstackError,
-    ancestry,
-    blocker_ids,
     branch_exists,
     canonical_feature_design_path,
-    commit_footer_ids,
     conventional_worktree,
-    current_head,
-    dependency_records,
     display_title,
-    ensure_clean_tracked,
+    ensure_clean_worktree,
+    feature_authorization_state,
     feature_context,
     feature_design_state,
     feature_slug,
     feature_view,
     file_sha256,
-    git_root,
+    git_file_sha256,
     has_label,
     human_gate_for_step,
     is_current_feature,
-    issue_labels,
     issue_metadata,
-    issue_parent,
     read_text_file,
-    ref_exists,
     resolve_feature,
     root_metadata_value,
     run,
     slugify,
-    worktree_for_branch,
+    validate_git_branch,
+    validate_git_revision,
 )
 
+from dstack_docs import validate_docs, validate_record
 from dstack_commands import (
-    BEADS_RUNTIME_DIR_PREFIXES,
-    BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
-    BEADS_SENSITIVE_BASENAMES,
     DESIGN_SCAFFOLD,
-    DSTACK_UNTRACKED_BEADS_FILES,
-    DURABLE_STATUS_PATTERN,
-    FORBIDDEN_DOC_PATTERNS,
-    NO_REPOSITORY_CHANGE_PREFIX,
-    claim_issue_if_needed,
+    RECONCILIATION_SCAFFOLD,
+    claim_ready_step,
+    claim_ready_step_with_fan_in,
+    claim_ready_work,
+    close_issue_if_needed,
+    resolve_gate_if_needed,
     client_for,
     completion_reason,
-    descendants,
     emit,
     ensure_feature_worktree,
     evidence_for_bead,
-    fail,
     feature_branch_context,
-    package_root,
+    keep_root_open_for_delivery,
+    open_workstream_children,
     preserve_external_blockers,
     require_approved_design,
     require_installed_formula,
+    reopen_authorization_boundary,
     required_task_text,
     superseded_target,
     task_text,
@@ -80,11 +68,10 @@ from dstack_commands import (
 )
 
 
-def approved_feature_context(
-    client: BeadsClient, selector: str | None
-) -> dict[str, Any]:
+def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     context = feature_context(client, selector)
     context.update(feature_design_state(client, context))
+    context.update(feature_authorization_state(client, context))
     require_approved_design(context)
     return context
 
@@ -125,6 +112,8 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     selector = (args.selector or args.title or "").strip()
     if not selector:
         raise DstackError("feature selector/title is required")
+    validate_git_branch(client.root, args.base_branch, name="base branch")
+    validate_git_revision(client.root, args.base_branch, name="base branch")
 
     existing: dict[str, Any] | None = None
     try:
@@ -186,6 +175,9 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     slug = args.slug or (feature_slug(planned_source) if planned_source else None) or slugify(title)
     inherited_base = root_metadata_value(planned_source, "base_branch") if planned_source else None
     base_branch = inherited_base or args.base_branch
+    validate_git_branch(client.root, base_branch, name="base branch")
+    validate_git_revision(client.root, base_branch, name="base branch")
+    validate_git_branch(client.root, f"feat/{slug}", name="feature branch")
     design_path = default_design_path(client.root, slug)
     if args.design_path and args.design_path != design_path:
         raise DstackError(f"feature design path must be {design_path} for the mdBook layout")
@@ -245,7 +237,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
             )
         if created_branch and branch_exists(client.root, f"feat/{slug}"):
             run(
-                ["git", "branch", "-D", f"feat/{slug}"],
+                ["git", "branch", "-D", "--", f"feat/{slug}"],
                 cwd=client.root,
                 check=False,
             )
@@ -291,36 +283,84 @@ def ensure_feature_navigation(
     *,
     slug: str,
     title: str,
+    reconciled: bool = False,
 ) -> None:
     safe_title = title.replace("[", "").replace("]", "") or slug
     feature_source = worktree / "docs/src/features"
     feature_source.mkdir(parents=True, exist_ok=True)
 
     index = feature_source / "index.md"
-    index_target = f"{slug}/design.md"
-    index_text = index.read_text() if index.is_file() else "# Feature designs\n"
-    if f"]({index_target})" not in index_text:
-        index.write_text(
-            index_text.rstrip() + f"\n\n- [{safe_title}]({index_target})\n"
-        )
+    index_target = f"{slug}/{'index' if reconciled else 'design'}.md"
+    index_lines = index.read_text().rstrip().splitlines() if index.is_file() else ["# Feature Records"]
+    if index_lines and index_lines[0] == "# Feature designs":
+        index_lines[0] = "# Feature Records"
+    existing_index: str | None = None
+    index_position: int | None = None
+    filtered_index: list[str] = []
+    for line in index_lines:
+        if f"]({slug}/design.md)" in line or f"]({slug}/index.md)" in line:
+            if existing_index is None:
+                existing_index = line.replace(f"]({slug}/design.md)", f"]({index_target})").replace(
+                    f"]({slug}/index.md)", f"]({index_target})"
+                )
+                index_position = len(filtered_index)
+            continue
+        filtered_index.append(line)
+    if existing_index is not None and index_position is not None:
+        filtered_index.insert(index_position, existing_index)
+    else:
+        while filtered_index and not filtered_index[-1]:
+            filtered_index.pop()
+        if filtered_index:
+            filtered_index.append("")
+        filtered_index.append(f"- [{safe_title}]({index_target})")
+    index.write_text("\n".join(filtered_index) + "\n")
 
     summary = worktree / "docs/src/SUMMARY.md"
-    summary_target = f"features/{slug}/design.md"
-    summary_line = f"  - [{safe_title}]({summary_target})"
-    summary_text = summary.read_text() if summary.is_file() else "# Summary\n"
-    if f"]({summary_target})" in summary_text:
-        return
-    lines = summary_text.rstrip().splitlines()
-    anchor = "- [Feature designs](features/index.md)"
-    if anchor not in lines:
-        lines.extend(["", anchor, summary_line])
+    summary_lines = summary.read_text().rstrip().splitlines() if summary.is_file() else ["# Summary"]
+    old_anchor = "- [Feature designs](features/index.md)"
+    anchor = "- [Feature Records](features/index.md)"
+    summary_lines = [anchor if line == old_anchor else line for line in summary_lines]
+    design_target = f"features/{slug}/design.md"
+    reconciliation_target = f"features/{slug}/index.md"
+    existing_design: str | None = None
+    existing_reconciliation: str | None = None
+    summary_position: int | None = None
+    filtered_summary: list[str] = []
+    for line in summary_lines:
+        if f"]({design_target})" in line or f"]({reconciliation_target})" in line:
+            if summary_position is None:
+                summary_position = len(filtered_summary)
+            if f"]({reconciliation_target})" in line and existing_reconciliation is None:
+                existing_reconciliation = line
+            elif f"]({design_target})" in line and existing_design is None:
+                existing_design = line
+            continue
+        filtered_summary.append(line)
+    if anchor not in filtered_summary:
+        filtered_summary.extend(["", anchor])
+    if reconciled:
+        parent = existing_reconciliation or (
+            existing_design.replace(f"]({design_target})", f"]({reconciliation_target})")
+            if existing_design
+            else f"  - [{safe_title}]({reconciliation_target})"
+        )
+        design = existing_design if existing_reconciliation and existing_design else f"    - [Design]({design_target})"
+        block = [parent, design]
     else:
-        position = lines.index(anchor) + 1
-        while position < len(lines) and lines[position].startswith("  "):
-            position += 1
-        lines.insert(position, summary_line)
+        parent = existing_design or (
+            existing_reconciliation.replace(f"]({reconciliation_target})", f"]({design_target})")
+            if existing_reconciliation
+            else f"  - [{safe_title}]({design_target})"
+        )
+        block = [parent]
+    if summary_position is None:
+        summary_position = filtered_summary.index(anchor) + 1
+        while summary_position < len(filtered_summary) and filtered_summary[summary_position].startswith("  "):
+            summary_position += 1
+    filtered_summary[summary_position:summary_position] = block
     summary.parent.mkdir(parents=True, exist_ok=True)
-    summary.write_text("\n".join(lines) + "\n")
+    summary.write_text("\n".join(filtered_summary) + "\n")
 
 
 def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
@@ -340,9 +380,17 @@ def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
             raise DstackError("design path exists but is not a file")
     else:
         design_file.parent.mkdir(parents=True, exist_ok=True)
+        planned_intent = str(view["root"].get("description") or "").strip()
+        planned_acceptance = str(view["root"].get("acceptance_criteria") or "").strip()
         try:
             with design_file.open("x", encoding="utf-8") as handle:
-                handle.write(DESIGN_SCAFFOLD)
+                handle.write(
+                    DESIGN_SCAFFOLD.format(
+                        planned_intent=planned_intent or "_No durable planning description was provided._",
+                        planned_acceptance=planned_acceptance
+                        or "_No durable planning acceptance criteria were provided._",
+                    )
+                )
             created = True
         except FileExistsError:
             if not design_file.is_file():
@@ -352,8 +400,47 @@ def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
         worktree,
         slug=str(view["slug"]),
         title=display_title(str(view["root"].get("title") or view["slug"])),
+        reconciled=design_file.with_name("index.md").is_file(),
     )
     emit({"status": "ok", "created": created, "design_path": relative})
+    return 0
+
+
+def cmd_feature_scaffold_reconciliation(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    view = feature_context(client, args.selector)
+    if not view["current"]:
+        raise DstackError("feature is not a current dstack molecule")
+    design_path = str(view.get("design_path") or "")
+    _, worktree, _ = feature_branch_context(client, view)
+    design_file, relative = safe_design_file(worktree, design_path)
+    if not design_file.is_file():
+        raise DstackError("feature design does not exist")
+
+    reconciliation = design_file.with_name("index.md")
+    title = display_title(str(view["root"].get("title") or view["slug"]))
+    created = False
+    try:
+        with reconciliation.open("x", encoding="utf-8") as handle:
+            handle.write(RECONCILIATION_SCAFFOLD.format(title=title))
+        created = True
+    except FileExistsError:
+        if not reconciliation.is_file():
+            raise DstackError("feature reconciliation path exists but is not a file")
+
+    ensure_feature_navigation(
+        worktree,
+        slug=str(view["slug"]),
+        title=title,
+        reconciled=True,
+    )
+    emit(
+        {
+            "status": "ok",
+            "created": created,
+            "reconciliation_path": str(Path(relative).with_name("index.md")),
+        }
+    )
     return 0
 
 
@@ -362,8 +449,18 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
     view = feature_context(client, args.selector)
     if not view["current"]:
         raise DstackError("feature is not a current dstack molecule")
+    acceptance = required_task_text(args.acceptance_file, args.acceptance)
     implementation = view["steps"]["implementation"]
     approval = view["steps"]["approval"]
+    root = client.show(str(view["root"]["id"]))
+    approval = client.show(str(approval["id"]))
+    implementation = client.show(str(implementation["id"]))
+    if (
+        root_metadata_value(root, "dstack.approved_design_sha256")
+        or approval.get("status") == "closed"
+        or implementation.get("status") == "closed"
+    ):
+        raise DstackError("approved or closed feature scope requires explicit reauthorization")
     dependencies = [str(approval["id"]), *args.depends_on]
     item = client.create(
         args.title,
@@ -371,10 +468,62 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
         labels=["dstack:work:implementation"],
         dependencies=dependencies,
         description=task_text(args.description_file, args.description),
-        acceptance=required_task_text(args.acceptance_file, args.acceptance),
+        acceptance=acceptance,
         priority=args.priority,
     )
     emit({"status": "ok", "task": item})
+    return 0
+
+
+def cmd_feature_reauthorize(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    view = feature_context(client, args.selector)
+    root_id = str(view["root"]["id"])
+    steps = view["steps"]
+    approval = client.show(str(steps["approval"]["id"]))
+    gate = human_gate_for_step(client, root_id=root_id, step=approval)
+    if not isinstance(gate, dict):
+        raise DstackError("feature approval task lacks one blocking human gate")
+    reopen_authorization_boundary(
+        client,
+        root_id=root_id,
+        planning_id=str(steps["specification"]["id"]),
+        approval_id=str(approval["id"]),
+        gate_id=str(gate["id"]),
+        workstream_id=str(steps["implementation"]["id"]),
+        terminal_id=str(steps["closeout"]["id"]),
+        reason=args.reason,
+        digest_key="dstack.approved_design_sha256",
+        pending_digest_key="dstack.pending_design_sha256",
+    )
+
+    root = client.show(root_id)
+    specification = client.show(str(steps["specification"]["id"]))
+    approval = client.show(str(steps["approval"]["id"]))
+    gate = human_gate_for_step(client, root_id=root_id, step=approval)
+    implementation = client.show(str(steps["implementation"]["id"]))
+    states = {
+        "specification": specification.get("status"),
+        "human_gate": gate.get("status") if isinstance(gate, Mapping) else None,
+        "approval": approval.get("status"),
+        "implementation": implementation.get("status"),
+    }
+    ready = client.ready_children(str(implementation["id"]), label="dstack:work:implementation")
+    if (
+        root_metadata_value(root, "dstack.approved_design_sha256")
+        or root_metadata_value(root, "dstack.pending_design_sha256")
+        or any(status != "open" for status in states.values())
+        or ready
+    ):
+        raise DstackError(f"feature reauthorization did not restore blocking state: states={states}")
+    emit(
+        {
+            "status": "ok",
+            "feature": root_id,
+            "states": states,
+            "approved_design_sha256": None,
+        }
+    )
     return 0
 
 
@@ -382,46 +531,138 @@ def cmd_feature_claim_spec(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
     specification = view["steps"]["specification"]
-    claimed = claim_issue_if_needed(client, specification)
+    claimed = claim_ready_step(
+        client,
+        root_id=str(view["root"]["id"]),
+        step=specification,
+        label="dstack:step:specification",
+        name="specification",
+    )
     emit({"status": "ok", "feature": view["root"]["id"], "specification": claimed})
     return 0
+
+
+def approved_design_digest(client: BeadsClient, view: Mapping[str, Any]) -> str:
+    design_path = str(view.get("design_path") or "")
+    if not design_path:
+        raise DstackError("feature root has no dstack.design_path metadata")
+    branch, worktree, _ = feature_branch_context(client, view)
+    expected = conventional_worktree(client.root, branch).resolve()
+    if worktree.resolve() != expected:
+        raise DstackError(f"feature worktree must use the conventional path {expected}: {worktree}")
+    ensure_clean_worktree(worktree)
+    design_file, relative = safe_design_file(worktree, design_path)
+    if (
+        run(
+            ["git", "ls-files", "--error-unmatch", "--", relative],
+            cwd=worktree,
+            check=False,
+        ).returncode
+        != 0
+    ):
+        raise DstackError(f"feature design is not tracked: {relative}")
+    head_digest = git_file_sha256(worktree, relative)
+    if head_digest is None:
+        raise DstackError(f"feature design is not committed at HEAD: {relative}")
+    if file_sha256(design_file) != head_digest:
+        raise DstackError(f"feature design differs from HEAD: {relative}")
+    validate_record(
+        design_file.read_text(encoding="utf-8"),
+        "feature-design",
+        source=design_file,
+        source_root=worktree,
+    )
+    return head_digest
 
 
 def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
-    design_path = view.get("design_path")
-    if not design_path:
-        raise DstackError("feature root has no dstack.design_path metadata")
-    _, feature_worktree, _ = feature_branch_context(client, view)
-    digest = file_sha256(feature_worktree / str(design_path))
+    digest = approved_design_digest(client, view)
     root_id = str(view["root"]["id"])
-    client.update(
-        root_id,
-        "--set-metadata",
-        f"dstack.approved_design_sha256={digest}",
-    )
 
-    specification = claim_issue_if_needed(client, view["steps"]["specification"])
-    if args.summary_file:
-        client.add_comment(str(specification["id"]), read_text_file(args.summary_file))
-    specification = client.close(
-        str(specification["id"]), "Specification approved"
-    )
-
-    gate = human_gate_for_step(
-        client,
-        root_id=root_id,
-        step=view["steps"]["approval"],
-    )
+    specification = client.show(str(view["steps"]["specification"]["id"]))
+    approval = client.show(str(view["steps"]["approval"]["id"]))
+    gate = human_gate_for_step(client, root_id=root_id, step=approval)
     if not isinstance(gate, dict):
-        raise DstackError("feature has no unique human approval gate")
-    gate = client.resolve_gate(str(gate["id"]), "Specification approved")
+        raise DstackError("feature approval task lacks one blocking human gate")
+    root = client.show(root_id)
+    approved = root_metadata_value(root, "dstack.approved_design_sha256")
+    pending = root_metadata_value(root, "dstack.pending_design_sha256")
+    initial_states = {
+        "specification": specification.get("status"),
+        "human_gate": gate.get("status"),
+        "approval": approval.get("status"),
+    }
+    if (approved and approved != digest) or (pending and pending != digest):
+        raise DstackError(
+            "accepted design changed after approval began; explicitly reopen the "
+            "specification and approval boundary before reauthorizing"
+        )
+    if approved and any(status != "closed" for status in initial_states.values()):
+        raise DstackError("approved design metadata conflicts with incomplete native approval state")
+    if not approved and not pending:
+        if any(status == "closed" for status in initial_states.values()):
+            raise DstackError(
+                "closed native approval state lacks pending or approved content identity; explicitly reauthorize"
+            )
+        client.update(
+            root_id,
+            "--set-metadata",
+            f"dstack.pending_design_sha256={digest}",
+        )
+        pending = root_metadata_value(client.show(root_id), "dstack.pending_design_sha256")
+        if pending != digest:
+            raise DstackError(f"pending design identity did not converge: {pending!r}")
 
-    approval = claim_issue_if_needed(
-        client, client.show(str(view["steps"]["approval"]["id"]))
-    )
-    approval = client.close(str(approval["id"]), "Implementation authorized")
+    if specification.get("status") != "closed" and args.summary_file:
+        client.add_comment(str(specification["id"]), read_text_file(args.summary_file))
+    specification = close_issue_if_needed(client, specification, "Specification approved")
+    gate = resolve_gate_if_needed(client, gate, "Specification approved")
+    approval = close_issue_if_needed(client, client.show(str(approval["id"])), "Implementation authorized")
+
+    specification = client.show(str(specification["id"]))
+    gate = client.show(str(gate["id"]))
+    approval = client.show(str(approval["id"]))
+    states = {
+        "specification": specification.get("status"),
+        "human_gate": gate.get("status"),
+        "approval": approval.get("status"),
+    }
+    if any(status != "closed" for status in states.values()):
+        raise DstackError(f"specification approval did not converge: states={states}")
+
+    if approved != digest:
+        client.update(
+            root_id,
+            "--set-metadata",
+            f"dstack.approved_design_sha256={digest}",
+        )
+        approved = root_metadata_value(client.show(root_id), "dstack.approved_design_sha256")
+        if approved != digest:
+            raise DstackError(f"approved design identity did not converge: {approved!r}")
+    if root_metadata_value(client.show(root_id), "dstack.pending_design_sha256"):
+        client.update(
+            root_id,
+            "--unset-metadata",
+            "dstack.pending_design_sha256",
+        )
+
+    observed_root = client.show(root_id)
+    specification = client.show(str(specification["id"]))
+    gate = client.show(str(gate["id"]))
+    approval = client.show(str(approval["id"]))
+    approved = root_metadata_value(observed_root, "dstack.approved_design_sha256")
+    pending = root_metadata_value(observed_root, "dstack.pending_design_sha256")
+    states = {
+        "specification": specification.get("status"),
+        "human_gate": gate.get("status"),
+        "approval": approval.get("status"),
+    }
+    if approved != digest or pending or any(status != "closed" for status in states.values()):
+        raise DstackError(
+            f"specification approval did not converge: approved={approved!r}, pending={pending!r}, states={states}"
+        )
     emit(
         {
             "status": "ok",
@@ -438,31 +679,14 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
 def cmd_feature_claim_next(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
-    implementation_id = str(view["steps"]["implementation"]["id"])
-    if args.task:
-        item = client.show(args.task)
-        if issue_parent(item) != implementation_id:
-            raise DstackError(f"task {args.task} is not a child of {implementation_id}")
-        if item.get("status") == "open":
-            ready_ids = {
-                str(candidate["id"])
-                for candidate in client.ready_children(
-                    implementation_id,
-                    label="dstack:work:implementation",
-                )
-            }
-            if args.task not in ready_ids:
-                raise DstackError(f"task {args.task} is not currently ready")
-        claimed = claim_issue_if_needed(client, item)
-        emit({"status": "ok", "task": claimed, "feature": view["root"]["id"]})
-        return 0
-
-    claimed = client.ready_children(
-        implementation_id,
+    feature_branch_context(client, view)
+    claimed = claim_ready_work(
+        client,
+        parent_id=str(view["steps"]["implementation"]["id"]),
         label="dstack:work:implementation",
-        claim=True,
+        requested_id=args.task,
     )
-    emit({"status": "ok", "task": claimed[0] if claimed else None, "feature": view["root"]["id"]})
+    emit({"status": "ok", "task": claimed, "feature": view["root"]["id"]})
     return 0
 
 
@@ -470,16 +694,23 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
     implementation_id = str(view["steps"]["implementation"]["id"])
-    task = client.show(args.task)
-    if issue_parent(task) != implementation_id:
-        raise DstackError(f"task {args.task} is not in feature implementation {implementation_id}")
-    task = claim_issue_if_needed(client, task)
-
     branch, worktree, base = feature_branch_context(client, view)
+    ensure_clean_worktree(worktree)
+    task = claim_ready_work(
+        client,
+        parent_id=implementation_id,
+        label="dstack:work:implementation",
+        requested_id=args.task,
+    )
+    if task is None:
+        raise DstackError(f"task {args.task} is not currently ready")
+    if task.get("status") == "closed":
+        emit({"status": "ok", "feature": view["root"]["id"], "task": task, "already_closed": True})
+        return 0
+
     reason = completion_reason(args, "Implementation completed")
     evidence = evidence_for_bead(worktree, args.task, f"{base}..{branch}")
     if args.no_repository_change:
-        ensure_clean_tracked(worktree)
         if evidence:
             raise DstackError("--no-repository-change conflicts with reachable commit evidence")
     elif not evidence:
@@ -508,14 +739,12 @@ def finish_feature_workstream(
     close: bool = True,
 ) -> dict[str, Any]:
     implementation = client.show(str(view["steps"]["implementation"]["id"]))
-    children = [
-        item
-        for item in client.children(str(implementation["id"]))
-        if has_label(item, "dstack:work:implementation")
-    ]
-    open_items = [item for item in children if item.get("status") != "closed"]
+    open_items = open_workstream_children(client, str(implementation["id"]))
     closed = False
     if close and not open_items and implementation.get("status") != "closed":
+        require_approved_design(view)
+        _, worktree, _ = feature_branch_context(client, view)
+        ensure_clean_worktree(worktree)
         client.close(str(implementation["id"]), "All implementation work completed")
         closed = True
     return {
@@ -528,56 +757,55 @@ def finish_feature_workstream(
 
 def cmd_feature_finish_workstream(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    view = feature_context(client, args.selector)
+    view = approved_feature_context(client, args.selector)
     payload = {"status": "ok", **finish_feature_workstream(client, view)}
     if not getattr(args, "quiet", False):
         emit(payload)
     return 0
 
 
-def require_closed_feature_workstream(
-    client: BeadsClient, view: Mapping[str, Any]
-) -> None:
-    implementation = client.show(str(view["steps"]["implementation"]["id"]))
-    if implementation.get("status") != "closed":
-        raise DstackError("implementation workstream is not closed")
-
-
-def require_unblocked_closeout(
-    client: BeadsClient, closeout: Mapping[str, Any]
-) -> None:
-    if not blocker_ids(closeout):
-        return
-    open_blockers = [
-        blocker
-        for blocker in blocker_ids(closeout)
-        if client.show(blocker).get("status") != "closed"
-    ]
-    if open_blockers:
-        raise DstackError("closeout remains blocked by: " + ", ".join(open_blockers))
-
-
 def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
+    feature_branch_context(client, view)
     closeout = client.show(str(view["steps"]["closeout"]["id"]))
     if closeout.get("status") == "closed":
         emit({"status": "ok", "closeout": closeout, "already_closed": True})
         return 0
-    require_closed_feature_workstream(client, view)
-    require_unblocked_closeout(client, closeout)
-    claimed = claim_issue_if_needed(client, closeout)
+    claimed = claim_ready_step_with_fan_in(
+        client,
+        root_id=str(view["root"]["id"]),
+        step=closeout,
+        label="dstack:step:closeout",
+        name="feature closeout",
+        fan_in_parent_id=str(view["steps"]["implementation"]["id"]),
+        fan_in_name="feature implementation",
+    )
     emit({"status": "ok", "closeout": claimed, "feature": view["root"]["id"]})
     return 0
 
 
-def keep_feature_open_for_delivery(
-    client: BeadsClient, view: Mapping[str, Any]
-) -> None:
-    root_id = str(view["root"]["id"])
-    root = client.show(root_id)
-    if root.get("status") == "closed" and root.get("close_reason") == "all steps complete":
-        client.reopen(root_id, "Await delivery")
+def validate_feature_documentation(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, object]:
+    _, worktree, _ = feature_branch_context(client, view)
+    ensure_clean_worktree(worktree)
+    design_file, _ = safe_design_file(worktree, str(view.get("design_path") or ""))
+    reconciliation = design_file.with_name("index.md")
+    if not reconciliation.is_file():
+        raise DstackError("feature reconciliation does not exist")
+    title = display_title(str(view["root"].get("title") or view["slug"]))
+    content = reconciliation.read_text(encoding="utf-8")
+    untouched = RECONCILIATION_SCAFFOLD.format(title=title)
+    if not content.strip() or content.strip() == untouched.strip():
+        raise DstackError(
+            "feature reconciliation is still the untouched scaffold; record the delivered result before closeout"
+        )
+    validate_record(
+        content,
+        "feature-reconciliation",
+        source=reconciliation,
+        source_root=worktree,
+    )
+    return validate_docs(worktree)
 
 
 def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
@@ -585,19 +813,27 @@ def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
     view = approved_feature_context(client, args.selector)
     closeout_id = str(view["steps"]["closeout"]["id"])
     closeout = client.show(closeout_id)
+    documentation = validate_feature_documentation(client, view)
     if closeout.get("status") != "closed":
-        require_closed_feature_workstream(client, view)
-        require_unblocked_closeout(client, closeout)
-        closeout = claim_issue_if_needed(client, closeout)
+        closeout = claim_ready_step_with_fan_in(
+            client,
+            root_id=str(view["root"]["id"]),
+            step=closeout,
+            label="dstack:step:closeout",
+            name="feature closeout",
+            fan_in_parent_id=str(view["steps"]["implementation"]["id"]),
+            fan_in_name="feature implementation",
+        )
         if args.summary_file:
             client.add_comment(closeout_id, read_text_file(args.summary_file))
         closeout = client.close(closeout_id, args.reason)
-    keep_feature_open_for_delivery(client, view)
+    keep_root_open_for_delivery(client, str(view["root"]["id"]))
     emit(
         {
             "status": "ok",
             "feature": view["root"]["id"],
             "closeout": closeout,
+            "documentation": documentation,
         }
     )
     return 0

@@ -239,7 +239,25 @@ External blocker B replaces blocker A.
         cwd=acceptance_repo,
     )
     run_ctl(acceptance_repo, "feature", "finish-workstream", root_id)
-    run_ctl(acceptance_repo, "feature", "claim-closeout", root_id)
+    claimed_closeout = run_ctl(acceptance_repo, "feature", "claim-closeout", root_id)
+    reconciliation = run_ctl(
+        acceptance_repo, "feature", "scaffold-reconciliation", root_id
+    )
+    (worktree / reconciliation["reconciliation_path"]).write_text(
+        "# Acceptance smoke\n\n[Design record](design.md)\n\n"
+        "## Delivered capability\n\nThe smoke behavior is delivered.\n"
+    )
+    subprocess.run(["git", "add", "docs"], cwd=worktree, check=True)
+    subprocess.run(
+        [
+            "git",
+            "commit",
+            "-qm",
+            f"docs: reconcile smoke feature\n\nBeads: {claimed_closeout['closeout']['id']}",
+        ],
+        cwd=worktree,
+        check=True,
+    )
     run_ctl(acceptance_repo, "feature", "finish-closeout", root_id)
     ready_root = run_json(acceptance_repo, "show", root_id)
     assert ready_root[0]["status"] == "open"
