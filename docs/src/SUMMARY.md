@@ -13,3 +13,4 @@
   - [Test and mechanical-layer hardening](features/dstack-test-mechanical-hardening/design.md)
   - [Workflow boundary hardening](features/dstack-workflow-boundary-hardening/design.md)
   - [Decision-oriented dStack feature workflow](features/decision-oriented-feature-workflow/design.md)
+  - [Canonical mdBook Documentation System](features/canonical-mdbook-documentation-system/design.md)
