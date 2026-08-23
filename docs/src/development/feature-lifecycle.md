@@ -35,6 +35,10 @@ authorization. Invocation alone is not approval. After authorization, the
 controller records the design-content digest, resolves the human gate, and
 closes the approval milestone idempotently.
 
+Re-review reconciles the complete native graph rather than only adding work:
+valid tasks are reused, obsolete tasks are closed or superseded, and stale
+blocking dependencies are removed through Beads.
+
 ### `/implement-feature [feature] [task|--all]`
 
 The controller verifies the design digest and atomically claims the next native

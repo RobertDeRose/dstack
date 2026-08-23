@@ -251,7 +251,7 @@ def _summary_link_target(raw: str) -> str | None:
 
 
 def ensure_core_navigation(root: Path) -> list[str]:
-    """Append only missing canonical pages to an existing mdBook summary."""
+    """Add missing canonical pages without rewriting project-owned navigation."""
 
     root = root.resolve()
     summary = root / "docs/src/SUMMARY.md"
@@ -266,10 +266,28 @@ def ensure_core_navigation(root: Path) -> list[str]:
     if not missing:
         return []
 
-    prefix = "" if not original or original.endswith("\n") else "\n"
-    suffix = "".join(f"- [{label}]({target})\n" for label, target in missing)
-    with summary.open("a", encoding="utf-8") as handle:
-        handle.write(prefix + suffix)
+    lines = original.rstrip("\n").splitlines()
+    for label, target in missing:
+        if target == "development/documentation.md":
+            continue
+        lines.append(f"- [{label}]({target})")
+
+    if "development/documentation.md" not in targets:
+        parent = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if "development/index.md" in _markdown_values(line, LINK_PATTERN)
+            ),
+            None,
+        )
+        entry = "  - [Documentation](development/documentation.md)"
+        if parent is None:
+            lines.append(entry.lstrip())
+        else:
+            indentation = lines[parent][: len(lines[parent]) - len(lines[parent].lstrip())]
+            lines.insert(parent + 1, indentation + entry)
+    summary.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return [target for _, target in missing]
 
 
@@ -350,6 +368,66 @@ def _move_file(source: Path, destination: Path) -> None:
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     source.replace(destination)
+
+
+def _safe_docs_path(root: Path, relative: str, message: str) -> Path:
+    candidate = Path(relative)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise DstackError(message)
+    lexical = root.joinpath(candidate)
+    docs = root / "docs"
+    try:
+        lexical.relative_to(docs)
+    except ValueError as exc:
+        raise DstackError(message) from exc
+    current = root
+    for part in candidate.parts:
+        current = current / part
+        if current.is_symlink():
+            raise DstackError(f"documentation migration path traverses a symlink: {relative}")
+    return lexical.resolve()
+
+
+def migrate_known_documentation_file(root: Path, source_relative: str, destination_relative: str) -> None:
+    """Move one explicitly identified documentation file through the shared engine."""
+
+    root = root.resolve()
+    docs = (root / "docs").resolve()
+    source = _safe_docs_path(root, source_relative, "legacy documentation path escapes docs")
+    destination = _safe_docs_path(root, destination_relative, "canonical documentation path escapes docs")
+    if source == destination:
+        if not destination.is_file() or destination.is_symlink():
+            raise DstackError("canonical documentation target is missing or unsafe")
+        return
+    if source.exists():
+        source_root = root / "docs/src"
+        if source_root.is_dir():
+            markdown_files = list(source_root.rglob("*.md"))
+            symlinks = [path for path in markdown_files if path.is_symlink()]
+            if symlinks:
+                raise DstackError("documentation migration source contains a symlink: " + str(symlinks[0]))
+            for markdown in markdown_files:
+                original = markdown.read_text(encoding="utf-8")
+
+                def rewrite(raw: str) -> str:
+                    candidate = _local_candidate(markdown, raw)
+                    if candidate != source:
+                        return raw
+                    target = os.path.relpath(destination, markdown.parent).replace(os.sep, "/")
+                    return _rewritten_target(raw, target)
+
+                updated = _rewrite_markdown_values(original, LINK_PATTERN, rewrite)
+                updated = _rewrite_markdown_values(
+                    updated,
+                    INCLUDE_PATTERN,
+                    lambda raw: rewrite(_include_path(raw)[0]) + _include_path(raw)[1],
+                )
+                if updated != original:
+                    markdown.write_text(updated, encoding="utf-8")
+        _move_file(source, destination)
+        _prune_empty_directories(source.parent, docs)
+    elif not destination.is_file() or destination.is_symlink():
+        raise DstackError("legacy documentation source and canonical target are missing")
 
 
 def _prune_empty_directories(start: Path, stop: Path) -> None:

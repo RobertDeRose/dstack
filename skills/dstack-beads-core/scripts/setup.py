@@ -15,6 +15,7 @@ from dstack_docs import (
     create_foundation,
     initialize_docs,
     legacy_documentation_plan,
+    migrate_known_documentation_file,
     migrate_legacy_documentation,
     require_mdbook,
     validate_docs,
@@ -411,45 +412,13 @@ def migrate_feature_design(
     if design_path not in (legacy, canonical):
         raise SetupError(f"unsupported feature design migration path: {design_path}; expected {legacy} or {canonical}")
 
-    source = (root / legacy).resolve()
-    destination = (root / canonical).resolve()
-    repository = root.resolve()
-    for path in (source, destination):
-        try:
-            path.relative_to(repository)
-        except ValueError as exc:
-            raise SetupError("feature design migration escapes repository") from exc
-
-    if design_path == legacy:
-        legacy_path = root / legacy
-        if legacy_path.exists():
-            if legacy_path.is_symlink() or not legacy_path.is_file():
-                raise SetupError("legacy feature design is not a safe regular file")
-            if destination.exists():
-                raise SetupError("legacy and canonical feature designs both exist")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            legacy_path.replace(destination)
-        elif not destination.is_file():
-            raise SetupError("legacy feature design is missing")
-
-        replacements = {
-            root / "docs/src/SUMMARY.md": (
-                f"../features/{slug}/design.md",
-                f"features/{slug}/design.md",
-            ),
-            root / "docs/src/features/index.md": (
-                f"../../features/{slug}/design.md",
-                f"{slug}/design.md",
-            ),
-        }
-        for path, (old, new) in replacements.items():
-            if path.is_file():
-                text = path.read_text()
-                if old in text:
-                    path.write_text(text.replace(old, new))
-
-    if not destination.is_file():
-        raise SetupError("canonical feature design is missing")
+    try:
+        migrate_known_documentation_file(root, design_path, canonical)
+    except DstackError as exc:
+        if design_path == legacy and "source and canonical target are missing" in str(exc):
+            raise SetupError("legacy feature design is missing") from exc
+        raise SetupError(str(exc)) from exc
+    destination = root / canonical
     title = str(feature.get("title") or slug).removeprefix("Feature: ")
     ensure_feature_navigation(
         root,

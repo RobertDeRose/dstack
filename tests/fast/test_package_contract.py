@@ -105,6 +105,7 @@ def test_review_materializes_and_authorizes_repository_aware_specification() -> 
         "feature add-task",
         "native `bd update`",
         "native `bd dep add`",
+        "native `bd dep remove`",
         "explicit human authorization",
         "invocation itself is not authorization",
         "feature approve-spec",
@@ -419,3 +420,22 @@ def test_tracked_beads_configuration_contains_no_machine_local_paths() -> None:
     )
     assert not re.search(r'(?m)^\s*[^\n]+:\s*["\']?/(?:Users|home|private|tmp)/', config)
     assert "~/" not in config
+
+
+def test_feature_scaffolds_cover_operator_developer_and_audit_surfaces() -> None:
+    commands = (ROOT / "skills/dstack-beads-core/scripts/dstack_commands.py").read_text()
+    for phrase in (
+        "Planned intent",
+        "Planned acceptance",
+        "End user and operator",
+        "Usage and configuration",
+        "Deployment, upgrade, and rollback",
+        "Operations, troubleshooting, and recovery",
+        "Developer and reviewer",
+        "Architecture and structure",
+        "Interfaces, contracts, and maintenance",
+        "Future auditor",
+        "Decisions and rationale",
+        "Invariants, regression evidence, and known limitations",
+    ):
+        assert phrase in commands

@@ -65,6 +65,7 @@ def test_foundation_extends_existing_summary_without_rewriting_project_navigatio
     assert "[Project](index.md)" in updated
     assert "[Development](development/index.md)" in updated
     assert "[Documentation](development/documentation.md)" in updated
+    assert "  - [Documentation](development/documentation.md)" in updated
     assert "[Feature Records](features/index.md)" in updated
     first = updated
     assert dstack_docs.create_foundation(root) == []

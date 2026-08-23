@@ -16,7 +16,13 @@ from scripted import ScriptedClient, call
 
 def view(**overrides) -> dict:
     value = {
-        "root": {"id": "feature-1", "status": "open", "title": "Feature: Feature"},
+        "root": {
+            "id": "feature-1",
+            "status": "open",
+            "title": "Feature: Feature",
+            "description": "Preserve this planned outcome and its rationale.",
+            "acceptance_criteria": "The planned behavior is externally observable.",
+        },
         "slug": "feature",
         "current": True,
         "closed": False,
@@ -243,6 +249,11 @@ def test_scaffold_design_creates_once_without_overwriting(monkeypatch, tmp_path:
     summary = worktree / "docs/src/SUMMARY.md"
     feature_index = worktree / "docs/src/features/index.md"
     authored = design.read_text()
+    assert "Preserve this planned outcome" in authored
+    assert "The planned behavior is externally observable" in authored
+    assert "### End user and operator" in authored
+    assert "### Developer and reviewer" in authored
+    assert "### Future auditor" in authored
     assert "## Validation strategy" in authored
     assert "## Risks and tradeoffs" in authored
     assert "## Documentation impact" in authored

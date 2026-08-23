@@ -114,6 +114,14 @@ DURABLE_STATUS_PATTERN = re.compile(
 )
 DESIGN_SCAFFOLD = """# Feature design
 
+## Planned intent
+
+{planned_intent}
+
+## Planned acceptance
+
+{planned_acceptance}
+
 ## Feature summary
 
 ## User intent
@@ -144,6 +152,22 @@ DESIGN_SCAFFOLD = """# Feature design
 
 ## Documentation impact
 
+### End user and operator
+
+- Usage and configuration:
+- Deployment, upgrade, and rollback:
+- Operations, troubleshooting, and recovery:
+
+### Developer and reviewer
+
+- Architecture and structure:
+- Interfaces, contracts, and maintenance:
+
+### Future auditor
+
+- Decisions and rationale:
+- Invariants, regression evidence, and known limitations:
+
 ## Risks and tradeoffs
 
 ## Rejected alternatives
@@ -172,6 +196,12 @@ RECONCILIATION_SCAFFOLD = """# {title}
 ### Removed or rejected scope
 
 ## Documentation
+
+### End user and operator
+
+### Developer and reviewer
+
+### Future auditor
 
 ## Validation and limitations
 """
