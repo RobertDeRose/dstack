@@ -256,6 +256,24 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
             force=force,
         )
         validate_formula(root, name)
+
+    repair_payload: dict[str, Any] = {}
+    if force:
+        repair = repair_legacy(root, force=True)
+        documentation_payload = {
+            "created_documentation": repair["created_documentation"],
+            "documentation_migration": repair["documentation_migration"],
+            "documentation": repair["documentation"],
+        }
+        interaction_policy = {
+            "interaction_log_untracked": bool(repair["interaction_log_untracked"]),
+            "beads_gitignore_changed": bool(repair["beads_gitignore_changed"]),
+        }
+        repair_payload = {
+            "template_artifacts_removed": repair["template_artifacts_removed"],
+            "molecule_items_normalized": repair["molecule_items_normalized"],
+            "missing_feature_reconciliations": repair["missing_feature_reconciliations"],
+        }
     return {
         "status": "ok",
         "root": str(root),
@@ -264,6 +282,7 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
         "preflight": "isolated-formula-pour",
         **documentation_payload,
         **interaction_policy,
+        **repair_payload,
     }
 
 
@@ -574,6 +593,15 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
     client = BeadsClient(root)
     client.check_version()
     templates = legacy_template_artifacts(client)
+    documentation_plan = legacy_documentation_plan(root)
+
+    if force:
+        documentation_migration = migrate_legacy_documentation(root)
+        created_documentation = create_foundation(root)
+    else:
+        documentation_migration = documentation_plan
+        created_documentation = []
+
     normalized = sorted(
         set(normalize_current_features(client, force=force)) | set(normalize_current_alignments(client, force=force))
     )
@@ -582,8 +610,15 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
     beads_ignore = root / ".beads" / ".gitignore"
     ignore_lines = beads_ignore.read_text().splitlines() if beads_ignore.exists() else []
     interaction_ignore_missing = "interactions.jsonl" not in ignore_lines
+    documentation_repairs = bool(
+        documentation_plan["configured_source_moves"]
+        or documentation_plan["referenced_content_moves"]
+        or documentation_plan["unresolved_outside_markdown"]
+    )
 
-    if (templates or normalized or interaction_tracked or interaction_ignore_missing) and not force:
+    if (
+        templates or normalized or interaction_tracked or interaction_ignore_missing or documentation_repairs
+    ) and not force:
         return {
             "status": "repair-required",
             "template_artifacts": [item["id"] for item in templates],

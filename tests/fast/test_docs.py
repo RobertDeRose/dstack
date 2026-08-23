@@ -91,7 +91,7 @@ def test_validation_accepts_project_sections_external_links_and_includes(
     dstack_docs.create_foundation(tmp_path)
     guide = tmp_path / "docs/src/guides/install.md"
     guide.parent.mkdir()
-    guide.write_text("# Install\n\n[Website](https://example.com)\n")
+    guide.write_text("# Install\n\n[Website](https://example.com)\n[Project](../index.md?view=full#overview)\n")
     snippet = tmp_path / "docs/src/snippets/note.md"
     snippet.parent.mkdir()
     snippet.write_text("included\n")
@@ -133,9 +133,39 @@ def test_validation_rejects_orphans_broken_links_and_escapes(
         dstack_docs.validate_docs(tmp_path)
 
 
-def test_validation_rejects_symlink_escape(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("outside", [False, True])
+def test_validation_rejects_required_file_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outside: bool
 ) -> None:
+    dstack_docs.create_foundation(tmp_path)
+    required = tmp_path / "docs/src/index.md"
+    target = tmp_path / "outside.md" if outside else tmp_path / "docs/src/target.md"
+    target.write_text("target\n")
+    required.unlink()
+    required.symlink_to(target)
+    fake_mdbook(monkeypatch)
+
+    with pytest.raises(DstackError, match="not a regular file"):
+        dstack_docs.validate_docs(tmp_path)
+
+
+def test_validation_reports_all_deterministic_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dstack_docs.create_foundation(tmp_path)
+    index = tmp_path / "docs/src/index.md"
+    index.write_text("[One](one.md)\n[Two](two.md)\n")
+    (tmp_path / "docs/src/hidden.md").write_text("hidden\n")
+    fake_mdbook(monkeypatch)
+
+    with pytest.raises(DstackError) as raised:
+        dstack_docs.validate_docs(tmp_path)
+
+    message = str(raised.value)
+    assert "one.md" in message
+    assert "two.md" in message
+    assert "hidden.md" in message
+
+
+def test_validation_rejects_symlink_escape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dstack_docs.create_foundation(tmp_path)
     outside = tmp_path / "outside.md"
     outside.write_text("outside\n")

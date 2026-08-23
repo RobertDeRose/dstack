@@ -185,8 +185,9 @@ def create_foundation(root: Path) -> list[str]:
                 handle.write(content)
             created.append(relative)
         except FileExistsError:
-            if not path.is_file():
-                raise DstackError(f"documentation foundation path is not a file: {relative}")
+            if path.is_symlink() or not path.is_file():
+                raise DstackError(f"documentation foundation path is not a regular file: {relative}")
+    ensure_core_navigation(root)
     return created
 
 
@@ -558,49 +559,74 @@ def _links(path: Path) -> list[str]:
     return LINK_PATTERN.findall(path.read_text(encoding="utf-8"))
 
 
-def _includes(path: Path, source_root: Path) -> set[Path]:
-    result: set[Path] = set()
-    for raw in INCLUDE_PATTERN.findall(path.read_text(encoding="utf-8")):
-        target = _local_target(path, raw.split(":", 1)[0], source_root)
-        if target is not None:
-            result.add(target)
-    return result
-
-
 def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]:
     root = root.resolve()
     docs = _inside(root / "docs", root, "documentation directory escapes repository")
     source = _inside(docs / "src", root, "documentation source escapes repository")
     required = foundation_files(root.name)
-    missing = [relative for relative in required if not (root / relative).is_file()]
+    missing: list[str] = []
+    invalid: list[str] = []
+    for relative in required:
+        path = root / relative
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            invalid.append(relative)
+        elif not path.is_file():
+            missing.append(relative)
+    foundation_errors = []
     if missing:
-        raise DstackError("missing required documentation: " + ", ".join(missing))
+        foundation_errors.append("missing required documentation: " + ", ".join(missing))
+    if invalid:
+        foundation_errors.append("required documentation is not a regular file: " + ", ".join(invalid))
+    if foundation_errors:
+        raise DstackError("; ".join(foundation_errors))
 
+    raw_source, configured = configured_source(root)
+    if configured != source:
+        raise DstackError(
+            "mdBook [book].src must resolve to docs/src; "
+            f"configured source is {raw_source!r}; run /setup-project --force to migrate it"
+        )
+
+    errors: list[str] = []
     summary = source / "SUMMARY.md"
     chapters: set[Path] = set()
     for raw in _links(summary):
-        target = _local_target(summary, raw, source)
+        try:
+            target = _local_target(summary, raw, source)
+        except DstackError as exc:
+            errors.append(str(exc))
+            continue
         if target is not None and target.suffix.casefold() == ".md":
             chapters.add(target)
 
     markdown = set(source.rglob("*.md"))
     for path in markdown:
         for raw in _links(path):
-            _local_target(path, raw, source)
+            try:
+                _local_target(path, raw, source)
+            except DstackError as exc:
+                errors.append(str(exc))
 
     includes: set[Path] = set()
     pending = list(chapters)
     while pending:
         path = pending.pop()
-        for included in _includes(path, source):
-            if included not in includes:
+        for raw in INCLUDE_PATTERN.findall(path.read_text(encoding="utf-8")):
+            try:
+                included = _local_target(path, raw.split(":", 1)[0], source)
+            except DstackError as exc:
+                errors.append(str(exc))
+                continue
+            if included is not None and included not in includes:
                 includes.add(included)
                 if included.suffix.casefold() == ".md":
                     pending.append(included)
 
     orphans = sorted(path.relative_to(source).as_posix() for path in markdown - chapters - includes - {summary})
     if orphans:
-        raise DstackError("orphan documentation is not in SUMMARY.md: " + ", ".join(orphans))
+        errors.append("orphan documentation is not in SUMMARY.md: " + ", ".join(orphans))
+    if errors:
+        raise DstackError("documentation validation failed: " + "; ".join(sorted(set(errors))))
 
     executable = mdbook or require_mdbook()
     with tempfile.TemporaryDirectory(prefix="dstack-mdbook-") as output:

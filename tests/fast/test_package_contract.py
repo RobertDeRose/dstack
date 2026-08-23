@@ -136,9 +136,6 @@ def test_mdbook_documentation_layout() -> None:
     for design in designs:
         summary_target = design.relative_to(source).as_posix()
         assert f"]({summary_target})" in summary
-        if design.parent.name == "canonical-mdbook-documentation-system":
-            assert f"]({design.relative_to(source / 'features').as_posix()})" in feature_index
-            continue
         implementation = design.with_name("index.md")
         assert implementation.is_file()
         assert f"]({implementation.relative_to(source).as_posix()})" in summary
@@ -196,7 +193,12 @@ def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
         assert phrase in principles
     for phrase in ("outcome and why", "observable success", "documentation expectations"):
         assert phrase in " ".join(plan.split())
-    for phrase in ("happy path", "failure recovery", "Documentation impact"):
+    for phrase in (
+        "happy path",
+        "failure recovery",
+        "Documentation impact",
+        "local Markdown links",
+    ):
         assert phrase in " ".join(review.split())
     for phrase in ("externally meaningful behavior", "failure handling", "Documentation impact"):
         assert phrase in " ".join(implement.split())

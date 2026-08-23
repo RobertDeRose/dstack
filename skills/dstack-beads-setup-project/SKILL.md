@@ -15,12 +15,11 @@ python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
 ```
 
 Append `--force` only when the user explicitly supplied it. When `--force` was
-requested, also run the isolated compatibility repair:
-
-```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
-  repair-legacy --root . --force
-```
+requested, the installer first migrates mechanically identifiable legacy book
+content into `docs/src`, then completes the non-destructive documentation
+foundation/navigation, performs the remaining isolated compatibility repair,
+and finally runs strict documentation validation. Do not invoke repair a second
+time.
 
 Finally run the setup doctor once:
 

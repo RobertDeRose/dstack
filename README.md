@@ -92,7 +92,7 @@ A successful merge/PR finalizer changes Beads only and is forbidden from creatin
 ## Requirements
 
 - Git
-- Python 3.12+
+- Python 3.13+
 - Pi
 - mdBook on `PATH`
 - Beads 1.2.2+ with formulas, molecules, gates, JSON output, atomic claims, and
