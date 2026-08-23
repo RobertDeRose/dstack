@@ -326,6 +326,59 @@ def claim_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any]) -> dict
     return client.update(str(issue["id"]), "--claim")
 
 
+def claim_ready_step(
+    client: BeadsClient,
+    *,
+    root_id: str,
+    step: Mapping[str, Any],
+    label: str,
+    name: str,
+) -> dict[str, Any]:
+    """Claim one known lifecycle step through Beads-native readiness."""
+
+    status = str(step.get("status") or "")
+    if status == "closed":
+        return dict(step)
+    if status in {"in_progress", "claimed"}:
+        return dict(step)
+    claimed = client.ready_children(root_id, label=label, claim=True)
+    if not claimed:
+        raise DstackError(f"{name} is not ready according to Beads")
+    if len(claimed) != 1 or str(claimed[0].get("id")) != str(step.get("id")):
+        ids = ", ".join(str(item.get("id")) for item in claimed)
+        raise DstackError(
+            f"Beads claimed an unexpected {name} step: {ids or 'none'}"
+        )
+    return claimed[0]
+
+
+def claim_ready_step_with_fan_in(
+    client: BeadsClient,
+    *,
+    root_id: str,
+    step: Mapping[str, Any],
+    label: str,
+    name: str,
+    fan_in_parent_id: str,
+    fan_in_name: str,
+) -> dict[str, Any]:
+    require_complete_fan_in(client, parent_id=fan_in_parent_id, name=fan_in_name)
+    newly_claimed = step.get("status") not in {"closed", "in_progress", "claimed"}
+    claimed = claim_ready_step(client, root_id=root_id, step=step, label=label, name=name)
+    try:
+        require_complete_fan_in(client, parent_id=fan_in_parent_id, name=fan_in_name)
+    except DstackError as fan_in_error:
+        if newly_claimed:
+            try:
+                client.update(str(claimed["id"]), "--status", "open")
+            except DstackError as recovery_error:
+                raise DstackError(
+                    f"{fan_in_error}; failed to release raced claim {claimed['id']}"
+                ) from recovery_error
+        raise
+    return claimed
+
+
 def feature_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tuple[str, Path, str]:
     slug = str(view.get("slug") or "")
     base = str(view.get("base_branch") or "")

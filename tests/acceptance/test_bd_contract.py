@@ -97,6 +97,11 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
         "--parent", implementation["id"], "--deps", approval["id"],
         "--acceptance", "contract behavior",
     ))[0]
+    native_child = items(run_json(
+        acceptance_repo, "create", "native fan-in child", "--type", "task",
+        "--parent", implementation["id"], "--deps", approval["id"],
+        "--acceptance", "native child completes",
+    ))[0]
     assert items(run_json(
         acceptance_repo, "ready", "--parent", implementation["id"],
         "--exclude-type", "epic,molecule,gate", "--limit", "0",
@@ -143,15 +148,95 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
         ["bd", "close", owned["id"], "--reason", "complete", "--actor", "owner-a"],
         cwd=acceptance_repo,
     )
-    ready_root = items(run_json(
+    run_command(
+        ["bd", "close", native_child["id"], "--reason", "complete"],
+        cwd=acceptance_repo,
+    )
+    claimed_closeout = items(run_json(
         acceptance_repo, "ready", "--parent", feature_root,
-        "--exclude-type", "epic,molecule,gate", "--limit", "0",
+        "--label", "dstack:step:closeout", "--claim", "--json",
     ))
-    assert by_label(ready_root, "dstack:step:closeout")["status"] == "open"
+    assert by_label(claimed_closeout, "dstack:step:closeout")["status"] in {
+        "in_progress",
+        "claimed",
+    }
+    closeout = items(run_json(acceptance_repo, "show", claimed_closeout[0]["id"]))[0]
+    assert closeout["status"] in {"in_progress", "claimed"}
     run_command(
         ["bd", "close", implementation["id"], "--reason", "children complete"],
         cwd=acceptance_repo,
     )
+
+    corrections = by_label(alignment_children, "dstack:step:alignment-corrections")
+    alignment_approval = by_label(alignment_children, "dstack:step:alignment-approval")
+    alignment_analysis = by_label(alignment_children, "dstack:step:alignment-analysis")
+    alignment_gate_ids = {
+        str(record.get("depends_on_id") or record.get("id"))
+        for record in items(run_json(acceptance_repo, "show", alignment_approval["id"]))[0].get("dependencies", [])
+    }
+    alignment_gate = next(item for item in gates if str(item["id"]) in alignment_gate_ids)
+    correction = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "native correction",
+            "--type",
+            "task",
+            "--parent",
+            corrections["id"],
+            "--deps",
+            alignment_approval["id"],
+            "--acceptance",
+            "correction completes",
+        )
+    )[0]
+    run_command(
+        ["bd", "close", alignment_analysis["id"], "--reason", "analyzed"],
+        cwd=acceptance_repo,
+    )
+    run_command(
+        ["bd", "gate", "resolve", alignment_gate["id"], "--reason", "approved"],
+        cwd=acceptance_repo,
+    )
+    run_command(
+        ["bd", "close", alignment_approval["id"], "--reason", "approved"],
+        cwd=acceptance_repo,
+    )
+    assert (
+        items(
+            run_json(
+                acceptance_repo,
+                "ready",
+                "--parent",
+                alignment_root,
+                "--label",
+                "dstack:step:alignment-landing",
+                "--claim",
+                "--json",
+            )
+        )
+        == []
+    )
+    run_command(
+        ["bd", "close", correction["id"], "--reason", "complete"],
+        cwd=acceptance_repo,
+    )
+    claimed_landing = items(
+        run_json(
+            acceptance_repo,
+            "ready",
+            "--parent",
+            alignment_root,
+            "--label",
+            "dstack:step:alignment-landing",
+            "--claim",
+            "--json",
+        )
+    )
+    assert by_label(claimed_landing, "dstack:step:alignment-landing")["status"] in {
+        "in_progress",
+        "claimed",
+    }
 
     old = items(run_json(acceptance_repo, "create", "old item", "--type", "task"))[0]
     new = items(run_json(acceptance_repo, "create", "replacement item", "--type", "task"))[0]

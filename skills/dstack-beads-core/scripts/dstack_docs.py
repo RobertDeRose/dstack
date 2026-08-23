@@ -17,6 +17,7 @@ from dstacklib import DstackError, run
 
 LINK_PATTERN = re.compile(r"!?\[[^]]*\]\(([^)]+)\)")
 INCLUDE_PATTERN = re.compile(r"\{\{#include\s+([^}\s]+)[^}]*\}\}")
+FENCE_PATTERN = re.compile(r"^( {0,3})(`{3,}|~{3,})")
 
 CORE_NAVIGATION = (
     ("Project", "index.md"),
@@ -25,6 +26,107 @@ CORE_NAVIGATION = (
     ("Documentation", "development/documentation.md"),
     ("Feature Records", "features/index.md"),
 )
+
+
+def _is_escaped(text: str, index: int) -> bool:
+    backslashes = 0
+    index -= 1
+    while index >= 0 and text[index] == "\\":
+        backslashes += 1
+        index -= 1
+    return backslashes % 2 == 1
+
+
+def _mask_markdown_code(text: str) -> str:
+    """Replace Markdown code with spaces while preserving offsets and newlines."""
+
+    masked = list(text)
+    lines = text.splitlines(keepends=True)
+    offset = 0
+    fence: tuple[str, int] | None = None
+    for line in lines:
+        plain = line.rstrip("\r\n")
+        match = FENCE_PATTERN.match(plain)
+        opened = False
+        if fence is None and match:
+            marker = match.group(2)
+            fence = (marker[0], len(marker))
+            opened = True
+        if fence is not None:
+            for index in range(offset, offset + len(line)):
+                if masked[index] not in "\r\n":
+                    masked[index] = " "
+            if (
+                not opened
+                and match
+                and match.group(2)[0] == fence[0]
+                and len(match.group(2)) >= fence[1]
+                and plain[match.end() :].strip() == ""
+            ):
+                fence = None
+        offset += len(line)
+
+    masked_text = "".join(masked)
+    index = 0
+    while index < len(masked_text):
+        if masked_text[index] != "`" or _is_escaped(masked_text, index):
+            index += 1
+            continue
+        run = 1
+        while index + run < len(masked_text) and masked_text[index + run] == "`":
+            run += 1
+        end = index + run
+        while end < len(masked_text):
+            end = masked_text.find("`", end)
+            if end < 0:
+                break
+            closing = 1
+            while end + closing < len(masked_text) and masked_text[end + closing] == "`":
+                closing += 1
+            if closing == run:
+                for position in range(index, end + run):
+                    if masked[position] not in "\r\n":
+                        masked[position] = " "
+                index = end + run
+                break
+            end += closing
+        else:
+            index += run
+            continue
+        if end < 0:
+            index += run
+    return "".join(masked)
+
+
+def _markdown_matches(text: str, pattern: re.Pattern[str]) -> tuple[str, list[re.Match[str]]]:
+    masked = _mask_markdown_code(text)
+    matches = []
+    for match in pattern.finditer(masked):
+        syntax = match.start()
+        if pattern is LINK_PATTERN and masked[syntax] == "!":
+            if _is_escaped(masked, syntax) or _is_escaped(masked, syntax + 1):
+                continue
+        elif _is_escaped(masked, syntax):
+            continue
+        matches.append(match)
+    return masked, matches
+
+
+def _markdown_values(text: str, pattern: re.Pattern[str]) -> list[str]:
+    _, matches = _markdown_matches(text, pattern)
+    return [match.group(1) for match in matches]
+
+
+def _rewrite_markdown_values(
+    text: str,
+    pattern: re.Pattern[str],
+    transform: Any,
+) -> str:
+    _, matches = _markdown_matches(text, pattern)
+    for match in reversed(matches):
+        replacement = transform(text[match.start(1) : match.end(1)])
+        text = text[: match.start(1)] + replacement + text[match.end(1) :]
+    return text
 
 
 def foundation_files(project: str) -> dict[str, str]:
@@ -158,9 +260,7 @@ def ensure_core_navigation(root: Path) -> list[str]:
 
     original = summary.read_text(encoding="utf-8")
     targets = {
-        target
-        for raw in LINK_PATTERN.findall(original)
-        if (target := _summary_link_target(raw)) is not None
+        target for raw in _markdown_values(original, LINK_PATTERN) if (target := _summary_link_target(raw)) is not None
     }
     missing = [(label, target) for label, target in CORE_NAVIGATION if target not in targets]
     if not missing:
@@ -346,7 +446,7 @@ def _referenced_content_state(
     # A SUMMARY entry gives deterministic chapter placement, so any local file
     # it names under docs/ can be moved while preserving that navigation.
     if summary.is_file():
-        for raw in LINK_PATTERN.findall(summary.read_text(encoding="utf-8")):
+        for raw in _markdown_values(summary.read_text(encoding="utf-8"), LINK_PATTERN):
             candidate = _local_candidate(summary, raw)
             if candidate is None:
                 continue
@@ -369,7 +469,7 @@ def _referenced_content_state(
         scanned.add(path)
         text = path.read_text(encoding="utf-8")
 
-        for raw in INCLUDE_PATTERN.findall(text):
+        for raw in _markdown_values(text, INCLUDE_PATTERN):
             target_raw, _ = _include_path(raw)
             candidate = _local_candidate(path, target_raw)
             if candidate is None:
@@ -382,7 +482,7 @@ def _referenced_content_state(
                 if candidate.suffix.casefold() == ".md" and candidate.exists():
                     queue.append(candidate)
 
-        for raw in LINK_PATTERN.findall(text):
+        for raw in _markdown_values(text, LINK_PATTERN):
             candidate = _local_candidate(path, raw)
             if candidate is None:
                 continue
@@ -416,21 +516,15 @@ def _referenced_content_state(
             new_path = os.path.relpath(eventual_target, eventual_source.parent).replace(os.sep, "/")
             return _rewritten_target(target_raw, new_path) + include_suffix
 
-        def replace_group(match: re.Match[str], value: str) -> str:
-            start = match.start(1) - match.start(0)
-            end = match.end(1) - match.start(0)
-            whole = match.group(0)
-            return whole[:start] + value + whole[end:]
-
-        text = LINK_PATTERN.sub(
-            lambda match: replace_group(match, replacement(match.group(1))),
+        text = _rewrite_markdown_values(
             original,
+            LINK_PATTERN,
+            replacement,
         )
-        text = INCLUDE_PATTERN.sub(
-            lambda match: replace_group(
-                match, replacement(match.group(1), include=True)
-            ),
+        text = _rewrite_markdown_values(
             text,
+            INCLUDE_PATTERN,
+            lambda raw: replacement(raw, include=True),
         )
         if text != original:
             rewrites[path] = text
@@ -556,7 +650,7 @@ def _local_target(source: Path, raw: str, source_root: Path) -> Path | None:
 
 
 def _links(path: Path) -> list[str]:
-    return LINK_PATTERN.findall(path.read_text(encoding="utf-8"))
+    return _markdown_values(path.read_text(encoding="utf-8"), LINK_PATTERN)
 
 
 def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]:
@@ -611,7 +705,7 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
     pending = list(chapters)
     while pending:
         path = pending.pop()
-        for raw in INCLUDE_PATTERN.findall(path.read_text(encoding="utf-8")):
+        for raw in _markdown_values(path.read_text(encoding="utf-8"), INCLUDE_PATTERN):
             try:
                 included = _local_target(path, raw.split(":", 1)[0], source)
             except DstackError as exc:

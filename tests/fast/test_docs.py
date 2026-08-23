@@ -323,3 +323,121 @@ def test_migration_refuses_conflicting_configured_source(tmp_path: Path) -> None
 
     assert (legacy / "SUMMARY.md").read_text() == "legacy\n"
     assert (canonical / "SUMMARY.md").read_text() == "canonical\n"
+
+
+def test_migration_refuses_dot_source_without_mutation(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    source = docs / "src"
+    source.mkdir(parents=True)
+    book = docs / "book.toml"
+    book.write_text('[book]\nsrc = "."\n')
+    existing = source / "existing.md"
+    existing.write_text("existing\n")
+
+    with pytest.raises(DstackError, match='src = "."'):
+        dstack_docs.migrate_legacy_documentation(tmp_path)
+
+    assert book.is_file()
+    assert existing.read_text() == "existing\n"
+    assert not (source / "book.toml").exists()
+    assert not (source / "src").exists()
+
+
+def test_configured_source_migration_preflights_all_documentation_symlinks(
+    tmp_path: Path,
+) -> None:
+    docs = tmp_path / "docs"
+    legacy = docs / "book"
+    canonical = docs / "src"
+    legacy.mkdir(parents=True)
+    canonical.mkdir()
+    book = docs / "book.toml"
+    book.write_text('[book]\nsrc = "book"\n')
+    chapter = legacy / "SUMMARY.md"
+    chapter.write_text("# Summary\n")
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside\n")
+    (canonical / "link.md").symlink_to(outside)
+
+    with pytest.raises(DstackError, match="symlink"):
+        dstack_docs.migrate_legacy_documentation(tmp_path)
+
+    assert book.read_text() == '[book]\nsrc = "book"\n'
+    assert chapter.read_text() == "# Summary\n"
+    assert outside.read_text() == "outside\n"
+
+
+def test_generic_migration_refuses_canonical_markdown_symlink_without_mutation(
+    tmp_path: Path,
+) -> None:
+    dstack_docs.create_foundation(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside\n")
+    (tmp_path / "docs/src/link.md").symlink_to(outside)
+
+    with pytest.raises(DstackError, match="symlink"):
+        dstack_docs.migrate_legacy_documentation(tmp_path)
+
+    assert outside.read_text() == "outside\n"
+    assert (tmp_path / "docs/src/link.md").is_symlink()
+
+
+def test_known_file_migration_refuses_symlink_without_mutation(tmp_path: Path) -> None:
+    source = tmp_path / "docs/src/real.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("real\n")
+    link = source.with_name("link.md")
+    link.symlink_to(source.name)
+
+    with pytest.raises(DstackError, match="symlink"):
+        dstack_docs.migrate_known_documentation_file(tmp_path, "docs/src/link.md", "docs/src/moved.md")
+
+    assert source.read_text() == "real\n"
+    assert link.is_symlink()
+    assert not source.with_name("moved.md").exists()
+
+
+def test_validation_ignores_link_and_include_syntax_inside_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dstack_docs.create_foundation(tmp_path)
+    index = tmp_path / "docs/src/index.md"
+    index.write_text(
+        "# Project\n\n"
+        "Inline examples: `[missing](missing.md)` and `{{#include missing.md}}`.\n\n"
+        "Multiline code: `first line\n[missing](multiline.md)`.\n\n"
+        "Exact delimiter: ``code with ` and {{#include exact.md}}``.\n\n"
+        "```markdown\n"
+        "[also missing](also-missing.md)\n"
+        "{{#include also-missing.md}}\n"
+        "```\n\n"
+        r"Escaped examples: \[missing](escaped.md) and \{{#include escaped.md}}."
+        "\n"
+    )
+    fake_mdbook(monkeypatch)
+
+    assert dstack_docs.validate_docs(tmp_path)["status"] == "ok"
+
+
+def test_even_backslashes_do_not_hide_real_markdown_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dstack_docs.create_foundation(tmp_path)
+    index = tmp_path / "docs/src/index.md"
+    index.write_text("# Project\n\n" + r"\\[Missing](missing.md)" + "\n")
+    fake_mdbook(monkeypatch)
+
+    with pytest.raises(DstackError, match="missing.md"):
+        dstack_docs.validate_docs(tmp_path)
+
+
+def test_validation_still_checks_real_include_outside_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dstack_docs.create_foundation(tmp_path)
+    index = tmp_path / "docs/src/index.md"
+    index.write_text("# Project\n\n{{#include missing.md}}\n")
+    fake_mdbook(monkeypatch)
+
+    with pytest.raises(DstackError, match="missing.md"):
+        dstack_docs.validate_docs(tmp_path)
+
+
+def test_repository_book_passes_dstack_validation() -> None:
+    assert dstack_docs.validate_docs(ROOT, mdbook="/usr/bin/true")["status"] == "ok"
