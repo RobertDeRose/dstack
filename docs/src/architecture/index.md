@@ -25,10 +25,11 @@ workflow ledger.
 
 ### Beads
 
-Beads owns planned feature intent, formulas, poured molecules, tasks,
-parent/child structure, dependencies, gates, claims, readiness, completion,
-TODOs, decisions, and pending validation. dStack never calculates its own ready
-frontier.
+Beads owns planned feature intent, formulas, poured molecules, tasks, parent/child structure, dependencies, gates,
+claims, readiness, completion, TODOs, decisions, and pending validation. dStack never calculates its own ready frontier.
+Beads 1.2.2 can miss nonterminal dynamic children in `children-of(...)` fan-in, so dStack additionally refuses terminal
+claim, closure, and delivery while any direct workstream child is nonterminal. Native `bd ready --claim` still owns
+every other blocker and the atomic claim.
 
 ### Git
 

@@ -411,6 +411,7 @@ def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("show", "landing-1", result={"id": "landing-1", "status": "open"}),
+        call("children", "corrections-1", result=[]),
         call(
             "ready_children",
             "alignment-1",
@@ -418,6 +419,7 @@ def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
             claim=True,
             result=[{"id": "landing-1", "status": "in_progress"}],
         ),
+        call("children", "corrections-1", result=[]),
         call(
             "close",
             "landing-1",

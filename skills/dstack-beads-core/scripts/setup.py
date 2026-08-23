@@ -234,7 +234,6 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     ensure_beads(root, initialize=initialize)
     client = BeadsClient(root)
     version = client.check_version()
-    client.check_capabilities()
     source_dir = package_root() / "formulas"
     validate_bundle(source_dir)
 
@@ -293,7 +292,6 @@ def doctor(root_arg: Path) -> dict[str, Any]:
         raise SetupError("Beads is not initialized")
     client = BeadsClient(root)
     version = client.check_version()
-    client.check_capabilities()
     source_dir = package_root() / "formulas"
     documentation = validate_docs(root)
     statuses: dict[str, str] = {}

@@ -79,7 +79,7 @@ def test_install_initializes_and_reports_canonical_documentation(
 ) -> None:
     class Client:
         def check_version(self):
-            return "bd 1.2.2"
+            return "bd version 1.2.2 (6c124203e)"
 
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "ensure_beads", lambda *args, **kwargs: None)
@@ -110,7 +110,7 @@ def test_forced_install_repairs_legacy_before_strict_documentation_validation(
 
     class Client:
         def check_version(self):
-            return "bd 1.2.2"
+            return "bd version 1.2.2 (6c124203e)"
 
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "ensure_beads", lambda *args, **kwargs: None)
@@ -172,7 +172,10 @@ def test_forced_install_repairs_legacy_before_strict_documentation_validation(
 def test_legacy_repair_reports_required_changes_before_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    beads = ScriptedClient(tmp_path, call("check_version", result="bd 1.2.2"))
+    beads = ScriptedClient(
+        tmp_path,
+        call("check_version", result="bd version 1.2.2 (6c124203e)"),
+    )
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "BeadsClient", lambda root: beads)
     monkeypatch.setattr(
@@ -389,7 +392,10 @@ def test_missing_historical_reconciliation_is_reported(tmp_path: Path) -> None:
 def test_forced_repair_validates_resulting_book(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    beads = ScriptedClient(tmp_path, call("check_version", result="bd 1.2.2"))
+    beads = ScriptedClient(
+        tmp_path,
+        call("check_version", result="bd version 1.2.2 (6c124203e)"),
+    )
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "BeadsClient", lambda root: beads)
     monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [])

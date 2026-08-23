@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO, cast
 
-MIN_BEADS_VERSION = (1, 2, 2)
+SUPPORTED_BEADS_VERSION_OUTPUT = "bd version 1.2.2 (6c124203e)"
 FEATURE_STEPS = {
     "specification": "dstack:step:specification",
     "approval": "dstack:step:implementation-approval",
@@ -316,13 +316,6 @@ def write_temp_text(text: str) -> TextIO:
     handle.write(text)
     handle.flush()
     return cast(TextIO, handle)
-
-
-def parse_version(raw: str) -> tuple[int, int, int]:
-    match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", raw)
-    if not match:
-        raise DstackError(f"cannot parse Beads version: {raw!r}")
-    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
 
 
 class BeadsClient:

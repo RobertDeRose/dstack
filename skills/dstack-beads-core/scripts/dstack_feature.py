@@ -73,6 +73,7 @@ from dstack_commands import (
     evidence_for_bead,
     fail,
     feature_branch_context,
+    open_workstream_children,
     package_root,
     preserve_external_blockers,
     require_approved_design,
