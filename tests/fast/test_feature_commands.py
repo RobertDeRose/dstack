@@ -532,45 +532,95 @@ def test_claim_closeout_keeps_closed_closeout_idempotent(
     beads.assert_exhausted()
 
 
-def test_claim_closeout_refuses_open_workstream(monkeypatch, tmp_path: Path) -> None:
+def test_claim_closeout_delegates_readiness_to_beads(monkeypatch, tmp_path: Path) -> None:
+    closeout = {"id": "closeout-1", "status": "open"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "closeout-1", result=closeout),
+        call("children", "implementation-1", result=[]),
+        call(
+            "ready_children",
+            "feature-1",
+            label="dstack:step:closeout",
+            claim=True,
+            result=[],
+        ),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+    with pytest.raises(DstackError, match="not ready according to Beads"):
+        dstack_feature.cmd_feature_claim_closeout(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
+def test_claim_closeout_refuses_open_native_child_before_ready_claim(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
         call(
-            "show",
+            "children",
             "implementation-1",
-            result={"id": "implementation-1", "status": "open"},
+            result=[{"id": "native-child", "status": "open", "labels": []}],
         ),
     )
     patch_command(monkeypatch, dstack_feature, beads)
-    with pytest.raises(DstackError, match="implementation workstream is not closed"):
-        dstack_feature.cmd_feature_claim_closeout(
-            argparse.Namespace(root=tmp_path, selector="feature-1")
-        )
+
+    with pytest.raises(DstackError, match="native-child"):
+        dstack_feature.cmd_feature_claim_closeout(argparse.Namespace(root=tmp_path, selector="feature-1"))
     beads.assert_exhausted()
 
 
-def test_claim_closeout_refuses_open_blocker(monkeypatch, tmp_path: Path) -> None:
-    closeout = {
-        "id": "closeout-1",
-        "status": "open",
-        "dependencies": [{"depends_on_id": "task-1", "type": "blocks"}],
-    }
+def test_claim_closeout_releases_raced_claim_when_new_child_appears(monkeypatch, tmp_path: Path) -> None:
+    claimed = {"id": "closeout-1", "status": "in_progress"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
+        call("children", "implementation-1", result=[]),
+        call(
+            "ready_children",
+            "feature-1",
+            label="dstack:step:closeout",
+            claim=True,
+            result=[claimed],
+        ),
+        call(
+            "children",
+            "implementation-1",
+            result=[{"id": "raced-child", "status": "open"}],
+        ),
+        call(
+            "update",
+            "closeout-1",
+            "--status",
+            "open",
+            result={"id": "closeout-1", "status": "open"},
+        ),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+
+    with pytest.raises(DstackError, match="raced-child"):
+        dstack_feature.cmd_feature_claim_closeout(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
+def test_claim_closeout_uses_native_atomic_ready_claim(monkeypatch, tmp_path: Path) -> None:
+    closeout = {"id": "closeout-1", "status": "open"}
+    claimed = {"id": "closeout-1", "status": "in_progress"}
     beads = ScriptedClient(
         tmp_path,
         call("show", "closeout-1", result=closeout),
+        call("children", "implementation-1", result=[]),
         call(
-            "show",
-            "implementation-1",
-            result={"id": "implementation-1", "status": "closed"},
+            "ready_children",
+            "feature-1",
+            label="dstack:step:closeout",
+            claim=True,
+            result=[claimed],
         ),
-        call("show", "task-1", result={"id": "task-1", "status": "open"}),
+        call("children", "implementation-1", result=[]),
     )
-    patch_command(monkeypatch, dstack_feature, beads)
-    with pytest.raises(DstackError, match="closeout remains blocked"):
-        dstack_feature.cmd_feature_claim_closeout(
-            argparse.Namespace(root=tmp_path, selector="feature-1")
-        )
+    output = patch_command(monkeypatch, dstack_feature, beads)
+    assert dstack_feature.cmd_feature_claim_closeout(argparse.Namespace(root=tmp_path, selector="feature-1")) == 0
+    assert output[0]["closeout"] == claimed
     beads.assert_exhausted()
 
 
@@ -605,11 +655,6 @@ def test_finish_closeout_requires_reconciliation_before_beads_mutation(
     beads = ScriptedClient(
         tmp_path,
         call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
-        call(
-            "show",
-            "implementation-1",
-            result={"id": "implementation-1", "status": "closed"},
-        ),
     )
     output = patch_command(monkeypatch, dstack_feature, beads)
     monkeypatch.setattr(
@@ -658,43 +703,19 @@ def test_finish_closeout_keeps_closed_closeout_idempotent(monkeypatch, tmp_path:
     beads.assert_exhausted()
 
 
-def test_finish_closeout_refuses_open_workstream(monkeypatch, tmp_path: Path) -> None:
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
-        call(
-            "show",
-            "implementation-1",
-            result={"id": "implementation-1", "status": "open"},
-        ),
-    )
-    patch_command(monkeypatch, dstack_feature, beads)
-    args = argparse.Namespace(
-        root=tmp_path,
-        selector="feature-1",
-        reason="Closeout completed",
-        summary_file=None,
-    )
-    with pytest.raises(DstackError, match="implementation workstream is not closed"):
-        dstack_feature.cmd_feature_finish_closeout(args)
-    beads.assert_exhausted()
-
-
-def test_finish_closeout_refuses_open_blocker(monkeypatch, tmp_path: Path) -> None:
-    closeout = {
-        "id": "closeout-1",
-        "status": "open",
-        "dependencies": [{"depends_on_id": "task-1", "type": "blocks"}],
-    }
+def test_finish_closeout_refuses_when_beads_does_not_mark_it_ready(monkeypatch, tmp_path: Path) -> None:
+    closeout = {"id": "closeout-1", "status": "open"}
     beads = ScriptedClient(
         tmp_path,
         call("show", "closeout-1", result=closeout),
+        call("children", "implementation-1", result=[]),
         call(
-            "show",
-            "implementation-1",
-            result={"id": "implementation-1", "status": "closed"},
+            "ready_children",
+            "feature-1",
+            label="dstack:step:closeout",
+            claim=True,
+            result=[],
         ),
-        call("show", "task-1", result={"id": "task-1", "status": "open"}),
     )
     patch_command(monkeypatch, dstack_feature, beads)
     args = argparse.Namespace(
@@ -703,7 +724,7 @@ def test_finish_closeout_refuses_open_blocker(monkeypatch, tmp_path: Path) -> No
         reason="Closeout completed",
         summary_file=None,
     )
-    with pytest.raises(DstackError, match="closeout remains blocked"):
+    with pytest.raises(DstackError, match="not ready according to Beads"):
         dstack_feature.cmd_feature_finish_closeout(args)
     beads.assert_exhausted()
 
@@ -713,15 +734,11 @@ def test_finish_closeout_closes_once(monkeypatch, tmp_path: Path) -> None:
         tmp_path,
         call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
         call(
-            "show",
-            "implementation-1",
-            result={"id": "implementation-1", "status": "closed"},
-        ),
-        call(
-            "update",
-            "closeout-1",
-            "--claim",
-            result={"id": "closeout-1", "status": "in_progress"},
+            "ready_children",
+            "feature-1",
+            label="dstack:step:closeout",
+            claim=True,
+            result=[{"id": "closeout-1", "status": "in_progress"}],
         ),
         call(
             "close",
@@ -781,6 +798,25 @@ def test_closeout_validation_rejects_untouched_reconciliation_scaffold(monkeypat
     )
 
     with pytest.raises(DstackError, match="untouched scaffold"):
-        dstack_feature.validate_feature_documentation(
-            ScriptedClient(tmp_path), view()
-        )
+        dstack_feature.validate_feature_documentation(ScriptedClient(tmp_path), view())
+
+
+def test_finish_workstream_counts_unlabeled_native_children(monkeypatch, tmp_path: Path) -> None:
+    implementation = {"id": "implementation-1", "status": "open"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "implementation-1", result=implementation),
+        call(
+            "children",
+            "implementation-1",
+            result=[{"id": "native-child", "status": "open", "labels": []}],
+        ),
+        call("show", "implementation-1", result=implementation),
+        call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
+    )
+    output = patch_command(monkeypatch, dstack_feature, beads)
+    args = argparse.Namespace(root=tmp_path, selector="feature-1", quiet=False)
+    assert dstack_feature.cmd_feature_finish_workstream(args) == 0
+    assert output[0]["open_items"] == ["native-child"]
+    assert output[0]["closed_now"] is False
+    beads.assert_exhausted()

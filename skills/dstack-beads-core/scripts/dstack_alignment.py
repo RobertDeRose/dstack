@@ -23,7 +23,6 @@ from dstacklib import (
     alignment_context,
     alignment_view,
     ancestry,
-    blocker_ids,
     branch_exists,
     commit_footer_ids,
     conventional_worktree,
@@ -58,6 +57,7 @@ from dstack_commands import (
     FORBIDDEN_DOC_PATTERNS,
     NO_REPOSITORY_CHANGE_PREFIX,
     claim_issue_if_needed,
+    claim_ready_step,
     client_for,
     completion_reason,
     descendants,
@@ -270,8 +270,10 @@ def finish_alignment_workstream(
     client: BeadsClient, view: Mapping[str, Any]
 ) -> dict[str, Any]:
     workstream = client.show(str(view["steps"]["corrections"]["id"]))
-    items = [item for item in client.children(str(workstream["id"])) if has_label(item, "dstack:work:correction")]
-    open_items = [item for item in items if item.get("status") != "closed"]
+    items = client.children(str(workstream["id"]))
+    open_items = [
+        item for item in items if item.get("status") not in {"closed", "deferred"}
+    ]
     if not open_items and workstream.get("status") != "closed":
         client.close(str(workstream["id"]), "All corrections completed")
     return {
@@ -296,16 +298,15 @@ def cmd_alignment_claim_landing(args: argparse.Namespace) -> int:
     if landing.get("status") == "closed":
         emit({"status": "ok", "landing": landing, "already_closed": True})
         return 0
-    open_blockers = [
-        blocker
-        for blocker in blocker_ids(landing)
-        if client.show(blocker).get("status") != "closed"
-    ]
-    if open_blockers:
-        raise DstackError(
-            "alignment landing remains blocked by: " + ", ".join(open_blockers)
-        )
-    claimed = claim_issue_if_needed(client, landing)
+    claimed = claim_ready_step_with_fan_in(
+        client,
+        root_id=str(view["root"]["id"]),
+        step=landing,
+        label="dstack:step:alignment-landing",
+        name="alignment landing",
+        fan_in_parent_id=str(view["steps"]["corrections"]["id"]),
+        fan_in_name="alignment corrections",
+    )
     emit({"status": "ok", "landing": claimed, "audit": view["root"]["id"]})
     return 0
 

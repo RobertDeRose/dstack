@@ -411,3 +411,11 @@ def test_acceptance_preflight_fails_without_bd(tmp_path: Path) -> None:
     )
     assert result.returncode == 1
     assert "real Beads is required: install bd on PATH" in result.stderr
+
+
+def test_tracked_beads_configuration_contains_no_machine_local_paths() -> None:
+    config = "\n".join(
+        line for line in (ROOT / ".beads/config.yaml").read_text().splitlines() if not line.lstrip().startswith("#")
+    )
+    assert not re.search(r'(?m)^\s*[^\n]+:\s*["\']?/(?:Users|home|private|tmp)/', config)
+    assert "~/" not in config

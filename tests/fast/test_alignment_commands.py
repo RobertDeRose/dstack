@@ -340,24 +340,62 @@ def test_finish_workstream_closes_after_native_children_are_closed(
     beads.assert_exhausted()
 
 
-def test_claim_landing_refuses_open_native_blocker(monkeypatch, tmp_path: Path) -> None:
+def test_claim_landing_delegates_readiness_to_beads(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
+        call("show", "landing-1", result={"id": "landing-1", "status": "open"}),
+        call("children", "corrections-1", result=[]),
         call(
-            "show",
-            "landing-1",
-            result={
-                "id": "landing-1",
-                "status": "open",
-                "dependencies": [{"depends_on_id": "task-1", "type": "blocks"}],
-            },
+            "ready_children",
+            "alignment-1",
+            label="dstack:step:alignment-landing",
+            claim=True,
+            result=[],
         ),
-        call("show", "task-1", result={"id": "task-1", "status": "open"}),
     )
     patch_command(monkeypatch, beads)
     args = argparse.Namespace(root=tmp_path, selector="alignment-1")
-    with pytest.raises(DstackError, match="remains blocked"):
+    with pytest.raises(DstackError, match="not ready according to Beads"):
         dstack_alignment.cmd_alignment_claim_landing(args)
+    beads.assert_exhausted()
+
+
+def test_claim_landing_refuses_open_native_child_before_ready_claim(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "landing-1", result={"id": "landing-1", "status": "open"}),
+        call(
+            "children",
+            "corrections-1",
+            result=[{"id": "native-child", "status": "open", "labels": []}],
+        ),
+    )
+    patch_command(monkeypatch, beads)
+
+    with pytest.raises(DstackError, match="native-child"):
+        dstack_alignment.cmd_alignment_claim_landing(argparse.Namespace(root=tmp_path, selector="alignment-1"))
+    beads.assert_exhausted()
+
+
+def test_claim_landing_uses_native_atomic_ready_claim(monkeypatch, tmp_path: Path) -> None:
+    claimed = {"id": "landing-1", "status": "in_progress"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "landing-1", result={"id": "landing-1", "status": "open"}),
+        call("children", "corrections-1", result=[]),
+        call(
+            "ready_children",
+            "alignment-1",
+            label="dstack:step:alignment-landing",
+            claim=True,
+            result=[claimed],
+        ),
+        call("children", "corrections-1", result=[]),
+    )
+    output = patch_command(monkeypatch, beads)
+    args = argparse.Namespace(root=tmp_path, selector="alignment-1")
+    assert dstack_alignment.cmd_alignment_claim_landing(args) == 0
+    assert output[0]["landing"] == claimed
     beads.assert_exhausted()
 
 
@@ -388,4 +426,26 @@ def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
     assert dstack_alignment.cmd_alignment_finish_landing(args) == 0
     assert output[0]["audit"] == "alignment-1"
     assert output[0]["landing"]["status"] == "closed"
+    beads.assert_exhausted()
+
+
+def test_finish_alignment_workstream_counts_unlabeled_native_children(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "corrections-1", result={"id": "corrections-1", "status": "open"}),
+        call(
+            "children",
+            "corrections-1",
+            result=[{"id": "native-child", "status": "open", "labels": []}],
+        ),
+        call("show", "corrections-1", result={"id": "corrections-1", "status": "open"}),
+    )
+    output = patch_command(monkeypatch, beads)
+    assert (
+        dstack_alignment.cmd_alignment_finish_workstream(
+            argparse.Namespace(root=tmp_path, selector="alignment-1", quiet=False)
+        )
+        == 0
+    )
+    assert output[0]["open_items"] == ["native-child"]
     beads.assert_exhausted()
