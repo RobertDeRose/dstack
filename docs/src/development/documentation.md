@@ -18,6 +18,10 @@ One durable mdBook serves:
 
 No separate agent documentation tree exists. Humans and agents consume the same durable sources.
 
+When a feature is materialized, its planned Beads description and acceptance criteria are copied once into the design
+scaffold. Specification review then refines that content into the accepted repository design; dStack does not keep Beads
+prose and Git documentation in live two-way synchronization.
+
 ## Canonical foundation
 
 Every managed project uses `docs/book.toml` and `docs/src/SUMMARY.md` as its canonical book and navigation. The required
@@ -53,6 +57,11 @@ elsewhere in `docs/src`.
 
 Current behavior belongs in current-product documentation. A reader should not
 need to know which feature introduced a capability to understand or use it.
+
+Feature documentation impact explicitly considers operator usage and
+configuration, deployment/upgrade/rollback, operations and recovery, developer
+architecture and contracts, and future audit evidence. Concrete affected pages
+use local Markdown links; an inapplicable surface is `N/A` with a reason.
 
 ## Feature records
 

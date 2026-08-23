@@ -53,9 +53,10 @@ python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
   feature inspect "<returned-root>"
 ```
 
-Reuse tasks that already express the accepted observable outcomes. Reconcile
-those tasks through native `bd update` and native `bd dep add`; do not duplicate
-them. Create only missing bounded outcomes through:
+Reconcile the whole native graph: reuse/update valid tasks with native `bd update`; create missing outcomes;
+close/supersede obsolete tasks with a reason; add real blockers with native `bd dep add`; remove obsolete blockers with
+native `bd dep remove`; and preserve context as nonblocking relations. Do not duplicate tasks or maintain a shadow
+graph. Create missing bounded outcomes through:
 
 ```bash
 python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
@@ -72,8 +73,6 @@ contents changed, commit the actual design/docs change with the specification Be
 python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
   git commit --bead "<spec-id>" --subject "<subject>"
 ```
-
-No commit is required when contents were already correct.
 
 Review the complete final design, task graph, dependencies, and candidate diff.
 Present material decisions, findings, validation expectations, and deferred
