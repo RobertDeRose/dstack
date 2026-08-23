@@ -11,7 +11,15 @@ import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from dstack_docs import initialize_docs, validate_docs
+from dstack_docs import (
+    create_foundation,
+    initialize_docs,
+    legacy_documentation_plan,
+    migrate_legacy_documentation,
+    require_mdbook,
+    validate_docs,
+)
+from dstack_feature import ensure_feature_navigation
 from dstacklib import (
     ALIGNMENT_STEPS,
     FEATURE_STEPS,
@@ -372,6 +380,81 @@ def tracked(root: Path, path: str) -> bool:
     )
 
 
+def migrate_feature_design(
+    root: Path,
+    feature: Mapping[str, Any],
+    *,
+    slug: str,
+    design_path: str,
+) -> None:
+    legacy = f"docs/features/{slug}/design.md"
+    canonical = canonical_feature_design_path(slug)
+    if design_path not in (legacy, canonical):
+        raise SetupError(f"unsupported feature design migration path: {design_path}; expected {legacy} or {canonical}")
+
+    source = (root / legacy).resolve()
+    destination = (root / canonical).resolve()
+    repository = root.resolve()
+    for path in (source, destination):
+        try:
+            path.relative_to(repository)
+        except ValueError as exc:
+            raise SetupError("feature design migration escapes repository") from exc
+
+    if design_path == legacy:
+        legacy_path = root / legacy
+        if legacy_path.exists():
+            if legacy_path.is_symlink() or not legacy_path.is_file():
+                raise SetupError("legacy feature design is not a safe regular file")
+            if destination.exists():
+                raise SetupError("legacy and canonical feature designs both exist")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            legacy_path.replace(destination)
+        elif not destination.is_file():
+            raise SetupError("legacy feature design is missing")
+
+        replacements = {
+            root / "docs/src/SUMMARY.md": (
+                f"../features/{slug}/design.md",
+                f"features/{slug}/design.md",
+            ),
+            root / "docs/src/features/index.md": (
+                f"../../features/{slug}/design.md",
+                f"{slug}/design.md",
+            ),
+        }
+        for path, (old, new) in replacements.items():
+            if path.is_file():
+                text = path.read_text()
+                if old in text:
+                    path.write_text(text.replace(old, new))
+
+    if not destination.is_file():
+        raise SetupError("canonical feature design is missing")
+    title = str(feature.get("title") or slug).removeprefix("Feature: ")
+    ensure_feature_navigation(
+        root,
+        slug=slug,
+        title=title,
+        reconciled=destination.with_name("index.md").is_file(),
+    )
+
+
+def missing_feature_reconciliations(client: BeadsClient) -> list[str]:
+    missing: list[str] = []
+    for feature in client.list(all_statuses=True, labels=["workflow:feature"]):
+        if feature.get("status") != "closed":
+            continue
+        slug = feature_slug(feature)
+        if not slug:
+            continue
+        design = client.root / canonical_feature_design_path(slug)
+        reconciliation = design.with_name("index.md")
+        if design.is_file() and not reconciliation.is_file():
+            missing.append(reconciliation.relative_to(client.root).as_posix())
+    return sorted(missing)
+
+
 def normalize_current_features(client: BeadsClient, *, force: bool) -> list[str]:
     changed: list[str] = []
     roots = client.list(all_statuses=True, labels=["workflow:feature"])
@@ -389,9 +472,16 @@ def normalize_current_features(client: BeadsClient, *, force: bool) -> list[str]
         if slug:
             canonical_design = canonical_feature_design_path(slug)
             if design != canonical_design or not root_metadata.get("dstack.design_path"):
-                root_args.extend(
-                    ["--set-metadata", f"dstack.design_path={canonical_design}"]
-                )
+                if force:
+                    migrate_feature_design(
+                        client.root,
+                        root,
+                        slug=slug,
+                        design_path=design or canonical_design,
+                    )
+                root_args.extend(["--set-metadata", f"dstack.design_path={canonical_design}"])
+            elif force and not (client.root / canonical_design).is_file():
+                raise SetupError("canonical feature design is missing")
         for key in ("feature_slug", "base_branch", "branch", "worktree_path", "adopted_from"):
             if key in issue_metadata(root):
                 root_args.extend(["--unset-metadata", key])
@@ -487,6 +577,7 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
     normalized = sorted(
         set(normalize_current_features(client, force=force)) | set(normalize_current_alignments(client, force=force))
     )
+    missing_reconciliations = missing_feature_reconciliations(client)
     interaction_tracked = tracked(root, ".beads/interactions.jsonl")
     beads_ignore = root / ".beads" / ".gitignore"
     ignore_lines = beads_ignore.read_text().splitlines() if beads_ignore.exists() else []
@@ -499,6 +590,8 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
             "molecule_items_to_normalize": normalized,
             "interaction_log_tracked": interaction_tracked,
             "interaction_log_ignore_missing": interaction_ignore_missing,
+            "missing_feature_reconciliations": missing_reconciliations,
+            "documentation_migration": documentation_plan,
         }
 
     removed: list[str] = []
@@ -509,11 +602,16 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
         removed = ids
 
     interaction_policy = ensure_interaction_log_policy(root)
+    documentation = validate_docs(root)
 
     return {
         "status": "ok",
         "template_artifacts_removed": removed,
         "molecule_items_normalized": normalized,
+        "missing_feature_reconciliations": missing_reconciliations,
+        "created_documentation": created_documentation,
+        "documentation_migration": documentation_migration,
+        "documentation": documentation,
         **interaction_policy,
     }
 

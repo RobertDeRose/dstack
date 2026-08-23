@@ -118,9 +118,13 @@ Beads repository configuration such as `.beads/config.yaml`,
 normal Beads transitions cannot dirty Git history.
 
 Use `/setup-project --force` only to replace changed formula source or perform
-explicit known legacy repair. It preserves local Beads/Dolt runtime data and
-never persists formula protos in the live ready frontier. Review and commit the
-repository setup boundary before starting feature work.
+explicit legacy repair. Safe noncanonical mdBook source trees are moved into
+`docs/src`; chapters/includes/assets outside `docs/src` are also moved when
+existing navigation or references determine their destination mechanically.
+References are rewritten with the move. Ambiguous Markdown is reported rather
+than guessed into the book hierarchy. Repair preserves local Beads/Dolt runtime
+data and never persists formula protos in the live ready frontier. Review and
+commit the repository setup boundary before starting feature work.
 
 ## Development
 

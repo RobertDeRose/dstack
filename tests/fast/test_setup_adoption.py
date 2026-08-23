@@ -186,6 +186,11 @@ def test_legacy_repair_reports_required_changes_before_mutation(
     monkeypatch.setattr(
         setup, "normalize_current_alignments", lambda client, force: []
     )
+    monkeypatch.setattr(
+        setup,
+        "missing_feature_reconciliations",
+        lambda client: ["docs/src/features/old/index.md"],
+    )
     monkeypatch.setattr(setup, "tracked", lambda root, path: True)
     result = setup.repair_legacy(tmp_path, force=False)
     assert result == {
@@ -194,11 +199,32 @@ def test_legacy_repair_reports_required_changes_before_mutation(
         "molecule_items_to_normalize": ["feature-1"],
         "interaction_log_tracked": True,
         "interaction_log_ignore_missing": True,
+        "missing_feature_reconciliations": ["docs/src/features/old/index.md"],
+        "documentation_migration": {
+            "configured_source_moves": [],
+            "referenced_content_moves": [],
+            "unresolved_outside_markdown": [],
+        },
     }
     beads.assert_exhausted()
 
 
 def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) -> None:
+    source = tmp_path / "docs/features/feature/design.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("legacy design\n")
+    summary = tmp_path / "docs/src/SUMMARY.md"
+    summary.parent.mkdir(parents=True)
+    summary.write_text(
+        "# Summary\n\n- [Operations](operations/index.md)\n"
+        "- [Feature Records](features/index.md)\n"
+        "  - [Feature](../features/feature/design.md)\n"
+    )
+    feature_index = tmp_path / "docs/src/features/index.md"
+    feature_index.parent.mkdir(parents=True)
+    feature_index.write_text(
+        "# Feature Records\n\n- [Feature](../../features/feature/design.md)\n"
+    )
     root = {
         "id": "feature-1",
         "labels": ["workflow:feature", "feature:feature"],
@@ -225,6 +251,158 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
         call("children", "feature-1", result=[]),
     )
     assert setup.normalize_current_features(beads, force=True) == ["feature-1"]
+    destination = tmp_path / "docs/src/features/feature/design.md"
+    assert not source.exists()
+    assert destination.read_text() == "legacy design\n"
+    assert "features/feature/design.md" in summary.read_text()
+    assert "../features/feature/design.md" not in summary.read_text()
+    assert "[Operations](operations/index.md)" in summary.read_text()
+    assert "feature/design.md" in feature_index.read_text()
+    assert "../../features/feature/design.md" not in feature_index.read_text()
+    beads.assert_exhausted()
+
+
+def test_explicit_repair_recovers_move_completed_before_metadata_update(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "docs/src/features/feature/design.md"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("moved design\n")
+    root = {
+        "id": "feature-1",
+        "labels": ["workflow:feature", "feature:feature"],
+        "metadata": {"dstack.design_path": "docs/features/feature/design.md"},
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "list",
+            all_statuses=True,
+            labels=["workflow:feature"],
+            result=[root],
+        ),
+        call(
+            "update",
+            "feature-1",
+            "--set-metadata",
+            "dstack.design_path=docs/src/features/feature/design.md",
+            result=root,
+        ),
+        call("children", "feature-1", result=[]),
+    )
+
+    assert setup.normalize_current_features(beads, force=True) == ["feature-1"]
+    assert destination.read_text() == "moved design\n"
+    assert "features/feature/design.md" in (
+        tmp_path / "docs/src/SUMMARY.md"
+    ).read_text()
+    beads.assert_exhausted()
+
+
+def test_explicit_repair_refuses_missing_legacy_design_before_metadata_update(
+    tmp_path: Path,
+) -> None:
+    root = {
+        "id": "feature-1",
+        "labels": ["workflow:feature", "feature:feature"],
+        "metadata": {"dstack.design_path": "docs/features/feature/design.md"},
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "list",
+            all_statuses=True,
+            labels=["workflow:feature"],
+            result=[root],
+        ),
+    )
+
+    with pytest.raises(setup.SetupError, match="legacy feature design is missing"):
+        setup.normalize_current_features(beads, force=True)
+
+    beads.assert_exhausted()
+
+
+@pytest.mark.parametrize("failure", ["conflict", "symlink", "unknown"])
+def test_explicit_repair_refuses_unsafe_or_ambiguous_design_migration(tmp_path: Path, failure: str) -> None:
+    legacy = tmp_path / "docs/features/feature/design.md"
+    canonical = tmp_path / "docs/src/features/feature/design.md"
+    legacy.parent.mkdir(parents=True)
+    if failure == "symlink":
+        outside = tmp_path / "outside.md"
+        outside.write_text("outside\n")
+        legacy.symlink_to(outside)
+    else:
+        legacy.write_text("legacy\n")
+    if failure == "conflict":
+        canonical.parent.mkdir(parents=True)
+        canonical.write_text("canonical\n")
+    design_path = "docs/other/feature/design.md" if failure == "unknown" else "docs/features/feature/design.md"
+    root = {
+        "id": "feature-1",
+        "labels": ["workflow:feature", "feature:feature"],
+        "metadata": {"dstack.design_path": design_path},
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "list",
+            all_statuses=True,
+            labels=["workflow:feature"],
+            result=[root],
+        ),
+    )
+
+    with pytest.raises(setup.SetupError):
+        setup.normalize_current_features(beads, force=True)
+
+    assert legacy.exists()
+    beads.assert_exhausted()
+
+
+def test_missing_historical_reconciliation_is_reported(tmp_path: Path) -> None:
+    design = tmp_path / "docs/src/features/feature/design.md"
+    design.parent.mkdir(parents=True)
+    design.write_text("design\n")
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "list",
+            all_statuses=True,
+            labels=["workflow:feature"],
+            result=[
+                {
+                    "id": "feature-1",
+                    "status": "closed",
+                    "labels": ["workflow:feature", "feature:feature"],
+                }
+            ],
+        ),
+    )
+
+    assert setup.missing_feature_reconciliations(beads) == [
+        "docs/src/features/feature/index.md"
+    ]
+    beads.assert_exhausted()
+
+
+def test_forced_repair_validates_resulting_book(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    beads = ScriptedClient(tmp_path, call("check_version", result="bd 1.2.2"))
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: beads)
+    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [])
+    monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "missing_feature_reconciliations", lambda client: [])
+    monkeypatch.setattr(setup, "tracked", lambda *args: False)
+    monkeypatch.setattr(setup, "ensure_interaction_log_policy", lambda root: {})
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+
+    result = setup.repair_legacy(tmp_path, force=True)
+
+    assert result["documentation"] == {"status": "ok"}
     beads.assert_exhausted()
 
 
