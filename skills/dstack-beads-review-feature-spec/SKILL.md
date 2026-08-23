@@ -39,8 +39,8 @@ source, tests, durable documentation, dependencies, and other work. Materialize 
 - interfaces, data flow, happy path, and observable success behavior;
 - invalid input, persistence/state behavior, failure recovery, security, compatibility, and migration boundaries;
 - behavior-first validation and regression expectations; and
-- Documentation impact for end users/operators, developers/reviewers, and
-  future agents/auditors, with a reason for each `N/A`.
+- Documentation impact for all three audiences; use local Markdown links for every concrete affected surface and explain
+  each `N/A`.
 
 Resolve clear holes and collisions directly. Ask only for genuine product or architecture decisions.
 

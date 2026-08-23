@@ -32,6 +32,7 @@ def payload(**overrides):
         "documentation": {"status": "ok"},
         "remote_target_head": "target",
         "remote_matches_local": True,
+        "target_branch": "main",
     }
     value.update(overrides)
     return value
@@ -535,3 +536,26 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
             argparse.Namespace(root=tmp_path, selector="feature-1")
         )
     beads.assert_exhausted()
+
+
+def test_delivery_target_worktree_is_temporary_when_branch_is_not_checked_out(
+    git_repo: Path,
+) -> None:
+    subprocess.run(["git", "branch", "release"], cwd=git_repo, check=True)
+    assert dstack_delivery.worktree_for_branch(git_repo, "release") is None
+
+    with dstack_delivery.delivery_target_worktree(
+        git_repo, "release", None
+    ) as target_worktree:
+        assert target_worktree.is_dir()
+        branch = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=target_worktree,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert branch == "release"
+        assert dstack_delivery.worktree_for_branch(git_repo, "release") == target_worktree
+
+    assert dstack_delivery.worktree_for_branch(git_repo, "release") is None

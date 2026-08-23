@@ -19,4 +19,5 @@
     - [Design](features/dstack-workflow-boundary-hardening/design.md)
   - [Decision-oriented dStack feature workflow](features/decision-oriented-feature-workflow/index.md)
     - [Design](features/decision-oriented-feature-workflow/design.md)
-  - [Canonical mdBook Documentation System](features/canonical-mdbook-documentation-system/design.md)
+  - [Canonical mdBook Documentation System](features/canonical-mdbook-documentation-system/index.md)
+    - [Design](features/canonical-mdbook-documentation-system/design.md)

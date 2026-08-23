@@ -9,6 +9,7 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import fnmatch
 import json
 import re
@@ -596,38 +597,63 @@ def cmd_delivery_register_pr(args: argparse.Namespace) -> int:
     return 0
 
 
+
+@contextmanager
+def delivery_target_worktree(
+    root: Path, branch: str, existing: str | None
+):
+    """Yield a target-branch worktree, creating a temporary one when absent."""
+
+    if existing:
+        yield Path(existing)
+        return
+    with tempfile.TemporaryDirectory(prefix="dstack-delivery-target-") as raw:
+        worktree = (Path(raw) / "target").resolve()
+        run(["git", "worktree", "add", "--quiet", str(worktree), branch], cwd=root)
+        try:
+            yield worktree
+        finally:
+            removal = run(
+                ["git", "worktree", "remove", "--force", str(worktree)],
+                cwd=root,
+                check=False,
+            )
+            if removal.returncode != 0:
+                raise DstackError(
+                    f"failed to remove temporary delivery worktree for {branch}"
+                )
+
 def cmd_delivery_merge(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)
     validate_delivery(payload, require_remote=False)
-    target_worktree_value = payload.get("target_worktree")
-    if not target_worktree_value:
-        raise DstackError(
-            "target branch has no registered worktree for fast-forward merge"
-        )
-    target_worktree = Path(str(target_worktree_value))
     candidate_worktree = Path(str(payload["candidate_worktree"]))
-    ensure_clean_tracked(target_worktree)
     ensure_clean_tracked(candidate_worktree)
-    before_head = current_head(target_worktree)
-    before_status = run(
-        ["git", "status", "--short", "--untracked-files=no"], cwd=target_worktree
-    ).stdout
-    run(
-        ["git", "merge", "--ff-only", str(payload["candidate_branch"])],
-        cwd=target_worktree,
-    )
-    merged_head = current_head(target_worktree)
-    if merged_head != payload["candidate_head"]:
-        raise DstackError("fast-forward completed at an unexpected target commit")
-    root_id = str(payload["root"]["id"])
-    client.close(root_id, "Delivered by fast-forward merge")
-    after_head = current_head(target_worktree)
-    after_status = run(
-        ["git", "status", "--short", "--untracked-files=no"], cwd=target_worktree
-    ).stdout
-    if after_head != merged_head or after_status != before_status:
-        raise DstackError("Beads finalization changed tracked Git state after delivery")
+    with delivery_target_worktree(
+        client.root,
+        str(payload["target_branch"]),
+        str(payload["target_worktree"]) if payload.get("target_worktree") else None,
+    ) as target_worktree:
+        ensure_clean_tracked(target_worktree)
+        before_head = current_head(target_worktree)
+        before_status = run(
+            ["git", "status", "--short", "--untracked-files=no"], cwd=target_worktree
+        ).stdout
+        run(
+            ["git", "merge", "--ff-only", str(payload["candidate_branch"])],
+            cwd=target_worktree,
+        )
+        merged_head = current_head(target_worktree)
+        if merged_head != payload["candidate_head"]:
+            raise DstackError("fast-forward completed at an unexpected target commit")
+        root_id = str(payload["root"]["id"])
+        client.close(root_id, "Delivered by fast-forward merge")
+        after_head = current_head(target_worktree)
+        after_status = run(
+            ["git", "status", "--short", "--untracked-files=no"], cwd=target_worktree
+        ).stdout
+        if after_head != merged_head or after_status != before_status:
+            raise DstackError("Beads finalization changed tracked Git state after delivery")
     emit(
         {
             "status": "ok",
@@ -657,20 +683,24 @@ def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:
         raise DstackError("PR gate closed but origin target does not contain the candidate commit")
     target_ref = str(payload["target_branch"])
     target_worktree = worktree_for_branch(client.root, target_ref)
-    if target_worktree is None:
-        raise DstackError(
-            "target branch has no registered worktree for PR finalization"
-        )
-    before_head = current_head(target_worktree)
-    before_status = run(
-        ["git", "status", "--short", "--untracked-files=no"], cwd=target_worktree
-    ).stdout
-    client.close(root_id, "Delivered through merged pull request")
-    after_head = current_head(target_worktree)
-    after_status = run(
-        ["git", "status", "--short", "--untracked-files=no"], cwd=target_worktree
-    ).stdout
-    if before_head != after_head or before_status != after_status:
-        raise DstackError("Beads finalization changed tracked Git state after PR delivery")
+    with delivery_target_worktree(
+        client.root,
+        target_ref,
+        str(target_worktree) if target_worktree else None,
+    ) as observed_target:
+        ensure_clean_worktree(observed_target)
+        before_head = current_head(observed_target)
+        before_status = run(
+            ["git", "status", "--short", "--untracked-files=no"], cwd=observed_target
+        ).stdout
+        client.close(root_id, "Delivered through merged pull request")
+        after_head = current_head(observed_target)
+        after_status = run(
+            ["git", "status", "--short", "--untracked-files=no"], cwd=observed_target
+        ).stdout
+        if before_head != after_head or before_status != after_status:
+            raise DstackError(
+                "Beads finalization changed tracked Git state after PR delivery"
+            )
     emit({"status": "ok", "root": client.show(root_id), "gate": gate})
     return 0

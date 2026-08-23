@@ -68,8 +68,11 @@ check leaves closeout open and prevents delivery.
 - `pr`: preflight the complete feature diff against a synchronized remote base; the agent drafts the PR from those
   facts; after user approval the controller validates the approved title/body against the aggregate change before the PR
   is created and registered as a native `gh:pr` gate.
-- `merge`: perform a clean fast-forward-only delivery and close the root.
-- a later `pr` invocation checks the gate and closes the root after merge.
+- `merge`: perform a clean fast-forward-only delivery and close the root. If
+  the target branch is not currently checked out, the controller creates and
+  removes a temporary target worktree for the deterministic delivery operation.
+- a later `pr` invocation checks the gate and closes the root after merge; PR
+  finalization uses the same temporary-worktree behavior when necessary.
 
 The feature catalog links delivered capabilities to `index.md`, which links back
 to accepted `design.md`. `SUMMARY.md` keeps one top-level Feature Records section
