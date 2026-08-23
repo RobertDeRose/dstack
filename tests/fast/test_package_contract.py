@@ -18,9 +18,13 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_package_version_and_resources() -> None:
     package = json.loads((ROOT / "package.json").read_text())
     assert package["name"] == "dstack"
-    assert package["version"] == "0.4.3"
+    assert package["version"] == "0.5.0"
     assert package["pi"]["skills"] == ["./skills"]
     assert package["pi"]["prompts"] == ["./prompts"]
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert project["project"]["version"] == package["version"]
+    lock = (ROOT / "uv.lock").read_text()
+    assert f'name = "dstack"\nversion = "{package["version"]}"' in lock
 
 
 def test_mdbook_is_pinned_and_validated_in_ci() -> None:
@@ -380,7 +384,11 @@ def test_mise_installs_supported_beads() -> None:
 
 
 def test_ci_runs_fast_and_real_suites_as_separate_jobs() -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/tests.yml").read_text())
+    workflow_text = (ROOT / ".github/workflows/tests.yml").read_text()
+    workflow = yaml.safe_load(workflow_text)
+    for trigger in ("pull_request:", "push:", "workflow_dispatch:", "schedule:"):
+        assert trigger in workflow_text
+    assert "- main" in workflow_text
     jobs = workflow["jobs"]
     assert set(jobs) == {"fast", "real-beads"}
     for job in jobs.values():
@@ -397,6 +405,35 @@ def test_ci_runs_fast_and_real_suites_as_separate_jobs() -> None:
     assert "env" not in acceptance
     assert any(step.get("uses", "").startswith("jdx/mise-action@") for step in acceptance["steps"])
     assert "tests/acceptance/${{ matrix.suite }}" in acceptance["steps"][-1]["run"]
+
+
+def test_delivery_policy_has_no_planned_features_ledger_special_case() -> None:
+    source = (ROOT / "skills/dstack-beads-core/scripts/dstack_delivery.py").read_text()
+    assert "planned-features.md" not in source
+    assert "status-only documentation change" not in source
+
+
+def test_formula_install_copies_match_canonical_sources() -> None:
+    for name in ("dstack-feature", "dstack-project-alignment"):
+        canonical = ROOT / "formulas" / f"{name}.formula.toml"
+        installed = ROOT / ".beads/formulas" / f"{name}.formula.toml"
+        assert installed.read_bytes() == canonical.read_bytes()
+
+
+def test_documented_beads_support_matches_exact_tested_release() -> None:
+    readme = (ROOT / "README.md").read_text()
+    tooling = (ROOT / "docs/src/development/tooling.md").read_text()
+    assert "Beads 1.2.2 exactly" in readme
+    assert "exact supported Beads 1.2.2 release" in " ".join(tooling.split())
+    assert "Later versions" not in readme
+    assert "Beads 1.2.2+" not in readme
+
+
+def test_workflow_commit_boundary_excludes_setup_configuration() -> None:
+    readme = (ROOT / "README.md").read_text()
+    architecture = (ROOT / "docs/src/architecture/index.md").read_text()
+    assert "commit the stable setup boundary separately with native Git" in " ".join(readme.split())
+    assert "separate native Git setup boundary" in " ".join(architecture.split())
 
 
 def test_acceptance_preflight_fails_without_bd(tmp_path: Path) -> None:
