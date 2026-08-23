@@ -109,9 +109,6 @@ FORBIDDEN_DOC_PATTERNS = (
         r"\s*/(plan-features?|start-feature|review-feature-spec|implement-feature|close-feature)\b"
     ),
 )
-DURABLE_STATUS_PATTERN = re.compile(
-    r"(?i)^\s*[-*]?\s*status:\s*(planned|implemented|deprecated)\s*$"
-)
 DESIGN_SCAFFOLD = """# Feature design
 
 ## Planned intent

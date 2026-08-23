@@ -351,20 +351,9 @@ class BeadsClient:
 
     def check_version(self) -> str:
         raw = self.version()
-        if parse_version(raw) < MIN_BEADS_VERSION:
-            minimum = ".".join(str(item) for item in MIN_BEADS_VERSION)
-            raise DstackError(f"dstack requires Beads {minimum} or newer; found {raw}")
+        if raw != SUPPORTED_BEADS_VERSION_OUTPUT:
+            raise DstackError(f"dstack requires Beads 1.2.2 exactly ({SUPPORTED_BEADS_VERSION_OUTPUT}); found {raw}")
         return raw
-
-    def check_capabilities(self) -> None:
-        for command in (
-            ["bd", "formula", "show", "--help"],
-            ["bd", "mol", "pour", "--help"],
-            ["bd", "gate", "list", "--help"],
-            ["bd", "ready", "--help"],
-            ["bd", "worktree", "list", "--help"],
-        ):
-            run(command, cwd=self.root)
 
     def show_optional(self, issue_id: str) -> dict[str, Any] | None:
         key = ("show", issue_id)

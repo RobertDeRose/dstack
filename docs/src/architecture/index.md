@@ -35,12 +35,12 @@ frontier.
 Git owns source, tests, configuration, durable documentation, branches, worktrees, diffs, commits, and delivery history.
 Workflow commits use a stable `Beads: <id>` footer.
 
-Beads repository configuration may also be tracked when it is stable project
-configuration (`.beads/config.yaml`, `.beads/metadata.json`, `.beads/README.md`,
-`.beads/.gitignore`, and dStack formulas). Machine-local databases, locks,
-sockets, backup state, and the dStack-local interaction audit log are not Git
-history. Delivery guards classify those paths explicitly instead of treating
-every `.beads/` file as runtime state.
+Beads repository configuration may also be tracked when it is stable project configuration (`.beads/config.yaml`,
+`.beads/metadata.json`, `.beads/README.md`, `.beads/.gitignore`, and dStack formulas). Machine-local databases, locks,
+sockets, backup state, and the dStack-local interaction audit log are not Git history. Delivery guards classify those
+paths explicitly instead of treating every `.beads/` file as runtime state. Workflow commits created by
+`dstackctl git commit` still exclude setup/configuration paths so feature history cannot accidentally absorb environment
+setup; those stable files are reviewed and committed in a separate native Git setup boundary.
 
 ### Repository documentation
 

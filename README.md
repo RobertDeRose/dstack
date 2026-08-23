@@ -95,8 +95,7 @@ A successful merge/PR finalizer changes Beads only and is forbidden from creatin
 - Python 3.13+
 - Pi
 - mdBook on `PATH`
-- Beads 1.2.2+ with formulas, molecules, gates, JSON output, atomic claims, and
-  native worktree support
+- Beads 1.2.2 exactly. Real-Beads acceptance tests define the supported behavioral contract.
 
 ## Install
 
@@ -110,21 +109,19 @@ Reload Pi, then run in the target repository:
 /setup-project
 ```
 
-Setup creates and validates the canonical mdBook foundation without overwriting
-existing pages or creating optional taxonomy. It preserves legitimate tracked
-Beads repository configuration such as `.beads/config.yaml`,
-`.beads/metadata.json`, `.beads/README.md`, and
-`.beads/.gitignore`. It keeps `.beads/interactions.jsonl` local and untracked so
-normal Beads transitions cannot dirty Git history.
+Setup creates and validates the canonical mdBook foundation without overwriting existing pages or creating optional
+taxonomy. It preserves legitimate tracked Beads repository configuration such as `.beads/config.yaml`,
+`.beads/metadata.json`, `.beads/README.md`, and `.beads/.gitignore`. It keeps `.beads/interactions.jsonl` local and
+untracked so normal Beads transitions cannot dirty Git history. Feature/audit commits made through
+`dstackctl git commit` accept `dStack` formula source under `.beads/` but intentionally exclude setup/configuration
+paths; review and commit the stable setup boundary separately with native Git.
 
-Use `/setup-project --force` only to replace changed formula source or perform
-explicit legacy repair. Safe noncanonical mdBook source trees are moved into
-`docs/src`; chapters/includes/assets outside `docs/src` are also moved when
-existing navigation or references determine their destination mechanically.
-References are rewritten with the move. Ambiguous Markdown is reported rather
-than guessed into the book hierarchy. Repair preserves local Beads/Dolt runtime
-data and never persists formula protos in the live ready frontier. Review and
-commit the repository setup boundary before starting feature work.
+Use `/setup-project --force` only to replace changed formula source or perform explicit legacy repair. Safe noncanonical
+mdBook source trees are moved into `docs/src`; chapters/includes/assets outside `docs/src` are also moved when existing
+navigation or references determine their destination mechanically. References are rewritten with the move. Ambiguous
+Markdown is reported rather than guessed into the book hierarchy. Repair preserves local Beads/Dolt runtime data and
+never persists formula protos in the live ready frontier. Review and commit the repository setup boundary before
+starting feature work.
 
 ## Development
 

@@ -39,10 +39,10 @@ and verifies the supported JSON envelope, both formula structures and pours, nat
 fan-in, supersession, and worktree primitives. The smoke scenario alone runs full dStack setup, then one minimal shipped
 feature through approval, one Git-backed task, closeout, and fast-forward delivery.
 
-GitHub Actions validates the mdBook, then runs the fast suite and each
-real-Beads scenario as separate jobs. The acceptance matrix installs the locked
-Beads version through mise, and the acceptance preflight fails immediately
-unless `bd` is on `PATH`.
+GitHub Actions validates the mdBook, then runs the fast suite and each real-Beads scenario as separate jobs on pull
+requests, pushes to `main`, a weekly schedule, and manual dispatch. The acceptance matrix installs the exact supported
+Beads 1.2.2 release through mise. A different version requires an explicit compatibility change backed by the same
+real-boundary scenarios. Acceptance preflight fails immediately unless `bd` is on `PATH`.
 
 ## Test ownership
 

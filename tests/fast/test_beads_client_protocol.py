@@ -218,3 +218,37 @@ def test_dependency_and_supersession_use_native_mutations(tmp_path: Path, monkey
         ("bd", "supersede", "old-1", "--with", "new-1"),
         ("bd", "show", "old-1", "--json"),
     ]
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        "1.2.1",
+        "1.2.3",
+        "1.2.2-dev",
+        "1.2.2+local",
+        "1.2.2",
+        "1.2.2 (deadbeef)",
+    ],
+)
+def test_version_check_rejects_untested_beads_versions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    monkeypatch.setattr(
+        dstacklib,
+        "run",
+        lambda *args, **kwargs: dstacklib.CommandResult(0, f"bd version {version}", ""),
+    )
+
+    with pytest.raises(dstacklib.DstackError, match="requires Beads 1.2.2 exactly"):
+        client(tmp_path).check_version()
+
+
+def test_version_check_accepts_supported_beads_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        dstacklib,
+        "run",
+        lambda *args, **kwargs: dstacklib.CommandResult(0, "bd version 1.2.2 (6c124203e)", ""),
+    )
+
+    assert client(tmp_path).check_version() == "bd version 1.2.2 (6c124203e)"
