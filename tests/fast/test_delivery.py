@@ -384,7 +384,7 @@ def test_delivery_merge_checks_post_delivery_git_invariant(
     )
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
-    monkeypatch.setattr(dstack_delivery, "ensure_clean_tracked", lambda path: None)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
     heads = iter(["target-head", "candidate-head", "candidate-head"])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     monkeypatch.setattr(
@@ -418,6 +418,12 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
             "Delivered by fast-forward merge",
             result={"id": "feature-1", "status": "closed"},
         ),
+        call(
+            "reopen",
+            "feature-1",
+            "Post-delivery Git invariant violation",
+            result={"id": "feature-1", "status": "open"},
+        ),
     )
     observed = payload(
         root={"id": "feature-1"},
@@ -428,7 +434,7 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
     )
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
-    monkeypatch.setattr(dstack_delivery, "ensure_clean_tracked", lambda path: None)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
     heads = iter(["target-head", "candidate-head", after_head])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     statuses = iter(["", after_status])
@@ -438,10 +444,8 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
         return CommandResult(0, output, "")
 
     monkeypatch.setattr(dstack_delivery, "run", run)
-    with pytest.raises(DstackError, match="Beads finalization changed tracked Git state"):
-        dstack_delivery.cmd_delivery_merge(
-            argparse.Namespace(root=tmp_path, selector="feature-1")
-        )
+    with pytest.raises(DstackError, match="delivery completed but Beads finalization changed Git state"):
+        dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1"))
     beads.assert_exhausted()
 
 
@@ -505,6 +509,12 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
             "Delivered through merged pull request",
             result={"id": "feature-1", "status": "closed"},
         ),
+        call(
+            "reopen",
+            "feature-1",
+            "Post-delivery Git invariant violation",
+            result={"id": "feature-1", "status": "open"},
+        ),
     )
     observed = payload(
         root=root,
@@ -530,8 +540,8 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
     monkeypatch.setattr(dstack_delivery, "run", run)
     with pytest.raises(
         DstackError,
-        match="Beads finalization changed tracked Git state after PR delivery",
-    ):
+        match="delivery completed but Beads finalization changed Git state",
+    ) as raised:
         dstack_delivery.cmd_delivery_finalize_pr(
             argparse.Namespace(root=tmp_path, selector="feature-1")
         )
@@ -559,3 +569,27 @@ def test_delivery_target_worktree_is_temporary_when_branch_is_not_checked_out(
         assert dstack_delivery.worktree_for_branch(git_repo, "release") == target_worktree
 
     assert dstack_delivery.worktree_for_branch(git_repo, "release") is None
+
+
+def test_temporary_delivery_worktree_preserves_primary_failure_when_cleanup_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = []
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        calls.append(tuple(command))
+        if command[:3] == ["git", "worktree", "remove"]:
+            return CommandResult(1, "", "cleanup failed")
+        return CommandResult(0, "", "")
+
+    monkeypatch.setattr(dstack_delivery, "run", fake_run)
+    with pytest.raises(DstackError, match="primary delivery failure") as raised:
+        with dstack_delivery.delivery_target_worktree(tmp_path, "main", None):
+            raise DstackError("primary delivery failure")
+
+    assert any(
+        "failed to remove temporary delivery worktree" in note
+        for note in getattr(raised.value, "__notes__", [])
+    )
+    assert calls[0][:3] == ("git", "worktree", "add")
+    assert calls[-1][:3] == ("git", "worktree", "remove")

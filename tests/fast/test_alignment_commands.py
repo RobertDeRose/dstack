@@ -9,7 +9,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_alignment
+import dstack_delivery
 from dstack_commands import DstackError
+from dstacklib import CommandResult
 
 from scripted import ScriptedClient, call
 
@@ -179,18 +181,28 @@ def test_finish_plan_claims_comments_and_closes_analysis(
 
 def test_approve_resolves_gate_and_authorizes_execution(monkeypatch, tmp_path: Path) -> None:
     calls = []
-    beads = ScriptedClient(tmp_path)
-    beads.resolve_gate = lambda *args: calls.append(("resolve", *args))
-    beads.update = lambda *args: calls.append(("update", *args)) or {
-        "id": args[0],
-        "status": "in_progress",
+    state = {
+        "approval-1": {"id": "approval-1", "status": "open"},
+        "gate-1": {"id": "gate-1", "status": "open"},
     }
-    beads.close = lambda *args: calls.append(("close", *args))
+    beads = ScriptedClient(tmp_path)
+    beads.show = lambda issue_id: dict(state[issue_id])
+    beads.resolve_gate = lambda issue_id, reason: (
+        calls.append(("resolve", issue_id, reason)) or state[issue_id].update(status="closed") or dict(state[issue_id])
+    )
+    beads.update = lambda issue_id, *args: (
+        calls.append(("update", issue_id, *args))
+        or state[issue_id].update(status="in_progress")
+        or dict(state[issue_id])
+    )
+    beads.close = lambda issue_id, reason: (
+        calls.append(("close", issue_id, reason)) or state[issue_id].update(status="closed") or dict(state[issue_id])
+    )
     output = patch_command(monkeypatch, beads)
     monkeypatch.setattr(
         dstack_alignment,
         "human_gate_for_step",
-        lambda *args, **kwargs: {"id": "gate-1", "status": "open"},
+        lambda *args, **kwargs: dict(state["gate-1"]),
     )
     assert dstack_alignment.cmd_alignment_approve(
         argparse.Namespace(root=tmp_path, selector="alignment-1")
@@ -198,6 +210,8 @@ def test_approve_resolves_gate_and_authorizes_execution(monkeypatch, tmp_path: P
     assert ("resolve", "gate-1", "Corrective plan approved") in calls
     assert ("close", "approval-1", "Corrective execution authorized") in calls
     assert output[0]["audit"] == "alignment-1"
+    assert state["gate-1"]["status"] == "closed"
+    assert state["approval-1"]["status"] == "closed"
 
 
 def test_claim_next_delegates_readiness_and_claim(monkeypatch, tmp_path: Path) -> None:
@@ -242,15 +256,9 @@ def test_finish_task_reuses_client_for_workstream_fan_in(
         ),
         call("children", "corrections-1", result=[closed_task]),
         call(
-            "close",
-            "corrections-1",
-            "All corrections completed",
-            result={"id": "corrections-1", "status": "closed"},
-        ),
-        call(
             "show",
             "corrections-1",
-            result={"id": "corrections-1", "status": "closed"},
+            result={"id": "corrections-1", "status": "open"},
         ),
     )
     current = alignment_view()
@@ -404,10 +412,11 @@ def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
         tmp_path,
         call("show", "landing-1", result={"id": "landing-1", "status": "open"}),
         call(
-            "update",
-            "landing-1",
-            "--claim",
-            result={"id": "landing-1", "status": "in_progress"},
+            "ready_children",
+            "alignment-1",
+            label="dstack:step:alignment-landing",
+            claim=True,
+            result=[{"id": "landing-1", "status": "in_progress"}],
         ),
         call(
             "close",
@@ -417,6 +426,28 @@ def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
         ),
     )
     output = patch_command(monkeypatch, beads)
+    monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
+    monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", lambda *args: None)
+    monkeypatch.setattr(dstack_alignment, "validate_docs", lambda *args: {"status": "ok"})
+    monkeypatch.setattr(
+        dstack_delivery,
+        "alignment_delivery_context",
+        lambda client, selector: {**alignment_view(), "corrections": []},
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "alignment_evidence_audit",
+        lambda client, view: {
+            "status": "ok",
+            "missing": [],
+            "unexpected_footer_ids": [],
+        },
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "docs_check",
+        lambda *args: {"status": "ok", "violations": []},
+    )
     args = argparse.Namespace(
         root=tmp_path,
         selector="alignment-1",
@@ -448,4 +479,109 @@ def test_finish_alignment_workstream_counts_unlabeled_native_children(monkeypatc
         == 0
     )
     assert output[0]["open_items"] == ["native-child"]
+    beads.assert_exhausted()
+
+
+def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "pour",
+            "dstack-project-alignment",
+            {
+                "audit_title": "Repository Alignment",
+                "audit_slug": "repository-alignment",
+                "scope": "whole repository",
+            },
+            result={"root_id": "alignment-1"},
+        ),
+        call(
+            "update",
+            "alignment-1",
+            "--title",
+            "Project alignment: Repository Alignment",
+            "--add-label",
+            "workflow:project-alignment",
+            "--add-label",
+            "audit:repository-alignment",
+            "--set-metadata",
+            "dstack.target_branch=main",
+            "--set-metadata",
+            "dstack.scope=whole repository",
+            result={"id": "alignment-1"},
+        ),
+    )
+    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: beads)
+    monkeypatch.setattr(
+        dstack_alignment,
+        "alignment_context",
+        lambda *args: (_ for _ in ()).throw(DstackError("alignment selector resolved to 0 roots")),
+    )
+    monkeypatch.setattr(dstack_alignment, "require_installed_formula", lambda *args: None)
+    branch_states = iter([False, True])
+    monkeypatch.setattr(
+        dstack_alignment, "branch_exists", lambda *args: next(branch_states)
+    )
+    monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: None)
+    commands = []
+    monkeypatch.setattr(
+        dstack_alignment,
+        "run",
+        lambda command, **kwargs: commands.append(tuple(command)) or CommandResult(0, "", ""),
+    )
+
+    with pytest.raises(DstackError, match="failed to register worktree"):
+        dstack_alignment.cmd_alignment_initialize(
+            argparse.Namespace(
+                root=tmp_path,
+                title="Repository Alignment",
+                slug=None,
+                target_branch="main",
+                scope="whole repository",
+            )
+        )
+
+    assert any(command[:3] == ("bd", "worktree", "remove") for command in commands)
+    assert ("git", "branch", "-D", "audit/repository-alignment") in commands
+    assert ("bd", "delete", "alignment-1", "--cascade", "--force") in commands
+    beads.assert_exhausted()
+
+
+def test_finish_landing_refuses_failed_evidence_audit_before_claim(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "landing-1", result={"id": "landing-1", "status": "open"}),
+    )
+    patch_command(monkeypatch, beads)
+    monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
+    monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", lambda *args: None)
+    monkeypatch.setattr(dstack_alignment, "validate_docs", lambda *args: {"status": "ok"})
+    monkeypatch.setattr(
+        dstack_delivery,
+        "alignment_delivery_context",
+        lambda client, selector: {**alignment_view(), "corrections": []},
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "alignment_evidence_audit",
+        lambda client, view: {
+            "status": "issues",
+            "missing": ["correction-1"],
+            "unexpected_footer_ids": [],
+        },
+    )
+
+    with pytest.raises(DstackError, match="evidence audit failed"):
+        dstack_alignment.cmd_alignment_finish_landing(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                reason="Alignment landing completed",
+                summary_file=None,
+            )
+        )
     beads.assert_exhausted()

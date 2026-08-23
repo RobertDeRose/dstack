@@ -329,14 +329,42 @@ def test_approve_spec_persists_digest_and_resolves_native_gate(
     design = worktree / "docs/src/features/feature/design.md"
     design.parent.mkdir(parents=True)
     design.write_text("accepted design\n")
-    # Digest is dynamic, so verify the exact call with a tiny recorder rather than
-    # teaching the scripted client matching rules.
     calls = []
+    state = {
+        "feature-1": {"id": "feature-1", "status": "open", "metadata": {}},
+        "specification-1": {"id": "specification-1", "status": "open"},
+        "approval-1": {"id": "approval-1", "status": "open"},
+        "gate-1": {"id": "gate-1", "status": "open"},
+    }
     beads = ScriptedClient(tmp_path)
-    beads.update = lambda *args: calls.append(("update", *args)) or {"id": args[0]}
-    beads.close = lambda *args: calls.append(("close", *args)) or {"id": args[0], "status": "closed"}
-    beads.resolve_gate = lambda *args: calls.append(("resolve_gate", *args)) or {"id": args[0], "status": "closed"}
-    beads.show = lambda issue_id: {"id": issue_id, "status": "open"}
+
+    def show(issue_id):
+        return dict(state[issue_id])
+
+    def update(issue_id, *args):
+        calls.append(("update", issue_id, *args))
+        if "--set-metadata" in args:
+            value = args[args.index("--set-metadata") + 1]
+            key, data = value.split("=", 1)
+            state[issue_id].setdefault("metadata", {})[key] = data
+        else:
+            state[issue_id]["status"] = "in_progress"
+        return dict(state[issue_id])
+
+    def close(issue_id, reason):
+        calls.append(("close", issue_id, reason))
+        state[issue_id]["status"] = "closed"
+        return dict(state[issue_id])
+
+    def resolve_gate(issue_id, reason):
+        calls.append(("resolve_gate", issue_id, reason))
+        state[issue_id]["status"] = "closed"
+        return dict(state[issue_id])
+
+    beads.show = show
+    beads.update = update
+    beads.close = close
+    beads.resolve_gate = resolve_gate
     patch_command(monkeypatch, dstack_feature, beads)
     monkeypatch.setattr(
         dstack_feature,
@@ -346,7 +374,7 @@ def test_approve_spec_persists_digest_and_resolves_native_gate(
     monkeypatch.setattr(
         dstack_feature,
         "human_gate_for_step",
-        lambda *args, **kwargs: {"id": "gate-1", "status": "open"},
+        lambda *args, **kwargs: show("gate-1"),
     )
     args = argparse.Namespace(root=tmp_path, selector="feature-1", summary_file=None)
     assert dstack_feature.cmd_feature_approve_spec(args) == 0
@@ -354,6 +382,53 @@ def test_approve_spec_persists_digest_and_resolves_native_gate(
     assert str(calls[0][-1]).startswith("dstack.approved_design_sha256=")
     assert ("resolve_gate", "gate-1", "Specification approved") in calls
     assert ("close", "approval-1", "Implementation authorized") in calls
+    assert state["specification-1"]["status"] == "closed"
+    assert state["gate-1"]["status"] == "closed"
+    assert state["approval-1"]["status"] == "closed"
+
+
+def test_approve_spec_resumes_partially_completed_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    worktree = tmp_path / "worktree"
+    design = worktree / "docs/src/features/feature/design.md"
+    design.parent.mkdir(parents=True)
+    design.write_text("accepted design\n")
+    digest = dstack_feature.file_sha256(design)
+    state = {
+        "feature-1": {
+            "id": "feature-1",
+            "status": "open",
+            "metadata": {"dstack.approved_design_sha256": digest},
+        },
+        "specification-1": {"id": "specification-1", "status": "closed"},
+        "approval-1": {"id": "approval-1", "status": "open"},
+        "gate-1": {"id": "gate-1", "status": "closed"},
+    }
+    beads = ScriptedClient(tmp_path)
+    beads.show = lambda issue_id: dict(state[issue_id])
+    beads.update = lambda issue_id, *args: (
+        state[issue_id].update(status="in_progress") or dict(state[issue_id])
+    )
+    beads.close = lambda issue_id, reason: (
+        state[issue_id].update(status="closed") or dict(state[issue_id])
+    )
+    beads.resolve_gate = lambda issue_id, reason: pytest.fail("closed gate was resolved twice")
+    patch_command(monkeypatch, dstack_feature, beads)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_branch_context",
+        lambda *args: ("feat/feature", worktree, "main"),
+    )
+    monkeypatch.setattr(
+        dstack_feature,
+        "human_gate_for_step",
+        lambda *args, **kwargs: dict(state["gate-1"]),
+    )
+    assert dstack_feature.cmd_feature_approve_spec(
+        argparse.Namespace(root=tmp_path, selector="feature-1", summary_file=None)
+    ) == 0
+    assert state["approval-1"]["status"] == "closed"
 
 
 def test_claim_next_uses_native_ready_result(monkeypatch, tmp_path: Path) -> None:
@@ -654,6 +729,7 @@ def test_closeout_validation_rejects_missing_documentation_impact_target(monkeyp
         "feature_branch_context",
         lambda *args: ("feat/feature", worktree, "main"),
     )
+    monkeypatch.setattr(dstack_feature, "ensure_clean_worktree", lambda *args: None)
     monkeypatch.setattr(dstack_docs.shutil, "which", lambda name: "/usr/bin/true")
 
     with pytest.raises(DstackError, match="guides/missing.md"):
@@ -807,6 +883,7 @@ def test_closeout_validation_rejects_untouched_reconciliation_scaffold(monkeypat
         "feature_branch_context",
         lambda *args: ("feat/feature", worktree, "main"),
     )
+    monkeypatch.setattr(dstack_feature, "ensure_clean_worktree", lambda *args: None)
 
     with pytest.raises(DstackError, match="untouched scaffold"):
         dstack_feature.validate_feature_documentation(ScriptedClient(tmp_path), view())
@@ -830,4 +907,28 @@ def test_finish_workstream_counts_unlabeled_native_children(monkeypatch, tmp_pat
     assert dstack_feature.cmd_feature_finish_workstream(args) == 0
     assert output[0]["open_items"] == ["native-child"]
     assert output[0]["closed_now"] is False
+    beads.assert_exhausted()
+
+
+def test_finish_closeout_refuses_untracked_worktree_before_beads_mutation(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+    monkeypatch.setattr(
+        dstack_feature,
+        "validate_feature_documentation",
+        lambda client, context: (_ for _ in ()).throw(DstackError("worktree changes prevent closeout")),
+    )
+
+    with pytest.raises(DstackError, match="worktree changes"):
+        dstack_feature.cmd_feature_finish_closeout(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="feature-1",
+                reason="Closeout completed",
+                summary_file=None,
+            )
+        )
     beads.assert_exhausted()
