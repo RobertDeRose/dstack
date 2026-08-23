@@ -38,6 +38,33 @@ def payload(**overrides):
     return value
 
 
+def test_delivery_refuses_new_open_child_after_terminal_closed(monkeypatch, tmp_path: Path) -> None:
+    root = {"id": "feature-1", "labels": ["workflow:feature"]}
+    view = {
+        "root": root,
+        "slug": "feature",
+        "base_branch": "main",
+        "steps": {
+            "implementation": {"id": "implementation-1"},
+            "closeout": {"id": "closeout-1", "status": "closed"},
+        },
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show_optional", "feature-1", result=root),
+        call(
+            "children",
+            "implementation-1",
+            result=[{"id": "late-child", "status": "open"}],
+        ),
+    )
+    monkeypatch.setattr(dstack_delivery, "feature_delivery_context", lambda *args: view)
+
+    with pytest.raises(DstackError, match="late-child"):
+        dstack_delivery.delivery_view(beads, "feature-1")
+    beads.assert_exhausted()
+
+
 def test_commit_message_adds_one_footer(tmp_path: Path) -> None:
     body = tmp_path / "body.md"
     body.write_text("Details\n")
@@ -416,6 +443,48 @@ def test_finalize_pr_waits_without_closing_root(monkeypatch, tmp_path: Path) -> 
     beads.assert_exhausted()
 
 
+@pytest.mark.parametrize("dirty", ["candidate", "target"])
+def test_finalize_pr_refuses_dirty_worktree_before_closing_root(monkeypatch, tmp_path: Path, dirty: str) -> None:
+    candidate = tmp_path / "candidate"
+    target = tmp_path / "target"
+    candidate.mkdir()
+    target.mkdir()
+    gate = {"id": "gate-1", "status": "closed", "await_type": "gh:pr"}
+    root = {
+        "id": "feature-1",
+        "dependencies": [{"depends_on_id": "gate-1", "type": "blocks"}],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("gate_check", result=[gate]),
+        call("show", "feature-1", result=root),
+        call("gates", all_statuses=True, result=[gate]),
+        call("show", "gate-1", result=gate),
+    )
+    observed = payload(
+        root=root,
+        target_head="previous-target",
+        candidate_head="candidate-head",
+        candidate_worktree=str(candidate),
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
+    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: "remote-head")
+    monkeypatch.setattr(dstack_delivery, "worktree_for_branch", lambda *args: target)
+    monkeypatch.setattr(dstack_delivery, "run", lambda *args, **kwargs: CommandResult(0, "", ""))
+
+    def ensure_clean(path):
+        if path == (candidate if dirty == "candidate" else target):
+            raise DstackError(f"dirty {dirty}")
+
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", ensure_clean)
+
+    with pytest.raises(DstackError, match=f"dirty {dirty}"):
+        dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
 @pytest.mark.parametrize(
     ("after_head", "after_status"),
     [("mutated-head", ""), ("target-head", " M tracked.md")],
@@ -424,7 +493,9 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
     monkeypatch, tmp_path: Path, after_head: str, after_status: str
 ) -> None:
     target = tmp_path / "target"
+    candidate = tmp_path / "candidate"
     target.mkdir()
+    candidate.mkdir()
     gate = {
         "id": "gate-1",
         "status": "closed",
@@ -456,17 +527,20 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
     observed = payload(
         root=root,
         target_branch="main",
+        target_head="previous-target",
         candidate_head="candidate-head",
+        candidate_worktree=str(candidate),
     )
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda *args: None)
     monkeypatch.setattr(
         dstack_delivery,
         "worktree_for_branch",
         lambda *args: target,
     )
-    heads = iter(["target-head", after_head])
+    heads = iter(["remote-delivered-head", "target-head", after_head])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     statuses = iter(["", after_status])
 
@@ -479,9 +553,9 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
         DstackError,
         match="delivery completed but Beads finalization changed Git state",
     ) as raised:
-        dstack_delivery.cmd_delivery_finalize_pr(
-            argparse.Namespace(root=tmp_path, selector="feature-1")
-        )
+        dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    assert "previous_target_head=previous-target" in str(raised.value)
+    assert "delivered_head=remote-delivered-head" in str(raised.value)
     beads.assert_exhausted()
 
 

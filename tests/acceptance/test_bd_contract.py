@@ -109,11 +109,19 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     run_command(["bd", "close", by_label(feature_children, "dstack:step:specification")["id"], "--reason", "specified"], cwd=acceptance_repo)
     run_command(["bd", "gate", "resolve", gate["id"], "--reason", "approved"], cwd=acceptance_repo)
     run_command(["bd", "close", approval["id"], "--reason", "approved"], cwd=acceptance_repo)
-    ready = items(run_json(
-        acceptance_repo, "ready", "--parent", implementation["id"],
-        "--exclude-type", "epic,molecule,gate", "--limit", "0",
-    ))
-    assert [item["id"] for item in ready] == [task["id"]]
+    ready = items(
+        run_json(
+            acceptance_repo,
+            "ready",
+            "--parent",
+            implementation["id"],
+            "--exclude-type",
+            "epic,molecule,gate",
+            "--limit",
+            "0",
+        )
+    )
+    assert {item["id"] for item in ready} == {task["id"], native_child["id"]}
     claimed = items(run_json(acceptance_repo, "update", task["id"], "--claim"))[0]
     assert claimed["status"] in {"in_progress", "claimed"}
 

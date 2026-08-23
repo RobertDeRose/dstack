@@ -14,6 +14,12 @@ def items(payload):
     return [payload] if isinstance(payload, dict) and payload.get("id") else []
 
 
+def by_label(values: list[dict], label: str) -> dict:
+    matches = [item for item in values if label in item.get("labels", [])]
+    assert len(matches) == 1, (label, matches)
+    return matches[0]
+
+
 def dependency_ids(issue: dict, relation: str = "blocks") -> set[str]:
     return {
         str(record.get("depends_on_id") or record.get("id"))
@@ -200,6 +206,23 @@ External blocker B replaces blocker A.
     assert materialized["description"] == revised_body
     assert materialized["acceptance_criteria"] == revised_acceptance
     assert materialized["priority"] == 3
+    implementation = by_label(current_graph, "dstack:step:implementation")
+    approval = by_label(current_graph, "dstack:step:implementation-approval")
+    native_child = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Native fan-in child",
+            "--type",
+            "task",
+            "--parent",
+            implementation["id"],
+            "--deps",
+            approval["id"],
+            "--acceptance",
+            "Terminal claim waits for every direct child.",
+        )
+    )[0]
 
     run_ctl(acceptance_repo, "feature", "approve-spec", root_id)
     task = run_ctl(
@@ -228,12 +251,23 @@ External blocker B replaces blocker A.
     refused = run_ctl(
         acceptance_repo,
         "feature",
-        "finish-closeout",
+        "claim-closeout",
         root_id,
         check=False,
     )
     assert refused.returncode != 0
-    assert "implementation workstream is not closed" in refused.stderr
+    assert native_child["id"] in refused.stderr
+    assert items(run_json(acceptance_repo, "show", created["steps"]["closeout"]["id"]))[0]["status"] == "open"
+    run_command(
+        [
+            "bd",
+            "close",
+            native_child["id"],
+            "--reason",
+            "no-repository-change: fan-in acceptance only",
+        ],
+        cwd=acceptance_repo,
+    )
     run_command(
         ["bd", "close", blocker_b["id"], "--reason", "External dependency shipped"],
         cwd=acceptance_repo,

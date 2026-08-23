@@ -820,6 +820,7 @@ def test_finish_closeout_closes_once(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
+        call("children", "implementation-1", result=[]),
         call(
             "ready_children",
             "feature-1",
@@ -827,6 +828,7 @@ def test_finish_closeout_closes_once(monkeypatch, tmp_path: Path) -> None:
             claim=True,
             result=[{"id": "closeout-1", "status": "in_progress"}],
         ),
+        call("children", "implementation-1", result=[]),
         call(
             "close",
             "closeout-1",
