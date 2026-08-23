@@ -267,3 +267,109 @@ External blocker B replaces blocker A.
     assert delivered["previous_target_head"] != delivered["delivered_head"]
     closed = run_json(acceptance_repo, "show", root_id)
     assert closed[0]["status"] == "closed"
+
+    alignment = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "initialize",
+        "--title",
+        "Acceptance alignment",
+        "--slug",
+        "acceptance-alignment",
+        "--target-branch",
+        "main",
+        "--scope",
+        "repository",
+    )
+    alignment_root = alignment["root"]["id"]
+    alignment_worktree = Path(alignment["worktree"])
+    correction = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "add-correction",
+        alignment_root,
+        "--title",
+        "Add aligned behavior",
+        "--acceptance",
+        "The correction is committed and delivered with native readiness.",
+    )["correction"]
+    alignment_graph = run_ctl(acceptance_repo, "alignment", "inspect", alignment_root)
+    native_correction = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Native alignment child",
+            "--type",
+            "task",
+            "--parent",
+            alignment_graph["steps"]["corrections"]["id"],
+            "--deps",
+            alignment_graph["steps"]["approval"]["id"],
+            "--acceptance",
+            "Landing waits for every direct child.",
+        )
+    )[0]
+    run_ctl(acceptance_repo, "alignment", "finish-plan", alignment_root)
+    run_ctl(acceptance_repo, "alignment", "approve", alignment_root)
+    claimed_correction = run_ctl(
+        acceptance_repo, "alignment", "claim-next", alignment_root
+    )["correction"]
+    assert claimed_correction["id"] == correction["id"]
+
+    (alignment_worktree / "aligned.py").write_text("ALIGNED = True\n")
+    subprocess.run(["git", "add", "aligned.py"], cwd=alignment_worktree, check=True)
+    subprocess.run(
+        [
+            "git",
+            "commit",
+            "-qm",
+            f"fix: align acceptance repository\n\nBeads: {correction['id']}",
+        ],
+        cwd=alignment_worktree,
+        check=True,
+    )
+    finished_correction = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "finish-task",
+        alignment_root,
+        "--task",
+        correction["id"],
+    )
+    assert finished_correction["workstream"]["workstream"]["status"] == "open"
+    refused_landing = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "claim-landing",
+        alignment_root,
+        check=False,
+    )
+    assert refused_landing.returncode != 0
+    assert native_correction["id"] in refused_landing.stderr
+    run_command(
+        [
+            "bd",
+            "close",
+            native_correction["id"],
+            "--reason",
+            "no-repository-change: fan-in acceptance only",
+        ],
+        cwd=acceptance_repo,
+    )
+    run_ctl(acceptance_repo, "alignment", "finish-workstream", alignment_root)
+    landed = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "finish-landing",
+        alignment_root,
+        "--reason",
+        "Acceptance alignment reconciled",
+    )
+    assert landed["landing"]["status"] == "closed"
+    assert landed["evidence"]["status"] == "ok"
+    assert landed["documentation"]["status"] == "ok"
+
+    delivered_alignment = run_ctl(acceptance_repo, "delivery", "merge", alignment_root)
+    assert delivered_alignment["root"] == alignment_root
+    alignment_closed = items(run_json(acceptance_repo, "show", alignment_root))[0]
+    assert alignment_closed["status"] == "closed"

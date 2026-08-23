@@ -356,6 +356,34 @@ def claim_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any]) -> dict
     return client.update(str(issue["id"]), "--claim")
 
 
+def close_issue_if_needed(
+    client: BeadsClient, issue: Mapping[str, Any], reason: str
+) -> dict[str, Any]:
+    if issue.get("status") == "closed":
+        return dict(issue)
+    claimed = claim_issue_if_needed(client, issue)
+    return client.close(str(claimed["id"]), reason)
+
+
+def resolve_gate_if_needed(client: BeadsClient, gate: Mapping[str, Any], reason: str) -> dict[str, Any]:
+    if gate.get("status") == "closed":
+        return dict(gate)
+    return client.resolve_gate(str(gate["id"]), reason)
+
+
+def open_workstream_children(client: BeadsClient, parent_id: str) -> list[dict[str, Any]]:
+    return [item for item in client.children(parent_id) if item.get("status") not in {"closed", "deferred"}]
+
+
+def require_complete_fan_in(client: BeadsClient, *, parent_id: str, name: str) -> None:
+    # ponytail: Beads 1.2.2 can miss open dynamic children in children-of();
+    # remove this guard when a supported Beads release fixes native fan-in.
+    open_items = open_workstream_children(client, parent_id)
+    if open_items:
+        ids = ", ".join(str(item["id"]) for item in open_items)
+        raise DstackError(f"{name} has nonterminal children: {ids}")
+
+
 def claim_ready_step(
     client: BeadsClient,
     *,

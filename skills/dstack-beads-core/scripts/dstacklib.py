@@ -44,6 +44,75 @@ class CommandResult:
     stderr: str
 
 
+COMMAND_TIMEOUT_SECONDS = {
+    "git": 120.0,
+    "bd": 180.0,
+    "gh": 180.0,
+    "mdbook": 300.0,
+    "python": 300.0,
+    "python3": 300.0,
+}
+
+
+def command_timeout(command: Sequence[str]) -> float:
+    override = os.environ.get("DSTACK_COMMAND_TIMEOUT_SECONDS", "").strip()
+    if override:
+        try:
+            timeout = float(override)
+        except ValueError as exc:
+            raise DstackError("DSTACK_COMMAND_TIMEOUT_SECONDS must be numeric") from exc
+        if timeout <= 0:
+            raise DstackError("DSTACK_COMMAND_TIMEOUT_SECONDS must be positive")
+        return timeout
+    executable = Path(str(command[0])).name if command else ""
+    return COMMAND_TIMEOUT_SECONDS.get(executable, 120.0)
+
+
+def command_may_mutate(command: Sequence[str]) -> bool:
+    if len(command) < 2:
+        return False
+    executable = Path(str(command[0])).name
+    action = str(command[1])
+    if executable == "git":
+        return action in {
+            "add",
+            "am",
+            "branch",
+            "checkout",
+            "commit",
+            "fetch",
+            "merge",
+            "mv",
+            "push",
+            "rebase",
+            "reset",
+            "restore",
+            "rm",
+            "switch",
+            "tag",
+            "worktree",
+        }
+    if executable == "bd":
+        if action == "ready" and "--claim" in command:
+            return True
+        return action in {
+            "close",
+            "comments",
+            "create",
+            "delete",
+            "dep",
+            "gate",
+            "init",
+            "mol",
+            "reopen",
+            "supersede",
+            "todo",
+            "update",
+            "worktree",
+        }
+    return executable == "gh" and action == "pr"
+
+
 def command_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ)
     env["BD_JSON_ENVELOPE"] = "1"
@@ -59,7 +128,9 @@ def run(
     check: bool = True,
     env: Mapping[str, str] | None = None,
     input_text: str | None = None,
+    timeout: float | None = None,
 ) -> CommandResult:
+    effective_timeout = command_timeout(command) if timeout is None else timeout
     try:
         completed = subprocess.run(
             list(command),
@@ -70,9 +141,15 @@ def run(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=command_env(env),
+            timeout=effective_timeout,
         )
     except FileNotFoundError as exc:
         raise DstackError(f"required executable not found: {command[0]}") from exc
+    except subprocess.TimeoutExpired as exc:
+        mutation = "may have changed state" if command_may_mutate(command) else "was read-only"
+        raise DstackError(
+            f"command timed out after {effective_timeout:g}s ({' '.join(command)}) in {cwd}; operation {mutation}"
+        ) from exc
 
     result = CommandResult(completed.returncode, completed.stdout, completed.stderr)
     if check and completed.returncode != 0:
@@ -109,6 +186,23 @@ def first_item(payload: Any, *, context: str) -> dict[str, Any]:
     if len(items) != 1:
         raise DstackError(f"{context} returned {len(items)} issues; expected exactly one")
     return items[0]
+
+
+def supersession_targets(issue: Mapping[str, Any]) -> set[str]:
+    result: set[str] = set()
+    raw = issue.get("dependencies", [])
+    if not isinstance(raw, list):
+        return result
+    for record in raw:
+        if not isinstance(record, dict):
+            continue
+        relation = str(record.get("type") or record.get("dependency_type") or "")
+        if relation not in {"supersedes", "superseded-by", "superseded_by"}:
+            continue
+        target = record.get("depends_on_id") or record.get("id")
+        if isinstance(target, str) and target != issue.get("id"):
+            result.add(target)
+    return result
 
 
 def git_root(path: Path) -> Path:
@@ -558,13 +652,17 @@ class BeadsClient:
     def supersede(self, old_id: str, new_id: str) -> None:
         old = self.show(old_id)
         if old.get("status") == "closed":
-            # Existing supersession is sufficient; do not reopen history.
+            if new_id not in supersession_targets(old):
+                raise DstackError(f"closed issue {old_id} is not superseded by expected {new_id}")
             return
         self._invalidate_reads()
         try:
             run(["bd", "supersede", old_id, "--with", new_id], cwd=self.root)
         finally:
             self._invalidate_reads()
+        observed = self.show(old_id)
+        if observed.get("status") != "closed" or new_id not in supersession_targets(observed):
+            raise DstackError(f"supersession did not converge: {old_id} -> {new_id}")
 
     def gate_check(self) -> builtins.list[dict[str, Any]]:
         """Evaluate native gates and return their refreshed state.
@@ -928,6 +1026,12 @@ def ensure_clean_tracked(path: Path) -> None:
     status = run(["git", "status", "--short", "--untracked-files=no"], cwd=path).stdout.strip()
     if status:
         raise DstackError(f"tracked worktree changes prevent this operation in {path}:\n{status}")
+
+
+def ensure_clean_worktree(path: Path) -> None:
+    status = run(["git", "status", "--short", "--untracked-files=all"], cwd=path).stdout.strip()
+    if status:
+        raise DstackError(f"worktree changes prevent this operation in {path}:\n{status}")
 
 
 def branch_exists(root: Path, branch: str) -> bool:

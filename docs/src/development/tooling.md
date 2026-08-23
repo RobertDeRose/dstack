@@ -51,5 +51,12 @@ unless `bd` is on `PATH`.
   decisions without reimplementing Beads.
 - Git owns repository state; fast tests use real temporary Git repositories for Git behavior.
 
-No coverage threshold or fixed test count is used. Every test asserts an
-observable result, invariant, refusal, or failure boundary.
+No coverage threshold or fixed test count is used. Every test asserts an observable result, invariant, refusal, or
+failure boundary.
+
+## Controller command timeouts
+
+Every external Git, Beads, GitHub CLI, Python, and mdBook invocation has a bounded timeout. A timeout reports the
+command, working directory, limit, and whether the operation may have mutated state; it never claims that a timed-out
+mutation was safely rolled back. Set `DSTACK_COMMAND_TIMEOUT_SECONDS` to a positive number only when a repository's
+known validation boundary needs a larger uniform limit.

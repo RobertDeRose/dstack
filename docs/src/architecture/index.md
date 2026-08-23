@@ -174,9 +174,10 @@ cherry-pick, or commit-message rewrite does not affect approval.
 Before delivery, all durable code/docs changes are already in the candidate. After delivery starts, Beads may be
 finalized but Git may not change.
 
-`dstackctl delivery` snapshots the target HEAD and tracked status, performs the
-native delivery/finalization operations, and rejects any Git mutation caused by
-Beads finalization. It never creates a post-delivery bookkeeping commit.
+`dstackctl delivery` requires clean candidate and target worktrees, snapshots the target HEAD and full status including
+untracked files, performs the native delivery/finalization operations, and reports any Git mutation caused by Beads
+finalization with explicit delivered/recovery facts. It never rewrites delivered Git history or creates a post-delivery
+bookkeeping commit.
 
 This invariant governs normal delivery. An explicit user-authorized rollback,
 reset, repair, correction, or history rewrite after a failed or incorrect

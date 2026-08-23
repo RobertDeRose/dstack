@@ -191,12 +191,21 @@ def test_gate_resolution_treats_human_output_as_mutation_then_reads_state(
 def test_dependency_and_supersession_use_native_mutations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
+    show_states = iter(
+        [
+            {"id": "old-1", "status": "open"},
+            {
+                "id": "old-1",
+                "status": "closed",
+                "dependencies": [{"depends_on_id": "new-1", "type": "supersedes"}],
+            },
+        ]
+    )
+
     def fake_run(command, *, cwd, check=True, **kwargs):
         calls.append(tuple(command))
         if command[:2] == ["bd", "show"]:
-            return dstacklib.CommandResult(
-                0, json.dumps([{"id": "old-1", "status": "open"}]), ""
-            )
+            return dstacklib.CommandResult(0, json.dumps([next(show_states)]), "")
         return dstacklib.CommandResult(0, "", "")
 
     monkeypatch.setattr(dstacklib, "run", fake_run)
@@ -207,4 +216,5 @@ def test_dependency_and_supersession_use_native_mutations(tmp_path: Path, monkey
         ("bd", "dep", "add", "task-1", "blocker-1", "--type", "blocks"),
         ("bd", "show", "old-1", "--json"),
         ("bd", "supersede", "old-1", "--with", "new-1"),
+        ("bd", "show", "old-1", "--json"),
     ]

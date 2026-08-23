@@ -82,11 +82,14 @@ The feature catalog links delivered capabilities to `index.md`, which links back
 to accepted `design.md`. `SUMMARY.md` keeps one top-level Feature Records section
 and nests both pages so native mdBook renders them.
 
-Normal delivery snapshots tracked Git state around Beads finalization and fails
-if finalization changes HEAD or tracked status. It never creates a post-delivery
-bookkeeping commit. If a failed or incorrect delivery needs rollback, reset,
-repair, correction, or history rewrite, the user must authorize that separate
-native Git operation; it is not a dStack recovery lifecycle.
+Normal delivery requires clean candidate and target worktrees, including
+untracked files. It snapshots full Git status around Beads finalization and
+never creates a post-delivery bookkeeping commit. If finalization changes HEAD
+or worktree status after delivery, the controller reports the previous,
+delivered, and observed heads plus changed paths, reopens the Beads root when
+safe, and leaves delivered Git history untouched. Any rollback, reset, repair,
+correction, or history rewrite remains a separately authorized native Git
+operation rather than a dStack recovery lifecycle.
 
 ## Validation layers
 
@@ -109,15 +112,21 @@ read-only for repository source. Finish the plan and leave the human gate open.
 
 ### `/project-alignment-execute`
 
-Explicit invocation approves the plan. The controller resolves the gate and
-claims native ready corrections. The agent implements each correction using the
-same commit-footer and review rules as feature work.
+Explicit invocation approves the plan through a convergent native gate and
+milestone transition, then claims native ready corrections. Completing one
+correction never closes the correction workstream implicitly; after every
+required correction is closed or deferred, the explicit finish-workstream step
+closes the container. The agent uses the same commit-footer and review rules as
+feature work.
 
 ### `/project-alignment-land`
 
-Revalidate current repository reality, reconcile durable docs, and use the same
-delivery controller as features. There is no stored baseline commit; obsolete
-or already-corrected findings are updated or closed based on current evidence.
+Revalidate current repository reality, reconcile durable docs, and use the
+same delivery controller as features. Landing refuses a dirty worktree and
+mechanically requires the current mdBook, documentation policy, and reachable
+correction evidence audit to pass before the native ready landing step closes.
+There is no stored baseline commit; obsolete or already-corrected findings are
+updated or closed based on current evidence.
 
 ## Discovery
 

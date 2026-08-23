@@ -30,6 +30,7 @@ from dstacklib import (
     dependency_records,
     display_title,
     ensure_clean_tracked,
+    ensure_clean_worktree,
     feature_slug,
     file_sha256,
     git_root,
@@ -57,7 +58,9 @@ from dstack_commands import (
     FORBIDDEN_DOC_PATTERNS,
     NO_REPOSITORY_CHANGE_PREFIX,
     claim_issue_if_needed,
-    claim_ready_step,
+    claim_ready_step_with_fan_in,
+    close_issue_if_needed,
+    resolve_gate_if_needed,
     client_for,
     completion_reason,
     descendants,
@@ -75,6 +78,7 @@ from dstack_commands import (
     task_text,
     update_root_identity,
 )
+from dstack_docs import validate_docs
 
 def cmd_alignment_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root)
@@ -117,27 +121,55 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
     root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
     if not root_id:
         raise DstackError("bd mol pour returned no alignment root")
-    client.update(
-        root_id,
-        "--title",
-        f"Project alignment: {args.title}",
-        "--add-label",
-        "workflow:project-alignment",
-        "--add-label",
-        f"audit:{slug}",
-        "--set-metadata",
-        f"dstack.target_branch={args.target_branch}",
-        "--set-metadata",
-        f"dstack.scope={args.scope}",
-    )
     branch = f"audit/{slug}"
-    if not branch_exists(client.root, branch):
-        run(["git", "branch", branch, args.target_branch], cwd=client.root)
-    worktree = worktree_for_branch(client.root, branch)
-    if worktree is None:
-        path = conventional_worktree(client.root, branch)
-        run(["bd", "worktree", "create", str(path), "--branch", branch], cwd=client.root)
+    created_branch = False
+    created_worktree = False
+    try:
+        client.update(
+            root_id,
+            "--title",
+            f"Project alignment: {args.title}",
+            "--add-label",
+            "workflow:project-alignment",
+            "--add-label",
+            f"audit:{slug}",
+            "--set-metadata",
+            f"dstack.target_branch={args.target_branch}",
+            "--set-metadata",
+            f"dstack.scope={args.scope}",
+        )
+        if not branch_exists(client.root, branch):
+            run(["git", "branch", branch, args.target_branch], cwd=client.root)
+            created_branch = True
         worktree = worktree_for_branch(client.root, branch)
+        if worktree is None:
+            path = conventional_worktree(client.root, branch)
+            run(["bd", "worktree", "create", str(path), "--branch", branch], cwd=client.root)
+            created_worktree = True
+            worktree = worktree_for_branch(client.root, branch)
+        if worktree is None:
+            raise DstackError(f"failed to register worktree for {branch}")
+    except Exception:
+        if created_worktree:
+            run(
+                [
+                    "bd",
+                    "worktree",
+                    "remove",
+                    str(conventional_worktree(client.root, branch)),
+                    "--force",
+                ],
+                cwd=client.root,
+                check=False,
+            )
+        if created_branch and branch_exists(client.root, branch):
+            run(["git", "branch", "-D", branch], cwd=client.root, check=False)
+        run(
+            ["bd", "delete", root_id, "--cascade", "--force"],
+            cwd=client.root,
+            check=False,
+        )
+        raise
     emit({"status": "ok", "worktree": str(worktree), **alignment_context(client, root_id)})
     return 0
 
@@ -179,18 +211,23 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
     root_id = str(view["root"]["id"])
-    gate = human_gate_for_step(
-        client,
-        root_id=root_id,
-        step=view["steps"]["approval"],
-    )
+    approval = client.show(str(view["steps"]["approval"]["id"]))
+    gate = human_gate_for_step(client, root_id=root_id, step=approval)
     if not isinstance(gate, dict):
         raise DstackError("alignment workflow has no unique human gate")
-    gate = client.resolve_gate(str(gate["id"]), "Corrective plan approved")
-    approval = claim_issue_if_needed(client, view["steps"]["approval"])
-    approval = client.close(
-        str(approval["id"]), "Corrective execution authorized"
+
+    gate = resolve_gate_if_needed(client, gate, "Corrective plan approved")
+    approval = close_issue_if_needed(
+        client, client.show(str(approval["id"])), "Corrective execution authorized"
     )
+    gate = client.show(str(gate["id"]))
+    approval = client.show(str(approval["id"]))
+    states = {
+        "human_gate": gate.get("status"),
+        "approval": approval.get("status"),
+    }
+    if any(status != "closed" for status in states.values()):
+        raise DstackError(f"alignment approval did not converge: states={states}")
     emit(
         {
             "status": "ok",
@@ -253,7 +290,7 @@ def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
     if args.summary_file:
         client.add_comment(args.task, read_text_file(args.summary_file))
     task = client.close(args.task, reason)
-    workstream = finish_alignment_workstream(client, view)
+    workstream = finish_alignment_workstream(client, view, close=False)
     emit(
         {
             "status": "ok",
@@ -266,15 +303,10 @@ def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
     return 0
 
 
-def finish_alignment_workstream(
-    client: BeadsClient, view: Mapping[str, Any]
-) -> dict[str, Any]:
+def finish_alignment_workstream(client: BeadsClient, view: Mapping[str, Any], *, close: bool = True) -> dict[str, Any]:
     workstream = client.show(str(view["steps"]["corrections"]["id"]))
-    items = client.children(str(workstream["id"]))
-    open_items = [
-        item for item in items if item.get("status") not in {"closed", "deferred"}
-    ]
-    if not open_items and workstream.get("status") != "closed":
+    open_items = open_workstream_children(client, str(workstream["id"]))
+    if close and not open_items and workstream.get("status") != "closed":
         client.close(str(workstream["id"]), "All corrections completed")
     return {
         "open_items": [item["id"] for item in open_items],
@@ -316,8 +348,41 @@ def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
     view = alignment_context(client, args.selector)
     landing_id = str(view["steps"]["landing"]["id"])
     landing = client.show(landing_id)
+    branch = f"audit/{view['slug']}"
+    worktree = worktree_for_branch(client.root, branch)
+    if worktree is None:
+        raise DstackError(f"no worktree for {branch}")
+    ensure_clean_worktree(worktree)
+    documentation = validate_docs(worktree)
+    from dstack_delivery import (
+        alignment_delivery_context,
+        alignment_evidence_audit,
+        docs_check,
+    )
+
+    delivery_view = alignment_delivery_context(client, str(view["root"]["id"]))
+    evidence = alignment_evidence_audit(client, delivery_view)
+    if evidence["status"] != "ok":
+        raise DstackError(
+            "alignment evidence audit failed: "
+            f"missing={evidence['missing']}, "
+            f"unexpected={evidence['unexpected_footer_ids']}"
+        )
+    policy = docs_check(worktree, str(view["target_branch"]), branch)
+    if policy["violations"]:
+        raise DstackError(
+            "alignment documentation policy failed: " + "; ".join(item["line"] for item in policy["violations"])
+        )
     if landing.get("status") != "closed":
-        landing = claim_issue_if_needed(client, landing)
+        landing = claim_ready_step_with_fan_in(
+            client,
+            root_id=str(view["root"]["id"]),
+            step=landing,
+            label="dstack:step:alignment-landing",
+            name="alignment landing",
+            fan_in_parent_id=str(view["steps"]["corrections"]["id"]),
+            fan_in_name="alignment corrections",
+        )
         if args.summary_file:
             client.add_comment(landing_id, read_text_file(args.summary_file))
         landing = client.close(landing_id, args.reason)
@@ -326,6 +391,9 @@ def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
             "status": "ok",
             "audit": view["root"]["id"],
             "landing": landing,
+            "documentation": documentation,
+            "evidence": evidence,
+            "documentation_policy": policy,
         }
     )
     return 0

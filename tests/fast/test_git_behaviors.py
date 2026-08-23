@@ -9,6 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 from dstack_commands import DstackError
+import dstacklib
 from dstacklib import commit_footer_ids, ensure_clean_tracked, worktree_records
 
 
@@ -39,3 +40,33 @@ def test_clean_tracked_ignores_untracked_but_rejects_tracked(git_repo: Path) -> 
 def test_worktree_records_parse_native_porcelain(git_repo: Path) -> None:
     records = worktree_records(git_repo)
     assert records and records[0]["worktree"] == str(git_repo)
+
+
+def test_run_reports_timeout_and_mutation_risk(monkeypatch: pytest.MonkeyPatch, git_repo: Path) -> None:
+    def timed_out(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+    monkeypatch.setattr(dstacklib.subprocess, "run", timed_out)
+    with pytest.raises(DstackError, match=r"timed out.*may have changed state"):
+        dstacklib.run(["git", "merge", "topic"], cwd=git_repo, timeout=1)
+
+
+def test_command_timeout_env_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DSTACK_COMMAND_TIMEOUT_SECONDS", "0")
+    with pytest.raises(DstackError, match="must be positive"):
+        dstacklib.command_timeout(["git", "status"])
+
+
+def test_clean_worktree_rejects_untracked_files(git_repo: Path) -> None:
+    (git_repo / "untracked.txt").write_text("not deliverable\n")
+    with pytest.raises(DstackError, match="worktree changes"):
+        dstacklib.ensure_clean_worktree(git_repo)
+
+
+def test_ready_claim_timeout_is_reported_as_potentially_mutating() -> None:
+    assert dstacklib.command_may_mutate(["bd", "ready", "--claim", "--json"])
+    assert not dstacklib.command_may_mutate(["bd", "ready", "--json"])
+
+
+def test_fetch_timeout_is_reported_as_potentially_mutating() -> None:
+    assert dstacklib.command_may_mutate(["git", "fetch", "origin", "--prune"])

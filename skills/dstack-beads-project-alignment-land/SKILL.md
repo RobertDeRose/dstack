@@ -10,7 +10,9 @@ Input includes the audit selector and `ready`, `pr`, or `merge` mode.
 1. Run `alignment finish-workstream` and `alignment claim-landing`.
 2. Reconcile current repository reality, durable docs, validation, and material
    remaining findings. Commit only real changes with the landing Bead footer.
-3. Run docs policy and final review, then `alignment finish-landing`.
+3. Run final review, then `alignment finish-landing`. The controller refuses
+   dirty/untracked work and mechanically checks mdBook validation, docs policy,
+   and correction commit evidence before closing landing.
 4. Use the same `delivery inspect/pr-preflight/register-pr/finalize-pr/merge`
    controller as feature delivery.
 
