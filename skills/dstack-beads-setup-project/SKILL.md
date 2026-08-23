@@ -29,7 +29,10 @@ python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" doctor --root .
 ```
 
 Report formula install/validation, Beads version, canonical mdBook foundation
-creation/validation, the local interaction-log policy, and any staged
-legacy-repair changes. Do not commit automatically. Ask
-the user to review and commit the setup boundary before starting feature work.
+creation/validation, the local interaction-log policy, missing historical
+feature reconciliations, applied documentation moves/reference rewrites, and
+other compatibility repair. Report ambiguous Markdown that cannot be placed in
+the book mechanically; leave it for user/agent judgment. Do not commit
+automatically. Ask the user to review and commit the setup boundary before
+starting feature work.
 Normal feature commands do not run setup doctor or legacy repair.
