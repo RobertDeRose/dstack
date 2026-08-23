@@ -21,3 +21,4 @@
     - [Design](features/decision-oriented-feature-workflow/design.md)
   - [Canonical mdBook Documentation System](features/canonical-mdbook-documentation-system/index.md)
     - [Design](features/canonical-mdbook-documentation-system/design.md)
+  - [Harden workflow authority and auditability](features/harden-workflow-authority-auditability/design.md)
