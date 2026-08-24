@@ -27,6 +27,7 @@ from dstack_feature import (
 from dstack_alignment import (
     cmd_alignment_inspect,
     cmd_alignment_initialize,
+    cmd_alignment_scaffold_record,
     cmd_alignment_add_correction,
     cmd_alignment_finish_plan,
     cmd_alignment_approve,
@@ -205,6 +206,14 @@ def build_parser() -> argparse.ArgumentParser:
     alignment_inspect = mechanical_parser(alignment_sub, "inspect", "inspect project-alignment state")
     alignment_inspect.add_argument("selector")
     alignment_inspect.set_defaults(func=cmd_alignment_inspect)
+    alignment_scaffold = mechanical_parser(
+        alignment_sub,
+        "scaffold-record",
+        "create an alignment plan or reconciliation scaffold without overwriting",
+    )
+    alignment_scaffold.add_argument("kind", choices=("plan", "reconciliation"))
+    alignment_scaffold.add_argument("--path", type=Path, required=True)
+    alignment_scaffold.set_defaults(func=cmd_alignment_scaffold_record)
     alignment_init = mechanical_parser(alignment_sub, "initialize", "create a project-alignment workstream")
     alignment_init.add_argument("--title", required=True)
     alignment_init.add_argument("--slug")

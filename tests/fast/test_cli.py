@@ -34,7 +34,7 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
         )
     } | {
         ("alignment", command) for command in (
-            "inspect", "initialize", "add-correction", "finish-plan", "approve", "reauthorize",
+            "inspect", "scaffold-record", "initialize", "add-correction", "finish-plan", "approve", "reauthorize",
             "claim-next", "finish-task", "finish-workstream", "claim-landing", "finish-landing",
         )
     } | {

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from dstack_commands import emit
+from dstack_commands import RECORD_SUBJECTS, emit
 from dstacklib import DstackError, run
 
 LINK_PATTERN = re.compile(r"!?\[[^]]*\]\(([^)]+)\)")
@@ -115,6 +115,92 @@ def _markdown_matches(text: str, pattern: re.Pattern[str]) -> tuple[str, list[re
 def _markdown_values(text: str, pattern: re.Pattern[str]) -> list[str]:
     _, matches = _markdown_matches(text, pattern)
     return [match.group(1) for match in matches]
+
+
+HEADING_PATTERN = re.compile(r"^(#{1,6}) ([^#\n].*?)[ \t]*$", re.MULTILINE)
+PLACEHOLDER_PATTERN = re.compile(r"(?i)\b(?:todo|tbd|fixme|lorem ipsum)\b|<[^>\n]+>|\{\{[^}\n]+\}\}")
+REFERENCE_LINK_PATTERN = re.compile(r"(?<!!)\[[^]\n]+\]\[[^]\n]*\]")
+
+
+def validate_record(
+    text: str,
+    kind: str,
+    *,
+    source: Path | None = None,
+    source_root: Path | None = None,
+) -> None:
+    subjects = RECORD_SUBJECTS.get(kind)
+    if not subjects:
+        raise DstackError(f"unknown documentation record kind: {kind}")
+    masked = _mask_markdown_code(text)
+    headings = list(HEADING_PATTERN.finditer(masked))
+    by_title: dict[str, list[re.Match[str]]] = {}
+    for heading in headings:
+        title = heading.group(2).strip()
+        by_title.setdefault(title.casefold(), []).append(heading)
+    duplicates = sorted(matches[0].group(2).strip() for matches in by_title.values() if len(matches) > 1)
+    errors = [f"duplicate heading: {title}" for title in duplicates]
+    if PLACEHOLDER_PATTERN.search(masked):
+        errors.append("record contains a placeholder or TODO")
+    if REFERENCE_LINK_PATTERN.search(masked):
+        errors.append("record uses unsupported reference-style local links")
+
+    for subject in subjects:
+        matches = by_title.get(subject.casefold(), [])
+        if not matches:
+            errors.append(f"missing required section: {subject}")
+            continue
+        heading = matches[0]
+        level = len(heading.group(1))
+        end = len(text)
+        for candidate in headings:
+            if candidate.start() <= heading.start():
+                continue
+            if len(candidate.group(1)) <= level:
+                end = candidate.start()
+                break
+        content = text[heading.end() : end].strip()
+        if not re.search(r"[A-Za-z0-9]", _mask_markdown_code(content)):
+            errors.append(f"section has no substantive content: {subject}")
+            continue
+        if content.startswith("Not applicable"):
+            prefix = "Not applicable — "
+            reason = content.removeprefix(prefix).strip() if content.startswith(prefix) else ""
+            if (
+                not reason
+                or PLACEHOLDER_PATTERN.search(reason)
+                or reason.casefold()
+                in {
+                    "none",
+                    "n/a",
+                    "not applicable",
+                    "no impact",
+                }
+            ):
+                errors.append(f"section requires 'Not applicable — <specific reason>': {subject}")
+
+    if source is not None and source_root is not None:
+        root = source_root.resolve()
+        try:
+            source.resolve().relative_to(root)
+            base = source.parent
+        except ValueError:
+            base = root
+        for raw in _markdown_values(text, LINK_PATTERN):
+            target = urlsplit(_raw_target(raw))
+            if target.scheme or target.netloc or not target.path:
+                continue
+            relative = Path(unquote(target.path))
+            candidate = (base / relative).resolve()
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                errors.append(f"record local link escapes repository: {raw}")
+                continue
+            if not candidate.is_file():
+                errors.append(f"record local link is missing: {raw}")
+    if errors:
+        raise DstackError(f"invalid {kind} record: " + "; ".join(sorted(set(errors))))
 
 
 def _rewrite_markdown_values(

@@ -4,7 +4,17 @@ import hashlib
 import subprocess
 from pathlib import Path
 
-from conftest import run_command, run_ctl, run_json
+from conftest import ROOT, run_command, run_ctl, run_json
+
+sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
+from dstack_commands import RECORD_SUBJECTS
+
+
+def semantic_record(kind: str) -> str:
+    lines = ["# Acceptance record", ""]
+    for subject in RECORD_SUBJECTS[kind]:
+        lines.extend([f"## {subject}", "", f"Acceptance evidence for {subject}.", ""])
+    return "\n".join(lines)
 
 
 def items(payload):
@@ -163,7 +173,8 @@ External blocker B replaces blocker A.
     scaffolded = run_ctl(acceptance_repo, "feature", "scaffold-design", root_id)
     assert scaffolded["created"] is True
     design = worktree / created["design_path"]
-    design.write_text("# Acceptance smoke revised\n\nA minimal shipped feature.\n")
+    accepted_design = semantic_record("feature-design")
+    design.write_text(accepted_design)
 
     worktrees = run_command(["git", "worktree", "list", "--porcelain"], cwd=acceptance_repo).stdout
     for selector in (planned["id"], "acceptance-smoke", revised_title):
@@ -171,13 +182,9 @@ External blocker B replaces blocker A.
         assert repeated["created"] is False
         assert repeated["root"]["id"] == root_id
         assert Path(repeated["worktree"]) == worktree
-    assert run_command(
-        ["git", "worktree", "list", "--porcelain"], cwd=acceptance_repo
-    ).stdout == worktrees
-    assert run_ctl(
-        acceptance_repo, "feature", "scaffold-design", root_id
-    )["created"] is False
-    assert design.read_text() == "# Acceptance smoke revised\n\nA minimal shipped feature.\n"
+    assert run_command(["git", "worktree", "list", "--porcelain"], cwd=acceptance_repo).stdout == worktrees
+    assert run_ctl(acceptance_repo, "feature", "scaffold-design", root_id)["created"] is False
+    assert design.read_text() == accepted_design
     current_roots = [
         issue
         for issue in items(run_json(acceptance_repo, "list", "--all"))
@@ -316,13 +323,12 @@ External blocker B replaces blocker A.
     )
     run_ctl(acceptance_repo, "feature", "finish-workstream", root_id)
     claimed_closeout = run_ctl(acceptance_repo, "feature", "claim-closeout", root_id)
-    reconciliation = run_ctl(
-        acceptance_repo, "feature", "scaffold-reconciliation", root_id
+    reconciliation = run_ctl(acceptance_repo, "feature", "scaffold-reconciliation", root_id)
+    reconciliation_text = semantic_record("feature-reconciliation").replace(
+        "Acceptance evidence for Delivered capability.",
+        "The smoke behavior is delivered. [Architecture](../../architecture/index.md)",
     )
-    (worktree / reconciliation["reconciliation_path"]).write_text(
-        "# Acceptance smoke\n\n[Design record](design.md)\n\n"
-        "## Delivered capability\n\nThe smoke behavior is delivered.\n"
-    )
+    (worktree / reconciliation["reconciliation_path"]).write_text(reconciliation_text)
     subprocess.run(["git", "add", "docs"], cwd=worktree, check=True)
     subprocess.run(
         [
@@ -385,7 +391,16 @@ External blocker B replaces blocker A.
             "Landing waits for every direct child.",
         )
     )[0]
-    run_ctl(acceptance_repo, "alignment", "finish-plan", alignment_root)
+    alignment_plan = acceptance_repo.parent / "alignment-plan.md"
+    alignment_plan.write_text(semantic_record("alignment-plan"))
+    run_ctl(
+        acceptance_repo,
+        "alignment",
+        "finish-plan",
+        alignment_root,
+        "--summary-file",
+        str(alignment_plan),
+    )
     run_ctl(acceptance_repo, "alignment", "approve", alignment_root)
     late_correction_refused = run_ctl(
         acceptance_repo,
@@ -443,6 +458,8 @@ External blocker B replaces blocker A.
         cwd=acceptance_repo,
     )
     run_ctl(acceptance_repo, "alignment", "finish-workstream", alignment_root)
+    alignment_reconciliation = acceptance_repo.parent / "alignment-reconciliation.md"
+    alignment_reconciliation.write_text(semantic_record("alignment-reconciliation"))
     landed = run_ctl(
         acceptance_repo,
         "alignment",
@@ -450,6 +467,8 @@ External blocker B replaces blocker A.
         alignment_root,
         "--reason",
         "Acceptance alignment reconciled",
+        "--summary-file",
+        str(alignment_reconciliation),
     )
     assert landed["landing"]["status"] == "closed"
     assert landed["evidence"]["status"] == "ok"

@@ -22,11 +22,11 @@ python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
   feature scaffold-design "<returned-root>"
 ```
 
-Initialization pours a planned feature or reuses an already initialized current
-molecule and conventional worktree. It preserves planned intent, priority, and
-external blockers. Treat the returned root and worktree as authoritative.
-Scaffolding creates the canonical design only when absent and never overwrites
-content.
+Initialization pours a planned feature or reuses an already initialized current molecule and conventional worktree. It
+preserves planned intent, priority, and external blockers. Treat the returned root and worktree as authoritative.
+Scaffolding creates the canonical design only when absent and never overwrites content. Complete every required section
+with substantive content or `Not applicable — <specific reason>`; placeholders, duplicate/missing headings, and
+unsupported local links fail before approval mutation.
 
 ## Reconcile intent with reality
 

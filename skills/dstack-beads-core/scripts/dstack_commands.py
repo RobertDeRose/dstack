@@ -202,7 +202,99 @@ RECONCILIATION_SCAFFOLD = """# {title}
 ## Validation and limitations
 """
 
+ALIGNMENT_PLAN_SCAFFOLD = """# Alignment plan
+
+## Scope and current evidence
+
+## Findings and rationale
+
+## Proposed corrections
+
+## Architecture and interface effects
+
+## Failure and security implications
+
+## Compatibility and recovery
+
+## Validation strategy
+
+## Documentation impact
+
+## Risks and deferred decisions
+"""
+
+ALIGNMENT_RECONCILIATION_SCAFFOLD = """# Alignment reconciliation
+
+## Delivered corrections
+
+## Remaining findings and limitations
+
+## Architecture integration
+
+## Documentation and operator effects
+
+## Validation evidence
+
+## Recovery and follow-up obligations
+"""
+
+RECORD_SUBJECTS = {
+    "feature-design": (
+        "Feature summary",
+        "User intent",
+        "Goals",
+        "Non-goals",
+        "User-visible behavior",
+        "Requirements",
+        "Existing patterns and reuse",
+        "Proposed design",
+        "Architecture consistency",
+        "Interfaces and data flow",
+        "Failure behavior",
+        "Security implications",
+        "Compatibility and migration implications",
+        "Validation strategy",
+        "Documentation impact",
+        "End user and operator",
+        "Developer and reviewer",
+        "Future auditor",
+        "Risks and tradeoffs",
+        "Rejected alternatives",
+        "Open or intentionally deferred decisions",
+    ),
+    "feature-reconciliation": (
+        "Delivered capability",
+        "User-visible behavior",
+        "Architecture integration",
+        "Design reconciliation",
+        "Delivered as designed",
+        "Intentional differences",
+        "Deferred scope",
+        "Removed or rejected scope",
+        "Documentation",
+        "End user and operator",
+        "Developer and reviewer",
+        "Future auditor",
+        "Validation and limitations",
+    ),
+    "alignment-plan": (
+        "Scope and current evidence", "Findings and rationale", "Proposed corrections",
+        "Architecture and interface effects", "Failure and security implications",
+        "Compatibility and recovery", "Validation strategy", "Documentation impact",
+        "Risks and deferred decisions",
+    ),
+    "alignment-reconciliation": (
+        "Delivered corrections",
+        "Remaining findings and limitations",
+        "Architecture integration",
+        "Documentation and operator effects",
+        "Validation evidence",
+        "Recovery and follow-up obligations",
+    ),
+}
+
 NO_REPOSITORY_CHANGE_PREFIX = "no-repository-change: "
+
 
 def emit(payload: Any) -> None:
     json.dump(payload, sys.stdout, indent=2, sort_keys=True)

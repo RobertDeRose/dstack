@@ -51,7 +51,7 @@ from dstacklib import (
     worktree_for_branch,
 )
 
-from dstack_docs import validate_docs
+from dstack_docs import validate_docs, validate_record
 from dstack_commands import (
     BEADS_RUNTIME_DIR_PREFIXES,
     BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
@@ -575,6 +575,12 @@ def approved_design_digest(client: BeadsClient, view: Mapping[str, Any]) -> str:
         raise DstackError(f"feature design is not committed at HEAD: {relative}")
     if file_sha256(design_file) != head_digest:
         raise DstackError(f"feature design differs from HEAD: {relative}")
+    validate_record(
+        design_file.read_text(encoding="utf-8"),
+        "feature-design",
+        source=design_file,
+        source_root=worktree,
+    )
     return head_digest
 
 
@@ -776,6 +782,12 @@ def validate_feature_documentation(
             "feature reconciliation is still the untouched scaffold; "
             "record the delivered result before closeout"
         )
+    validate_record(
+        content,
+        "feature-reconciliation",
+        source=reconciliation,
+        source_root=worktree,
+    )
     return validate_docs(worktree)
 
 
