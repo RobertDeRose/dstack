@@ -30,7 +30,6 @@ from dstacklib import (
     current_head,
     dependency_records,
     display_title,
-    ensure_clean_tracked,
     feature_slug,
     feature_view,
     file_sha256,
@@ -353,9 +352,55 @@ def claim_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any]) -> dict
     return client.update(str(issue["id"]), "--claim")
 
 
-def close_issue_if_needed(
-    client: BeadsClient, issue: Mapping[str, Any], reason: str
-) -> dict[str, Any]:
+def claim_ready_work(
+    client: BeadsClient,
+    *,
+    parent_id: str,
+    label: str,
+    requested_id: str | None = None,
+) -> dict[str, Any] | None:
+    def validate(item: Mapping[str, Any]) -> None:
+        item_id = str(item["id"])
+        if issue_parent(item) != parent_id:
+            raise DstackError(f"task {item_id} is not a direct child of {parent_id}")
+        if not has_label(item, label):
+            raise DstackError(f"task {item_id} lacks required label {label}")
+
+    if requested_id:
+        requested = client.show(requested_id)
+        validate(requested)
+        if requested.get("status") == "closed":
+            return dict(requested)
+        if requested.get("status") in {"claimed", "in_progress"}:
+            return client.update(requested_id, "--claim")
+        if requested.get("status") != "open":
+            raise DstackError(
+                f"task {requested_id} cannot be claimed from status {requested.get('status')!r}"
+            )
+
+    ready = client.ready_children(parent_id, label=label)
+    if not ready:
+        if requested_id:
+            raise DstackError(f"task {requested_id} is not currently ready")
+        return None
+    candidate = ready[0]
+    validate(candidate)
+    if requested_id and str(candidate["id"]) != requested_id:
+        raise DstackError(f"task {requested_id} is not the next native ready task")
+
+    claimed = client.ready_children(parent_id, label=label, claim=True)
+    expected_id = requested_id or str(candidate["id"])
+    if len(claimed) != 1 or str(claimed[0].get("id")) != expected_id:
+        if len(claimed) == 1 and claimed[0].get("status") != "closed":
+            client.update(str(claimed[0]["id"]), "--status", "open")
+        raise DstackError(
+            f"native ready claim did not return requested singleton {expected_id}"
+        )
+    validate(claimed[0])
+    return claimed[0]
+
+
+def close_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any], reason: str) -> dict[str, Any]:
     if issue.get("status") == "closed":
         return dict(issue)
     claimed = claim_issue_if_needed(client, issue)

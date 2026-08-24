@@ -28,7 +28,6 @@ from dstacklib import (
     current_head,
     dependency_records,
     display_title,
-    ensure_clean_tracked,
     ensure_clean_worktree,
     feature_authorization_state,
     feature_context,
@@ -43,7 +42,6 @@ from dstacklib import (
     is_current_feature,
     issue_labels,
     issue_metadata,
-    issue_parent,
     read_text_file,
     ref_exists,
     resolve_feature,
@@ -65,6 +63,7 @@ from dstack_commands import (
     NO_REPOSITORY_CHANGE_PREFIX,
     claim_issue_if_needed,
     claim_ready_step_with_fan_in,
+    claim_ready_work,
     close_issue_if_needed,
     resolve_gate_if_needed,
     client_for,
@@ -656,31 +655,13 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
 def cmd_feature_claim_next(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
-    implementation_id = str(view["steps"]["implementation"]["id"])
-    if args.task:
-        item = client.show(args.task)
-        if issue_parent(item) != implementation_id:
-            raise DstackError(f"task {args.task} is not a child of {implementation_id}")
-        if item.get("status") == "open":
-            ready_ids = {
-                str(candidate["id"])
-                for candidate in client.ready_children(
-                    implementation_id,
-                    label="dstack:work:implementation",
-                )
-            }
-            if args.task not in ready_ids:
-                raise DstackError(f"task {args.task} is not currently ready")
-        claimed = claim_issue_if_needed(client, item)
-        emit({"status": "ok", "task": claimed, "feature": view["root"]["id"]})
-        return 0
-
-    claimed = client.ready_children(
-        implementation_id,
+    claimed = claim_ready_work(
+        client,
+        parent_id=str(view["steps"]["implementation"]["id"]),
         label="dstack:work:implementation",
-        claim=True,
+        requested_id=args.task,
     )
-    emit({"status": "ok", "task": claimed[0] if claimed else None, "feature": view["root"]["id"]})
+    emit({"status": "ok", "task": claimed, "feature": view["root"]["id"]})
     return 0
 
 
@@ -688,16 +669,23 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
     implementation_id = str(view["steps"]["implementation"]["id"])
-    task = client.show(args.task)
-    if issue_parent(task) != implementation_id:
-        raise DstackError(f"task {args.task} is not in feature implementation {implementation_id}")
-    task = claim_issue_if_needed(client, task)
+    task = claim_ready_work(
+        client,
+        parent_id=implementation_id,
+        label="dstack:work:implementation",
+        requested_id=args.task,
+    )
+    if task is None:
+        raise DstackError(f"task {args.task} is not currently ready")
+    if task.get("status") == "closed":
+        emit({"status": "ok", "feature": view["root"]["id"], "task": task, "already_closed": True})
+        return 0
 
     branch, worktree, base = feature_branch_context(client, view)
+    ensure_clean_worktree(worktree)
     reason = completion_reason(args, "Implementation completed")
     evidence = evidence_for_bead(worktree, args.task, f"{base}..{branch}")
     if args.no_repository_change:
-        ensure_clean_tracked(worktree)
         if evidence:
             raise DstackError("--no-repository-change conflicts with reachable commit evidence")
     elif not evidence:
@@ -729,6 +717,9 @@ def finish_feature_workstream(
     open_items = open_workstream_children(client, str(implementation["id"]))
     closed = False
     if close and not open_items and implementation.get("status") != "closed":
+        require_approved_design(view)
+        _, worktree, _ = feature_branch_context(client, view)
+        ensure_clean_worktree(worktree)
         client.close(str(implementation["id"]), "All implementation work completed")
         closed = True
     return {
@@ -741,7 +732,7 @@ def finish_feature_workstream(
 
 def cmd_feature_finish_workstream(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    view = feature_context(client, args.selector)
+    view = approved_feature_context(client, args.selector)
     payload = {"status": "ok", **finish_feature_workstream(client, view)}
     if not getattr(args, "quiet", False):
         emit(payload)

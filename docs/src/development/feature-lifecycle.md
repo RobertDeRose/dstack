@@ -58,7 +58,11 @@ remain. It never closes the implementation workstream, claims closeout, or
 starts delivery. If a task intentionally changes no repository content, finish
 it with `--no-repository-change --reason "..."`; the native close reason records
 that outcome for delivery audit. Ordinary completed tasks still require a
-reachable Bead footer.
+reachable Bead footer. Feature and alignment transitions validate the exact
+direct parent and work label, delegate open claims to native `ready --claim`,
+and use native re-claiming to verify ownership. Completion requires a wholly
+clean worktree, including untracked files. Empty workstreams close only after
+their native approval milestone is closed.
 
 ### `/close-feature [feature] [ready|pr|merge]`
 

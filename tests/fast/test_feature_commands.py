@@ -11,16 +11,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_feature
-from dstack_commands import DstackError, RECORD_SUBJECTS, release_claim
+from dstack_commands import DstackError
 
 from scripted import ScriptedClient, call
-
-
-def semantic_record(kind: str) -> str:
-    lines = ["# Record", ""]
-    for subject in RECORD_SUBJECTS[kind]:
-        lines.extend([f"## {subject}", "", f"Evidence for {subject}.", ""])
-    return "\n".join(lines)
 
 
 def view(**overrides) -> dict:
@@ -69,11 +62,6 @@ def patch_command(monkeypatch, module, beads, current=None):
             "design_state": current.get("design_state"),
             "design_approved": current.get("design_approved", False),
         },
-    )
-    monkeypatch.setattr(
-        module,
-        "feature_branch_context",
-        lambda *args: ("feat/feature", beads.root, "main"),
     )
     monkeypatch.setattr(
         module,
@@ -126,28 +114,11 @@ def test_default_design_path_rejects_noncanonical_slug(tmp_path: Path, slug: str
         dstack_feature.default_design_path(tmp_path, slug)
 
 
-def test_initialize_rejects_option_like_base_before_beads_mutation(monkeypatch, git_repo: Path) -> None:
-    beads = ScriptedClient(git_repo)
-    monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
-    with pytest.raises(DstackError, match="invalid base branch"):
-        dstack_feature.cmd_feature_initialize(
-            argparse.Namespace(
-                root=git_repo,
-                selector="Feature",
-                title=None,
-                slug=None,
-                base_branch="--help",
-                design_path=None,
-            )
-        )
-    beads.assert_exhausted()
-
-
-def test_initialize_rejects_design_path_outside_mdbook_features(monkeypatch, tmp_path: Path) -> None:
+def test_initialize_rejects_design_path_outside_mdbook_features(
+    monkeypatch, tmp_path: Path
+) -> None:
     beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
-    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
-    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
     monkeypatch.setattr(
         dstack_feature,
         "resolve_feature",
@@ -166,9 +137,9 @@ def test_initialize_rejects_design_path_outside_mdbook_features(monkeypatch, tmp
     beads.assert_exhausted()
 
 
-def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
-    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
+def test_initialize_pours_formula_and_records_only_stable_identity(
+    monkeypatch, tmp_path: Path
+) -> None:
     beads = ScriptedClient(
         tmp_path,
         call(
@@ -401,17 +372,11 @@ def test_scaffold_reconciliation_creates_once_and_updates_navigation(monkeypatch
     assert [item["created"] for item in output] == [True, False, False]
 
 
-def test_claim_spec_uses_native_ready_claim(monkeypatch, tmp_path: Path) -> None:
+def test_claim_spec_claims_open_specification(monkeypatch, tmp_path: Path) -> None:
     claimed = {"id": "specification-1", "status": "in_progress"}
     beads = ScriptedClient(
         tmp_path,
-        call(
-            "ready_children",
-            "feature-1",
-            label="dstack:step:specification",
-            claim=True,
-            result=[claimed],
-        ),
+        call("update", "specification-1", "--claim", result=claimed),
     )
     output = patch_command(monkeypatch, dstack_feature, beads)
     assert dstack_feature.cmd_feature_claim_spec(argparse.Namespace(root=tmp_path, selector="feature-1")) == 0
@@ -419,42 +384,13 @@ def test_claim_spec_uses_native_ready_claim(monkeypatch, tmp_path: Path) -> None
     beads.assert_exhausted()
 
 
-def test_claim_spec_releases_unexpected_native_claim(monkeypatch, tmp_path: Path) -> None:
-    unexpected = {"id": "other-1", "status": "in_progress", "assignee": "worker"}
-    released = {"id": "other-1", "status": "open"}
-    beads = ScriptedClient(
-        tmp_path,
-        call(
-            "ready_children",
-            "feature-1",
-            label="dstack:step:specification",
-            claim=True,
-            result=[unexpected],
-        ),
-        call(
-            "update",
-            "other-1",
-            "--status",
-            "open",
-            "--assignee",
-            "",
-            result=released,
-        ),
-        call("show", "other-1", result=released),
-    )
-    patch_command(monkeypatch, dstack_feature, beads)
-
-    with pytest.raises(DstackError, match="unexpected specification"):
-        dstack_feature.cmd_feature_claim_spec(argparse.Namespace(root=tmp_path, selector="feature-1"))
-    beads.assert_exhausted()
-
-
-def test_approved_design_digest_requires_clean_committed_conventional_worktree(git_repo: Path, monkeypatch) -> None:
+def test_approved_design_digest_requires_clean_committed_conventional_worktree(
+    git_repo: Path, monkeypatch
+) -> None:
     relative = "docs/src/features/feature/design.md"
     design = git_repo / relative
     design.parent.mkdir(parents=True)
-    accepted = semantic_record("feature-design")
-    design.write_text(accepted)
+    design.write_text("accepted design\n")
     subprocess.run(["git", "add", relative], cwd=git_repo, check=True)
     subprocess.run(["git", "commit", "-qm", "docs: add design"], cwd=git_repo, check=True)
     current = view(design_path=relative)
@@ -476,7 +412,7 @@ def test_approved_design_digest_requires_clean_committed_conventional_worktree(g
     with pytest.raises(DstackError, match="worktree changes"):
         dstack_feature.approved_design_digest(beads, current)
 
-    design.write_text(accepted)
+    design.write_text("accepted design\n")
     monkeypatch.setattr(
         dstack_feature,
         "conventional_worktree",
@@ -486,7 +422,13 @@ def test_approved_design_digest_requires_clean_committed_conventional_worktree(g
         dstack_feature.approved_design_digest(beads, current)
 
 
-def test_approve_spec_persists_pending_before_native_authorization(monkeypatch, tmp_path: Path) -> None:
+def test_approve_spec_persists_digest_and_resolves_native_gate(
+    monkeypatch, tmp_path: Path
+) -> None:
+    worktree = tmp_path / "worktree"
+    design = worktree / "docs/src/features/feature/design.md"
+    design.parent.mkdir(parents=True)
+    design.write_text("accepted design\n")
     calls = []
     state = {
         "feature-1": {"id": "feature-1", "status": "open", "metadata": {}},
@@ -505,8 +447,6 @@ def test_approve_spec_persists_pending_before_native_authorization(monkeypatch, 
             value = args[args.index("--set-metadata") + 1]
             key, data = value.split("=", 1)
             state[issue_id].setdefault("metadata", {})[key] = data
-        elif "--unset-metadata" in args:
-            state[issue_id]["metadata"].pop(args[-1], None)
         else:
             state[issue_id]["status"] = "in_progress"
         return dict(state[issue_id])
@@ -526,110 +466,71 @@ def test_approve_spec_persists_pending_before_native_authorization(monkeypatch, 
     beads.close = close
     beads.resolve_gate = resolve_gate
     patch_command(monkeypatch, dstack_feature, beads)
-    monkeypatch.setattr(dstack_feature, "approved_design_digest", lambda *args: "accepted-digest")
+    monkeypatch.setattr(
+        dstack_feature,
+        "approved_design_digest",
+        lambda *args: "accepted-digest",
+        raising=False,
+    )
     monkeypatch.setattr(
         dstack_feature,
         "human_gate_for_step",
         lambda *args, **kwargs: show("gate-1"),
     )
-
-    assert (
-        dstack_feature.cmd_feature_approve_spec(
-            argparse.Namespace(root=tmp_path, selector="feature-1", summary_file=None)
-        )
-        == 0
-    )
-    pending = (
-        "update",
-        "feature-1",
-        "--set-metadata",
-        "dstack.pending_design_sha256=accepted-digest",
-    )
-    assert calls.index(pending) < calls.index(("close", "specification-1", "Specification approved"))
-    assert calls[-1] == (
-        "update",
-        "feature-1",
-        "--unset-metadata",
-        "dstack.pending_design_sha256",
-    )
-    assert state["feature-1"]["metadata"] == {"dstack.approved_design_sha256": "accepted-digest"}
-    assert all(state[item]["status"] == "closed" for item in ("specification-1", "gate-1", "approval-1"))
+    args = argparse.Namespace(root=tmp_path, selector="feature-1", summary_file=None)
+    assert dstack_feature.cmd_feature_approve_spec(args) == 0
+    assert calls[-1][0:2] == ("update", "feature-1")
+    assert calls[-1][-1] == "dstack.approved_design_sha256=accepted-digest"
+    assert ("resolve_gate", "gate-1", "Specification approved") in calls
+    assert ("close", "approval-1", "Implementation authorized") in calls
+    assert state["specification-1"]["status"] == "closed"
+    assert state["gate-1"]["status"] == "closed"
+    assert state["approval-1"]["status"] == "closed"
 
 
-def test_approve_spec_resumes_closed_native_state_with_matching_pending_digest(monkeypatch, tmp_path: Path) -> None:
+def test_approve_spec_resumes_partially_completed_transition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    worktree = tmp_path / "worktree"
+    design = worktree / "docs/src/features/feature/design.md"
+    design.parent.mkdir(parents=True)
+    design.write_text("accepted design\n")
     digest = "accepted-digest"
     state = {
         "feature-1": {
             "id": "feature-1",
             "status": "open",
-            "metadata": {"dstack.pending_design_sha256": digest},
+            "metadata": {"dstack.approved_design_sha256": digest},
         },
         "specification-1": {"id": "specification-1", "status": "closed"},
-        "approval-1": {"id": "approval-1", "status": "closed"},
+        "approval-1": {"id": "approval-1", "status": "open"},
         "gate-1": {"id": "gate-1", "status": "closed"},
     }
     beads = ScriptedClient(tmp_path)
     beads.show = lambda issue_id: dict(state[issue_id])
-
-    def update(issue_id, *args):
-        if args[0] == "--set-metadata":
-            key, value = args[1].split("=", 1)
-            state[issue_id]["metadata"][key] = value
-        else:
-            state[issue_id]["metadata"].pop(args[1], None)
-        return dict(state[issue_id])
-
-    beads.update = update
-    beads.close = lambda *args: pytest.fail("closed issue was closed twice")
-    beads.resolve_gate = lambda *args: pytest.fail("closed gate was resolved twice")
+    beads.update = lambda issue_id, *args: (
+        state[issue_id].update(status="in_progress") or dict(state[issue_id])
+    )
+    beads.close = lambda issue_id, reason: (
+        state[issue_id].update(status="closed") or dict(state[issue_id])
+    )
+    beads.resolve_gate = lambda issue_id, reason: pytest.fail("closed gate was resolved twice")
     patch_command(monkeypatch, dstack_feature, beads)
-    monkeypatch.setattr(dstack_feature, "approved_design_digest", lambda *args: digest)
+    monkeypatch.setattr(
+        dstack_feature,
+        "approved_design_digest",
+        lambda *args: digest,
+        raising=False,
+    )
     monkeypatch.setattr(
         dstack_feature,
         "human_gate_for_step",
         lambda *args, **kwargs: dict(state["gate-1"]),
     )
-
-    assert (
-        dstack_feature.cmd_feature_approve_spec(
-            argparse.Namespace(root=tmp_path, selector="feature-1", summary_file=None)
-        )
-        == 0
-    )
-    assert state["feature-1"]["metadata"] == {"dstack.approved_design_sha256": digest}
-
-
-@pytest.mark.parametrize(
-    ("metadata", "message"),
-    [
-        ({"dstack.pending_design_sha256": "design-a"}, "changed after approval began"),
-        ({}, "lacks pending or approved content identity"),
-    ],
-)
-def test_approve_spec_rejects_changed_or_unidentified_interrupted_approval(
-    monkeypatch, tmp_path: Path, metadata: dict[str, str], message: str
-) -> None:
-    state = {
-        "feature-1": {"id": "feature-1", "status": "open", "metadata": metadata},
-        "specification-1": {"id": "specification-1", "status": "closed"},
-        "approval-1": {"id": "approval-1", "status": "closed"},
-        "gate-1": {"id": "gate-1", "status": "closed"},
-    }
-    beads = ScriptedClient(tmp_path)
-    beads.show = lambda issue_id: dict(state[issue_id])
-    beads.update = lambda *args: pytest.fail("unsafe approval mutated metadata")
-    patch_command(monkeypatch, dstack_feature, beads)
-    monkeypatch.setattr(dstack_feature, "approved_design_digest", lambda *args: "design-b")
-    monkeypatch.setattr(
-        dstack_feature,
-        "human_gate_for_step",
-        lambda *args, **kwargs: dict(state["gate-1"]),
-    )
-
-    with pytest.raises(DstackError, match=message):
-        dstack_feature.cmd_feature_approve_spec(
-            argparse.Namespace(root=tmp_path, selector="feature-1", summary_file=None)
-        )
+    assert dstack_feature.cmd_feature_approve_spec(
+        argparse.Namespace(root=tmp_path, selector="feature-1", summary_file=None)
+    ) == 0
+    assert state["approval-1"]["status"] == "closed"
 
 
 def test_reauthorize_invalidates_digest_before_reopening_native_boundary(monkeypatch, tmp_path: Path) -> None:
@@ -637,10 +538,7 @@ def test_reauthorize_invalidates_digest_before_reopening_native_boundary(monkeyp
         "feature-1": {
             "id": "feature-1",
             "status": "open",
-            "metadata": {
-                "dstack.approved_design_sha256": "digest",
-                "dstack.pending_design_sha256": "digest",
-            },
+            "metadata": {"dstack.approved_design_sha256": "digest"},
         },
         "specification-1": {"id": "specification-1", "status": "closed"},
         "approval-1": {"id": "approval-1", "status": "closed"},
@@ -658,8 +556,8 @@ def test_reauthorize_invalidates_digest_before_reopening_native_boundary(monkeyp
 
     def update(issue_id, *args):
         mutations.append(("update", issue_id, *args))
-        if args[0] == "--unset-metadata":
-            state[issue_id]["metadata"].pop(args[1], None)
+        if args == ("--unset-metadata", "dstack.approved_design_sha256"):
+            state[issue_id]["metadata"].pop("dstack.approved_design_sha256", None)
         return dict(state[issue_id])
 
     def reopen(issue_id, reason):
@@ -680,26 +578,15 @@ def test_reauthorize_invalidates_digest_before_reopening_native_boundary(monkeyp
     output = []
     monkeypatch.setattr(dstack_feature, "emit", output.append)
 
-    assert (
-        dstack_feature.cmd_feature_reauthorize(
-            argparse.Namespace(root=tmp_path, selector="feature-1", reason="Add scope")
-        )
-        == 0
+    assert dstack_feature.cmd_feature_reauthorize(
+        argparse.Namespace(root=tmp_path, selector="feature-1", reason="Add scope")
+    ) == 0
+    assert mutations[0] == (
+        "update",
+        "feature-1",
+        "--unset-metadata",
+        "dstack.approved_design_sha256",
     )
-    assert mutations[:2] == [
-        (
-            "update",
-            "feature-1",
-            "--unset-metadata",
-            "dstack.approved_design_sha256",
-        ),
-        (
-            "update",
-            "feature-1",
-            "--unset-metadata",
-            "dstack.pending_design_sha256",
-        ),
-    ]
     assert all(
         state[issue_id]["status"] == "open"
         for issue_id in (
@@ -740,6 +627,12 @@ def test_claim_next_uses_native_ready_result(monkeypatch, tmp_path: Path) -> Non
             "ready_children",
             "implementation-1",
             label="dstack:work:implementation",
+            result=[ready],
+        ),
+        call(
+            "ready_children",
+            "implementation-1",
+            label="dstack:work:implementation",
             claim=True,
             result=[task],
         ),
@@ -748,197 +641,6 @@ def test_claim_next_uses_native_ready_result(monkeypatch, tmp_path: Path) -> Non
     args = argparse.Namespace(root=tmp_path, selector="feature-1", task=None)
     assert dstack_feature.cmd_feature_claim_next(args) == 0
     assert output == [{"status": "ok", "task": task, "feature": "feature-1"}]
-    beads.assert_exhausted()
-
-
-def test_claim_next_releases_every_unexpected_native_claim(monkeypatch, tmp_path: Path) -> None:
-    unexpected = [
-        {
-            "id": f"task-{index}",
-            "parent": "implementation-1",
-            "status": "in_progress",
-            "assignee": "worker",
-            "labels": ["dstack:work:implementation"],
-        }
-        for index in (2, 3)
-    ]
-    calls = [
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
-            claim=True,
-            result=unexpected,
-        ),
-    ]
-    for item in unexpected:
-        released = {**item, "status": "open", "assignee": ""}
-        calls.extend(
-            [
-                call(
-                    "update",
-                    item["id"],
-                    "--status",
-                    "open",
-                    "--assignee",
-                    "",
-                    result=released,
-                ),
-                call("show", item["id"], result=released),
-            ]
-        )
-    beads = ScriptedClient(tmp_path, *calls)
-    patch_command(monkeypatch, dstack_feature, beads)
-
-    with pytest.raises(DstackError, match="valid singleton"):
-        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task=None))
-    beads.assert_exhausted()
-
-
-def test_release_claim_reports_uncertain_ownership(monkeypatch, tmp_path: Path) -> None:
-    beads = ScriptedClient(tmp_path)
-
-    def fail_release(*args):
-        raise DstackError("storage unavailable")
-
-    beads.update = fail_release
-    with pytest.raises(DstackError, match="ownership is uncertain"):
-        release_claim(beads, "task-1")
-
-
-def test_claim_next_releases_claim_with_invalid_returned_scope(monkeypatch, tmp_path: Path) -> None:
-    ready = {
-        "id": "task-1",
-        "parent": "implementation-1",
-        "status": "open",
-        "labels": ["dstack:work:implementation"],
-    }
-    claimed = {**ready, "status": "in_progress", "labels": ["other"]}
-    released = {**claimed, "status": "open", "assignee": ""}
-    beads = ScriptedClient(
-        tmp_path,
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
-            claim=True,
-            result=[claimed],
-        ),
-        call(
-            "update",
-            "task-1",
-            "--status",
-            "open",
-            "--assignee",
-            "",
-            result=released,
-        ),
-        call("show", "task-1", result=released),
-    )
-    patch_command(monkeypatch, dstack_feature, beads)
-
-    with pytest.raises(DstackError, match="lacks required label"):
-        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task=None))
-    beads.assert_exhausted()
-
-
-def test_claim_next_releases_returned_foreign_parent(monkeypatch, tmp_path: Path) -> None:
-    claimed = {
-        "id": "task-1",
-        "parent": "other-implementation",
-        "status": "in_progress",
-        "assignee": "worker",
-        "labels": ["dstack:work:implementation"],
-    }
-    released = {**claimed, "status": "open", "assignee": ""}
-    beads = ScriptedClient(
-        tmp_path,
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
-            claim=True,
-            result=[claimed],
-        ),
-        call(
-            "update",
-            "task-1",
-            "--status",
-            "open",
-            "--assignee",
-            "",
-            result=released,
-        ),
-        call("show", "task-1", result=released),
-    )
-    patch_command(monkeypatch, dstack_feature, beads)
-    with pytest.raises(DstackError, match="not a direct child"):
-        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task=None))
-    beads.assert_exhausted()
-
-
-def test_claim_next_rejects_empty_native_claim(monkeypatch, tmp_path: Path) -> None:
-    beads = ScriptedClient(
-        tmp_path,
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
-            claim=True,
-            result=[],
-        ),
-    )
-    patch_command(monkeypatch, dstack_feature, beads)
-    with pytest.raises(DstackError, match="native ready claim returned no task"):
-        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task=None))
-    beads.assert_exhausted()
-
-
-def test_claim_next_releases_explicit_mismatched_native_claim(monkeypatch, tmp_path: Path) -> None:
-    requested = {
-        "id": "task-1",
-        "parent": "implementation-1",
-        "status": "open",
-        "labels": ["dstack:work:implementation"],
-    }
-    claimed = {
-        "id": "task-2",
-        "parent": "implementation-1",
-        "status": "in_progress",
-        "assignee": "worker",
-        "labels": ["dstack:work:implementation"],
-    }
-    released = {**claimed, "status": "open", "assignee": ""}
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "task-1", result=requested),
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
-            result=[requested],
-        ),
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
-            claim=True,
-            result=[claimed],
-        ),
-        call(
-            "update",
-            "task-2",
-            "--status",
-            "open",
-            "--assignee",
-            "",
-            result=released,
-        ),
-        call("show", "task-2", result=released),
-    )
-    patch_command(monkeypatch, dstack_feature, beads)
-    with pytest.raises(DstackError, match="requested singleton task-1"):
-        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task="task-1"))
     beads.assert_exhausted()
 
 
@@ -993,7 +695,17 @@ def test_claim_next_rejects_wrong_work_label_without_mutation(monkeypatch, tmp_p
 def test_finish_task_rejects_untracked_worktree(monkeypatch, tmp_path: Path, no_repository_change: bool) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "untracked.py").write_text("DIRTY = True\n")
-    beads = ScriptedClient(tmp_path)
+    task = {
+        "id": "task-1",
+        "parent": "implementation-1",
+        "status": "in_progress",
+        "labels": ["dstack:work:implementation"],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "task-1", result=task),
+        call("update", "task-1", "--claim", result=task),
+    )
     patch_command(monkeypatch, dstack_feature, beads)
     monkeypatch.setattr(
         dstack_feature,
@@ -1347,13 +1059,6 @@ def test_claim_closeout_releases_raced_claim_when_new_child_appears(monkeypatch,
             "closeout-1",
             "--status",
             "open",
-            "--assignee",
-            "",
-            result={"id": "closeout-1", "status": "open"},
-        ),
-        call(
-            "show",
-            "closeout-1",
             result={"id": "closeout-1", "status": "open"},
         ),
     )
@@ -1395,9 +1100,13 @@ def test_closeout_validation_rejects_missing_documentation_impact_target(
     dstack_docs.create_foundation(worktree)
     design = worktree / "docs/src/features/feature/design.md"
     design.parent.mkdir(parents=True)
-    design.write_text("# Design\n\n## Documentation impact\n\n[Missing](../../guides/missing.md)\n")
-    design.with_name("index.md").write_text(semantic_record("feature-reconciliation"))
-    dstack_feature.ensure_feature_navigation(worktree, slug="feature", title="Feature", reconciled=True)
+    design.write_text(
+        "# Design\n\n## Documentation impact\n\n[Missing](../../guides/missing.md)\n"
+    )
+    design.with_name("index.md").write_text("# Reconciliation\n")
+    dstack_feature.ensure_feature_navigation(
+        worktree, slug="feature", title="Feature", reconciled=True
+    )
     monkeypatch.setattr(
         dstack_feature,
         "feature_branch_context",

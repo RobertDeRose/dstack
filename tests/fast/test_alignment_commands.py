@@ -34,6 +34,12 @@ def alignment_view(**overrides) -> dict:
     return value
 
 
+def approved_alignment_view() -> dict:
+    value = alignment_view()
+    value["steps"]["approval"] = {"id": "approval-1", "status": "closed"}
+    return value
+
+
 def patch_command(monkeypatch, beads, current=None):
     current = current or alignment_view()
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root: beads)
@@ -293,9 +299,21 @@ def test_alignment_reauthorize_reopens_native_boundary_before_scope_changes(
 
 
 def test_claim_next_delegates_readiness_and_claim(monkeypatch, tmp_path: Path) -> None:
-    correction = {"id": "correction-1", "status": "claimed"}
+    ready = {
+        "id": "correction-1",
+        "parent": "corrections-1",
+        "status": "open",
+        "labels": ["dstack:work:correction"],
+    }
+    correction = {**ready, "status": "claimed"}
     beads = ScriptedClient(
         tmp_path,
+        call(
+            "ready_children",
+            "corrections-1",
+            label="dstack:work:correction",
+            result=[ready],
+        ),
         call(
             "ready_children",
             "corrections-1",
@@ -304,27 +322,79 @@ def test_claim_next_delegates_readiness_and_claim(monkeypatch, tmp_path: Path) -
             result=[correction],
         ),
     )
-    output = patch_command(monkeypatch, beads)
+    output = patch_command(monkeypatch, beads, approved_alignment_view())
     args = argparse.Namespace(root=tmp_path, selector="alignment-1", task=None)
     assert dstack_alignment.cmd_alignment_claim_next(args) == 0
     assert output == [{"status": "ok", "correction": correction, "audit": "alignment-1"}]
     beads.assert_exhausted()
 
 
-def test_finish_task_reuses_client_for_workstream_fan_in(
-    monkeypatch, tmp_path: Path
-) -> None:
-    task = {"id": "correction-1", "parent": "corrections-1", "status": "open"}
+def test_claim_next_requires_closed_approval(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(tmp_path)
+    patch_command(monkeypatch, beads)
+    with pytest.raises(DstackError, match="approval milestone"):
+        dstack_alignment.cmd_alignment_claim_next(argparse.Namespace(root=tmp_path, selector="alignment-1", task=None))
+    beads.assert_exhausted()
+
+
+def test_finish_task_rejects_dirty_worktree(monkeypatch, tmp_path: Path) -> None:
+    task = {
+        "id": "correction-1",
+        "parent": "corrections-1",
+        "status": "in_progress",
+        "labels": ["dstack:work:correction"],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "correction-1", result=task),
+        call("update", "correction-1", "--claim", result=task),
+    )
+    patch_command(monkeypatch, beads, approved_alignment_view())
+    monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
+
+    def dirty(*args):
+        raise DstackError("worktree changes")
+
+    monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", dirty)
+    with pytest.raises(DstackError, match="worktree changes"):
+        dstack_alignment.cmd_alignment_finish_task(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                task="correction-1",
+                reason=None,
+                summary_file=None,
+                no_repository_change=False,
+            )
+        )
+    beads.assert_exhausted()
+
+
+def test_finish_task_reuses_client_for_workstream_fan_in(monkeypatch, tmp_path: Path) -> None:
+    task = {
+        "id": "correction-1",
+        "parent": "corrections-1",
+        "status": "open",
+        "labels": ["dstack:work:correction"],
+    }
     closed_task = {**task, "status": "closed"}
+    claimed_task = {**task, "status": "in_progress"}
     client_requests = []
     beads = ScriptedClient(
         tmp_path,
         call("show", "correction-1", result=task),
         call(
-            "update",
-            "correction-1",
-            "--claim",
-            result={**task, "status": "in_progress"},
+            "ready_children",
+            "corrections-1",
+            label="dstack:work:correction",
+            result=[task],
+        ),
+        call(
+            "ready_children",
+            "corrections-1",
+            label="dstack:work:correction",
+            claim=True,
+            result=[claimed_task],
         ),
         call("close", "correction-1", "Correction completed", result=closed_task),
         call(
@@ -339,7 +409,7 @@ def test_finish_task_reuses_client_for_workstream_fan_in(
             result={"id": "corrections-1", "status": "open"},
         ),
     )
-    current = alignment_view()
+    current = approved_alignment_view()
     monkeypatch.setattr(
         dstack_alignment,
         "client_for",
@@ -349,6 +419,7 @@ def test_finish_task_reuses_client_for_workstream_fan_in(
         dstack_alignment, "alignment_context", lambda client, selector: current
     )
     monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
+    monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", lambda *args: None)
     monkeypatch.setattr(
         dstack_alignment,
         "evidence_for_bead",
@@ -371,14 +442,20 @@ def test_finish_task_reuses_client_for_workstream_fan_in(
 
 
 def test_finish_task_requires_reachable_git_evidence(monkeypatch, tmp_path: Path) -> None:
-    task = {"id": "correction-1", "parent": "corrections-1", "status": "in_progress"}
+    task = {
+        "id": "correction-1",
+        "parent": "corrections-1",
+        "status": "in_progress",
+        "labels": ["dstack:work:correction"],
+    }
     beads = ScriptedClient(
         tmp_path,
         call("show", "correction-1", result=task),
         call("update", "correction-1", "--claim", result=task),
     )
-    patch_command(monkeypatch, beads)
+    patch_command(monkeypatch, beads, approved_alignment_view())
     monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
+    monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", lambda *args: None)
     monkeypatch.setattr(dstack_alignment, "evidence_for_bead", lambda *args: [])
     args = argparse.Namespace(
         root=tmp_path,
@@ -393,23 +470,13 @@ def test_finish_task_requires_reachable_git_evidence(monkeypatch, tmp_path: Path
     beads.assert_exhausted()
 
 
-def test_finish_workstream_closes_after_native_children_are_closed(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_finish_workstream_closes_after_native_children_are_closed(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
+    monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", lambda *args: None)
     beads = ScriptedClient(
         tmp_path,
         call("show", "corrections-1", result={"id": "corrections-1", "status": "open"}),
-        call(
-            "children",
-            "corrections-1",
-            result=[
-                {
-                    "id": "correction-1",
-                    "status": "closed",
-                    "labels": ["dstack:work:correction"],
-                }
-            ],
-        ),
+        call("children", "corrections-1", result=[]),
         call(
             "close",
             "corrections-1",
@@ -418,11 +485,28 @@ def test_finish_workstream_closes_after_native_children_are_closed(
         ),
         call("show", "corrections-1", result={"id": "corrections-1", "status": "closed"}),
     )
-    output = patch_command(monkeypatch, beads)
-    assert dstack_alignment.cmd_alignment_finish_workstream(
-        argparse.Namespace(root=tmp_path, selector="alignment-1", quiet=False)
-    ) == 0
+    output = patch_command(monkeypatch, beads, approved_alignment_view())
+    assert (
+        dstack_alignment.cmd_alignment_finish_workstream(
+            argparse.Namespace(root=tmp_path, selector="alignment-1", quiet=False)
+        )
+        == 0
+    )
     assert output[0]["open_items"] == []
+    beads.assert_exhausted()
+
+
+def test_finish_workstream_requires_authorization(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "corrections-1", result={"id": "corrections-1", "status": "open"}),
+        call("children", "corrections-1", result=[]),
+    )
+    patch_command(monkeypatch, beads)
+    with pytest.raises(DstackError, match="approval milestone"):
+        dstack_alignment.cmd_alignment_finish_workstream(
+            argparse.Namespace(root=tmp_path, selector="alignment-1", quiet=False)
+        )
     beads.assert_exhausted()
 
 

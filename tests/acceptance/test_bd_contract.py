@@ -9,7 +9,7 @@ import pytest
 from conftest import ROOT, run_command, run_json
 
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-from dstack_commands import reopen_authorization_boundary
+from dstack_commands import claim_ready_work, reopen_authorization_boundary
 from dstack_delivery import pr_gate_state, register_pr_gate, replace_pr_gates
 from dstacklib import BeadsClient, DstackError, root_metadata_value
 
@@ -345,6 +345,53 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     assert revision["id"] not in {
         item["id"] for item in client.ready_children(implementation["id"], label="dstack:work:implementation")
     }
+    with pytest.raises(DstackError, match="not currently ready"):
+        claim_ready_work(
+            client,
+            parent_id=implementation["id"],
+            label="dstack:work:implementation",
+            requested_id=revision["id"],
+        )
+    assert client.show(revision["id"])["status"] == "open"
+    wrong_label = client.create(
+        "wrong label",
+        parent=implementation["id"],
+        acceptance="validation refuses this task",
+    )
+    with pytest.raises(DstackError, match="lacks required label"):
+        claim_ready_work(
+            client,
+            parent_id=implementation["id"],
+            label="dstack:work:implementation",
+            requested_id=wrong_label["id"],
+        )
+    wrong_parent = client.create(
+        "wrong parent",
+        parent=feature_root,
+        labels=["dstack:work:implementation"],
+        acceptance="validation refuses this task",
+    )
+    with pytest.raises(DstackError, match="not a direct child"):
+        claim_ready_work(
+            client,
+            parent_id=implementation["id"],
+            label="dstack:work:implementation",
+            requested_id=wrong_parent["id"],
+        )
+    client.close(
+        by_label(feature_children, "dstack:step:specification")["id"],
+        "renewed specification",
+    )
+    client.resolve_gate(gate["id"], "renewed approval")
+    client.close(approval["id"], "renewed approval")
+    client.resolve_gate(replacement["id"], "acceptance claim verification")
+    claimed_revision = claim_ready_work(
+        client,
+        parent_id=implementation["id"],
+        label="dstack:work:implementation",
+        requested_id=revision["id"],
+    )
+    assert claimed_revision and claimed_revision["id"] == revision["id"]
 
     reopen_authorization_boundary(
         client,
