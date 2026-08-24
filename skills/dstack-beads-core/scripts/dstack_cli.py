@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
+from dstack_audit import cmd_audit_feature
 from dstack_commands import DstackError, fail
 from dstack_docs import cmd_docs_validate
 from dstack_feature import (
@@ -291,6 +292,17 @@ def build_parser() -> argparse.ArgumentParser:
     audit = mechanical_parser(evidence_sub, "audit-feature", "audit implementation footer evidence")
     audit.add_argument("selector")
     audit.set_defaults(func=cmd_evidence_audit_feature)
+
+    audit_view = mechanical_parser(top, "audit", "emit read-only audit views")
+    audit_view_sub = audit_view.add_subparsers(dest="command", required=True)
+    audit_feature = mechanical_parser(
+        audit_view_sub,
+        "feature",
+        "join live Beads, Git, and documentation feature facts",
+    )
+    audit_feature.add_argument("selector")
+    audit_feature.add_argument("--format", choices=("json", "markdown"), default="json")
+    audit_feature.set_defaults(func=cmd_audit_feature)
 
     docs = mechanical_parser(top, "docs", "run documentation policy checks")
     docs_sub = docs.add_subparsers(dest="command", required=True)
