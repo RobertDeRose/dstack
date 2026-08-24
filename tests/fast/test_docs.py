@@ -75,6 +75,43 @@ def test_foundation_extends_existing_summary_without_rewriting_project_navigatio
     assert dstack_docs.validate_docs(root)["status"] == "ok"
 
 
+def test_operator_security_reference_and_decision_pages_are_reachable() -> None:
+    source = ROOT / "docs/src"
+    summary = (source / "SUMMARY.md").read_text()
+    pages = [
+        "operations/index.md",
+        "operations/delivery.md",
+        "operations/recovery.md",
+        "security/index.md",
+        "reference/cli.md",
+        "reference/environment.md",
+        "reference/metadata-labels.md",
+        "decisions/index.md",
+        "decisions/0001-authority-ownership.md",
+        "decisions/0002-one-way-git-evidence.md",
+        "decisions/0003-committed-content-approval.md",
+        "decisions/0004-root-open-until-delivery.md",
+        "decisions/0005-interactions-and-documentation.md",
+    ]
+    for relative in pages:
+        content = (source / relative).read_text()
+        assert len(content.split()) >= 60, relative
+        assert f"]({relative})" in summary, relative
+
+
+def test_decision_record_status_and_supersession_contract(tmp_path: Path) -> None:
+    decisions = tmp_path / "decisions"
+    decisions.mkdir()
+    record = decisions / "0001-choice.md"
+    record.write_text("# Choice\n\n- **Status:** Accepted\n- **Supersedes:** None\n- **Superseded by:** None\n")
+    assert dstack_docs.validate_decision_records(tmp_path) == []
+
+    record.write_text("# Choice\n\n- **Status:** Done\n- **Supersedes:** another record\n- **Superseded by:** None\n")
+    errors = dstack_docs.validate_decision_records(tmp_path)
+    assert any("invalid status" in error for error in errors)
+    assert any("must be None or a local link" in error for error in errors)
+
+
 def test_initialize_requires_mdbook_before_documentation_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -3,6 +3,28 @@
 Compatibility code is intentionally isolated from normal workflow execution. It exists only to remove known historical
 dStack artifacts and adopt active legacy features.
 
+## Supported boundary
+
+- Beads: `bd version 1.2.2 (6c124203e)` exactly.
+- mdBook: `mdbook v0.5.3` exactly.
+- Python: 3.13.
+
+Setup doctor rejects a mismatch. Upgrades require an explicit compatibility
+change, formula preflight, fast validation, and both isolated real-Beads
+acceptance scenarios; changing a version constraint without that evidence is
+unsupported.
+
+## Pinned compatibility shims
+
+| Limitation | Reproducer | Compensation | Retirement condition |
+| --- | --- | --- | --- |
+| Blocking dependencies must connect like issue kinds | Real formula contract pour and gate/readiness scenario | A task-sized approval milestone carries the human gate; dynamic tasks depend on the milestone | Supported Beads proves the intended cross-kind topology and migrated formulas pass acceptance |
+| Dynamic-child terminal readiness can ignore a nonterminal direct child | Real contract and smoke fan-in refusal | dStack only vetoes terminal claim when a direct child is nonterminal; Beads still supplies positive readiness | Supported Beads natively blocks the terminal in the pinned reproducer |
+| Terminal completion can auto-close the molecule root before Git delivery | Real smoke closeout/landing scenario | dStack reopens only the automatically closed root while delivery is pending | Supported Beads provides a native delivered boundary or no longer auto-closes in the reproducer |
+
+These shims are narrow negative safety checks, not a second readiness engine. No stable upstream issue reference is
+recorded for the pinned build; the executable acceptance reproducer is the retirement evidence.
+
 ## Setup repair
 
 Normal setup installs and validates formula source. It also applies dStack's standard Git boundary:

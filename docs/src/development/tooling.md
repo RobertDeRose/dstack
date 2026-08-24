@@ -65,6 +65,23 @@ real-boundary scenarios. Acceptance preflight fails immediately unless `bd` is o
 No coverage threshold or fixed test count is used. Every test asserts an observable result, invariant, refusal, or
 failure boundary.
 
+## Validation evidence
+
+| Boundary | Required evidence |
+| --- | --- |
+| Metadata and docs | YAML/TOML/JSON parse, mdBook policy, local links, and build |
+| Python mechanics | Compile, fast tests, formatting/lint/static checks configured by the repository |
+| Native behavior | Contract and smoke real-Beads scenarios run separately |
+| Candidate Git | `git diff --check`, footer/path audit, clean worktree |
+| Release integrity | `git fsck`, bundle verification, and clean-clone validation |
+
+A failed or timed-out required check blocks commit or completion. Reports name the exact command, environment and
+supported tool versions, observed result, omissions, and remaining risk; a weaker substitute is not a pass.
+
+Controller, formula, documentation-policy, and compatibility commits use a meaningful Conventional Commit subject and
+explanatory bullet body. Work commits retain rewrite-safe `Beads:` footers. Do not add a bookkeeping commit after
+delivery.
+
 ## Controller command timeouts
 
 Every external Git, Beads, GitHub CLI, Python, and mdBook invocation has a bounded timeout. A timeout reports the

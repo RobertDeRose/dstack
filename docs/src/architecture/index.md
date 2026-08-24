@@ -18,8 +18,11 @@ stateless dstackctl operation
         +---- native git commands -----> Git repository
 ```
 
-There is no dStack daemon, database, task store, scheduler, packet protocol, or
-workflow ledger.
+There is no dStack daemon, database, task store, scheduler, packet protocol, or workflow ledger. Repository content,
+Beads records, formula source, Git refs, remote responses, and GitHub text cross trust boundaries into an adapter
+running with the invoking user's privileges. Path containment, structured subprocess arguments, explicit authorization,
+clean-worktree checks, native atomic claims, and postcondition verification constrain that boundary; the
+[security guide](../security/index.md) defines secrets and audit-data policy.
 
 ## Components
 
