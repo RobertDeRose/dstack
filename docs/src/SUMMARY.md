@@ -36,3 +36,4 @@
     - [Design](features/canonical-mdbook-documentation-system/design.md)
   - [Harden workflow authority and auditability](features/harden-workflow-authority-auditability/index.md)
     - [Design](features/harden-workflow-authority-auditability/design.md)
+  - [Resolve remaining workflow authority findings](features/resolve-remaining-workflow-authority-findings/design.md)
