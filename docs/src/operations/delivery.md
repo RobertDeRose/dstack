@@ -12,8 +12,13 @@ before mutation, uses a temporary native target worktree when the target is not 
 head, and then finalizes Beads without changing delivered Git state.
 
 A non-fast-forward target, dirty worktree, changed ref, missing evidence, or
-failed finalization stops delivery. dStack does not reset or rewrite history to
-make the operation pass.
+failed finalization stops delivery. Externally supplied branch/revision values
+must pass native Git validation before mutation; candidate worktrees must use
+the conventional path, be attached to the expected branch, contain the target,
+and satisfy remote assumptions. Internally created branches/worktrees are
+removed when post-creation verification fails, while cleanup failures retain the
+primary diagnostic. dStack does not reset or rewrite history to make delivery
+pass.
 
 ## Pull request
 
