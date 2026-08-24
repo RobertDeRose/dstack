@@ -434,6 +434,53 @@ def claim_ready_step_with_fan_in(
     return claimed
 
 
+def reopen_authorization_boundary(
+    client: BeadsClient,
+    *,
+    root_id: str,
+    planning_id: str,
+    approval_id: str,
+    gate_id: str,
+    workstream_id: str,
+    terminal_id: str,
+    reason: str,
+    digest_key: str | None = None,
+) -> None:
+    reason = reason.strip()
+    if not reason:
+        raise DstackError("reauthorization requires a non-empty reason")
+    terminal = client.show(terminal_id)
+    if terminal.get("status") == "closed":
+        raise DstackError(
+            "terminal reconciliation is already closed; use a new superseding workflow"
+        )
+    in_flight = [
+        item
+        for item in client.children(workstream_id)
+        if item.get("status") in {"claimed", "in_progress"}
+    ]
+    if in_flight:
+        ids = ", ".join(str(item["id"]) for item in in_flight)
+        raise DstackError(f"cannot reauthorize while work is claimed: {ids}")
+
+    if digest_key:
+        root = client.show(root_id)
+        if root_metadata_value(root, digest_key):
+            client.update(root_id, "--unset-metadata", digest_key)
+
+    for issue_id in (approval_id, gate_id, planning_id, workstream_id):
+        issue = client.show(issue_id)
+        status = issue.get("status")
+        if status == "closed":
+            client.reopen(issue_id, f"Reauthorize workflow: {reason}")
+        elif status in {"claimed", "in_progress"}:
+            client.update(issue_id, "--status", "open")
+        elif status != "open":
+            raise DstackError(
+                f"cannot reauthorize {issue_id} from unsupported status {status!r}"
+            )
+
+
 def keep_root_open_for_delivery(client: BeadsClient, root_id: str) -> None:
     """Compensate for Beads 1.2.2 closing a molecule at its terminal step."""
 

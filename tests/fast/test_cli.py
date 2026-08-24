@@ -29,12 +29,12 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
         ("feature", command) for command in (
             "resolve", "inspect", "initialize", "scaffold-design",
             "scaffold-reconciliation", "add-task",
-            "claim-spec", "approve-spec", "claim-next", "finish-task",
+            "claim-spec", "approve-spec", "reauthorize", "claim-next", "finish-task",
             "finish-workstream", "claim-closeout", "finish-closeout",
         )
     } | {
         ("alignment", command) for command in (
-            "inspect", "initialize", "add-correction", "finish-plan", "approve",
+            "inspect", "initialize", "add-correction", "finish-plan", "approve", "reauthorize",
             "claim-next", "finish-task", "finish-workstream", "claim-landing", "finish-landing",
         )
     } | {

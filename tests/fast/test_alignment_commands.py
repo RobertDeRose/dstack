@@ -125,6 +125,12 @@ def test_initialize_pours_formula_and_records_stable_identity(
 def test_add_correction_delegates_native_dependencies(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
+        call("show", "approval-1", result={"id": "approval-1", "status": "open"}),
+        call(
+            "show",
+            "corrections-1",
+            result={"id": "corrections-1", "status": "open"},
+        ),
         call(
             "create",
             "Fix drift",
@@ -151,6 +157,38 @@ def test_add_correction_delegates_native_dependencies(monkeypatch, tmp_path: Pat
     )
     assert dstack_alignment.cmd_alignment_add_correction(args) == 0
     assert output == [{"status": "ok", "correction": {"id": "correction-1"}}]
+    beads.assert_exhausted()
+
+
+def test_add_correction_rejects_closed_authorization_without_creation(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "show",
+            "approval-1",
+            result={"id": "approval-1", "status": "closed"},
+        ),
+        call(
+            "show",
+            "corrections-1",
+            result={"id": "corrections-1", "status": "open"},
+        ),
+    )
+    patch_command(monkeypatch, beads)
+    with pytest.raises(DstackError, match="reauthorization"):
+        dstack_alignment.cmd_alignment_add_correction(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                title="Late correction",
+                description=None,
+                description_file=None,
+                acceptance="observable",
+                acceptance_file=None,
+                priority=2,
+                depends_on=[],
+            )
+        )
     beads.assert_exhausted()
 
 
@@ -212,6 +250,46 @@ def test_approve_resolves_gate_and_authorizes_execution(monkeypatch, tmp_path: P
     assert output[0]["audit"] == "alignment-1"
     assert state["gate-1"]["status"] == "closed"
     assert state["approval-1"]["status"] == "closed"
+
+
+def test_alignment_reauthorize_reopens_native_boundary_before_scope_changes(
+    monkeypatch, tmp_path: Path
+) -> None:
+    state = {
+        "analysis-1": {"id": "analysis-1", "status": "closed"},
+        "approval-1": {"id": "approval-1", "status": "closed"},
+        "gate-1": {"id": "gate-1", "status": "closed"},
+        "corrections-1": {"id": "corrections-1", "status": "closed"},
+        "landing-1": {"id": "landing-1", "status": "open"},
+    }
+    mutations = []
+    beads = ScriptedClient(tmp_path)
+    beads.show = lambda issue_id: dict(state[issue_id])
+
+    def reopen(issue_id, reason):
+        mutations.append((issue_id, reason))
+        state[issue_id]["status"] = "open"
+        return dict(state[issue_id])
+
+    beads.reopen = reopen
+    beads.children = lambda parent: [{"id": "correction-1", "status": "open"}]
+    beads.ready_children = lambda *args, **kwargs: []
+    output = patch_command(monkeypatch, beads)
+    monkeypatch.setattr(
+        dstack_alignment,
+        "human_gate_for_step",
+        lambda *args, **kwargs: dict(state["gate-1"]),
+    )
+
+    assert (
+        dstack_alignment.cmd_alignment_reauthorize(
+            argparse.Namespace(root=tmp_path, selector="alignment-1", reason="Add scope")
+        )
+        == 0
+    )
+    assert mutations[0][0] == "approval-1"
+    assert all(item["status"] == "open" for item in state.values())
+    assert output[0]["status"] == "ok"
 
 
 def test_claim_next_delegates_readiness_and_claim(monkeypatch, tmp_path: Path) -> None:

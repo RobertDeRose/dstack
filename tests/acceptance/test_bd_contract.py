@@ -8,8 +8,9 @@ import pytest
 from conftest import ROOT, run_command, run_json
 
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
+from dstack_commands import reopen_authorization_boundary
 from dstack_delivery import pr_gate_state, register_pr_gate, replace_pr_gates
-from dstacklib import BeadsClient, DstackError
+from dstacklib import BeadsClient, DstackError, root_metadata_value
 
 
 def items(payload):
@@ -306,3 +307,60 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     ) == (replacement, [])
     active = pr_gate_state(client, feature_root)["active"]
     assert [gate["id"] for gate in active] == [replacement["id"]]
+
+    client.update(
+        feature_root,
+        "--set-metadata",
+        "dstack.approved_design_sha256=accepted",
+    )
+    reopen_authorization_boundary(
+        client,
+        root_id=feature_root,
+        planning_id=by_label(feature_children, "dstack:step:specification")["id"],
+        approval_id=approval["id"],
+        gate_id=gate["id"],
+        workstream_id=implementation["id"],
+        terminal_id=claimed_closeout[0]["id"],
+        reason="contract scope revision",
+        digest_key="dstack.approved_design_sha256",
+    )
+    assert root_metadata_value(client.show(feature_root), "dstack.approved_design_sha256") is None
+    assert all(
+        client.show(issue_id)["status"] == "open"
+        for issue_id in (
+            by_label(feature_children, "dstack:step:specification")["id"],
+            approval["id"],
+            gate["id"],
+            implementation["id"],
+        )
+    )
+    revision = client.create(
+        "authorized revision",
+        parent=implementation["id"],
+        labels=["dstack:work:implementation"],
+        dependencies=[approval["id"]],
+        acceptance="revision remains blocked before renewed approval",
+    )
+    assert revision["id"] not in {
+        item["id"] for item in client.ready_children(implementation["id"], label="dstack:work:implementation")
+    }
+
+    reopen_authorization_boundary(
+        client,
+        root_id=alignment_root,
+        planning_id=alignment_analysis["id"],
+        approval_id=alignment_approval["id"],
+        gate_id=alignment_gate["id"],
+        workstream_id=corrections["id"],
+        terminal_id=claimed_landing[0]["id"],
+        reason="contract alignment revision",
+    )
+    assert all(
+        client.show(issue_id)["status"] == "open"
+        for issue_id in (
+            alignment_analysis["id"],
+            alignment_approval["id"],
+            alignment_gate["id"],
+            corrections["id"],
+        )
+    )
