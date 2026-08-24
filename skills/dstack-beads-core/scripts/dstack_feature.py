@@ -494,6 +494,7 @@ def cmd_feature_reauthorize(args: argparse.Namespace) -> int:
         terminal_id=str(steps["closeout"]["id"]),
         reason=args.reason,
         digest_key="dstack.approved_design_sha256",
+        pending_digest_key="dstack.pending_design_sha256",
     )
 
     root = client.show(root_id)
@@ -510,6 +511,7 @@ def cmd_feature_reauthorize(args: argparse.Namespace) -> int:
     ready = client.ready_children(str(implementation["id"]), label="dstack:work:implementation")
     if (
         root_metadata_value(root, "dstack.approved_design_sha256")
+        or root_metadata_value(root, "dstack.pending_design_sha256")
         or any(status != "open" for status in states.values())
         or ready
     ):
@@ -579,16 +581,33 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
     if not isinstance(gate, dict):
         raise DstackError("feature approval task lacks one blocking human gate")
     root = client.show(root_id)
-    previous = root_metadata_value(root, "dstack.approved_design_sha256")
-    if (
-        previous
-        and previous != digest
-        and any(item.get("status") == "closed" for item in (specification, gate, approval))
-    ):
+    approved = root_metadata_value(root, "dstack.approved_design_sha256")
+    pending = root_metadata_value(root, "dstack.pending_design_sha256")
+    initial_states = {
+        "specification": specification.get("status"),
+        "human_gate": gate.get("status"),
+        "approval": approval.get("status"),
+    }
+    if (approved and approved != digest) or (pending and pending != digest):
         raise DstackError(
             "accepted design changed after approval began; explicitly reopen the "
             "specification and approval boundary before reauthorizing"
         )
+    if approved and any(status != "closed" for status in initial_states.values()):
+        raise DstackError("approved design metadata conflicts with incomplete native approval state")
+    if not approved and not pending:
+        if any(status == "closed" for status in initial_states.values()):
+            raise DstackError(
+                "closed native approval state lacks pending or approved content identity; explicitly reauthorize"
+            )
+        client.update(
+            root_id,
+            "--set-metadata",
+            f"dstack.pending_design_sha256={digest}",
+        )
+        pending = root_metadata_value(client.show(root_id), "dstack.pending_design_sha256")
+        if pending != digest:
+            raise DstackError(f"pending design identity did not converge: {pending!r}")
 
     if specification.get("status") != "closed" and args.summary_file:
         client.add_comment(str(specification["id"]), read_text_file(args.summary_file))
@@ -607,24 +626,37 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
     if any(status != "closed" for status in states.values()):
         raise DstackError(f"specification approval did not converge: states={states}")
 
-    if previous != digest:
+    if approved != digest:
         client.update(
             root_id,
             "--set-metadata",
             f"dstack.approved_design_sha256={digest}",
         )
+        approved = root_metadata_value(client.show(root_id), "dstack.approved_design_sha256")
+        if approved != digest:
+            raise DstackError(f"approved design identity did not converge: {approved!r}")
+    if root_metadata_value(client.show(root_id), "dstack.pending_design_sha256"):
+        client.update(
+            root_id,
+            "--unset-metadata",
+            "dstack.pending_design_sha256",
+        )
+
     observed_root = client.show(root_id)
     specification = client.show(str(specification["id"]))
     gate = client.show(str(gate["id"]))
     approval = client.show(str(approval["id"]))
-    final_digest = root_metadata_value(observed_root, "dstack.approved_design_sha256")
+    approved = root_metadata_value(observed_root, "dstack.approved_design_sha256")
+    pending = root_metadata_value(observed_root, "dstack.pending_design_sha256")
     states = {
         "specification": specification.get("status"),
         "human_gate": gate.get("status"),
         "approval": approval.get("status"),
     }
-    if final_digest != digest or any(status != "closed" for status in states.values()):
-        raise DstackError(f"specification approval did not converge: digest={final_digest!r}, states={states}")
+    if approved != digest or pending or any(status != "closed" for status in states.values()):
+        raise DstackError(
+            f"specification approval did not converge: approved={approved!r}, pending={pending!r}, states={states}"
+        )
     emit(
         {
             "status": "ok",
@@ -747,7 +779,9 @@ def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     return 0
 
 
-def validate_feature_documentation(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, object]:
+def validate_feature_documentation(
+    client: BeadsClient, view: Mapping[str, Any]
+) -> dict[str, object]:
     _, worktree, _ = feature_branch_context(client, view)
     ensure_clean_worktree(worktree)
     design_file, _ = safe_design_file(worktree, str(view.get("design_path") or ""))
@@ -759,7 +793,8 @@ def validate_feature_documentation(client: BeadsClient, view: Mapping[str, Any])
     untouched = RECONCILIATION_SCAFFOLD.format(title=title)
     if not content.strip() or content.strip() == untouched.strip():
         raise DstackError(
-            "feature reconciliation is still the untouched scaffold; record the delivered result before closeout"
+            "feature reconciliation is still the untouched scaffold; "
+            "record the delivered result before closeout"
         )
     validate_record(
         content,

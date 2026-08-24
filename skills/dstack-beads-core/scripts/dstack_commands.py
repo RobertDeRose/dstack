@@ -602,6 +602,7 @@ def reopen_authorization_boundary(
     terminal_id: str,
     reason: str,
     digest_key: str | None = None,
+    pending_digest_key: str | None = None,
 ) -> None:
     reason = reason.strip()
     if not reason:
@@ -614,10 +615,9 @@ def reopen_authorization_boundary(
         ids = ", ".join(str(item["id"]) for item in in_flight)
         raise DstackError(f"cannot reauthorize while work is claimed: {ids}")
 
-    if digest_key:
-        root = client.show(root_id)
-        if root_metadata_value(root, digest_key):
-            client.update(root_id, "--unset-metadata", digest_key)
+    for key in (digest_key, pending_digest_key):
+        if key and root_metadata_value(client.show(root_id), key):
+            client.update(root_id, "--unset-metadata", key)
 
     for issue_id in (approval_id, gate_id, planning_id, workstream_id):
         issue = client.show(issue_id)

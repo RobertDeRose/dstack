@@ -8,7 +8,7 @@ unrelated ready work or progress.
 | --- | --- | --- |
 | Plan | Create/update ordinary planned Beads work | Converges from current intent without Git mutation |
 | Materialize | Pour the stable formula and create native children | Reuses the unique current root and conventional worktree |
-| Authorize | Close planning, resolve the exact human gate, close approval, then store the content digest | Verifies all postconditions; partial authorization can converge on retry |
+| Authorize | Verify pending content identity, converge planning/gate/approval, then promote it to approved | Only the same content can resume; pending or unidentified partial state is unauthorized |
 | Execute | Native atomic ready claim or ownership re-claim, then evidence-backed close | Exact closed work is idempotent; conflicts require current native state |
 | Reconcile | Native direct-child fan-in plus documentation/evidence validation | Incomplete validation leaves the terminal boundary open |
 | Deliver | Fast-forward Git or registered PR, then Beads finalization | Reinspect uncertain external mutations before retry |
@@ -27,30 +27,25 @@ implementation tasks, or change Git. `/plan-features` is a deprecated thin alias
 
 ### `/review-feature-spec [feature]`
 
-The controller resolves planned intent or an existing current molecule, then
-idempotently pours or reuses the stable workflow and conventional worktree. It
-claims specification ownership and scaffolds the canonical
-`docs/src/features/<slug>/design.md` only when absent. The scaffold covers
-accepted intent, behavior, architecture, failure, security, compatibility,
-validation, documentation impact, risks, alternatives, and deferred decisions.
+The controller resolves planned intent or an existing current molecule, then idempotently pours or reuses the stable
+workflow and conventional worktree. It claims specification ownership and scaffolds the canonical
+`docs/src/features/<slug>/design.md` only when absent. The scaffold covers accepted intent, behavior, architecture,
+failure, security, compatibility, validation, documentation impact, risks, alternatives, and deferred decisions.
 
-The agent reconciles the complete planned intent with current architecture,
-source, tests, durable docs, dependencies, and related work. It resolves holes
-and collisions, refines the canonical design, and creates or updates bounded
-implementation outcomes with observable acceptance and real native
-dependencies. It commits only actual repository changes using the specification
-Bead footer, reviews the complete design and graph, and asks for explicit human
-authorization. Invocation alone is not approval. After authorization, the
-controller requires a clean conventional worktree and tracked design identical
-to the candidate `HEAD`, converges the exact specification, blocking human gate,
-and approval milestone, then records the committed design-content digest last.
+The agent reconciles the complete planned intent with current architecture, source, tests, durable docs, dependencies,
+and related work. It resolves holes and collisions, refines the canonical design, and creates or updates bounded
+implementation outcomes with observable acceptance and real native dependencies. It commits only actual repository
+changes using the specification Bead footer, reviews the complete design and graph, and asks for explicit human
+authorization. Invocation alone is not approval. After authorization, the controller requires a clean conventional
+worktree and tracked design identical to the candidate `HEAD`, writes and verifies its pending content digest, converges
+the exact specification, blocking human gate, and approval milestone, promotes the same digest to approved, and clears
+pending. Implementation remains unauthorized until the final conjunction is verified.
 
-Approved scope is immutable. `feature reauthorize` invalidates the accepted
-digest before reopening the native approval, gate, specification, and workstream
-boundary; only then may review change the graph and seek renewed authorization.
-It refuses terminal or claimed work. Re-review reconciles the complete native
-graph rather than only adding work: valid tasks are reused, obsolete tasks are
-closed or superseded, and stale blocking dependencies are removed through Beads.
+Approved scope is immutable. `feature reauthorize` invalidates approved and pending digests before reopening the native
+approval, gate, specification, and workstream boundary; only then may review change the graph and seek renewed
+authorization. It refuses terminal or claimed work. Re-review reconciles the complete native graph rather than only
+adding work: valid tasks are reused, obsolete tasks are closed or superseded, and stale blocking dependencies are
+removed through Beads.
 
 ### `/implement-feature [feature] [task|--all]`
 

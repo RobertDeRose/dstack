@@ -9,6 +9,7 @@ lifecycle roles, not transient execution state.
 | --- | --- |
 | `dstack.base_branch` | Feature delivery target |
 | `dstack.design_path` | Canonical tracked design path under `docs/src/features` |
+| `dstack.pending_design_sha256` | Committed design digest for an incomplete approval attempt; never sufficient for implementation |
 | `dstack.approved_design_sha256` | Digest of accepted committed design bytes; invalidated before reauthorization |
 | `dstack.target_branch` | Project-alignment delivery target |
 | `dstack.scope` | Durable alignment scope |
