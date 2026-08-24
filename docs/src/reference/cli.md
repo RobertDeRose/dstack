@@ -14,7 +14,7 @@ mechanics and emits JSON.
 | `/project-alignment-review ...` | Current repository | Alignment analysis and correction plan | Human gate remains for explicit execution |
 | `/project-alignment-execute ...` | Native ready corrections | Exact claim and evidence-backed close | Requested correction closes or none is ready |
 | `/project-alignment-land ...` | Full correction candidate | Landing and optional delivery | Reviewed candidate or delivered root |
-| `dstackctl audit feature ... --format json\|markdown` | Live Beads, Git, worktree, mdBook, evidence, and delivery observations | None | Deterministic explicit audit facts; nothing is published |
+| `dstackctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic explicit audit facts; delivered evidence survives branch cleanup and nothing is published |
 
 Internal controller leaves include `feature reauthorize` and `alignment
 reauthorize` before approved graph changes, `delivery replace-pr` for an

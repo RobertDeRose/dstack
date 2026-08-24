@@ -9,10 +9,12 @@ dStack artifacts and adopt active legacy features.
 - mdBook: `mdbook v0.5.3` exactly.
 - Python: 3.13.
 
-Setup doctor rejects a mismatch. Upgrades require an explicit compatibility
-change, formula preflight, fast validation, and both isolated real-Beads
-acceptance scenarios; changing a version constraint without that evidence is
-unsupported.
+Setup doctor rejects a mismatch. Run dStack with the mise/aqua-installed
+acceptance binary first on `PATH`; a separately installed Homebrew 1.2.2 binary
+has different build output and is not covered by the exact contract. Upgrades
+require an explicit compatibility change, formula preflight, fast validation,
+and both isolated real-Beads acceptance scenarios; changing a version constraint
+without that evidence is unsupported.
 
 ## Pinned compatibility shims
 

@@ -97,6 +97,10 @@ A successful merge/PR finalizer changes Beads only and is forbidden from creatin
 - mdBook on `PATH`
 - Beads 1.2.2 exactly. Real-Beads acceptance tests define the supported behavioral contract.
 
+Use the mise/aqua-installed acceptance binary or otherwise ensure that exact binary is first on `PATH`. `bd --version`
+must print `bd version 1.2.2 (6c124203e)`. Do not rely on a separately installed Homebrew `bd`; its different build
+output is outside the tested compatibility boundary.
+
 ## Install
 
 ```bash

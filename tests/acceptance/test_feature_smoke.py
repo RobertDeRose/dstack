@@ -352,6 +352,29 @@ External blocker B replaces blocker A.
     assert delivered["previous_target_head"] != delivered["delivered_head"]
     closed = run_json(acceptance_repo, "show", root_id)
     assert closed[0]["status"] == "closed"
+    subprocess.run(
+        ["git", "worktree", "remove", str(worktree)],
+        cwd=acceptance_repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "branch", "-d", created["branch"]],
+        cwd=acceptance_repo,
+        check=True,
+    )
+    delivered_audit = run_ctl(
+        acceptance_repo,
+        "audit",
+        "feature",
+        root_id,
+        "--format",
+        "json",
+    )
+    assert delivered_audit["git_evidence"]["status"] == "ok"
+    assert delivered_audit["git_evidence"]["source"] == "delivered-target"
+    assert delivered_audit["git_evidence"]["feature_branch_present"] is False
+    assert task["id"] in delivered_audit["git_evidence"]["mapping"]
+    assert claimed_closeout["closeout"]["id"] in delivered_audit["git_evidence"]["mapping"]
 
     alignment = run_ctl(
         acceptance_repo,

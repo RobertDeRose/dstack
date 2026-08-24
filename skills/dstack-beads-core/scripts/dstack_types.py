@@ -33,7 +33,14 @@ class EvidenceAuditFact(TypedDict):
     status: str
     reason: NotRequired[str]
     range: NotRequired[str]
+    source: NotRequired[str]
+    target_ref: NotRequired[str]
+    feature_branch: NotRequired[str]
+    feature_branch_present: NotRequired[bool]
+    worktree_present: NotRequired[bool]
     missing: NotRequired[list[str]]
+    no_repository_change: NotRequired[list[str]]
+    mapping: NotRequired[dict[str, list[dict[str, Any]]]]
     unexpected_footer_ids: NotRequired[list[str]]
 
 
