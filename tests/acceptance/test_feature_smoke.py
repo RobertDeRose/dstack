@@ -277,6 +277,10 @@ External blocker B replaces blocker A.
         check=False,
     )
     assert late_refused.returncode != 0
+    run_command(
+        ["bd", "close", blocker_b["id"], "--reason", "external dependency delivered"],
+        cwd=acceptance_repo,
+    )
     change = worktree / "smoke.py"
     change.write_text("SMOKE = True\n")
     subprocess.run(
@@ -308,10 +312,6 @@ External blocker B replaces blocker A.
             "--reason",
             "no-repository-change: fan-in acceptance only",
         ],
-        cwd=acceptance_repo,
-    )
-    run_command(
-        ["bd", "close", blocker_b["id"], "--reason", "External dependency shipped"],
         cwd=acceptance_repo,
     )
     run_ctl(acceptance_repo, "feature", "finish-workstream", root_id)

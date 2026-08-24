@@ -29,7 +29,6 @@ from dstacklib import (
     current_head,
     dependency_records,
     display_title,
-    ensure_clean_tracked,
     ensure_clean_worktree,
     feature_slug,
     file_sha256,
@@ -38,7 +37,6 @@ from dstacklib import (
     human_gate_for_step,
     issue_labels,
     issue_metadata,
-    issue_parent,
     read_text_file,
     ref_exists,
     resolve_feature,
@@ -58,6 +56,7 @@ from dstack_commands import (
     NO_REPOSITORY_CHANGE_PREFIX,
     claim_issue_if_needed,
     claim_ready_step_with_fan_in,
+    claim_ready_work,
     close_issue_if_needed,
     resolve_gate_if_needed,
     client_for,
@@ -285,28 +284,21 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
     return 0
 
 
+def require_alignment_approval(view: Mapping[str, Any]) -> None:
+    if view["steps"]["approval"].get("status") != "closed":
+        raise DstackError("alignment approval milestone is not closed")
+
+
 def cmd_alignment_claim_next(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
-    parent = str(view["steps"]["corrections"]["id"])
-    if args.task:
-        task = client.show(args.task)
-        if issue_parent(task) != parent:
-            raise DstackError(f"task {args.task} is not a correction under {parent}")
-        if task.get("status") == "open":
-            ready_ids = {
-                str(candidate["id"])
-                for candidate in client.ready_children(
-                    parent,
-                    label="dstack:work:correction",
-                )
-            }
-            if args.task not in ready_ids:
-                raise DstackError(f"correction {args.task} is not currently ready")
-        claimed = claim_issue_if_needed(client, task)
-    else:
-        items = client.ready_children(parent, label="dstack:work:correction", claim=True)
-        claimed = items[0] if items else None
+    require_alignment_approval(view)
+    claimed = claim_ready_work(
+        client,
+        parent_id=str(view["steps"]["corrections"]["id"]),
+        label="dstack:work:correction",
+        requested_id=args.task,
+    )
     emit({"status": "ok", "correction": claimed, "audit": view["root"]["id"]})
     return 0
 
@@ -314,21 +306,36 @@ def cmd_alignment_claim_next(args: argparse.Namespace) -> int:
 def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
+    require_alignment_approval(view)
     parent = str(view["steps"]["corrections"]["id"])
-    task = client.show(args.task)
-    if issue_parent(task) != parent:
-        raise DstackError(f"task {args.task} is not a correction under {parent}")
-    task = claim_issue_if_needed(client, task)
+    task = claim_ready_work(
+        client,
+        parent_id=parent,
+        label="dstack:work:correction",
+        requested_id=args.task,
+    )
+    if task is None:
+        raise DstackError(f"correction {args.task} is not currently ready")
+    if task.get("status") == "closed":
+        emit(
+            {
+                "status": "ok",
+                "audit": view["root"]["id"],
+                "correction": task,
+                "already_closed": True,
+            }
+        )
+        return 0
     slug = str(view["slug"])
     branch = f"audit/{slug}"
     base = str(view["target_branch"])
     worktree = worktree_for_branch(client.root, branch)
     if worktree is None:
         raise DstackError(f"no worktree for {branch}")
+    ensure_clean_worktree(worktree)
     reason = completion_reason(args, "Correction completed")
     evidence = evidence_for_bead(worktree, args.task, f"{base}..{branch}")
     if args.no_repository_change:
-        ensure_clean_tracked(worktree)
         if evidence:
             raise DstackError("--no-repository-change conflicts with reachable commit evidence")
     elif not evidence:
@@ -353,6 +360,12 @@ def finish_alignment_workstream(client: BeadsClient, view: Mapping[str, Any], *,
     workstream = client.show(str(view["steps"]["corrections"]["id"]))
     open_items = open_workstream_children(client, str(workstream["id"]))
     if close and not open_items and workstream.get("status") != "closed":
+        require_alignment_approval(view)
+        branch = f"audit/{view['slug']}"
+        worktree = worktree_for_branch(client.root, branch)
+        if worktree is None:
+            raise DstackError(f"no worktree for {branch}")
+        ensure_clean_worktree(worktree)
         client.close(str(workstream["id"]), "All corrections completed")
     return {
         "open_items": [item["id"] for item in open_items],
