@@ -224,6 +224,16 @@ External blocker B replaces blocker A.
             "Terminal claim waits for every direct child.",
         )
     )[0]
+    task = run_ctl(
+        acceptance_repo,
+        "feature",
+        "add-task",
+        root_id,
+        "--title",
+        "Ship smoke behavior",
+        "--acceptance",
+        "The smoke behavior is delivered with Git evidence.",
+    )["task"]
 
     subprocess.run(["git", "add", "docs"], cwd=worktree, check=True)
     subprocess.run(
@@ -255,16 +265,18 @@ External blocker B replaces blocker A.
         capture_output=True,
     ).stdout
     assert approved["approved_design_sha256"] == hashlib.sha256(head_design).hexdigest()
-    task = run_ctl(
+    late_refused = run_ctl(
         acceptance_repo,
         "feature",
         "add-task",
         root_id,
         "--title",
-        "Ship smoke behavior",
+        "Late unauthorized scope",
         "--acceptance",
-        "The smoke behavior is delivered with Git evidence.",
-    )["task"]
+        "This child must not be created after approval.",
+        check=False,
+    )
+    assert late_refused.returncode != 0
     change = worktree / "smoke.py"
     change.write_text("SMOKE = True\n")
     subprocess.run(
@@ -375,9 +387,19 @@ External blocker B replaces blocker A.
     )[0]
     run_ctl(acceptance_repo, "alignment", "finish-plan", alignment_root)
     run_ctl(acceptance_repo, "alignment", "approve", alignment_root)
-    claimed_correction = run_ctl(
-        acceptance_repo, "alignment", "claim-next", alignment_root
-    )["correction"]
+    late_correction_refused = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "add-correction",
+        alignment_root,
+        "--title",
+        "Late unauthorized correction",
+        "--acceptance",
+        "This correction must not be created after approval.",
+        check=False,
+    )
+    assert late_correction_refused.returncode != 0
+    claimed_correction = run_ctl(acceptance_repo, "alignment", "claim-next", alignment_root)["correction"]
     assert claimed_correction["id"] == correction["id"]
 
     (alignment_worktree / "aligned.py").write_text("ALIGNED = True\n")

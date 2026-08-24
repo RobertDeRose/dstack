@@ -9,8 +9,13 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import json
+import re
+import sys
+import tempfile
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from dstacklib import (
     BeadsClient,
@@ -19,82 +24,73 @@ from dstacklib import (
     alignment_view,
     ancestry,
     branch_exists,
+    commit_footer_ids,
     conventional_worktree,
+    current_head,
+    dependency_records,
+    display_title,
+    ensure_clean_tracked,
     ensure_clean_worktree,
+    feature_slug,
+    file_sha256,
+    git_root,
+    has_label,
     human_gate_for_step,
+    issue_labels,
+    issue_metadata,
+    issue_parent,
     read_text_file,
+    ref_exists,
+    resolve_feature,
+    root_metadata_value,
     run,
     slugify,
-    validate_git_branch,
-    validate_git_revision,
-    verify_worktree_identity,
     worktree_for_branch,
 )
 
 from dstack_commands import (
-    ALIGNMENT_RECONCILIATION_SCAFFOLD,
-    claim_ready_step,
+    BEADS_RUNTIME_DIR_PREFIXES,
+    BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
+    BEADS_SENSITIVE_BASENAMES,
+    DESIGN_SCAFFOLD,
+    DSTACK_UNTRACKED_BEADS_FILES,
+    FORBIDDEN_DOC_PATTERNS,
+    NO_REPOSITORY_CHANGE_PREFIX,
+    claim_issue_if_needed,
     claim_ready_step_with_fan_in,
-    claim_ready_work,
     close_issue_if_needed,
     resolve_gate_if_needed,
     client_for,
     completion_reason,
+    descendants,
     emit,
-    ensure_branch_worktree,
+    ensure_feature_worktree,
     evidence_for_bead,
+    fail,
+    feature_branch_context,
     keep_root_open_for_delivery,
     open_workstream_children,
+    package_root,
+    preserve_external_blockers,
+    require_approved_design,
     require_installed_formula,
     reopen_authorization_boundary,
     required_task_text,
+    superseded_target,
     task_text,
+    update_root_identity,
 )
-from dstack_docs import validate_docs, validate_record
-from dstack_alignment_plan import (
-    canonical_description,
-    parse_plan_file,
-    require_alignment_authorized,
-    require_baseline,
-    root_plan_metadata,
-    verify_correction_graph,
-)
-
-
-def cmd_alignment_scaffold_record(args: argparse.Namespace) -> int:
-    if args.kind != "reconciliation":
-        raise DstackError("alignment plan authoring uses canonical JSON --plan-file")
-    scaffold = ALIGNMENT_RECONCILIATION_SCAFFOLD
-    try:
-        with args.path.open("x", encoding="utf-8") as handle:
-            handle.write(scaffold)
-    except FileExistsError as exc:
-        raise DstackError(f"alignment record already exists: {args.path}") from exc
-    emit({"status": "ok", "kind": args.kind, "path": str(args.path)})
-    return 0
-
+from dstack_docs import validate_docs
 
 def cmd_alignment_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    view = alignment_view(client, args.selector)
-    try:
-        require_alignment_authorized(client, view)
-    except DstackError as exc:
-        view["authorized"] = False
-        view["authorization_error"] = str(exc)
-    else:
-        view["authorized"] = True
-    emit({"status": "ok", **view})
+    emit({"status": "ok", **alignment_view(client, args.selector)})
     return 0
 
 
 def cmd_alignment_initialize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     slug = args.slug or slugify(args.title)
-    branch = f"audit/{slug}"
-    validate_git_branch(client.root, branch, name="alignment branch")
-    validate_git_branch(client.root, args.target_branch, name="target branch")
-    validate_git_revision(client.root, args.target_branch, name="target branch")
     try:
         existing = alignment_context(client, slug)
     except DstackError as exc:
@@ -102,8 +98,15 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
             raise
     else:
         if existing["root"].get("status") != "closed":
-            target_branch = str(existing.get("target_branch") or args.target_branch)
-            _, worktree, _, _ = ensure_branch_worktree(client, branch, target_branch)
+            branch = f"audit/{slug}"
+            worktree = worktree_for_branch(client.root, branch)
+            if worktree is None:
+                target_branch = str(existing.get("target_branch") or args.target_branch)
+                if not branch_exists(client.root, branch):
+                    run(["git", "branch", branch, target_branch], cwd=client.root)
+                path = conventional_worktree(client.root, branch)
+                run(["bd", "worktree", "create", str(path), "--branch", branch], cwd=client.root)
+                worktree = worktree_for_branch(client.root, branch)
             emit({"status": "ok", "created": False, "worktree": str(worktree), **existing})
             return 0
         raise DstackError(f"project alignment is already closed: {existing['root']['id']}")
@@ -120,6 +123,7 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
     root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
     if not root_id:
         raise DstackError("bd mol pour returned no alignment root")
+    branch = f"audit/{slug}"
     created_branch = False
     created_worktree = False
     try:
@@ -136,7 +140,17 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
             "--set-metadata",
             f"dstack.scope={args.scope}",
         )
-        _, worktree, created_branch, created_worktree = ensure_branch_worktree(client, branch, args.target_branch)
+        if not branch_exists(client.root, branch):
+            run(["git", "branch", branch, args.target_branch], cwd=client.root)
+            created_branch = True
+        worktree = worktree_for_branch(client.root, branch)
+        if worktree is None:
+            path = conventional_worktree(client.root, branch)
+            run(["bd", "worktree", "create", str(path), "--branch", branch], cwd=client.root)
+            created_worktree = True
+            worktree = worktree_for_branch(client.root, branch)
+        if worktree is None:
+            raise DstackError(f"failed to register worktree for {branch}")
     except Exception:
         if created_worktree:
             run(
@@ -151,11 +165,7 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
                 check=False,
             )
         if created_branch and branch_exists(client.root, branch):
-            run(
-                ["git", "branch", "-D", "--", branch],
-                cwd=client.root,
-                check=False,
-            )
+            run(["git", "branch", "-D", branch], cwd=client.root, check=False)
         run(
             ["bd", "delete", root_id, "--cascade", "--force"],
             cwd=client.root,
@@ -187,45 +197,11 @@ def cmd_alignment_add_correction(args: argparse.Namespace) -> int:
     return 0
 
 
-def _reauthorization_diagnostics(
-    client: BeadsClient,
-    view: Mapping[str, Any],
-    analysis: Mapping[str, Any],
-) -> dict[str, Any]:
-    raw = analysis.get("description")
-    if not isinstance(raw, str) or not raw.strip():
-        plan_state = {"status": "absent"}
-        baseline_state = {"status": "unavailable", "reason": "canonical plan is absent"}
-    else:
-        try:
-            plan, _, digest = canonical_description(analysis)
-        except DstackError as exc:
-            plan_state = {"status": "invalid", "reason": str(exc)}
-            baseline_state = {"status": "unavailable", "reason": "canonical plan is invalid"}
-        else:
-            plan_state = {"status": "valid", "digest": digest}
-            try:
-                observed = require_baseline(client.root, str(view.get("target_branch") or ""), plan)
-            except DstackError as exc:
-                baseline_state = {"status": "mismatch", "reason": str(exc)}
-            else:
-                baseline_state = {"status": "match", "commit": observed}
-    pending, approved = root_plan_metadata(client, str(view["root"]["id"]))
-    return {
-        "plan": plan_state,
-        "baseline": baseline_state,
-        "pending_digest": pending,
-        "approved_digest": approved,
-    }
-
-
 def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
     root_id = str(view["root"]["id"])
     steps = view["steps"]
-    analysis = client.show(str(steps["analysis"]["id"]))
-    diagnostics = _reauthorization_diagnostics(client, view, analysis)
     approval = client.show(str(steps["approval"]["id"]))
     gate = human_gate_for_step(client, root_id=root_id, step=approval)
     if not isinstance(gate, dict):
@@ -239,8 +215,6 @@ def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
         workstream_id=str(steps["corrections"]["id"]),
         terminal_id=str(steps["landing"]["id"]),
         reason=args.reason,
-        digest_key="dstack.approved_alignment_plan_sha256",
-        pending_digest_key="dstack.pending_alignment_plan_sha256",
     )
 
     analysis = client.show(str(steps["analysis"]["id"]))
@@ -255,96 +229,27 @@ def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
     }
     ready = client.ready_children(str(corrections["id"]), label="dstack:work:correction")
     if any(status != "open" for status in states.values()) or ready:
-        raise DstackError(f"alignment reauthorization did not restore blocking state: states={states}")
-    emit(
-        {
-            "status": "ok",
-            "audit": root_id,
-            "states": states,
-            "invalidation": diagnostics,
-        }
-    )
+        raise DstackError(
+            f"alignment reauthorization did not restore blocking state: states={states}"
+        )
+    emit({"status": "ok", "audit": root_id, "states": states})
     return 0
-
-
-def _is_unfinished_formula_analysis(description: Any) -> bool:
-    return isinstance(description, str) and description.lstrip().startswith("Analyze ")
 
 
 def cmd_alignment_finish_plan(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
-    if not getattr(args, "plan_file", None):
-        raise DstackError("alignment plan requires --plan-file")
-    plan, encoded_bytes, digest = parse_plan_file(args.plan_file)
-    encoded = encoded_bytes.decode("utf-8")
-    require_baseline(client.root, str(view.get("target_branch") or ""), plan)
-    analysis = client.show(str(view["steps"]["analysis"]["id"]))
-    pending, approved = root_plan_metadata(client, str(view["root"]["id"]))
-    raw_description = analysis.get("description")
-    if analysis.get("status") == "closed":
-        existing, existing_text, existing_digest = canonical_description(analysis)
-        if existing_digest != digest or existing != plan or existing_text != encoded:
-            raise DstackError("closed alignment analysis has a different canonical plan")
-        if approved not in (None, digest) or pending not in (None, digest):
-            raise DstackError("closed alignment analysis has inconsistent plan identity")
-        if pending is None and approved is None:
-            raise DstackError("closed alignment analysis has no pending or approved plan identity")
-        verify_correction_graph(client, view, plan)
-        emit(
-            {
-                "status": "ok",
-                "audit": view["root"]["id"],
-                "analysis": analysis,
-                "already_closed": True,
-            }
-        )
-        return 0
-    if approved is not None:
-        raise DstackError("open alignment analysis has an approved plan identity; reauthorize before retry")
-    if pending is not None and pending != digest:
-        raise DstackError("open alignment analysis has a different pending plan identity")
-    if (
-        isinstance(raw_description, str)
-        and raw_description.strip()
-        and not _is_unfinished_formula_analysis(raw_description)
-    ):
-        try:
-            existing, existing_text, existing_digest = canonical_description(analysis)
-        except DstackError as exc:
-            raise DstackError("open alignment analysis has a non-canonical plan; reauthorize before retry") from exc
-        if existing_digest != digest or existing != plan or existing_text != encoded:
-            raise DstackError("open alignment analysis has a different canonical plan")
-    elif pending is not None:
-        raise DstackError("open alignment analysis has pending identity without a canonical plan")
-    verify_correction_graph(client, view, plan)
-    if (
-        _is_unfinished_formula_analysis(raw_description)
-        or not isinstance(raw_description, str)
-        or not raw_description.strip()
-    ):
-        analysis = client.update(str(analysis["id"]), "--description", encoded)
-    observed = client.show(str(analysis["id"]))
-    if observed.get("description") != encoded:
-        raise DstackError("canonical alignment plan description did not converge")
-    if pending != digest:
-        client.update(
-            str(view["root"]["id"]),
-            "--set-metadata",
-            f"dstack.pending_alignment_plan_sha256={digest}",
-        )
-    pending, _ = root_plan_metadata(client, str(view["root"]["id"]))
-    if pending != digest:
-        raise DstackError(f"pending alignment plan identity did not converge: {pending!r}")
-    analysis = claim_ready_step(
-        client,
-        root_id=str(view["root"]["id"]),
-        step=analysis,
-        label="dstack:step:alignment-analysis",
-        name="alignment analysis",
-    )
+    analysis = claim_issue_if_needed(client, view["steps"]["analysis"])
+    if args.summary_file:
+        client.add_comment(str(analysis["id"]), read_text_file(args.summary_file))
     analysis = client.close(str(analysis["id"]), "Corrective plan prepared")
-    emit({"status": "ok", "audit": view["root"]["id"], "analysis": analysis, "plan_sha256": digest})
+    emit(
+        {
+            "status": "ok",
+            "audit": view["root"]["id"],
+            "analysis": analysis,
+        }
+    )
     return 0
 
 
@@ -352,106 +257,56 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
     root_id = str(view["root"]["id"])
-    analysis = client.show(str(view["steps"]["analysis"]["id"]))
-    plan, _, digest = canonical_description(analysis)
-    if analysis.get("status") != "closed":
-        raise DstackError("alignment approval requires closed analysis")
-    require_baseline(client.root, str(view.get("target_branch") or ""), plan)
-    pending, approved = root_plan_metadata(client, root_id)
     approval = client.show(str(view["steps"]["approval"]["id"]))
     gate = human_gate_for_step(client, root_id=root_id, step=approval)
     if not isinstance(gate, dict):
         raise DstackError("alignment workflow has no unique human gate")
-    native_closed = gate.get("status") == "closed" and approval.get("status") == "closed"
-    if approved not in (None, digest):
-        raise DstackError("alignment approval has a different approved plan identity")
-    if pending not in (None, digest):
-        raise DstackError("alignment approval has a different pending plan identity")
-    if approved == digest and pending is None and not native_closed:
-        raise DstackError("alignment approval has approved identity before native authorization converged")
-    if approved is None and pending is None:
-        raise DstackError("alignment approval requires matching pending plan identity")
-    if approved == digest and pending == digest and not native_closed:
-        raise DstackError("alignment approval has inconsistent pending and approved identity")
-    verify_correction_graph(client, view, plan)
 
-    if not native_closed:
-        gate = resolve_gate_if_needed(client, gate, "Corrective plan approved")
-        approval = close_issue_if_needed(client, client.show(str(approval["id"])), "Corrective execution authorized")
-        gate = client.show(str(gate["id"]))
-        approval = client.show(str(approval["id"]))
+    gate = resolve_gate_if_needed(client, gate, "Corrective plan approved")
+    approval = close_issue_if_needed(
+        client, client.show(str(approval["id"])), "Corrective execution authorized"
+    )
+    gate = client.show(str(gate["id"]))
+    approval = client.show(str(approval["id"]))
     states = {
-        "analysis": analysis.get("status"),
         "human_gate": gate.get("status"),
         "approval": approval.get("status"),
     }
     if any(status != "closed" for status in states.values()):
         raise DstackError(f"alignment approval did not converge: states={states}")
-    if approved != digest:
-        client.update(
-            root_id,
-            "--set-metadata",
-            f"dstack.approved_alignment_plan_sha256={digest}",
-        )
-        if root_plan_metadata(client, root_id)[1] != digest:
-            raise DstackError("approved alignment plan identity did not converge")
-    if pending is not None:
-        client.update(root_id, "--unset-metadata", "dstack.pending_alignment_plan_sha256")
-        if root_plan_metadata(client, root_id)[0] is not None:
-            raise DstackError("pending alignment plan identity did not clear")
-    authorized_view = alignment_context(client, root_id)
-    authorized_view["human_gate"] = client.show(str(gate["id"]))
-    require_alignment_authorized(client, authorized_view)
     emit(
         {
             "status": "ok",
             "audit": root_id,
             "human_gate": gate,
             "approval": approval,
-            "plan_sha256": digest,
         }
     )
     return 0
 
 
-def require_alignment_approval(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
-    # Older protocol-only test doubles omit new alignment metadata; real views
-    # always include it through alignment_context and therefore take the strict
-    # authorization predicate.
-    if "approved_alignment_plan_sha256" not in view and "pending_alignment_plan_sha256" not in view:
-        if view["steps"]["approval"].get("status") != "closed":
-            raise DstackError("alignment approval milestone is not closed")
-        return {}
-    return require_alignment_authorized(client, view)
-
-
-def alignment_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tuple[str, Path, str]:
-    branch = f"audit/{view['slug']}"
-    target = str(view.get("target_branch") or "")
-    validate_git_branch(client.root, branch, name="alignment branch")
-    validate_git_branch(client.root, target, name="target branch")
-    validate_git_revision(client.root, target, name="target branch")
-    validate_git_revision(client.root, branch, name="alignment branch")
-    worktree = worktree_for_branch(client.root, branch)
-    if worktree is None:
-        raise DstackError(f"no worktree for {branch}")
-    worktree = verify_worktree_identity(client.root, worktree, branch)
-    if not ancestry(client.root, target, branch):
-        raise DstackError(f"alignment branch {branch} does not contain target {target}")
-    return branch, worktree, target
-
-
 def cmd_alignment_claim_next(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
-    require_alignment_approval(client, view)
-    alignment_branch_context(client, view)
-    claimed = claim_ready_work(
-        client,
-        parent_id=str(view["steps"]["corrections"]["id"]),
-        label="dstack:work:correction",
-        requested_id=args.task,
-    )
+    parent = str(view["steps"]["corrections"]["id"])
+    if args.task:
+        task = client.show(args.task)
+        if issue_parent(task) != parent:
+            raise DstackError(f"task {args.task} is not a correction under {parent}")
+        if task.get("status") == "open":
+            ready_ids = {
+                str(candidate["id"])
+                for candidate in client.ready_children(
+                    parent,
+                    label="dstack:work:correction",
+                )
+            }
+            if args.task not in ready_ids:
+                raise DstackError(f"correction {args.task} is not currently ready")
+        claimed = claim_issue_if_needed(client, task)
+    else:
+        items = client.ready_children(parent, label="dstack:work:correction", claim=True)
+        claimed = items[0] if items else None
     emit({"status": "ok", "correction": claimed, "audit": view["root"]["id"]})
     return 0
 
@@ -459,36 +314,25 @@ def cmd_alignment_claim_next(args: argparse.Namespace) -> int:
 def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
-    require_alignment_approval(client, view)
-    branch, worktree, base = alignment_branch_context(client, view)
-    ensure_clean_worktree(worktree)
     parent = str(view["steps"]["corrections"]["id"])
-    task = claim_ready_work(
-        client,
-        parent_id=parent,
-        label="dstack:work:correction",
-        requested_id=args.task,
-    )
-    if task is None:
-        raise DstackError(f"correction {args.task} is not currently ready")
-    if task.get("status") == "closed":
-        emit(
-            {
-                "status": "ok",
-                "audit": view["root"]["id"],
-                "correction": task,
-                "already_closed": True,
-            }
-        )
-        return 0
+    task = client.show(args.task)
+    if issue_parent(task) != parent:
+        raise DstackError(f"task {args.task} is not a correction under {parent}")
+    task = claim_issue_if_needed(client, task)
+    slug = str(view["slug"])
+    branch = f"audit/{slug}"
+    base = str(view["target_branch"])
+    worktree = worktree_for_branch(client.root, branch)
+    if worktree is None:
+        raise DstackError(f"no worktree for {branch}")
     reason = completion_reason(args, "Correction completed")
     evidence = evidence_for_bead(worktree, args.task, f"{base}..{branch}")
     if args.no_repository_change:
+        ensure_clean_tracked(worktree)
         if evidence:
             raise DstackError("--no-repository-change conflicts with reachable commit evidence")
     elif not evidence:
         raise DstackError(f"no commit on {branch} references Bead {args.task}")
-    require_alignment_approval(client, alignment_context(client, args.selector))
     if args.summary_file:
         client.add_comment(args.task, read_text_file(args.summary_file))
     task = client.close(args.task, reason)
@@ -509,9 +353,6 @@ def finish_alignment_workstream(client: BeadsClient, view: Mapping[str, Any], *,
     workstream = client.show(str(view["steps"]["corrections"]["id"]))
     open_items = open_workstream_children(client, str(workstream["id"]))
     if close and not open_items and workstream.get("status") != "closed":
-        require_alignment_approval(client, view)
-        _, worktree, _ = alignment_branch_context(client, view)
-        ensure_clean_worktree(worktree)
         client.close(str(workstream["id"]), "All corrections completed")
     return {
         "open_items": [item["id"] for item in open_items],
@@ -531,8 +372,6 @@ def cmd_alignment_finish_workstream(args: argparse.Namespace) -> int:
 def cmd_alignment_claim_landing(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
-    require_alignment_approval(client, view)
-    alignment_branch_context(client, view)
     landing = client.show(str(view["steps"]["landing"]["id"]))
     if landing.get("status") == "closed":
         emit({"status": "ok", "landing": landing, "already_closed": True})
@@ -553,21 +392,12 @@ def cmd_alignment_claim_landing(args: argparse.Namespace) -> int:
 def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
-    require_alignment_approval(client, view)
     landing_id = str(view["steps"]["landing"]["id"])
     landing = client.show(landing_id)
-    summary = ""
-    if landing.get("status") != "closed":
-        if not args.summary_file:
-            raise DstackError("alignment reconciliation requires --summary-file")
-        summary = read_text_file(args.summary_file)
-        validate_record(
-            summary,
-            "alignment-reconciliation",
-            source=args.summary_file,
-            source_root=client.root,
-        )
-    branch, worktree, _ = alignment_branch_context(client, view)
+    branch = f"audit/{view['slug']}"
+    worktree = worktree_for_branch(client.root, branch)
+    if worktree is None:
+        raise DstackError(f"no worktree for {branch}")
     ensure_clean_worktree(worktree)
     documentation = validate_docs(worktree)
     from dstack_delivery import (
@@ -590,7 +420,6 @@ def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
             "alignment documentation policy failed: " + "; ".join(item["line"] for item in policy["violations"])
         )
     if landing.get("status") != "closed":
-        require_alignment_approval(client, alignment_context(client, args.selector))
         landing = claim_ready_step_with_fan_in(
             client,
             root_id=str(view["root"]["id"]),
@@ -600,7 +429,8 @@ def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
             fan_in_parent_id=str(view["steps"]["corrections"]["id"]),
             fan_in_name="alignment corrections",
         )
-        client.add_comment(landing_id, summary)
+        if args.summary_file:
+            client.add_comment(landing_id, read_text_file(args.summary_file))
         landing = client.close(landing_id, args.reason)
     keep_root_open_for_delivery(client, str(view["root"]["id"]))
     emit(

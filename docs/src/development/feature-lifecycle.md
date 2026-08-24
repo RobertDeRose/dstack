@@ -36,9 +36,12 @@ controller requires a clean conventional worktree and tracked design identical
 to the candidate `HEAD`, converges the exact specification, blocking human gate,
 and approval milestone, then records the committed design-content digest last.
 
-Re-review reconciles the complete native graph rather than only adding work:
-valid tasks are reused, obsolete tasks are closed or superseded, and stale
-blocking dependencies are removed through Beads.
+Approved scope is immutable. `feature reauthorize` invalidates the accepted
+digest before reopening the native approval, gate, specification, and workstream
+boundary; only then may review change the graph and seek renewed authorization.
+It refuses terminal or claimed work. Re-review reconciles the complete native
+graph rather than only adding work: valid tasks are reused, obsolete tasks are
+closed or superseded, and stale blocking dependencies are removed through Beads.
 
 ### `/implement-feature [feature] [task|--all]`
 
@@ -116,12 +119,12 @@ read-only for repository source. Finish the plan and leave the human gate open.
 
 ### `/project-alignment-execute`
 
-Explicit invocation approves the plan through a convergent native gate and
-milestone transition, then claims native ready corrections. Completing one
-correction never closes the correction workstream implicitly; after every
-required correction is closed or deferred, the explicit finish-workstream step
-closes the container. The agent uses the same commit-footer and review rules as
-feature work.
+Approved correction scope is immutable. `alignment reauthorize` reopens the native approval, gate, analysis, and
+corrections boundary before new corrections can be added; terminal or claimed work requires a superseding workflow
+instead. Explicit invocation approves the plan through a convergent native gate and milestone transition, then claims
+native ready corrections. Completing one correction never closes the correction workstream implicitly; after every
+required correction is closed or deferred, the explicit finish-workstream step closes the container. The agent uses the
+same commit-footer and review rules as feature work.
 
 ### `/project-alignment-land`
 

@@ -1318,7 +1318,9 @@ def test_claim_closeout_refuses_open_native_child_before_ready_claim(monkeypatch
     patch_command(monkeypatch, dstack_feature, beads)
 
     with pytest.raises(DstackError, match="native-child"):
-        dstack_feature.cmd_feature_claim_closeout(argparse.Namespace(root=tmp_path, selector="feature-1"))
+        dstack_feature.cmd_feature_claim_closeout(
+            argparse.Namespace(root=tmp_path, selector="feature-1")
+        )
     beads.assert_exhausted()
 
 
@@ -1384,7 +1386,9 @@ def test_claim_closeout_uses_native_atomic_ready_claim(monkeypatch, tmp_path: Pa
     beads.assert_exhausted()
 
 
-def test_closeout_validation_rejects_missing_documentation_impact_target(monkeypatch, tmp_path: Path) -> None:
+def test_closeout_validation_rejects_missing_documentation_impact_target(
+    monkeypatch, tmp_path: Path
+) -> None:
     import dstack_docs
 
     worktree = tmp_path / "worktree"
@@ -1406,7 +1410,9 @@ def test_closeout_validation_rejects_missing_documentation_impact_target(monkeyp
         dstack_feature.validate_feature_documentation(ScriptedClient(tmp_path), view())
 
 
-def test_finish_closeout_requires_reconciliation_before_beads_mutation(monkeypatch, tmp_path: Path) -> None:
+def test_finish_closeout_requires_reconciliation_before_beads_mutation(
+    monkeypatch, tmp_path: Path
+) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
@@ -1415,7 +1421,9 @@ def test_finish_closeout_requires_reconciliation_before_beads_mutation(monkeypat
     monkeypatch.setattr(
         dstack_feature,
         "validate_feature_documentation",
-        lambda client, context: (_ for _ in ()).throw(DstackError("feature reconciliation does not exist")),
+        lambda client, context: (_ for _ in ()).throw(
+            DstackError("feature reconciliation does not exist")
+        ),
     )
     args = argparse.Namespace(
         root=tmp_path,

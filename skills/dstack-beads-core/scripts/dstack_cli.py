@@ -17,6 +17,7 @@ from dstack_feature import (
     cmd_feature_add_task,
     cmd_feature_claim_spec,
     cmd_feature_approve_spec,
+    cmd_feature_reauthorize,
     cmd_feature_claim_next,
     cmd_feature_finish_task,
     cmd_feature_finish_workstream,
@@ -29,6 +30,7 @@ from dstack_alignment import (
     cmd_alignment_add_correction,
     cmd_alignment_finish_plan,
     cmd_alignment_approve,
+    cmd_alignment_reauthorize,
     cmd_alignment_claim_next,
     cmd_alignment_finish_task,
     cmd_alignment_finish_workstream,
@@ -165,6 +167,10 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("selector", nargs="?")
     approve.add_argument("--summary-file", type=Path)
     approve.set_defaults(func=cmd_feature_approve_spec)
+    reauthorize = mechanical_parser(feature_sub, "reauthorize", "reopen feature authorization before scope changes")
+    reauthorize.add_argument("selector")
+    reauthorize.add_argument("--reason", required=True)
+    reauthorize.set_defaults(func=cmd_feature_reauthorize)
     claim = mechanical_parser(feature_sub, "claim-next", "claim one native ready implementation task")
     claim.add_argument("selector", nargs="?")
     claim.add_argument("--task")
@@ -222,6 +228,12 @@ def build_parser() -> argparse.ArgumentParser:
     alignment_approve = mechanical_parser(alignment_sub, "approve", "approve the alignment plan and resolve its gate")
     alignment_approve.add_argument("selector")
     alignment_approve.set_defaults(func=cmd_alignment_approve)
+    alignment_reauthorize = mechanical_parser(
+        alignment_sub, "reauthorize", "reopen alignment authorization before scope changes"
+    )
+    alignment_reauthorize.add_argument("selector")
+    alignment_reauthorize.add_argument("--reason", required=True)
+    alignment_reauthorize.set_defaults(func=cmd_alignment_reauthorize)
     alignment_claim = mechanical_parser(alignment_sub, "claim-next", "claim one native ready correction")
     alignment_claim.add_argument("selector")
     alignment_claim.add_argument("--task")

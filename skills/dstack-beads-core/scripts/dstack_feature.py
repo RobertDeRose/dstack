@@ -81,6 +81,7 @@ from dstack_commands import (
     preserve_external_blockers,
     require_approved_design,
     require_installed_formula,
+    reopen_authorization_boundary,
     required_task_text,
     superseded_target,
     task_text,
@@ -466,8 +467,18 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
     view = feature_context(client, args.selector)
     if not view["current"]:
         raise DstackError("feature is not a current dstack molecule")
+    acceptance = required_task_text(args.acceptance_file, args.acceptance)
     implementation = view["steps"]["implementation"]
     approval = view["steps"]["approval"]
+    root = client.show(str(view["root"]["id"]))
+    approval = client.show(str(approval["id"]))
+    implementation = client.show(str(implementation["id"]))
+    if (
+        root_metadata_value(root, "dstack.approved_design_sha256")
+        or approval.get("status") == "closed"
+        or implementation.get("status") == "closed"
+    ):
+        raise DstackError("approved or closed feature scope requires explicit reauthorization")
     dependencies = [str(approval["id"]), *args.depends_on]
     item = client.create(
         args.title,
@@ -475,10 +486,60 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
         labels=["dstack:work:implementation"],
         dependencies=dependencies,
         description=task_text(args.description_file, args.description),
-        acceptance=required_task_text(args.acceptance_file, args.acceptance),
+        acceptance=acceptance,
         priority=args.priority,
     )
     emit({"status": "ok", "task": item})
+    return 0
+
+
+def cmd_feature_reauthorize(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    view = feature_context(client, args.selector)
+    root_id = str(view["root"]["id"])
+    steps = view["steps"]
+    approval = client.show(str(steps["approval"]["id"]))
+    gate = human_gate_for_step(client, root_id=root_id, step=approval)
+    if not isinstance(gate, dict):
+        raise DstackError("feature approval task lacks one blocking human gate")
+    reopen_authorization_boundary(
+        client,
+        root_id=root_id,
+        planning_id=str(steps["specification"]["id"]),
+        approval_id=str(approval["id"]),
+        gate_id=str(gate["id"]),
+        workstream_id=str(steps["implementation"]["id"]),
+        terminal_id=str(steps["closeout"]["id"]),
+        reason=args.reason,
+        digest_key="dstack.approved_design_sha256",
+    )
+
+    root = client.show(root_id)
+    specification = client.show(str(steps["specification"]["id"]))
+    approval = client.show(str(steps["approval"]["id"]))
+    gate = human_gate_for_step(client, root_id=root_id, step=approval)
+    implementation = client.show(str(steps["implementation"]["id"]))
+    states = {
+        "specification": specification.get("status"),
+        "human_gate": gate.get("status") if isinstance(gate, Mapping) else None,
+        "approval": approval.get("status"),
+        "implementation": implementation.get("status"),
+    }
+    ready = client.ready_children(str(implementation["id"]), label="dstack:work:implementation")
+    if (
+        root_metadata_value(root, "dstack.approved_design_sha256")
+        or any(status != "open" for status in states.values())
+        or ready
+    ):
+        raise DstackError(f"feature reauthorization did not restore blocking state: states={states}")
+    emit(
+        {
+            "status": "ok",
+            "feature": root_id,
+            "states": states,
+            "approved_design_sha256": None,
+        }
+    )
     return 0
 
 
