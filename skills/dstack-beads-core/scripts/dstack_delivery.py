@@ -242,9 +242,49 @@ def feature_evidence_audit(
     return {"feature": view["root"]["id"], **audit}
 
 
-def alignment_evidence_audit(
+def delivered_feature_evidence_audit(
     client: BeadsClient, view: Mapping[str, Any]
 ) -> dict[str, Any]:
+    target = str(view.get("base_branch") or "")
+    if not target or not ref_exists(client.root, target):
+        raise DstackError(f"delivered feature target ref is unavailable: {target!r}")
+    closed = [item for item in view["work_items"] if item.get("status") == "closed"]
+    no_repository_change = sorted(
+        str(item["id"])
+        for item in closed
+        if str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
+    )
+    steps = view["steps"]
+    expected = {
+        str(item["id"])
+        for item in closed
+        if str(item["id"]) not in no_repository_change
+    } | {
+        str(steps["specification"]["id"]),
+        str(steps["closeout"]["id"]),
+    }
+    reachable = commit_footer_ids(client.root, target)
+    missing = sorted(item for item in expected if not reachable.get(item))
+    mapping = {item: reachable[item] for item in sorted(expected) if reachable.get(item)}
+    branch = f"feat/{view['slug']}"
+    return {
+        "feature": view["root"]["id"],
+        "status": "ok" if not missing else "issues",
+        "source": "delivered-target",
+        "target_ref": target,
+        "feature_branch": branch,
+        "feature_branch_present": ref_exists(client.root, branch),
+        "worktree_present": False,
+        "missing": missing,
+        "no_repository_change": no_repository_change,
+        "multiple_commits": {
+            item: commits for item, commits in mapping.items() if len(commits) > 1
+        },
+        "mapping": mapping,
+    }
+
+
+def alignment_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
     slug = str(view["slug"] or "")
     branch = f"audit/{slug}"
     base = str(view["target_branch"] or "")

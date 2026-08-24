@@ -369,6 +369,9 @@ def test_documented_beads_support_matches_exact_tested_release() -> None:
     readme = (ROOT / "README.md").read_text()
     tooling = (ROOT / "docs/src/development/tooling.md").read_text()
     assert "Beads 1.2.2 exactly" in readme
+    assert "mise/aqua" in readme
+    assert "Homebrew" in readme
+    assert "first on `PATH`" in readme
     assert "exact supported Beads 1.2.2 release" in " ".join(tooling.split())
     assert "Later versions" not in readme
     assert "Beads 1.2.2+" not in readme
