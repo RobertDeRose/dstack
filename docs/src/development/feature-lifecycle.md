@@ -138,13 +138,12 @@ same commit-footer and review rules as feature work.
 
 ### `/project-alignment-land`
 
-Revalidate current repository reality, reconcile durable docs, and use the
-same delivery controller as features. Landing refuses a dirty worktree and
-mechanically requires the current mdBook, documentation policy, and reachable
-correction evidence audit to pass before the native ready landing step closes.
-The same pinned-version compatibility guard used by feature closeout keeps the
-root open until confirmed delivery. There is no stored baseline commit; obsolete
-or already-corrected findings are updated or closed based on current evidence.
+Revalidate current repository reality, reconcile durable docs, and use the same delivery controller as features. Landing
+refuses a dirty worktree and mechanically requires the current mdBook, documentation policy, and reachable correction
+evidence audit to pass before the native ready landing step closes. The same pinned-version compatibility guard used by
+feature closeout keeps the root open until confirmed delivery. The canonical plan may store only the exact
+project-alignment `baseline_commit` used as immutable audit input; obsolete or already-corrected findings are updated or
+closed based on current evidence.
 
 ## Discovery
 

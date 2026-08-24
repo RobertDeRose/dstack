@@ -14,8 +14,9 @@ lifecycle roles, not transient execution state.
 | `dstack.target_branch` | Project-alignment delivery target |
 | `dstack.scope` | Durable alignment scope |
 
-Never store commit hashes, worktree paths, claims, next commands, or delivery
-state in metadata.
+Never store task-to-commit, implementation, delivery/finalization, evidence, or bookkeeping commit mappings, worktree
+paths, claims, next commands, or delivery state in metadata. The narrow project-alignment `baseline_commit` workflow
+input belongs only in the canonical plan description, never root metadata.
 
 ## Root and work labels
 

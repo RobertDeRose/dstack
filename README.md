@@ -33,9 +33,10 @@ Git commits reference their work item with one rewrite-safe footer:
 Beads: <bead-id>
 ```
 
-Beads never stores commit hashes. dStack audits the current reachable history by
-searching these footers, so amend/rebase/cherry-pick operations need no Beads
-remapping.
+Beads never stores task, implementation, delivery, evidence, or bookkeeping commit mappings. `dStack` audits current
+reachable history through these footers, so amend/rebase/cherry-pick operations need no Beads remapping. The sole narrow
+exception is an immutable Git revision that is itself explicit workflow input: the canonical project-alignment
+`baseline_commit`.
 
 ## Commands
 

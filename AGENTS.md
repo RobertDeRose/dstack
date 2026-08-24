@@ -14,14 +14,16 @@ architecture.
 ## Non-negotiable constraints
 
 - KISS and YAGNI are release requirements.
-- Do not add a dStack database, state file, packet protocol, scheduler, ready
-  calculation, dependency graph, ownership ledger, reviewer topology, or CI/PR
-  poller.
-- Stateless helpers are encouraged for repeatable mechanics. They must query
-  Beads/Git each time, use native operations, be idempotent, and persist no
-  custom state.
-- Never store Git commit hashes in Beads. Commits reference work only through
-  `Beads: <id>` footers.
+- Do not add a dStack database, state file, packet protocol, scheduler, ready calculation,
+  dependency graph, ownership ledger, reviewer topology, or CI/PR poller.
+- Stateless helpers are encouraged for repeatable mechanics. They must query Beads/Git each time,
+  use native operations, be idempotent, and persist no custom state.
+- Never store Git commit identities in Beads as implementation, delivery, task, evidence, or
+  bookkeeping mappings. Commits reference work only through `Beads: <id>` footers.
+- A Git revision may be stored only when it is explicit workflow input whose semantics require an
+  immutable repository snapshot. The sole current exception is the canonical project-alignment
+  `baseline_commit`. It does not permit task-to-commit, implementation, delivery/finalization,
+  worktree/branch, or reconstructible audit-result mappings.
 - Do not store branch/worktree paths or Git-history mirrors in Beads.
 - Do not duplicate feature identity on children when parentage/root labels already establish it.
 - Do not put transient lifecycle state, Beads IDs, branches, commits, gates, or next commands in

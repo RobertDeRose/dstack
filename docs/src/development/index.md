@@ -95,7 +95,8 @@ transitions do not dirty the repository.
 
 ## Beads and Git are deliberately decoupled
 
-Never store Git commit hashes in Beads. A commit references its work item with:
+Never store Git commit identities in Beads as implementation, delivery, task, evidence, or bookkeeping mappings. A
+commit references its work item with:
 
 ```text
 Beads: <bead-id>
@@ -105,8 +106,13 @@ This is a one-way, rewrite-safe link. Rebases, cherry-picks, and amended commit 
 preserving the same Bead footer. Audit queries reconstruct the current relationship from reachable Git history; they do
 not persist a SHA mapping back into Beads.
 
-A Bead may contain durable intent, acceptance criteria, decisions, validation
-still required, and accepted risk. It must not become a duplicate Git log.
+A Git revision may be stored only when it is explicit workflow input whose semantics require an immutable repository
+snapshot. The sole current exception is `baseline_commit` in the canonical project-alignment plan: it identifies the
+exact snapshot audited and is part of authorization. It does not permit task-to-commit, implementation,
+delivery/finalization, worktree/branch, or reconstructible audit-result mappings.
+
+A Bead may contain durable intent, acceptance criteria, decisions, validation still required, accepted risk, and this
+narrow immutable workflow input. It must not become a duplicate Git log.
 
 ## Documentation is not workflow state
 
