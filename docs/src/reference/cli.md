@@ -17,9 +17,11 @@ mechanics and emits JSON.
 | `dstackctl audit feature ... --format json\|markdown` | Live Beads, Git, worktree, mdBook, evidence, and delivery observations | None | Deterministic explicit audit facts; nothing is published |
 
 Internal controller leaves include `feature reauthorize` and `alignment
-reauthorize` before approved graph changes, and `delivery replace-pr` for an
-explicit conflicting-gate repair. These commands require reasons and preserve
-native history. Normal commands never invoke legacy repair.
+reauthorize` before approved graph changes, `delivery replace-pr` for an
+explicit conflicting-gate repair, and `delivery cancel-pr-gate` for an explicit
+switch from a unique PR blocker to direct delivery. These commands require
+reasons and preserve native history; gate cancellation does not change the
+GitHub pull request. Normal commands never invoke legacy repair.
 
 ## Retry and errors
 
@@ -32,4 +34,6 @@ footer evidence or `--no-repository-change` with a specific reason and no footer
 Errors are JSON on standard error and do not imply rollback. Validation errors
 mean no intended terminal mutation occurred; conflict errors require fresh
 native state; timeout and partial-recovery errors require inspection before
-retry. See [recovery](../operations/recovery.md).
+retry. Post-delivery finalization errors explicitly report completed delivery,
+previous/delivered/observed target heads, root status, the finalization error,
+and mutation uncertainty. See [recovery](../operations/recovery.md).

@@ -88,27 +88,25 @@ check leaves closeout open and prevents delivery.
 - `pr`: preflight the complete feature diff against a synchronized remote base; the agent drafts the PR from those
   facts; after user approval the controller validates the approved title/body against the aggregate change before the PR
   is created and registered as a native `gh:pr` gate.
-- `merge`: perform a clean fast-forward-only delivery and close the root. If
-  the target branch is not currently checked out, the controller creates and
-  removes a temporary target worktree for the deterministic delivery operation.
-- PR registration is idempotent only for the same unique gate. Conflicting or
-  duplicate gates fail without mutation and require explicit `delivery replace-pr`
-  repair with a reason; replaced gates remain native supersession history.
-- a later `pr` invocation checks the gate and closes the root after merge; PR
-  finalization uses the same temporary-worktree behavior when necessary.
+- `merge`: perform a clean fast-forward-only delivery and close the root. If the target branch is not currently checked
+  out, the controller creates and removes a temporary target worktree for the deterministic delivery operation.
+- PR registration is idempotent only for the same unique gate. Conflicting or duplicate gates fail without mutation and
+  require explicit `delivery replace-pr` repair with a reason; replaced gates remain native supersession history.
+- Direct merge refuses an open or closed unsuperseded PR blocker. Switching modes requires explicit
+  `delivery cancel-pr-gate` with a reason; cancellation replaces the blocking edge with native nonblocking context and
+  does not modify the GitHub pull request.
+- a later `pr` invocation checks the gate and closes the root after merge; PR finalization uses the same
+  temporary-worktree behavior when necessary.
 
-The feature catalog links delivered capabilities to `index.md`, which links back
-to accepted `design.md`. `SUMMARY.md` keeps one top-level Feature Records section
-and nests both pages so native mdBook renders them.
+The feature catalog links delivered capabilities to `index.md`, which links back to accepted `design.md`. `SUMMARY.md`
+keeps one top-level Feature Records section and nests both pages so native mdBook renders them.
 
-Normal delivery requires clean candidate and target worktrees, including
-untracked files. It snapshots full Git status around Beads finalization and
-never creates a post-delivery bookkeeping commit. If finalization changes HEAD
-or worktree status after delivery, the controller reports the previous,
-delivered, and observed heads plus changed paths, reopens the Beads root when
-safe, and leaves delivered Git history untouched. Any rollback, reset, repair,
-correction, or history rewrite remains a separately authorized native Git
-operation rather than a dStack recovery lifecycle.
+Normal delivery requires clean candidate and target worktrees, including untracked files. It snapshots full Git status
+around Beads finalization and never creates a post-delivery bookkeeping commit. If root closure fails or finalization
+changes HEAD or worktree status after delivery, the controller reports completed delivery, previous/delivered/observed
+target heads, root status, finalization error, and mutation uncertainty. It reopens the Beads root when safe and leaves
+delivered Git history untouched. Any rollback, reset, repair, correction, or history rewrite remains a separately
+authorized native Git operation rather than a dStack recovery lifecycle.
 
 ## Validation layers
 

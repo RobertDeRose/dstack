@@ -651,6 +651,23 @@ class BeadsClient:
         finally:
             self._invalidate_reads()
 
+    def remove_dependency(self, issue_id: str, depends_on_id: str) -> None:
+        self._invalidate_reads()
+        try:
+            run(
+                ["bd", "dep", "remove", issue_id, depends_on_id],
+                cwd=self.root,
+            )
+        finally:
+            self._invalidate_reads()
+
+    def relate(self, left_id: str, right_id: str) -> None:
+        self._invalidate_reads()
+        try:
+            run(["bd", "dep", "relate", left_id, right_id], cwd=self.root)
+        finally:
+            self._invalidate_reads()
+
     def supersede(self, old_id: str, new_id: str) -> None:
         old = self.show(old_id)
         if old.get("status") == "closed":

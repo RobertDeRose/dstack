@@ -49,6 +49,7 @@ from dstack_delivery import (
     cmd_delivery_pr_preflight,
     cmd_delivery_register_pr,
     cmd_delivery_replace_pr,
+    cmd_delivery_cancel_pr_gate,
     cmd_delivery_merge,
     cmd_delivery_finalize_pr,
 )
@@ -337,6 +338,14 @@ def build_parser() -> argparse.ArgumentParser:
     replace.add_argument("--pr-number", type=int, required=True)
     replace.add_argument("--reason", required=True)
     replace.set_defaults(func=cmd_delivery_replace_pr)
+    cancel_pr = mechanical_parser(
+        delivery_sub,
+        "cancel-pr-gate",
+        "replace one active pull-request blocker with nonblocking audit context",
+    )
+    cancel_pr.add_argument("selector")
+    cancel_pr.add_argument("--reason", required=True)
+    cancel_pr.set_defaults(func=cmd_delivery_cancel_pr_gate)
     merge = mechanical_parser(delivery_sub, "merge", "fast-forward a clean delivery target")
     merge.add_argument("selector")
     merge.set_defaults(func=cmd_delivery_merge)
