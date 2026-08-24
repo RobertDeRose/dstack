@@ -10,5 +10,4 @@ remains in the sections where readers look for that behavior.
 - [Decision-oriented dStack feature workflow](decision-oriented-feature-workflow/index.md)
 - [Canonical mdBook Documentation System](canonical-mdbook-documentation-system/index.md)
 - [Harden workflow authority and auditability](harden-workflow-authority-auditability/index.md)
-
-- [Resolve remaining workflow authority findings](resolve-remaining-workflow-authority-findings/design.md)
+- [Resolve remaining workflow authority findings](resolve-remaining-workflow-authority-findings/index.md)
