@@ -45,7 +45,9 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
         ("delivery", command) for command in (
             "inspect", "pr-preflight", "register-pr", "replace-pr", "merge", "finalize-pr",
         )
-    } | {("adopt", command) for command in ("inspect", "apply")}
+    } | {("adopt", command) for command in ("inspect", "apply")} | {
+        ("audit", "feature")
+    }
     assert set(found) == expected
     assert all(callable(parser.get_default("func")) for parser in found.values())
 
