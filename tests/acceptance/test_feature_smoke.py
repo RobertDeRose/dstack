@@ -402,6 +402,8 @@ External blocker B replaces blocker A.
     assert landed["landing"]["status"] == "closed"
     assert landed["evidence"]["status"] == "ok"
     assert landed["documentation"]["status"] == "ok"
+    ready_alignment = items(run_json(acceptance_repo, "show", alignment_root))[0]
+    assert ready_alignment["status"] == "open"
 
     delivered_alignment = run_ctl(acceptance_repo, "delivery", "merge", alignment_root)
     assert delivered_alignment["root"] == alignment_root

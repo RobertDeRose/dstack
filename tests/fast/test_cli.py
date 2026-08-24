@@ -43,7 +43,7 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
         ("evidence", command) for command in ("commits", "audit-feature")
     } | {("docs", command) for command in ("check", "validate")} | {
         ("delivery", command) for command in (
-            "inspect", "pr-preflight", "register-pr", "merge", "finalize-pr",
+            "inspect", "pr-preflight", "register-pr", "replace-pr", "merge", "finalize-pr",
         )
     } | {("adopt", command) for command in ("inspect", "apply")}
     assert set(found) == expected

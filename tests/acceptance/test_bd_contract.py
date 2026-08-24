@@ -3,7 +3,13 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from conftest import run_command, run_json
+import pytest
+
+from conftest import ROOT, run_command, run_json
+
+sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
+from dstack_delivery import pr_gate_state, register_pr_gate, replace_pr_gates
+from dstacklib import BeadsClient, DstackError
 
 
 def items(payload):
@@ -268,3 +274,35 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
         capture_output=True,
     ).stdout
     assert f"branch refs/heads/{branch}" in listing
+
+    client = BeadsClient(acceptance_repo)
+    registered = register_pr_gate(client, feature_root, "41")
+    assert register_pr_gate(client, feature_root, "41")["id"] == registered["id"]
+    with pytest.raises(DstackError, match="conflicting PR gate"):
+        register_pr_gate(client, feature_root, "42")
+
+    duplicate = client.create_gate(
+        gate_type="gh:pr",
+        blocks=feature_root,
+        await_id="41",
+        reason="acceptance duplicate",
+    )
+    client.resolve_gate(duplicate["id"], "acceptance closed duplicate")
+    with pytest.raises(DstackError, match="ambiguous PR gates"):
+        register_pr_gate(client, feature_root, "41")
+
+    replacement, replaced = replace_pr_gates(
+        client,
+        feature_root,
+        "42",
+        "acceptance repair",
+    )
+    assert set(replaced) == {registered["id"], duplicate["id"]}
+    assert replace_pr_gates(
+        client,
+        feature_root,
+        "42",
+        "acceptance retry",
+    ) == (replacement, [])
+    active = pr_gate_state(client, feature_root)["active"]
+    assert [gate["id"] for gate in active] == [replacement["id"]]

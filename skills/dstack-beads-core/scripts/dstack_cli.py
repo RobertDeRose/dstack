@@ -44,6 +44,7 @@ from dstack_delivery import (
     cmd_delivery_inspect,
     cmd_delivery_pr_preflight,
     cmd_delivery_register_pr,
+    cmd_delivery_replace_pr,
     cmd_delivery_merge,
     cmd_delivery_finalize_pr,
 )
@@ -290,10 +291,15 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--title")
     preflight.add_argument("--body-file", type=Path)
     preflight.set_defaults(func=cmd_delivery_pr_preflight)
-    register = mechanical_parser(delivery_sub, "register-pr", "register a merged pull request as a native gate")
+    register = mechanical_parser(delivery_sub, "register-pr", "register an open pull request as a native gate")
     register.add_argument("selector")
     register.add_argument("--pr-number", type=int, required=True)
     register.set_defaults(func=cmd_delivery_register_pr)
+    replace = mechanical_parser(delivery_sub, "replace-pr", "replace conflicting pull-request gates")
+    replace.add_argument("selector")
+    replace.add_argument("--pr-number", type=int, required=True)
+    replace.add_argument("--reason", required=True)
+    replace.set_defaults(func=cmd_delivery_replace_pr)
     merge = mechanical_parser(delivery_sub, "merge", "fast-forward a clean delivery target")
     merge.add_argument("selector")
     merge.set_defaults(func=cmd_delivery_merge)

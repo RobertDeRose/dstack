@@ -73,6 +73,7 @@ from dstack_commands import (
     evidence_for_bead,
     fail,
     feature_branch_context,
+    keep_root_open_for_delivery,
     open_workstream_children,
     package_root,
     preserve_external_blockers,
@@ -669,15 +670,6 @@ def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     return 0
 
 
-def keep_feature_open_for_delivery(
-    client: BeadsClient, view: Mapping[str, Any]
-) -> None:
-    root_id = str(view["root"]["id"])
-    root = client.show(root_id)
-    if root.get("status") == "closed" and root.get("close_reason") == "all steps complete":
-        client.reopen(root_id, "Await delivery")
-
-
 def validate_feature_documentation(
     client: BeadsClient, view: Mapping[str, Any]
 ) -> dict[str, object]:
@@ -717,7 +709,7 @@ def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
         if args.summary_file:
             client.add_comment(closeout_id, read_text_file(args.summary_file))
         closeout = client.close(closeout_id, args.reason)
-    keep_feature_open_for_delivery(client, view)
+    keep_root_open_for_delivery(client, str(view["root"]["id"]))
     emit(
         {
             "status": "ok",

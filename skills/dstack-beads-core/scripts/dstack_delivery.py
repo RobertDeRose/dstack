@@ -543,23 +543,90 @@ def cmd_delivery_pr_preflight(args: argparse.Namespace) -> int:
     return 0
 
 
-def existing_pr_gate(client: BeadsClient, root_id: str, pr_number: str | None = None) -> dict[str, Any] | None:
+def pr_gate_state(client: BeadsClient, root_id: str) -> dict[str, list[dict[str, Any]]]:
     root_blockers = set(blocker_ids(client.show(root_id)))
-    candidates = [
+    summaries = [
         gate
         for gate in client.gates(all_statuses=True)
-        if str(gate.get("id")) in root_blockers
-        or str(gate.get("waiter_id") or "") == root_id
-        or issue_parent(gate) == root_id
+        if (
+            str(gate.get("id")) in root_blockers
+            or str(gate.get("waiter_id") or "") == root_id
+            or issue_parent(gate) == root_id
+        )
+        and str(gate.get("await_type") or gate.get("gate_type") or "") == "gh:pr"
     ]
-    candidates = [
-        gate
-        for gate in candidates
-        if str(gate.get("await_type") or gate.get("gate_type") or "") == "gh:pr"
+    gates = [client.show(str(gate["id"])) for gate in summaries]
+    gates.sort(key=lambda gate: str(gate["id"]))
+    return {
+        "all": gates,
+        "active": [gate for gate in gates if superseded_target(gate) is None],
+    }
+
+
+def unique_pr_gate(client: BeadsClient, root_id: str) -> dict[str, Any]:
+    active = pr_gate_state(client, root_id)["active"]
+    if len(active) != 1:
+        ids = ", ".join(str(gate["id"]) for gate in active) or "none"
+        raise DstackError(f"root has no unique active PR gate: {ids}")
+    return active[0]
+
+
+def register_pr_gate(
+    client: BeadsClient, root_id: str, pr_number: str
+) -> dict[str, Any]:
+    active = pr_gate_state(client, root_id)["active"]
+    if not active:
+        return client.create_gate(
+            gate_type="gh:pr",
+            blocks=root_id,
+            await_id=pr_number,
+            reason="Await merged pull request",
+        )
+    if len(active) > 1:
+        ids = ", ".join(str(gate["id"]) for gate in active)
+        raise DstackError(f"ambiguous PR gates require explicit replacement: {ids}")
+    if str(active[0].get("await_id") or "") != pr_number:
+        raise DstackError(
+            "conflicting PR gate requires explicit replacement: "
+            f"{active[0]['id']} awaits PR {active[0].get('await_id')}"
+        )
+    return active[0]
+
+
+def replace_pr_gates(
+    client: BeadsClient, root_id: str, pr_number: str, reason: str
+) -> tuple[dict[str, Any], list[str]]:
+    reason = reason.strip()
+    if not reason:
+        raise DstackError("PR gate replacement requires a non-empty reason")
+    active = pr_gate_state(client, root_id)["active"]
+    matching = [
+        gate for gate in active if gate.get("status") != "closed" and str(gate.get("await_id") or "") == pr_number
     ]
-    if pr_number:
-        candidates = [gate for gate in candidates if str(gate.get("await_id") or "") == pr_number]
-    return candidates[0] if len(candidates) == 1 else None
+    if matching:
+        target = matching[0]
+    else:
+        target = client.create_gate(
+            gate_type="gh:pr",
+            blocks=root_id,
+            await_id=pr_number,
+            reason=f"Await merged pull request; replacement reason: {reason}",
+        )
+
+    replaced = []
+    for gate in active:
+        gate_id = str(gate["id"])
+        if gate_id == str(target["id"]):
+            continue
+        if gate.get("status") == "closed":
+            client.reopen(gate_id, f"Replace PR gate: {reason}")
+        client.supersede(gate_id, str(target["id"]))
+        replaced.append(gate_id)
+
+    observed = unique_pr_gate(client, root_id)
+    if str(observed["id"]) != str(target["id"]) or str(observed.get("await_id") or "") != pr_number:
+        raise DstackError("PR gate replacement did not converge")
+    return observed, replaced
 
 
 def cmd_delivery_register_pr(args: argparse.Namespace) -> int:
@@ -573,15 +640,33 @@ def cmd_delivery_register_pr(args: argparse.Namespace) -> int:
             "push the exact branch before registering the PR"
         )
     root_id = str(payload["root"]["id"])
-    gate = existing_pr_gate(client, root_id, str(args.pr_number))
-    if gate is None:
-        gate = client.create_gate(
-            gate_type="gh:pr",
-            blocks=root_id,
-            await_id=str(args.pr_number),
-            reason="Await merged pull request",
-        )
+    gate = register_pr_gate(client, root_id, str(args.pr_number))
     emit({"status": "ok", "root": root_id, "gate": gate, "pr_number": args.pr_number})
+    return 0
+
+
+def cmd_delivery_replace_pr(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    run(["git", "fetch", "origin", "--prune"], cwd=client.root)
+    payload = delivery_view(client, args.selector)
+    validate_delivery(payload, require_remote=True)
+    if payload.get("remote_candidate_head") != payload.get("candidate_head"):
+        raise DstackError(
+            "origin candidate branch does not match the inspected candidate; "
+            "push the exact branch before replacing the PR gate"
+        )
+
+    root_id = str(payload["root"]["id"])
+    gate, replaced = replace_pr_gates(client, root_id, str(args.pr_number), args.reason)
+    emit(
+        {
+            "status": "ok",
+            "root": root_id,
+            "gate": gate,
+            "pr_number": args.pr_number,
+            "replaced": replaced,
+        }
+    )
     return 0
 
 
@@ -704,10 +789,7 @@ def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:
     payload = delivery_view(client, args.selector)
     root_id = str(payload["root"]["id"])
     client.gate_check()
-    gate = existing_pr_gate(client, root_id)
-    if gate is None:
-        raise DstackError("no unique gh:pr gate is associated with this root")
-    gate = client.show(str(gate["id"]))
+    gate = unique_pr_gate(client, root_id)
     if gate.get("status") != "closed":
         emit({"status": "waiting", "root": root_id, "gate": gate})
         return 2
