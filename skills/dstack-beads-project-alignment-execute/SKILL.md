@@ -16,4 +16,5 @@ Explicit invocation authorizes Tier 2 corrections, not delivery.
 5. Complete each correction with `alignment finish-task`. This never closes the workstream implicitly. After all
    required corrections are closed or explicitly deferred, run `alignment finish-workstream` once.
 
-Do not deliver, create a PR, or store Git SHAs in Beads.
+Do not deliver, create a PR, or store task/implementation/delivery Git mappings in Beads. The canonical plan's
+`baseline_commit` is the sole permitted Git revision because it is immutable audit input and part of authorization.

@@ -136,15 +136,40 @@ def test_core_principles_and_architecture_are_first_class_docs() -> None:
     principles = (ROOT / "docs/src/development/index.md").read_text()
     architecture = (ROOT / "docs/src/architecture/index.md").read_text()
     agents = (ROOT / "AGENTS.md").read_text()
+    skill = (ROOT / "skills/dstack-beads-core/SKILL.md").read_text()
     for phrase in (
         "KISS and YAGNI",
-        "Never store Git commit hashes in Beads",
         "Documentation is not workflow state",
     ):
         assert phrase in principles
+    for contract in (principles, agents, skill):
+        normalized = " ".join(contract.split())
+        assert (
+            "Never store Git commit identities in Beads as implementation, "
+            "delivery, task, evidence, or bookkeeping mappings."
+        ) in normalized
+        assert "explicit workflow input" in normalized
     assert "stateless dstackctl" in architecture
+    assert "project-alignment audit baseline" in architecture
     assert "docs/src/development/index.md" in agents
     assert "post-merge bookkeeping commit" in agents
+
+
+def test_alignment_review_skill_uses_canonical_json_plan() -> None:
+    skill = (ROOT / "skills/dstack-beads-project-alignment-review/SKILL.md").read_text()
+    documentation = (ROOT / "docs/src/development/documentation.md").read_text()
+    for required in (
+        "dstack.alignment-plan/v1",
+        "baseline_commit",
+        "accepted_corrections",
+        "documentation_impact",
+        "alignment finish-plan AUDIT --plan-file PLAN.json",
+    ):
+        assert required in skill
+    for obsolete in ("scaffold-record plan", "--summary-file", "Not applicable"):
+        assert obsolete not in skill
+    assert "Alignment plans use strict `dstack.alignment-plan/v1` JSON" in documentation
+    assert "alignment plan/reconciliation records" not in documentation
 
 
 def test_active_instructions_preserve_explicit_delivery_recovery() -> None:

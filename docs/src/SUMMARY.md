@@ -38,3 +38,4 @@
     - [Design](features/harden-workflow-authority-auditability/design.md)
   - [Resolve remaining workflow authority findings](features/resolve-remaining-workflow-authority-findings/index.md)
     - [Design](features/resolve-remaining-workflow-authority-findings/design.md)
+  - [Complete dStack workflow authority, adoption, and recovery hardening](features/complete-workflow-authority-adoption-recovery-hardening/design.md)

@@ -52,30 +52,27 @@ elsewhere in `docs/src`.
 - Development explains how to build, test, change, validate, document, and release the project.
 - Reference states exact current configuration, commands, APIs, schemas, interfaces, contracts, and compatibility.
 - Specifications state normative requirements when a project has them.
-- Feature records preserve accepted change intent and reconcile it with
-  delivered reality.
+- Feature records preserve accepted change intent and reconcile it with delivered reality.
 
-Current behavior belongs in current-product documentation. A reader should not
-need to know which feature introduced a capability to understand or use it.
+Current behavior belongs in current-product documentation. A reader should not need to know which feature introduced a
+capability to understand or use it.
 
-Feature documentation impact explicitly considers operator usage and
-configuration, deployment/upgrade/rollback, operations and recovery, developer
-architecture and contracts, and future audit evidence. Concrete affected pages
-use inline local Markdown links; an inapplicable subject is `Not applicable —
-<specific reason>`.
+Feature documentation impact explicitly considers operator usage and configuration, deployment/upgrade/rollback,
+operations and recovery, developer architecture and contracts, and future audit evidence. Concrete affected pages use
+inline local Markdown links; an inapplicable subject is `Not applicable — <specific reason>`.
 
-Feature design/reconciliation and alignment plan/reconciliation records use one
-fixed ATX-heading contract shared by their scaffolds and validators. Every
-required section contains substantive authored content or the explicit
-applicability form. Code examples do not create headings or satisfy prose.
-Duplicate/missing headings, untouched scaffolds, TODOs/placeholders,
-reference-style local links, missing targets, and repository escapes fail with
-section-specific diagnostics before the corresponding authorization or terminal
-mutation. The validator uses no score, word-count grade, LLM gate, or parallel
-state manifest; human review remains responsible for truth and prose quality.
-Alignment commands create temporary scaffolds outside repository source, validate
-them before mutation, and preserve the completed plan or reconciliation in the
-corresponding native Beads record.
+Feature design/reconciliation and alignment reconciliation records use one fixed ATX-heading contract shared by their
+scaffolds and validators. Every required section contains substantive authored content or the explicit applicability
+form. Code examples do not create headings or satisfy prose. Duplicate/missing headings, untouched scaffolds,
+TODOs/placeholders, reference-style local links, missing targets, and repository escapes fail with section-specific
+diagnostics before the corresponding authorization or terminal mutation.
+
+Alignment plans use strict `dstack.alignment-plan/v1` JSON rather than Markdown sections. Every canonical field is
+present, empty collections are `[]`, unknown fields are rejected, and the exact `baseline_commit` and correction graph
+are part of authorization. Tier 1 creates this temporary JSON outside repository source; reconciliation commands retain
+their separate temporary Markdown scaffold. The validators use no score, word-count grade, LLM gate, or parallel state
+manifest; human review remains responsible for truth and content quality. The completed plan or reconciliation is
+preserved in the corresponding native Beads record.
 
 ## Feature records
 

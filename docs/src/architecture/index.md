@@ -164,6 +164,16 @@ Stable children carry one `dstack:step:*` label. Dynamic work carries one `dstac
 the feature through parentage. Conventional branch/worktree paths and supersession are derived from Git and the Beads
 graph, not duplicated in metadata.
 
+## Git identity boundary
+
+Never store Git commit identities in Beads as implementation, delivery, task, evidence, or bookkeeping mappings. Those
+relationships remain one-way `Beads: <id>` footers and are reconstructed from reachable Git history.
+
+A Git revision may be stored only when it is explicit workflow input whose semantics require an immutable repository
+snapshot. The sole current exception is the project-alignment audit baseline: canonical `baseline_commit` identifies the
+exact snapshot reviewed and participates directly in authorization. It does not permit task-to-commit, implementation,
+delivery/finalization, worktree/branch, or reconstructible audit-result mappings.
+
 ## Design approval without Git coupling
 
 Specification approval stores a SHA-256 digest of the accepted design file content in namespaced Beads metadata. It does
