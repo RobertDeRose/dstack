@@ -168,6 +168,10 @@ def test_feature_design_state_uses_registered_committed_content(git_repo: Path, 
     assert state["head_design_sha256"] == digest
     assert state["design_approved"] is True
 
+    context["pending_design_sha256"] = digest
+    assert dstacklib.feature_design_state(ScriptedClient(git_repo), context)["design_approved"] is False
+    context.pop("pending_design_sha256")
+
     design.write_text("changed design\n")
     state = dstacklib.feature_design_state(ScriptedClient(git_repo), context)
     assert state["design_state"] == "worktree_mismatch"

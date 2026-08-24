@@ -156,6 +156,7 @@ labels:
 metadata:
   dstack.base_branch
   dstack.design_path
+  dstack.pending_design_sha256    # only while approval is incomplete
   dstack.approved_design_sha256   # only after approval
 ```
 
@@ -165,13 +166,15 @@ graph, not duplicated in metadata.
 
 ## Design approval without Git coupling
 
-Specification approval stores a SHA-256 digest of the accepted design file
-content in namespaced Beads metadata. It does not store a commit SHA and does
-not require an empty approval commit.
+Specification approval stores a SHA-256 digest of the accepted design file content in namespaced Beads metadata. It does
+not store a commit SHA and does not require an empty approval commit. Before any native authorization state closes,
+dStack writes and verifies a pending content digest. After every native state converges it promotes that identity to
+approved, verifies it, and clears pending.
 
-Before implementation, dStack recomputes the digest from the feature worktree.
-A mismatch means the design changed and must be reviewed again. A rebase,
-cherry-pick, or commit-message rewrite does not affect approval.
+Before implementation, dStack recomputes the digest from the feature worktree. Authorization requires matching committed
+content, closed native specification, human gate, and approval states, an approved digest, and no pending digest. A
+mismatch means the design changed and must be reviewed again. A rebase, cherry-pick, or commit-message rewrite does not
+affect approval.
 
 ## Delivery invariant
 

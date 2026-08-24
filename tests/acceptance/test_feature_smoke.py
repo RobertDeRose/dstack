@@ -273,6 +273,8 @@ External blocker B replaces blocker A.
         capture_output=True,
     ).stdout
     assert approved["approved_design_sha256"] == hashlib.sha256(head_design).hexdigest()
+    approved_root = items(run_json(acceptance_repo, "show", root_id))[0]
+    assert "dstack.pending_design_sha256" not in approved_root.get("metadata", {})
     late_refused = run_ctl(
         acceptance_repo,
         "feature",

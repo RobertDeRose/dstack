@@ -21,6 +21,7 @@ class RootAuditFact(TypedDict):
 
 class DesignAuditFact(TypedDict):
     path: str | None
+    pending_sha256: str | None
     approved_sha256: str | None
     current_sha256: str | None
     head_sha256: str | None
