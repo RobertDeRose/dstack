@@ -11,9 +11,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_feature
-from dstack_commands import DstackError
+from dstack_commands import DstackError, RECORD_SUBJECTS
 
 from scripted import ScriptedClient, call
+
+
+def semantic_record(kind: str) -> str:
+    lines = ["# Record", ""]
+    for subject in RECORD_SUBJECTS[kind]:
+        lines.extend([f"## {subject}", "", f"Evidence for {subject}.", ""])
+    return "\n".join(lines)
 
 
 def view(**overrides) -> dict:
@@ -390,7 +397,8 @@ def test_approved_design_digest_requires_clean_committed_conventional_worktree(
     relative = "docs/src/features/feature/design.md"
     design = git_repo / relative
     design.parent.mkdir(parents=True)
-    design.write_text("accepted design\n")
+    accepted = semantic_record("feature-design")
+    design.write_text(accepted)
     subprocess.run(["git", "add", relative], cwd=git_repo, check=True)
     subprocess.run(["git", "commit", "-qm", "docs: add design"], cwd=git_repo, check=True)
     current = view(design_path=relative)
@@ -412,7 +420,7 @@ def test_approved_design_digest_requires_clean_committed_conventional_worktree(
     with pytest.raises(DstackError, match="worktree changes"):
         dstack_feature.approved_design_digest(beads, current)
 
-    design.write_text("accepted design\n")
+    design.write_text(accepted)
     monkeypatch.setattr(
         dstack_feature,
         "conventional_worktree",
@@ -1100,13 +1108,9 @@ def test_closeout_validation_rejects_missing_documentation_impact_target(
     dstack_docs.create_foundation(worktree)
     design = worktree / "docs/src/features/feature/design.md"
     design.parent.mkdir(parents=True)
-    design.write_text(
-        "# Design\n\n## Documentation impact\n\n[Missing](../../guides/missing.md)\n"
-    )
-    design.with_name("index.md").write_text("# Reconciliation\n")
-    dstack_feature.ensure_feature_navigation(
-        worktree, slug="feature", title="Feature", reconciled=True
-    )
+    design.write_text("# Design\n\n## Documentation impact\n\n[Missing](../../guides/missing.md)\n")
+    design.with_name("index.md").write_text(semantic_record("feature-reconciliation"))
+    dstack_feature.ensure_feature_navigation(worktree, slug="feature", title="Feature", reconciled=True)
     monkeypatch.setattr(
         dstack_feature,
         "feature_branch_context",

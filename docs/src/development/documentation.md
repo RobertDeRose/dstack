@@ -61,7 +61,21 @@ need to know which feature introduced a capability to understand or use it.
 Feature documentation impact explicitly considers operator usage and
 configuration, deployment/upgrade/rollback, operations and recovery, developer
 architecture and contracts, and future audit evidence. Concrete affected pages
-use local Markdown links; an inapplicable surface is `N/A` with a reason.
+use inline local Markdown links; an inapplicable subject is `Not applicable —
+<specific reason>`.
+
+Feature design/reconciliation and alignment plan/reconciliation records use one
+fixed ATX-heading contract shared by their scaffolds and validators. Every
+required section contains substantive authored content or the explicit
+applicability form. Code examples do not create headings or satisfy prose.
+Duplicate/missing headings, untouched scaffolds, TODOs/placeholders,
+reference-style local links, missing targets, and repository escapes fail with
+section-specific diagnostics before the corresponding authorization or terminal
+mutation. The validator uses no score, word-count grade, LLM gate, or parallel
+state manifest; human review remains responsible for truth and prose quality.
+Alignment commands create temporary scaffolds outside repository source, validate
+them before mutation, and preserve the completed plan or reconciliation in the
+corresponding native Beads record.
 
 ## Feature records
 

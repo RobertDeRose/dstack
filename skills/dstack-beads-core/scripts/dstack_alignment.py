@@ -49,8 +49,9 @@ from dstacklib import (
 from dstack_commands import (
     BEADS_RUNTIME_DIR_PREFIXES,
     BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
+    ALIGNMENT_PLAN_SCAFFOLD,
+    ALIGNMENT_RECONCILIATION_SCAFFOLD,
     BEADS_SENSITIVE_BASENAMES,
-    DESIGN_SCAFFOLD,
     DSTACK_UNTRACKED_BEADS_FILES,
     FORBIDDEN_DOC_PATTERNS,
     NO_REPOSITORY_CHANGE_PREFIX,
@@ -79,7 +80,22 @@ from dstack_commands import (
     task_text,
     update_root_identity,
 )
-from dstack_docs import validate_docs
+from dstack_docs import validate_docs, validate_record
+
+def cmd_alignment_scaffold_record(args: argparse.Namespace) -> int:
+    scaffold = (
+        ALIGNMENT_PLAN_SCAFFOLD
+        if args.kind == "plan"
+        else ALIGNMENT_RECONCILIATION_SCAFFOLD
+    )
+    try:
+        with args.path.open("x", encoding="utf-8") as handle:
+            handle.write(scaffold)
+    except FileExistsError as exc:
+        raise DstackError(f"alignment record already exists: {args.path}") from exc
+    emit({"status": "ok", "kind": args.kind, "path": str(args.path)})
+    return 0
+
 
 def cmd_alignment_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root)
@@ -238,9 +254,28 @@ def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
 def cmd_alignment_finish_plan(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
-    analysis = claim_issue_if_needed(client, view["steps"]["analysis"])
-    if args.summary_file:
-        client.add_comment(str(analysis["id"]), read_text_file(args.summary_file))
+    analysis = view["steps"]["analysis"]
+    if analysis.get("status") == "closed":
+        emit(
+            {
+                "status": "ok",
+                "audit": view["root"]["id"],
+                "analysis": analysis,
+                "already_closed": True,
+            }
+        )
+        return 0
+    if not args.summary_file:
+        raise DstackError("alignment plan requires --summary-file")
+    summary = read_text_file(args.summary_file)
+    validate_record(
+        summary,
+        "alignment-plan",
+        source=args.summary_file,
+        source_root=client.root,
+    )
+    analysis = claim_issue_if_needed(client, analysis)
+    client.add_comment(str(analysis["id"]), summary)
     analysis = client.close(str(analysis["id"]), "Corrective plan prepared")
     emit(
         {
@@ -407,6 +442,17 @@ def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
     view = alignment_context(client, args.selector)
     landing_id = str(view["steps"]["landing"]["id"])
     landing = client.show(landing_id)
+    summary = ""
+    if landing.get("status") != "closed":
+        if not args.summary_file:
+            raise DstackError("alignment reconciliation requires --summary-file")
+        summary = read_text_file(args.summary_file)
+        validate_record(
+            summary,
+            "alignment-reconciliation",
+            source=args.summary_file,
+            source_root=client.root,
+        )
     branch = f"audit/{view['slug']}"
     worktree = worktree_for_branch(client.root, branch)
     if worktree is None:
@@ -442,8 +488,7 @@ def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
             fan_in_parent_id=str(view["steps"]["corrections"]["id"]),
             fan_in_name="alignment corrections",
         )
-        if args.summary_file:
-            client.add_comment(landing_id, read_text_file(args.summary_file))
+        client.add_comment(landing_id, summary)
         landing = client.close(landing_id, args.reason)
     keep_root_open_for_delivery(client, str(view["root"]["id"]))
     emit(

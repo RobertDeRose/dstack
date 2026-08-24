@@ -8,7 +8,14 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_docs
-from dstack_commands import DstackError
+from dstack_commands import (
+    ALIGNMENT_PLAN_SCAFFOLD,
+    ALIGNMENT_RECONCILIATION_SCAFFOLD,
+    DESIGN_SCAFFOLD,
+    RECORD_SUBJECTS,
+    RECONCILIATION_SCAFFOLD,
+    DstackError,
+)
 
 
 REQUIRED = {
@@ -73,6 +80,93 @@ def test_foundation_extends_existing_summary_without_rewriting_project_navigatio
 
     fake_mdbook(monkeypatch)
     assert dstack_docs.validate_docs(root)["status"] == "ok"
+
+
+def complete_record(kind: str, *, omitted: str | None = None) -> str:
+    lines = ["# Record", ""]
+    for subject in RECORD_SUBJECTS[kind]:
+        if subject == omitted:
+            continue
+        lines.extend([f"## {subject}", "", f"Evidence for {subject}.", ""])
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize(
+    ("kind", "subject"),
+    [(kind, subject) for kind, subjects in RECORD_SUBJECTS.items() for subject in subjects],
+)
+def test_every_record_subject_is_required(kind: str, subject: str) -> None:
+    with pytest.raises(DstackError, match=f"missing required section: {subject}"):
+        dstack_docs.validate_record(complete_record(kind, omitted=subject), kind)
+
+
+@pytest.mark.parametrize("kind", RECORD_SUBJECTS)
+def test_record_accepts_specific_applicability_reason(kind: str) -> None:
+    subject = RECORD_SUBJECTS[kind][0]
+    text = complete_record(kind).replace(
+        f"Evidence for {subject}.",
+        "Not applicable — this workflow does not expose a network interface.",
+    )
+    dstack_docs.validate_record(text, kind)
+    with pytest.raises(DstackError, match="specific reason"):
+        dstack_docs.validate_record(
+            text.replace(
+                "Not applicable — this workflow does not expose a network interface.",
+                "Not applicable",
+            ),
+            kind,
+        )
+
+
+@pytest.mark.parametrize("placeholder", ["TODO", "TBD", "<fill this>", "{{placeholder}}"])
+def test_record_rejects_placeholders_duplicates_and_reference_links(
+    placeholder: str,
+) -> None:
+    kind = "alignment-reconciliation"
+    text = complete_record(kind)
+    with pytest.raises(DstackError, match="placeholder"):
+        dstack_docs.validate_record(text + placeholder, kind)
+    heading = RECORD_SUBJECTS[kind][0]
+    with pytest.raises(DstackError, match="duplicate heading"):
+        dstack_docs.validate_record(text + f"\n## {heading}\nDuplicate.\n", kind)
+    with pytest.raises(DstackError, match="reference-style"):
+        dstack_docs.validate_record(text + "\n[Current docs][docs]\n", kind)
+
+
+def test_record_local_links_and_scaffolds_share_the_contract(tmp_path: Path) -> None:
+    current = tmp_path / "current.md"
+    current.write_text("# Current\n")
+    record = tmp_path / "record.md"
+    text = complete_record("feature-reconciliation").replace(
+        "Evidence for Delivered capability.",
+        "Evidence for delivery. [Current behavior](current.md)",
+    )
+    record.write_text(text)
+    dstack_docs.validate_record(
+        text,
+        "feature-reconciliation",
+        source=record,
+        source_root=tmp_path,
+    )
+    with pytest.raises(DstackError, match="local link is missing"):
+        dstack_docs.validate_record(
+            text.replace("current.md", "missing.md"),
+            "feature-reconciliation",
+            source=record,
+            source_root=tmp_path,
+        )
+
+    scaffolds = {
+        "feature-design": DESIGN_SCAFFOLD.format(planned_intent="Intent.", planned_acceptance="Acceptance."),
+        "feature-reconciliation": RECONCILIATION_SCAFFOLD.format(title="Feature"),
+        "alignment-plan": ALIGNMENT_PLAN_SCAFFOLD,
+        "alignment-reconciliation": ALIGNMENT_RECONCILIATION_SCAFFOLD,
+    }
+    for kind, scaffold in scaffolds.items():
+        headings = {match.group(2).strip() for match in dstack_docs.HEADING_PATTERN.finditer(scaffold)}
+        assert set(RECORD_SUBJECTS[kind]) <= headings
+        with pytest.raises(DstackError, match="substantive content"):
+            dstack_docs.validate_record(scaffold, kind)
 
 
 def test_operator_security_reference_and_decision_pages_are_reachable() -> None:

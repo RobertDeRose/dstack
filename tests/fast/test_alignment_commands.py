@@ -10,10 +10,17 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_alignment
 import dstack_delivery
-from dstack_commands import DstackError
+from dstack_commands import DstackError, RECORD_SUBJECTS
 from dstacklib import CommandResult
 
 from scripted import ScriptedClient, call
+
+
+def semantic_record(kind: str) -> str:
+    lines = ["# Record", ""]
+    for subject in RECORD_SUBJECTS[kind]:
+        lines.extend([f"## {subject}", "", f"Evidence for {subject}.", ""])
+    return "\n".join(lines)
 
 
 def alignment_view(**overrides) -> dict:
@@ -198,11 +205,43 @@ def test_add_correction_rejects_closed_authorization_without_creation(monkeypatc
     beads.assert_exhausted()
 
 
+def test_alignment_record_scaffold_is_create_only(
+    monkeypatch, tmp_path: Path
+) -> None:
+    output = []
+    monkeypatch.setattr(dstack_alignment, "emit", output.append)
+    path = tmp_path / "plan.md"
+    args = argparse.Namespace(kind="plan", path=path)
+    assert dstack_alignment.cmd_alignment_scaffold_record(args) == 0
+    assert path.read_text() == dstack_alignment.ALIGNMENT_PLAN_SCAFFOLD
+    with pytest.raises(DstackError, match="already exists"):
+        dstack_alignment.cmd_alignment_scaffold_record(args)
+    assert output[0]["path"] == str(path)
+
+
+def test_finish_plan_rejects_invalid_record_before_mutation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    summary = tmp_path / "summary.md"
+    summary.write_text("# Minimal plan\n")
+    beads = ScriptedClient(tmp_path)
+    patch_command(monkeypatch, beads)
+    with pytest.raises(DstackError, match="missing required section"):
+        dstack_alignment.cmd_alignment_finish_plan(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                summary_file=summary,
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_finish_plan_claims_comments_and_closes_analysis(
     monkeypatch, tmp_path: Path
 ) -> None:
     summary = tmp_path / "summary.md"
-    summary.write_text("Material plan")
+    summary.write_text(semantic_record("alignment-plan"))
     calls = []
     beads = ScriptedClient(tmp_path)
     beads.update = lambda *args: calls.append(("update", *args)) or {
@@ -217,7 +256,11 @@ def test_finish_plan_claims_comments_and_closes_analysis(
     output = patch_command(monkeypatch, beads)
     args = argparse.Namespace(root=tmp_path, selector="alignment-1", summary_file=summary)
     assert dstack_alignment.cmd_alignment_finish_plan(args) == 0
-    assert ("comment", "analysis-1", "Material plan") in calls
+    assert (
+        "comment",
+        "analysis-1",
+        semantic_record("alignment-plan").strip(),
+    ) in calls
     assert ("close", "analysis-1", "Corrective plan prepared") in calls
     assert output[0]["audit"] == "alignment-1"
     assert output[0]["analysis"]["status"] == "closed"
@@ -570,6 +613,8 @@ def test_claim_landing_uses_native_atomic_ready_claim(monkeypatch, tmp_path: Pat
 
 
 def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
+    summary = tmp_path / "reconciliation.md"
+    summary.write_text(semantic_record("alignment-reconciliation"))
     beads = ScriptedClient(
         tmp_path,
         call("show", "landing-1", result={"id": "landing-1", "status": "open"}),
@@ -582,6 +627,11 @@ def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
             result=[{"id": "landing-1", "status": "in_progress"}],
         ),
         call("children", "corrections-1", result=[]),
+        call(
+            "add_comment",
+            "landing-1",
+            semantic_record("alignment-reconciliation").strip(),
+        ),
         call(
             "close",
             "landing-1",
@@ -631,7 +681,7 @@ def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
         root=tmp_path,
         selector="alignment-1",
         reason="Alignment landing completed",
-        summary_file=None,
+        summary_file=summary,
     )
     assert dstack_alignment.cmd_alignment_finish_landing(args) == 0
     assert output[0]["audit"] == "alignment-1"
@@ -731,6 +781,8 @@ def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
 def test_finish_landing_refuses_failed_evidence_audit_before_claim(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    summary = tmp_path / "reconciliation.md"
+    summary.write_text(semantic_record("alignment-reconciliation"))
     beads = ScriptedClient(
         tmp_path,
         call("show", "landing-1", result={"id": "landing-1", "status": "open"}),
@@ -760,7 +812,7 @@ def test_finish_landing_refuses_failed_evidence_audit_before_claim(
                 root=tmp_path,
                 selector="alignment-1",
                 reason="Alignment landing completed",
-                summary_file=None,
+                summary_file=summary,
             )
         )
     beads.assert_exhausted()
