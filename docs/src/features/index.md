@@ -9,5 +9,4 @@ remains in the sections where readers look for that behavior.
 - [Workflow boundary hardening](dstack-workflow-boundary-hardening/index.md)
 - [Decision-oriented dStack feature workflow](decision-oriented-feature-workflow/index.md)
 - [Canonical mdBook Documentation System](canonical-mdbook-documentation-system/index.md)
-
-- [Harden workflow authority and auditability](harden-workflow-authority-auditability/design.md)
+- [Harden workflow authority and auditability](harden-workflow-authority-auditability/index.md)
