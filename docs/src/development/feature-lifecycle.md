@@ -64,9 +64,13 @@ it with `--no-repository-change --reason "..."`; the native close reason records
 that outcome for delivery audit. Ordinary completed tasks still require a
 reachable Bead footer. Feature and alignment transitions validate the exact
 direct parent and work label, delegate open claims to native `ready --claim`,
-and use native re-claiming to verify ownership. Completion requires a wholly
-clean worktree, including untracked files. Empty workstreams close only after
-their native approval milestone is closed.
+and use native re-claiming to verify ownership. Feature specification and
+alignment analysis use the same exact native-ready claim boundary. If a native
+claim returns an unexpected issue or a terminal fan-in race appears, dStack
+restores both open status and an empty assignee and verifies the reread before
+reporting recovery. Completion requires a wholly clean worktree, including
+untracked files. Empty workstreams close only after their native approval
+milestone is closed.
 
 ### `/close-feature [feature] [ready|pr|merge]`
 

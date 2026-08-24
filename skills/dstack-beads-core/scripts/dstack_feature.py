@@ -44,7 +44,7 @@ from dstack_docs import validate_docs, validate_record
 from dstack_commands import (
     DESIGN_SCAFFOLD,
     RECONCILIATION_SCAFFOLD,
-    claim_issue_if_needed,
+    claim_ready_step,
     claim_ready_step_with_fan_in,
     claim_ready_work,
     close_issue_if_needed,
@@ -531,7 +531,13 @@ def cmd_feature_claim_spec(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
     specification = view["steps"]["specification"]
-    claimed = claim_issue_if_needed(client, specification)
+    claimed = claim_ready_step(
+        client,
+        root_id=str(view["root"]["id"]),
+        step=specification,
+        label="dstack:step:specification",
+        name="specification",
+    )
     emit({"status": "ok", "feature": view["root"]["id"], "specification": claimed})
     return 0
 

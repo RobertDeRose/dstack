@@ -11,7 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_feature
-from dstack_commands import DstackError, RECORD_SUBJECTS
+from dstack_commands import DstackError, RECORD_SUBJECTS, release_claim
 
 from scripted import ScriptedClient, call
 
@@ -401,11 +401,17 @@ def test_scaffold_reconciliation_creates_once_and_updates_navigation(monkeypatch
     assert [item["created"] for item in output] == [True, False, False]
 
 
-def test_claim_spec_claims_open_specification(monkeypatch, tmp_path: Path) -> None:
+def test_claim_spec_uses_native_ready_claim(monkeypatch, tmp_path: Path) -> None:
     claimed = {"id": "specification-1", "status": "in_progress"}
     beads = ScriptedClient(
         tmp_path,
-        call("update", "specification-1", "--claim", result=claimed),
+        call(
+            "ready_children",
+            "feature-1",
+            label="dstack:step:specification",
+            claim=True,
+            result=[claimed],
+        ),
     )
     output = patch_command(monkeypatch, dstack_feature, beads)
     assert dstack_feature.cmd_feature_claim_spec(argparse.Namespace(root=tmp_path, selector="feature-1")) == 0
@@ -413,9 +419,37 @@ def test_claim_spec_claims_open_specification(monkeypatch, tmp_path: Path) -> No
     beads.assert_exhausted()
 
 
-def test_approved_design_digest_requires_clean_committed_conventional_worktree(
-    git_repo: Path, monkeypatch
-) -> None:
+def test_claim_spec_releases_unexpected_native_claim(monkeypatch, tmp_path: Path) -> None:
+    unexpected = {"id": "other-1", "status": "in_progress", "assignee": "worker"}
+    released = {"id": "other-1", "status": "open"}
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "ready_children",
+            "feature-1",
+            label="dstack:step:specification",
+            claim=True,
+            result=[unexpected],
+        ),
+        call(
+            "update",
+            "other-1",
+            "--status",
+            "open",
+            "--assignee",
+            "",
+            result=released,
+        ),
+        call("show", "other-1", result=released),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+
+    with pytest.raises(DstackError, match="unexpected specification"):
+        dstack_feature.cmd_feature_claim_spec(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
+def test_approved_design_digest_requires_clean_committed_conventional_worktree(git_repo: Path, monkeypatch) -> None:
     relative = "docs/src/features/feature/design.md"
     design = git_repo / relative
     design.parent.mkdir(parents=True)
@@ -722,6 +756,119 @@ def test_claim_next_uses_native_ready_result(monkeypatch, tmp_path: Path) -> Non
     args = argparse.Namespace(root=tmp_path, selector="feature-1", task=None)
     assert dstack_feature.cmd_feature_claim_next(args) == 0
     assert output == [{"status": "ok", "task": task, "feature": "feature-1"}]
+    beads.assert_exhausted()
+
+
+def test_claim_next_releases_every_unexpected_native_claim(monkeypatch, tmp_path: Path) -> None:
+    ready = {
+        "id": "task-1",
+        "parent": "implementation-1",
+        "status": "open",
+        "labels": ["dstack:work:implementation"],
+    }
+    unexpected = [
+        {
+            "id": f"task-{index}",
+            "parent": "implementation-1",
+            "status": "in_progress",
+            "assignee": "worker",
+            "labels": ["dstack:work:implementation"],
+        }
+        for index in (2, 3)
+    ]
+    calls = [
+        call(
+            "ready_children",
+            "implementation-1",
+            label="dstack:work:implementation",
+            result=[ready],
+        ),
+        call(
+            "ready_children",
+            "implementation-1",
+            label="dstack:work:implementation",
+            claim=True,
+            result=unexpected,
+        ),
+    ]
+    for item in unexpected:
+        released = {**item, "status": "open", "assignee": ""}
+        calls.extend(
+            [
+                call(
+                    "update",
+                    item["id"],
+                    "--status",
+                    "open",
+                    "--assignee",
+                    "",
+                    result=released,
+                ),
+                call("show", item["id"], result=released),
+            ]
+        )
+    beads = ScriptedClient(tmp_path, *calls)
+    patch_command(monkeypatch, dstack_feature, beads)
+
+    with pytest.raises(DstackError, match="requested singleton task-1"):
+        dstack_feature.cmd_feature_claim_next(
+            argparse.Namespace(root=tmp_path, selector="feature-1", task=None)
+        )
+    beads.assert_exhausted()
+
+
+def test_release_claim_reports_uncertain_ownership(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(tmp_path)
+
+    def fail_release(*args):
+        raise DstackError("storage unavailable")
+
+    beads.update = fail_release
+    with pytest.raises(DstackError, match="ownership is uncertain"):
+        release_claim(beads, "task-1")
+
+
+def test_claim_next_releases_claim_with_invalid_returned_scope(monkeypatch, tmp_path: Path) -> None:
+    ready = {
+        "id": "task-1",
+        "parent": "implementation-1",
+        "status": "open",
+        "labels": ["dstack:work:implementation"],
+    }
+    claimed = {**ready, "status": "in_progress", "labels": ["other"]}
+    released = {**claimed, "status": "open", "assignee": ""}
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "ready_children",
+            "implementation-1",
+            label="dstack:work:implementation",
+            result=[ready],
+        ),
+        call(
+            "ready_children",
+            "implementation-1",
+            label="dstack:work:implementation",
+            claim=True,
+            result=[claimed],
+        ),
+        call(
+            "update",
+            "task-1",
+            "--status",
+            "open",
+            "--assignee",
+            "",
+            result=released,
+        ),
+        call("show", "task-1", result=released),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+
+    with pytest.raises(DstackError, match="lacks required label"):
+        dstack_feature.cmd_feature_claim_next(
+            argparse.Namespace(root=tmp_path, selector="feature-1", task=None)
+        )
     beads.assert_exhausted()
 
 
@@ -1130,6 +1277,13 @@ def test_claim_closeout_releases_raced_claim_when_new_child_appears(monkeypatch,
             "closeout-1",
             "--status",
             "open",
+            "--assignee",
+            "",
+            result={"id": "closeout-1", "status": "open"},
+        ),
+        call(
+            "show",
+            "closeout-1",
             result={"id": "closeout-1", "status": "open"},
         ),
     )

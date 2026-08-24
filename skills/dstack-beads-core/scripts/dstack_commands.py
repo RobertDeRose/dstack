@@ -13,7 +13,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from dstacklib import (
     BeadsClient,
@@ -265,14 +265,9 @@ RECORD_SUBJECTS = {
         "Validation and limitations",
     ),
     "alignment-plan": (
-        "Scope and current evidence",
-        "Findings and rationale",
-        "Proposed corrections",
-        "Architecture and interface effects",
-        "Failure and security implications",
-        "Compatibility and recovery",
-        "Validation strategy",
-        "Documentation impact",
+        "Scope and current evidence", "Findings and rationale", "Proposed corrections",
+        "Architecture and interface effects", "Failure and security implications",
+        "Compatibility and recovery", "Validation strategy", "Documentation impact",
         "Risks and deferred decisions",
     ),
     "alignment-reconciliation": (
@@ -472,6 +467,37 @@ def claim_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any]) -> dict
     return client.update(str(issue["id"]), "--claim")
 
 
+def release_claim(client: BeadsClient, issue_id: str) -> dict[str, Any]:
+    """Restore a newly raced claim and verify that ownership is clear."""
+
+    try:
+        client.update(
+            issue_id,
+            "--status",
+            "open",
+            "--assignee",
+            "",
+        )
+        observed = client.show(issue_id)
+    except DstackError as exc:
+        raise DstackError(f"failed to release raced claim {issue_id}; ownership is uncertain") from exc
+    if observed.get("status") != "open" or observed.get("assignee"):
+        raise DstackError(f"failed to release raced claim {issue_id}; ownership is uncertain")
+    return observed
+
+
+def release_claims(client: BeadsClient, claimed: Sequence[Mapping[str, Any]]) -> list[str]:
+    errors = []
+    for item in claimed:
+        if item.get("status") == "closed":
+            continue
+        try:
+            release_claim(client, str(item["id"]))
+        except DstackError as exc:
+            errors.append(str(exc))
+    return errors
+
+
 def claim_ready_work(
     client: BeadsClient,
     *,
@@ -494,7 +520,9 @@ def claim_ready_work(
         if requested.get("status") in {"claimed", "in_progress"}:
             return client.update(requested_id, "--claim")
         if requested.get("status") != "open":
-            raise DstackError(f"task {requested_id} cannot be claimed from status {requested.get('status')!r}")
+            raise DstackError(
+                f"task {requested_id} cannot be claimed from status {requested.get('status')!r}"
+            )
 
     ready = client.ready_children(parent_id, label=label)
     if not ready:
@@ -509,10 +537,19 @@ def claim_ready_work(
     claimed = client.ready_children(parent_id, label=label, claim=True)
     expected_id = requested_id or str(candidate["id"])
     if len(claimed) != 1 or str(claimed[0].get("id")) != expected_id:
-        if len(claimed) == 1 and claimed[0].get("status") != "closed":
-            client.update(str(claimed[0]["id"]), "--status", "open")
-        raise DstackError(f"native ready claim did not return requested singleton {expected_id}")
-    validate(claimed[0])
+        recovery_errors = release_claims(client, claimed)
+        detail = f"; {'; '.join(recovery_errors)}" if recovery_errors else ""
+        raise DstackError(
+            f"native ready claim did not return requested singleton {expected_id}"
+            f"{detail}"
+        )
+    try:
+        validate(claimed[0])
+    except DstackError:
+        recovery_errors = release_claims(client, claimed)
+        if recovery_errors:
+            raise DstackError("; ".join(recovery_errors))
+        raise
     return claimed[0]
 
 
@@ -556,13 +593,15 @@ def claim_ready_step(
     if status == "closed":
         return dict(step)
     if status in {"in_progress", "claimed"}:
-        return dict(step)
+        return client.update(str(step["id"]), "--claim")
     claimed = client.ready_children(root_id, label=label, claim=True)
     if not claimed:
         raise DstackError(f"{name} is not ready according to Beads")
     if len(claimed) != 1 or str(claimed[0].get("id")) != str(step.get("id")):
         ids = ", ".join(str(item.get("id")) for item in claimed)
-        raise DstackError(f"Beads claimed an unexpected {name} step: {ids or 'none'}")
+        recovery_errors = release_claims(client, claimed)
+        detail = f"; {'; '.join(recovery_errors)}" if recovery_errors else ""
+        raise DstackError(f"Beads claimed an unexpected {name} step: {ids or 'none'}{detail}")
     return claimed[0]
 
 
@@ -584,9 +623,9 @@ def claim_ready_step_with_fan_in(
     except DstackError as fan_in_error:
         if newly_claimed:
             try:
-                client.update(str(claimed["id"]), "--status", "open")
+                release_claim(client, str(claimed["id"]))
             except DstackError as recovery_error:
-                raise DstackError(f"{fan_in_error}; failed to release raced claim {claimed['id']}") from recovery_error
+                raise DstackError(f"{fan_in_error}; {recovery_error}") from recovery_error
         raise
     return claimed
 
@@ -609,8 +648,14 @@ def reopen_authorization_boundary(
         raise DstackError("reauthorization requires a non-empty reason")
     terminal = client.show(terminal_id)
     if terminal.get("status") == "closed":
-        raise DstackError("terminal reconciliation is already closed; use a new superseding workflow")
-    in_flight = [item for item in client.children(workstream_id) if item.get("status") in {"claimed", "in_progress"}]
+        raise DstackError(
+            "terminal reconciliation is already closed; use a new superseding workflow"
+        )
+    in_flight = [
+        item
+        for item in client.children(workstream_id)
+        if item.get("status") in {"claimed", "in_progress"}
+    ]
     if in_flight:
         ids = ", ".join(str(item["id"]) for item in in_flight)
         raise DstackError(f"cannot reauthorize while work is claimed: {ids}")
@@ -627,7 +672,9 @@ def reopen_authorization_boundary(
         elif status in {"claimed", "in_progress"}:
             client.update(issue_id, "--status", "open")
         elif status != "open":
-            raise DstackError(f"cannot reauthorize {issue_id} from unsupported status {status!r}")
+            raise DstackError(
+                f"cannot reauthorize {issue_id} from unsupported status {status!r}"
+            )
 
 
 def keep_root_open_for_delivery(client: BeadsClient, root_id: str) -> None:

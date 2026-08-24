@@ -100,6 +100,68 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     gate = next(item for item in gates if str(item["id"]) in gate_ids)
     assert gate.get("await_type") == "human"
 
+    specification = by_label(feature_children, "dstack:step:specification")
+    specification_blocker = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "specification blocker",
+            "--type",
+            "task",
+        )
+    )[0]
+    run_command(
+        ["bd", "dep", "add", specification["id"], specification_blocker["id"]],
+        cwd=acceptance_repo,
+    )
+    assert (
+        items(
+            run_json(
+                acceptance_repo,
+                "ready",
+                "--parent",
+                feature_root,
+                "--label",
+                "dstack:step:specification",
+                "--claim",
+                "--limit",
+                "1",
+            )
+        )
+        == []
+    )
+    assert "assignee" not in items(run_json(acceptance_repo, "show", specification["id"]))[0]
+    run_command(
+        ["bd", "close", specification_blocker["id"], "--reason", "unblocked"],
+        cwd=acceptance_repo,
+    )
+    claimed_specification = items(
+        run_json(
+            acceptance_repo,
+            "ready",
+            "--parent",
+            feature_root,
+            "--label",
+            "dstack:step:specification",
+            "--claim",
+            "--limit",
+            "1",
+        )
+    )[0]
+    assert claimed_specification["id"] == specification["id"]
+    run_json(
+        acceptance_repo,
+        "update",
+        specification["id"],
+        "--status",
+        "open",
+        "--assignee",
+        "",
+    )
+    released_specification = items(run_json(acceptance_repo, "show", specification["id"]))[0]
+    assert released_specification["status"] == "open"
+    assert not released_specification.get("assignee")
+
     unlike_epic = items(run_json(acceptance_repo, "create", "Unlike epic", "--type", "epic"))[0]
     unlike_task = items(run_json(acceptance_repo, "create", "Unlike task", "--type", "task"))[0]
     unlike_dependency = run_command(
