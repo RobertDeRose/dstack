@@ -9,24 +9,15 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
-import fnmatch
-import json
-import re
-import sys
-import tempfile
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from dstacklib import (
     BeadsClient,
     DstackError,
-    ancestry,
     branch_exists,
     canonical_feature_design_path,
-    commit_footer_ids,
     conventional_worktree,
-    current_head,
-    dependency_records,
     display_title,
     ensure_clean_worktree,
     feature_authorization_state,
@@ -36,33 +27,23 @@ from dstacklib import (
     feature_view,
     file_sha256,
     git_file_sha256,
-    git_root,
     has_label,
     human_gate_for_step,
     is_current_feature,
-    issue_labels,
     issue_metadata,
     read_text_file,
-    ref_exists,
     resolve_feature,
     root_metadata_value,
     run,
     slugify,
     validate_git_branch,
     validate_git_revision,
-    worktree_for_branch,
 )
 
 from dstack_docs import validate_docs, validate_record
 from dstack_commands import (
-    BEADS_RUNTIME_DIR_PREFIXES,
-    BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
-    BEADS_SENSITIVE_BASENAMES,
     DESIGN_SCAFFOLD,
     RECONCILIATION_SCAFFOLD,
-    DSTACK_UNTRACKED_BEADS_FILES,
-    FORBIDDEN_DOC_PATTERNS,
-    NO_REPOSITORY_CHANGE_PREFIX,
     claim_issue_if_needed,
     claim_ready_step_with_fan_in,
     claim_ready_work,
@@ -70,15 +51,12 @@ from dstack_commands import (
     resolve_gate_if_needed,
     client_for,
     completion_reason,
-    descendants,
     emit,
     ensure_feature_worktree,
     evidence_for_bead,
-    fail,
     feature_branch_context,
     keep_root_open_for_delivery,
     open_workstream_children,
-    package_root,
     preserve_external_blockers,
     require_approved_design,
     require_installed_formula,
@@ -90,9 +68,7 @@ from dstack_commands import (
 )
 
 
-def approved_feature_context(
-    client: BeadsClient, selector: str | None
-) -> dict[str, Any]:
+def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     context = feature_context(client, selector)
     context.update(feature_design_state(client, context))
     context.update(feature_authorization_state(client, context))
@@ -604,8 +580,10 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         raise DstackError("feature approval task lacks one blocking human gate")
     root = client.show(root_id)
     previous = root_metadata_value(root, "dstack.approved_design_sha256")
-    if previous and previous != digest and any(
-        item.get("status") == "closed" for item in (specification, gate, approval)
+    if (
+        previous
+        and previous != digest
+        and any(item.get("status") == "closed" for item in (specification, gate, approval))
     ):
         raise DstackError(
             "accepted design changed after approval began; explicitly reopen the "
@@ -627,9 +605,7 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         "approval": approval.get("status"),
     }
     if any(status != "closed" for status in states.values()):
-        raise DstackError(
-            f"specification approval did not converge: states={states}"
-        )
+        raise DstackError(f"specification approval did not converge: states={states}")
 
     if previous != digest:
         client.update(
@@ -648,10 +624,7 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         "approval": approval.get("status"),
     }
     if final_digest != digest or any(status != "closed" for status in states.values()):
-        raise DstackError(
-            "specification approval did not converge: "
-            f"digest={final_digest!r}, states={states}"
-        )
+        raise DstackError(f"specification approval did not converge: digest={final_digest!r}, states={states}")
     emit(
         {
             "status": "ok",
@@ -774,9 +747,7 @@ def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     return 0
 
 
-def validate_feature_documentation(
-    client: BeadsClient, view: Mapping[str, Any]
-) -> dict[str, object]:
+def validate_feature_documentation(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, object]:
     _, worktree, _ = feature_branch_context(client, view)
     ensure_clean_worktree(worktree)
     design_file, _ = safe_design_file(worktree, str(view.get("design_path") or ""))
@@ -788,8 +759,7 @@ def validate_feature_documentation(
     untouched = RECONCILIATION_SCAFFOLD.format(title=title)
     if not content.strip() or content.strip() == untouched.strip():
         raise DstackError(
-            "feature reconciliation is still the untouched scaffold; "
-            "record the delivered result before closeout"
+            "feature reconciliation is still the untouched scaffold; record the delivered result before closeout"
         )
     validate_record(
         content,

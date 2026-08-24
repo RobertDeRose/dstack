@@ -74,14 +74,10 @@ python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
   git commit --bead "<spec-id>" --subject "<subject>"
 ```
 
-Review the complete final design, task graph, dependencies, and candidate diff.
-Present material decisions, findings, validation expectations, and deferred
-risk, then ask for explicit human authorization. The command invocation itself
-is not authorization. Do not approve while a consequential decision or finding
-is unresolved.
-
-After authorization, record only the accepted content digest and native gate
-transition:
+Review the complete final design, task graph, dependencies, and candidate diff. Present material decisions, findings,
+validation expectations, and deferred risk, then ask for explicit human authorization. The command invocation itself is
+not authorization. Do not approve while a consequential decision or finding is unresolved. After authorization, record
+only the accepted content digest and native gate transition:
 
 ```bash
 python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \

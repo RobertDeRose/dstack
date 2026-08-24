@@ -425,7 +425,6 @@ def test_migration_leaves_unreferenced_outside_markdown_for_semantic_judgment(
     assert note.is_file()
 
 
-
 def test_migration_rejects_symlinked_configured_source(tmp_path: Path) -> None:
     docs = tmp_path / "docs"
     real = docs / "real-book"

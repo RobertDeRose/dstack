@@ -1,17 +1,12 @@
 name: Tests
 on:
   pull_request:
-  push:
-    branches:
-      - main
   workflow_dispatch:
-  schedule:
-    - cron: "17 4 * * 1"
 permissions:
   contents: read
 jobs:
-  fast:
-    name: Fast
+  scripts:
+    name: Scripts
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -20,25 +15,27 @@ jobs:
         with:
           enable-cache: true
       - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
-      - run: uv sync --dev
-      - run: python3 skills/dstack-beads-core/scripts/dstackctl.py docs validate
-      - run: uv run pytest -q -rs
-
-  real-beads:
-    name: Real Beads / ${{ matrix.suite }}
+      - run: |
+          uv sync --dev
+          uv run pytest -q -rs --cov=skills/dstack-beads-core/scripts --cov-report=term-missing
+  beads:
+    name: Beads / ${{ matrix.suite.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         suite:
-          - test_bd_contract.py
-          - test_feature_smoke.py
+          - name: Contract
+            test: test_bd_contract.py
+          - name: Smoke
+            test: test_feature_smoke.py
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
       - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
-      - run: uv sync --dev
-      - run: uv run pytest -q tests/acceptance/${{ matrix.suite }}
+      - run: |
+          uv sync --dev
+          uv run pytest -q tests/acceptance/${{ matrix.suite.test }}

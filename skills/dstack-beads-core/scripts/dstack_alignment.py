@@ -9,13 +9,8 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
-import fnmatch
-import json
-import re
-import sys
-import tempfile
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from dstacklib import (
     BeadsClient,
@@ -24,23 +19,10 @@ from dstacklib import (
     alignment_view,
     ancestry,
     branch_exists,
-    commit_footer_ids,
     conventional_worktree,
-    current_head,
-    dependency_records,
-    display_title,
     ensure_clean_worktree,
-    feature_slug,
-    file_sha256,
-    git_root,
-    has_label,
     human_gate_for_step,
-    issue_labels,
-    issue_metadata,
     read_text_file,
-    ref_exists,
-    resolve_feature,
-    root_metadata_value,
     run,
     slugify,
     validate_git_branch,
@@ -50,14 +32,8 @@ from dstacklib import (
 )
 
 from dstack_commands import (
-    BEADS_RUNTIME_DIR_PREFIXES,
-    BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
     ALIGNMENT_PLAN_SCAFFOLD,
     ALIGNMENT_RECONCILIATION_SCAFFOLD,
-    BEADS_SENSITIVE_BASENAMES,
-    DSTACK_UNTRACKED_BEADS_FILES,
-    FORBIDDEN_DOC_PATTERNS,
-    NO_REPOSITORY_CHANGE_PREFIX,
     claim_issue_if_needed,
     claim_ready_step_with_fan_in,
     claim_ready_work,
@@ -65,32 +41,21 @@ from dstack_commands import (
     resolve_gate_if_needed,
     client_for,
     completion_reason,
-    descendants,
     emit,
     ensure_branch_worktree,
     evidence_for_bead,
-    fail,
-    feature_branch_context,
     keep_root_open_for_delivery,
     open_workstream_children,
-    package_root,
-    preserve_external_blockers,
-    require_approved_design,
     require_installed_formula,
     reopen_authorization_boundary,
     required_task_text,
-    superseded_target,
     task_text,
-    update_root_identity,
 )
 from dstack_docs import validate_docs, validate_record
 
+
 def cmd_alignment_scaffold_record(args: argparse.Namespace) -> int:
-    scaffold = (
-        ALIGNMENT_PLAN_SCAFFOLD
-        if args.kind == "plan"
-        else ALIGNMENT_RECONCILIATION_SCAFFOLD
-    )
+    scaffold = ALIGNMENT_PLAN_SCAFFOLD if args.kind == "plan" else ALIGNMENT_RECONCILIATION_SCAFFOLD
     try:
         with args.path.open("x", encoding="utf-8") as handle:
             handle.write(scaffold)
@@ -237,9 +202,7 @@ def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
     }
     ready = client.ready_children(str(corrections["id"]), label="dstack:work:correction")
     if any(status != "open" for status in states.values()) or ready:
-        raise DstackError(
-            f"alignment reauthorization did not restore blocking state: states={states}"
-        )
+        raise DstackError(f"alignment reauthorization did not restore blocking state: states={states}")
     emit({"status": "ok", "audit": root_id, "states": states})
     return 0
 
@@ -290,9 +253,7 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
         raise DstackError("alignment workflow has no unique human gate")
 
     gate = resolve_gate_if_needed(client, gate, "Corrective plan approved")
-    approval = close_issue_if_needed(
-        client, client.show(str(approval["id"])), "Corrective execution authorized"
-    )
+    approval = close_issue_if_needed(client, client.show(str(approval["id"])), "Corrective execution authorized")
     gate = client.show(str(gate["id"]))
     approval = client.show(str(approval["id"]))
     states = {

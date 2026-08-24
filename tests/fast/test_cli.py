@@ -24,31 +24,69 @@ def leaves(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()):
 
 def test_every_public_leaf_has_dispatch_handler() -> None:
     found = dict(leaves(dstack_cli.build_parser()))
-    expected = {
-        ("feature", command) for command in (
-            "resolve", "inspect", "initialize", "scaffold-design",
-            "scaffold-reconciliation", "add-task",
-            "claim-spec", "approve-spec", "reauthorize", "claim-next", "finish-task",
-            "finish-workstream", "claim-closeout", "finish-closeout",
-        )
-    } | {
-        ("alignment", command) for command in (
-            "inspect", "scaffold-record", "initialize", "add-correction", "finish-plan", "approve", "reauthorize",
-            "claim-next", "finish-task", "finish-workstream", "claim-landing", "finish-landing",
-        )
-    } | {
-        ("git", command) for command in ("commit", "amend")
-    } | {
-        ("evidence", command) for command in ("commits", "audit-feature")
-    } | {("docs", command) for command in ("check", "validate")} | {
-        ("delivery", command) for command in (
-            "inspect", "pr-preflight", "register-pr", "replace-pr", "merge", "finalize-pr",
-        )
-    } | {("adopt", command) for command in ("inspect", "apply")} | {
-        ("audit", "feature")
-    }
+    expected = (
+        {
+            ("feature", command)
+            for command in (
+                "resolve",
+                "inspect",
+                "initialize",
+                "scaffold-design",
+                "scaffold-reconciliation",
+                "add-task",
+                "claim-spec",
+                "approve-spec",
+                "reauthorize",
+                "claim-next",
+                "finish-task",
+                "finish-workstream",
+                "claim-closeout",
+                "finish-closeout",
+            )
+        }
+        | {
+            ("alignment", command)
+            for command in (
+                "inspect",
+                "scaffold-record",
+                "initialize",
+                "add-correction",
+                "finish-plan",
+                "approve",
+                "reauthorize",
+                "claim-next",
+                "finish-task",
+                "finish-workstream",
+                "claim-landing",
+                "finish-landing",
+            )
+        }
+        | {("git", command) for command in ("commit", "amend")}
+        | {("evidence", command) for command in ("commits", "audit-feature")}
+        | {("docs", command) for command in ("check", "validate")}
+        | {
+            ("delivery", command)
+            for command in (
+                "inspect",
+                "pr-preflight",
+                "register-pr",
+                "replace-pr",
+                "merge",
+                "finalize-pr",
+            )
+        }
+        | {("adopt", command) for command in ("inspect", "apply")}
+        | {("audit", "feature")}
+    )
     assert set(found) == expected
     assert all(callable(parser.get_default("func")) for parser in found.values())
+
+
+def test_register_pr_help_describes_pre_merge_registration() -> None:
+    parser = dict(leaves(dstack_cli.build_parser()))[("delivery", "register-pr")]
+    help_text = parser.format_help()
+    assert "open, unmerged" in help_text
+    assert "pre-merge gate" in help_text
 
 
 def test_main_dispatches_in_process(monkeypatch, capsys) -> None:

@@ -324,7 +324,11 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--title")
     preflight.add_argument("--body-file", type=Path)
     preflight.set_defaults(func=cmd_delivery_pr_preflight)
-    register = mechanical_parser(delivery_sub, "register-pr", "register an open pull request as a native gate")
+    register = mechanical_parser(
+        delivery_sub,
+        "register-pr",
+        "register an open, unmerged pull request as a native pre-merge gate",
+    )
     register.add_argument("selector")
     register.add_argument("--pr-number", type=int, required=True)
     register.set_defaults(func=cmd_delivery_register_pr)

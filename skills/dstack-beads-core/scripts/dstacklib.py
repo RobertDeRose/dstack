@@ -317,9 +317,7 @@ def git_file_sha256(root: Path, path: str, ref: str = "HEAD") -> str | None:
             timeout=command_timeout(command),
         )
     except subprocess.TimeoutExpired as exc:
-        raise DstackError(
-            f"command timed out ({' '.join(command)}) in {root}; operation was read-only"
-        ) from exc
+        raise DstackError(f"command timed out ({' '.join(command)}) in {root}; operation was read-only") from exc
     if completed.returncode != 0:
         return None
     return hashlib.sha256(completed.stdout).hexdigest()
@@ -850,9 +848,7 @@ def feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]
             "steps": {name: step_by_label(children, label) for name, label in FEATURE_STEPS.items()},
             "base_branch": root_metadata_value(root, "dstack.base_branch", "base_branch"),
             "design_path": design_path,
-            "approved_design_sha256": root_metadata_value(
-                root, "dstack.approved_design_sha256"
-            ),
+            "approved_design_sha256": root_metadata_value(root, "dstack.approved_design_sha256"),
         }
     )
     return result
@@ -892,9 +888,7 @@ def feature_design_state(client: BeadsClient, context: Mapping[str, Any]) -> dic
         "current_design_sha256": current,
         "head_design_sha256": head,
         "design_state": state,
-        "design_approved": bool(
-            approved and state == "committed" and current == head == approved
-        ),
+        "design_approved": bool(approved and state == "committed" and current == head == approved),
     }
 
 

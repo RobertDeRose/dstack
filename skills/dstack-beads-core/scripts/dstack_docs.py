@@ -766,9 +766,7 @@ def legacy_documentation_plan(root: Path) -> dict[str, object]:
     return {
         "configured_source_moves": configured,
         "referenced_content_moves": references,
-        "unresolved_outside_markdown": (
-            [] if configured else _unresolved_outside_markdown(root)
-        ),
+        "unresolved_outside_markdown": ([] if configured else _unresolved_outside_markdown(root)),
     }
 
 

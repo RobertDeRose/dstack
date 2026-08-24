@@ -9,71 +9,64 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
-import fnmatch
-import json
-import re
-import sys
-import tempfile
-from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from dstacklib import (
     BeadsClient,
     DstackError,
-    ancestry,
-    blocker_ids,
-    branch_exists,
     canonical_feature_design_path,
-    commit_footer_ids,
-    conventional_worktree,
-    current_head,
-    dependency_records,
     display_title,
-    ensure_clean_tracked,
     feature_context,
     feature_slug,
-    file_sha256,
-    git_root,
-    has_label,
     issue_labels,
     issue_type,
     issue_metadata,
-    issue_parent,
     read_text_file,
-    ref_exists,
     resolve_feature,
     root_metadata_value,
-    run,
     slugify,
-    worktree_for_branch,
 )
 
 from dstack_commands import (
-    BEADS_RUNTIME_DIR_PREFIXES,
-    BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
-    BEADS_SENSITIVE_BASENAMES,
-    DESIGN_SCAFFOLD,
-    DSTACK_UNTRACKED_BEADS_FILES,
-    FORBIDDEN_DOC_PATTERNS,
-    NO_REPOSITORY_CHANGE_PREFIX,
-    claim_issue_if_needed,
     client_for,
-    completion_reason,
     descendants,
     emit,
-    ensure_feature_worktree,
-    evidence_for_bead,
-    fail,
-    feature_branch_context,
-    package_root,
     preserve_external_blockers,
-    require_approved_design,
     require_installed_formula,
-    required_task_text,
     superseded_target,
-    task_text,
     update_root_identity,
 )
+
+COMPATIBILITY_SHIMS = (
+    {
+        "name": "like-kind-approval-milestone",
+        "pinned_version": "bd version 1.2.2 (6c124203e)",
+        "reproducer": "tests/acceptance/test_bd_contract.py::test_bd_contract_covers_native_primitives",
+        "reason": "Beads rejects blocking dependencies between unlike issue kinds.",
+        "behavior": "A task-sized approval milestone carries the human gate and blocks dynamic tasks.",
+        "upstream": None,
+        "retirement": "The supported Beads build accepts and preserves the intended cross-kind topology.",
+    },
+    {
+        "name": "dynamic-child-fan-in-veto",
+        "pinned_version": "bd version 1.2.2 (6c124203e)",
+        "reproducer": "tests/acceptance/test_bd_contract.py::test_bd_contract_covers_native_primitives",
+        "reason": "Native terminal readiness can miss an open dynamic direct child.",
+        "behavior": "dStack only vetoes terminal transitions while a direct child is nonterminal.",
+        "upstream": None,
+        "retirement": "The pinned real-Beads reproducer natively blocks the terminal.",
+    },
+    {
+        "name": "terminal-root-reopen",
+        "pinned_version": "bd version 1.2.2 (6c124203e)",
+        "reproducer": "tests/acceptance/test_feature_smoke.py::test_feature_smoke_runs_shipped_lifecycle",
+        "reason": "Completing a terminal step can close the molecule before Git delivery.",
+        "behavior": "Reopen only an automatically closed root while delivery remains pending.",
+        "upstream": None,
+        "retirement": "The supported Beads lifecycle preserves an open root until delivery.",
+    },
+)
+
 
 def classify_legacy_item(item: Mapping[str, Any]) -> str:
     title = str(item.get("title", "")).casefold()
@@ -156,13 +149,9 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
     base = args.base_branch or root_metadata_value(legacy, "base_branch") or "main"
     design = canonical_feature_design_path(slug)
     if args.design_path and args.design_path != design:
-        raise DstackError(
-            f"feature design path must be {design} for the mdBook layout"
-        )
+        raise DstackError(f"feature design path must be {design} for the mdBook layout")
 
-    current = current_feature_for_slug(
-        client, slug, exclude_id=str(legacy["id"])
-    )
+    current = current_feature_for_slug(client, slug, exclude_id=str(legacy["id"]))
     if current is None:
         require_installed_formula(client.root, "dstack-feature")
         pour = client.pour(
@@ -201,9 +190,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
             labels=["dstack:work:implementation"],
             dependencies=[str(view["steps"]["approval"]["id"])],
             description=str(old.get("description") or ""),
-            acceptance=str(
-                old.get("acceptance_criteria") or old.get("acceptance") or ""
-            ),
+            acceptance=str(old.get("acceptance_criteria") or old.get("acceptance") or ""),
             priority=int(old.get("priority") or 2),
         )
         mapping[old_id] = str(replacement["id"])

@@ -181,9 +181,7 @@ def test_current_audit_reports_missing_and_pr_observations(monkeypatch, tmp_path
     client.assert_exhausted()
 
 
-def test_delivered_audit_joins_docs_evidence_and_direct_delivery(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_delivered_audit_joins_docs_evidence_and_direct_delivery(monkeypatch, tmp_path: Path) -> None:
     context = current_context("closed")
     design = tmp_path / context["design_path"]
     design.parent.mkdir(parents=True)
@@ -223,12 +221,8 @@ def test_delivered_audit_joins_docs_evidence_and_direct_delivery(
     assert payload["classification"] == "delivered"
     assert payload["git_evidence"]["status"] == "issues"
     assert payload["documentation"]["reconciliation"]["status"] == "valid"
-    assert payload["documentation"]["reconciliation"][
-        "validation_and_limitations"
-    ]
-    assert payload["documentation"]["current_product_links"] == [
-        "../../architecture/index.md"
-    ]
+    assert payload["documentation"]["reconciliation"]["validation_and_limitations"]
+    assert payload["documentation"]["current_product_links"] == ["../../architecture/index.md"]
     assert payload["delivery"]["direct_merge_observed"] is True
     rendered = dstack_audit.render_markdown(payload)
     embedded = rendered.split("```json\n", 1)[1].rsplit("\n```", 1)[0]
