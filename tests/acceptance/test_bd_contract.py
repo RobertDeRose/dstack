@@ -99,21 +99,70 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     gate = next(item for item in gates if str(item["id"]) in gate_ids)
     assert gate.get("await_type") == "human"
 
-    task = items(run_json(
-        acceptance_repo, "create", "contract task", "--type", "task",
-        "--parent", implementation["id"], "--deps", approval["id"],
-        "--acceptance", "contract behavior",
-    ))[0]
-    native_child = items(run_json(
-        acceptance_repo, "create", "native fan-in child", "--type", "task",
-        "--parent", implementation["id"], "--deps", approval["id"],
-        "--acceptance", "native child completes",
-    ))[0]
-    assert items(run_json(
-        acceptance_repo, "ready", "--parent", implementation["id"],
-        "--exclude-type", "epic,molecule,gate", "--limit", "0",
-    )) == []
-    run_command(["bd", "close", by_label(feature_children, "dstack:step:specification")["id"], "--reason", "specified"], cwd=acceptance_repo)
+    unlike_epic = items(run_json(acceptance_repo, "create", "Unlike epic", "--type", "epic"))[0]
+    unlike_task = items(run_json(acceptance_repo, "create", "Unlike task", "--type", "task"))[0]
+    unlike_dependency = run_command(
+        ["bd", "dep", "add", unlike_task["id"], unlike_epic["id"]],
+        cwd=acceptance_repo,
+        check=False,
+    )
+    assert unlike_dependency.returncode != 0
+
+    task = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "contract task",
+            "--type",
+            "task",
+            "--parent",
+            implementation["id"],
+            "--deps",
+            approval["id"],
+            "--acceptance",
+            "contract behavior",
+        )
+    )[0]
+    native_child = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "native fan-in child",
+            "--type",
+            "task",
+            "--parent",
+            implementation["id"],
+            "--deps",
+            approval["id"],
+            "--acceptance",
+            "native child completes",
+        )
+    )[0]
+    assert (
+        items(
+            run_json(
+                acceptance_repo,
+                "ready",
+                "--parent",
+                implementation["id"],
+                "--exclude-type",
+                "epic,molecule,gate",
+                "--limit",
+                "0",
+            )
+        )
+        == []
+    )
+    run_command(
+        [
+            "bd",
+            "close",
+            by_label(feature_children, "dstack:step:specification")["id"],
+            "--reason",
+            "specified",
+        ],
+        cwd=acceptance_repo,
+    )
     run_command(["bd", "gate", "resolve", gate["id"], "--reason", "approved"], cwd=acceptance_repo)
     run_command(["bd", "close", approval["id"], "--reason", "approved"], cwd=acceptance_repo)
     ready = items(
@@ -163,14 +212,32 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
         ["bd", "close", owned["id"], "--reason", "complete", "--actor", "owner-a"],
         cwd=acceptance_repo,
     )
+    native_fan_in_gap = items(
+        run_json(
+            acceptance_repo,
+            "ready",
+            "--parent",
+            feature_root,
+            "--label",
+            "dstack:step:closeout",
+            "--claim",
+            "--json",
+        )
+    )
+    claimed_gap = by_label(native_fan_in_gap, "dstack:step:closeout")
+    assert claimed_gap["status"] in {"in_progress", "claimed"}
+    run_json(
+        acceptance_repo,
+        "update",
+        claimed_gap["id"],
+        "--status",
+        "open",
+    )
     run_command(
         ["bd", "close", native_child["id"], "--reason", "complete"],
         cwd=acceptance_repo,
     )
-    claimed_closeout = items(run_json(
-        acceptance_repo, "ready", "--parent", feature_root,
-        "--label", "dstack:step:closeout", "--claim", "--json",
-    ))
+    claimed_closeout = items(run_json(acceptance_repo, "update", claimed_gap["id"], "--claim"))
     assert by_label(claimed_closeout, "dstack:step:closeout")["status"] in {
         "in_progress",
         "claimed",

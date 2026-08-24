@@ -213,9 +213,7 @@ def test_git_commit_amend_and_evidence_commands_use_real_git(git_repo: Path, mon
     assert outputs[-1]["commits"][0]["subject"] == "feat: revise value"
 
 
-def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(monkeypatch, tmp_path: Path) -> None:
     context = {
         "root": {"id": "feature-1"},
         "steps": {"implementation": {"id": "implementation-1"}},
@@ -258,9 +256,7 @@ def test_alignment_delivery_context_excludes_structural_children(monkeypatch, tm
             ],
         ),
     )
-    monkeypatch.setattr(
-        dstack_delivery, "alignment_context", lambda client, selector: context.copy()
-    )
+    monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context.copy())
     observed = dstack_delivery.alignment_delivery_context(beads, "alignment-1")
     assert observed["corrections"] == [correction]
     beads.assert_exhausted()
@@ -322,9 +318,7 @@ def test_evidence_audit_command_returns_controller_owned_result(monkeypatch, tmp
     assert outputs == [{"status": "ok", "missing": []}]
 
 
-def test_delivery_inspect_and_preflight_validate_observed_candidate(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_delivery_inspect_and_preflight_validate_observed_candidate(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
     candidate = payload(
         root={"id": "feature-1"},
@@ -580,9 +574,7 @@ def test_replace_pr_gate_repairs_conflicting_closed_gate(monkeypatch, tmp_path: 
     beads.assert_exhausted()
 
 
-def test_delivery_merge_checks_post_delivery_git_invariant(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_delivery_merge_checks_post_delivery_git_invariant(monkeypatch, tmp_path: Path) -> None:
     target = tmp_path / "target"
     candidate = tmp_path / "candidate"
     target.mkdir()
@@ -822,9 +814,7 @@ def test_delivery_target_worktree_is_temporary_when_branch_is_not_checked_out(
     subprocess.run(["git", "branch", "release"], cwd=git_repo, check=True)
     assert dstack_delivery.worktree_for_branch(git_repo, "release") is None
 
-    with dstack_delivery.delivery_target_worktree(
-        git_repo, "release", None
-    ) as target_worktree:
+    with dstack_delivery.delivery_target_worktree(git_repo, "release", None) as target_worktree:
         assert target_worktree.is_dir()
         branch = subprocess.run(
             ["git", "branch", "--show-current"],
@@ -856,8 +846,7 @@ def test_temporary_delivery_worktree_preserves_primary_failure_when_cleanup_fail
             raise DstackError("primary delivery failure")
 
     assert any(
-        "failed to remove temporary delivery worktree" in note
-        for note in getattr(raised.value, "__notes__", [])
+        "failed to remove temporary delivery worktree" in note for note in getattr(raised.value, "__notes__", [])
     )
     assert calls[0][:3] == ("git", "worktree", "add")
     assert calls[-1][:3] == ("git", "worktree", "remove")

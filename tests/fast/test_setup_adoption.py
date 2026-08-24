@@ -21,9 +21,21 @@ def feature_formula() -> dict:
     return {
         "steps": [
             {"id": "specification", "type": "task", "labels": [FEATURE_STEPS["specification"]]},
-            {"id": "approval", "type": "task", "labels": [FEATURE_STEPS["approval"]], "needs": ["specification"], "gate": {"type": "human"}},
+            {
+                "id": "approval",
+                "type": "task",
+                "labels": [FEATURE_STEPS["approval"]],
+                "needs": ["specification"],
+                "gate": {"type": "human"},
+            },
             {"id": "implementation", "type": "epic", "labels": [FEATURE_STEPS["implementation"]]},
-            {"id": "closeout", "type": "task", "labels": [FEATURE_STEPS["closeout"]], "needs": ["approval"], "waits_for": "children-of(implementation)"},
+            {
+                "id": "closeout",
+                "type": "task",
+                "labels": [FEATURE_STEPS["closeout"]],
+                "needs": ["approval"],
+                "waits_for": "children-of(implementation)",
+            },
         ]
     }
 
@@ -51,6 +63,20 @@ def test_copy_formula_is_idempotent_and_requires_force(tmp_path: Path) -> None:
     assert setup.copy_formula(source, destination, force=True) == "updated"
 
 
+def test_compatibility_shims_have_reproducers_and_retirement_conditions() -> None:
+    assert {shim["name"] for shim in dstack_compat.COMPATIBILITY_SHIMS} == {
+        "like-kind-approval-milestone",
+        "dynamic-child-fan-in-veto",
+        "terminal-root-reopen",
+    }
+    for shim in dstack_compat.COMPATIBILITY_SHIMS:
+        assert shim["pinned_version"] == "bd version 1.2.2 (6c124203e)"
+        assert (ROOT / shim["reproducer"].split("::", 1)[0]).is_file()
+        assert shim["reason"]
+        assert shim["behavior"]
+        assert shim["retirement"]
+
+
 def test_classify_legacy_item_is_explicit_about_ambiguity() -> None:
     assert dstack_compat.classify_legacy_item({"title": "Implement: code"}) == "implementation-coordinator"
     assert dstack_compat.classify_legacy_item({"title": "unrelated"}) == "ambiguous"
@@ -59,10 +85,25 @@ def test_classify_legacy_item_is_explicit_about_ambiguity() -> None:
 def test_adoption_rejects_multiple_current_slug_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     beads = ScriptedClient(
         tmp_path,
-        call("list", all_statuses=True, labels=["workflow:feature"], result=[
-            {"id": "feature-1", "issue_type": "epic", "status": "open", "labels": ["workflow:feature", "feature:slug"]},
-            {"id": "feature-2", "issue_type": "epic", "status": "open", "labels": ["workflow:feature", "feature:slug"]},
-        ]),
+        call(
+            "list",
+            all_statuses=True,
+            labels=["workflow:feature"],
+            result=[
+                {
+                    "id": "feature-1",
+                    "issue_type": "epic",
+                    "status": "open",
+                    "labels": ["workflow:feature", "feature:slug"],
+                },
+                {
+                    "id": "feature-2",
+                    "issue_type": "epic",
+                    "status": "open",
+                    "labels": ["workflow:feature", "feature:slug"],
+                },
+            ],
+        ),
     )
     monkeypatch.setattr(dstack_compat, "feature_context", lambda client, issue_id: {"current": True})
     with pytest.raises(DstackError, match="multiple current"):
@@ -82,9 +123,9 @@ def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(
         setup,
         "run",
-        lambda command, **kwargs: CommandResult(0, "", "")
-        if command[:3] == ["git", "status", "--porcelain"]
-        else real_run(command, **kwargs),
+        lambda command, **kwargs: (
+            CommandResult(0, "", "") if command[:3] == ["git", "status", "--porcelain"] else real_run(command, **kwargs)
+        ),
     )
 
     first = setup.setup_plan(tmp_path, initialize=True, force=False)
@@ -97,9 +138,7 @@ def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: 
     assert not (tmp_path / "docs").exists()
 
 
-def test_setup_apply_refuses_dirty_preconditions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_setup_apply_refuses_dirty_preconditions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "dirty.txt").write_text("dirty\n")
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
@@ -113,9 +152,7 @@ def test_setup_apply_refuses_dirty_preconditions(
     assert not (tmp_path / ".beads").exists()
 
 
-def test_setup_apply_refuses_changed_plan(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_setup_apply_refuses_changed_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
@@ -255,9 +292,7 @@ def test_doctor_reports_all_actionable_diagnostics(
     assert all(result["checks"][name]["recovery"] for name in result["failed"])
 
 
-def test_setup_apply_is_retry_safe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_setup_apply_is_retry_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     package = tmp_path / "package"
     formulas = package / "formulas"
@@ -292,9 +327,7 @@ def test_setup_apply_is_retry_safe(
     assert setup.apply_setup(tmp_path, initialize=True, force=False)["status"] == "ok"
 
 
-def test_doctor_passes_healthy_supported_repository(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_doctor_passes_healthy_supported_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     package = tmp_path / "package"
     source = package / "formulas"
     installed = tmp_path / ".beads/formulas"
@@ -434,9 +467,7 @@ def test_forced_install_repairs_legacy_before_strict_documentation_validation(
     assert result["documentation"] == {"status": "ok"}
     assert result["template_artifacts_removed"] == ["legacy-template"]
     assert result["molecule_items_normalized"] == ["feature-1"]
-    assert result["missing_feature_reconciliations"] == [
-        "docs/src/features/old/index.md"
-    ]
+    assert result["missing_feature_reconciliations"] == ["docs/src/features/old/index.md"]
     assert result["interaction_log_untracked"] is True
 
 
@@ -454,12 +485,8 @@ def test_legacy_repair_reports_required_changes_before_mutation(
         "legacy_template_artifacts",
         lambda client: [{"id": "dstack-feature.template"}],
     )
-    monkeypatch.setattr(
-        setup, "normalize_current_features", lambda client, force: ["feature-1"]
-    )
-    monkeypatch.setattr(
-        setup, "normalize_current_alignments", lambda client, force: []
-    )
+    monkeypatch.setattr(setup, "normalize_current_features", lambda client, force: ["feature-1"])
+    monkeypatch.setattr(setup, "normalize_current_alignments", lambda client, force: [])
     monkeypatch.setattr(
         setup,
         "missing_feature_reconciliations",
@@ -496,9 +523,7 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
     )
     feature_index = tmp_path / "docs/src/features/index.md"
     feature_index.parent.mkdir(parents=True)
-    feature_index.write_text(
-        "# Feature Records\n\n- [Feature](../../features/feature/design.md)\n"
-    )
+    feature_index.write_text("# Feature Records\n\n- [Feature](../../features/feature/design.md)\n")
     root = {
         "id": "feature-1",
         "labels": ["workflow:feature", "feature:feature"],
@@ -520,7 +545,10 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
             "feature-1",
             "--set-metadata",
             "dstack.design_path=docs/src/features/feature/design.md",
-            result={**root, "metadata": {**root["metadata"], "dstack.design_path": "docs/src/features/feature/design.md"}},
+            result={
+                **root,
+                "metadata": {**root["metadata"], "dstack.design_path": "docs/src/features/feature/design.md"},
+            },
         ),
         call("children", "feature-1", result=[]),
     )
@@ -567,9 +595,7 @@ def test_explicit_repair_recovers_move_completed_before_metadata_update(
 
     assert setup.normalize_current_features(beads, force=True) == ["feature-1"]
     assert destination.read_text() == "moved design\n"
-    assert "features/feature/design.md" in (
-        tmp_path / "docs/src/SUMMARY.md"
-    ).read_text()
+    assert "features/feature/design.md" in (tmp_path / "docs/src/SUMMARY.md").read_text()
     beads.assert_exhausted()
 
 
@@ -654,15 +680,11 @@ def test_missing_historical_reconciliation_is_reported(tmp_path: Path) -> None:
         ),
     )
 
-    assert setup.missing_feature_reconciliations(beads) == [
-        "docs/src/features/feature/index.md"
-    ]
+    assert setup.missing_feature_reconciliations(beads) == ["docs/src/features/feature/index.md"]
     beads.assert_exhausted()
 
 
-def test_forced_repair_validates_resulting_book(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_forced_repair_validates_resulting_book(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("check_version", result="bd version 1.2.2 (6c124203e)"),
@@ -789,7 +811,5 @@ def test_external_blocker_is_preserved_on_compatible_native_step(
         call("add_dependency", destination, "blocker-1", result=None),
     )
     monkeypatch.setattr(dstack_commands, "descendants", lambda *args: [])
-    assert dstack_commands.preserve_external_blockers(
-        beads, source, "feature-1"
-    ) == ["blocker-1"]
+    assert dstack_commands.preserve_external_blockers(beads, source, "feature-1") == ["blocker-1"]
     beads.assert_exhausted()

@@ -56,12 +56,14 @@ def test_footer_audit_reads_commit_paths_with_one_git_log(
     def fake_run(command, *, cwd, check=True, **kwargs):
         del cwd, check, kwargs
         calls.append(tuple(command))
+        if command[:2] == ["git", "rev-parse"]:
+            return dstacklib.CommandResult(0, "resolved\n", "")
         if command[:2] == ["git", "log"]:
             return dstacklib.CommandResult(0, output, "")
-        raise AssertionError(f"footer audit spawned another Git command: {command}")
+        raise AssertionError(f"footer audit spawned an unexpected Git command: {command}")
 
     monkeypatch.setattr(dstacklib, "run", fake_run)
     assert dstacklib.commit_footer_ids(tmp_path, "main..feature") == {
         "bd-1": [{"commit": "abc123", "subject": "subject", "paths": ["file.py"]}]
     }
-    assert len(calls) == 1
+    assert sum(call[:2] == ("git", "log") for call in calls) == 1
