@@ -32,6 +32,7 @@ from dstacklib import (
     display_title,
     ensure_clean_tracked,
     ensure_clean_worktree,
+    feature_authorization_state,
     feature_context,
     feature_design_state,
     feature_slug,
@@ -225,6 +226,7 @@ def evidence_audit(
 def feature_delivery_context(client: BeadsClient, selector: str) -> dict[str, Any]:
     view = feature_context(client, selector)
     view.update(feature_design_state(client, view))
+    view.update(feature_authorization_state(client, view))
     implementation_id = str(view["steps"]["implementation"]["id"])
     view["work_items"] = [
         item

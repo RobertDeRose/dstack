@@ -30,11 +30,13 @@ from dstacklib import (
     display_title,
     ensure_clean_tracked,
     ensure_clean_worktree,
+    feature_authorization_state,
     feature_context,
     feature_design_state,
     feature_slug,
     feature_view,
     file_sha256,
+    git_file_sha256,
     git_root,
     has_label,
     human_gate_for_step,
@@ -91,6 +93,7 @@ def approved_feature_context(
 ) -> dict[str, Any]:
     context = feature_context(client, selector)
     context.update(feature_design_state(client, context))
+    context.update(feature_authorization_state(client, context))
     require_approved_design(context)
     return context
 
@@ -488,21 +491,44 @@ def cmd_feature_claim_spec(args: argparse.Namespace) -> int:
     return 0
 
 
+def approved_design_digest(client: BeadsClient, view: Mapping[str, Any]) -> str:
+    design_path = str(view.get("design_path") or "")
+    if not design_path:
+        raise DstackError("feature root has no dstack.design_path metadata")
+    branch, worktree, _ = feature_branch_context(client, view)
+    expected = conventional_worktree(client.root, branch).resolve()
+    if worktree.resolve() != expected:
+        raise DstackError(f"feature worktree must use the conventional path {expected}: {worktree}")
+    ensure_clean_worktree(worktree)
+    design_file, relative = safe_design_file(worktree, design_path)
+    if (
+        run(
+            ["git", "ls-files", "--error-unmatch", "--", relative],
+            cwd=worktree,
+            check=False,
+        ).returncode
+        != 0
+    ):
+        raise DstackError(f"feature design is not tracked: {relative}")
+    head_digest = git_file_sha256(worktree, relative)
+    if head_digest is None:
+        raise DstackError(f"feature design is not committed at HEAD: {relative}")
+    if file_sha256(design_file) != head_digest:
+        raise DstackError(f"feature design differs from HEAD: {relative}")
+    return head_digest
+
+
 def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
-    design_path = view.get("design_path")
-    if not design_path:
-        raise DstackError("feature root has no dstack.design_path metadata")
-    _, feature_worktree, _ = feature_branch_context(client, view)
-    digest = file_sha256(feature_worktree / str(design_path))
+    digest = approved_design_digest(client, view)
     root_id = str(view["root"]["id"])
 
     specification = client.show(str(view["steps"]["specification"]["id"]))
     approval = client.show(str(view["steps"]["approval"]["id"]))
     gate = human_gate_for_step(client, root_id=root_id, step=approval)
     if not isinstance(gate, dict):
-        raise DstackError("feature has no unique human approval gate")
+        raise DstackError("feature approval task lacks one blocking human gate")
     root = client.show(root_id)
     previous = root_metadata_value(root, "dstack.approved_design_sha256")
     if previous and previous != digest and any(
@@ -512,12 +538,6 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
             "accepted design changed after approval began; explicitly reopen the "
             "specification and approval boundary before reauthorizing"
         )
-    if previous != digest:
-        client.update(
-            root_id,
-            "--set-metadata",
-            f"dstack.approved_design_sha256={digest}",
-        )
 
     if specification.get("status") != "closed" and args.summary_file:
         client.add_comment(str(specification["id"]), read_text_file(args.summary_file))
@@ -525,13 +545,30 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
     gate = resolve_gate_if_needed(client, gate, "Specification approved")
     approval = close_issue_if_needed(client, client.show(str(approval["id"])), "Implementation authorized")
 
+    specification = client.show(str(specification["id"]))
+    gate = client.show(str(gate["id"]))
+    approval = client.show(str(approval["id"]))
+    states = {
+        "specification": specification.get("status"),
+        "human_gate": gate.get("status"),
+        "approval": approval.get("status"),
+    }
+    if any(status != "closed" for status in states.values()):
+        raise DstackError(
+            f"specification approval did not converge: states={states}"
+        )
+
+    if previous != digest:
+        client.update(
+            root_id,
+            "--set-metadata",
+            f"dstack.approved_design_sha256={digest}",
+        )
     observed_root = client.show(root_id)
     specification = client.show(str(specification["id"]))
     gate = client.show(str(gate["id"]))
     approval = client.show(str(approval["id"]))
-    final_digest = root_metadata_value(
-        observed_root, "dstack.approved_design_sha256"
-    )
+    final_digest = root_metadata_value(observed_root, "dstack.approved_design_sha256")
     states = {
         "specification": specification.get("status"),
         "human_gate": gate.get("status"),

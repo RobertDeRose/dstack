@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -224,7 +225,36 @@ External blocker B replaces blocker A.
         )
     )[0]
 
-    run_ctl(acceptance_repo, "feature", "approve-spec", root_id)
+    subprocess.run(["git", "add", "docs"], cwd=worktree, check=True)
+    subprocess.run(
+        [
+            "git",
+            "commit",
+            "-qm",
+            f"docs: accept smoke design\n\nBeads: {created['steps']['specification']['id']}",
+        ],
+        cwd=worktree,
+        check=True,
+    )
+    accepted_design = design.read_text()
+    design.write_text(accepted_design + "uncommitted\n")
+    refused_approval = run_ctl(
+        acceptance_repo,
+        "feature",
+        "approve-spec",
+        root_id,
+        check=False,
+    )
+    assert refused_approval.returncode != 0
+    subprocess.run(["git", "checkout", "--", created["design_path"]], cwd=worktree, check=True)
+    approved = run_ctl(acceptance_repo, "feature", "approve-spec", root_id)
+    head_design = subprocess.run(
+        ["git", "show", f"HEAD:{created['design_path']}"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert approved["approved_design_sha256"] == hashlib.sha256(head_design).hexdigest()
     task = run_ctl(
         acceptance_repo,
         "feature",
@@ -238,7 +268,7 @@ External blocker B replaces blocker A.
     change = worktree / "smoke.py"
     change.write_text("SMOKE = True\n")
     subprocess.run(
-        ["git", "add", "smoke.py", created["design_path"]],
+        ["git", "add", "smoke.py"],
         cwd=worktree,
         check=True,
     )

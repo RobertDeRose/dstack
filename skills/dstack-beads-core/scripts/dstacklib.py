@@ -305,6 +305,26 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def git_file_sha256(root: Path, path: str, ref: str = "HEAD") -> str | None:
+    command = ["git", "cat-file", "blob", f"{ref}:{path}"]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=command_timeout(command),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DstackError(
+            f"command timed out ({' '.join(command)}) in {root}; operation was read-only"
+        ) from exc
+    if completed.returncode != 0:
+        return None
+    return hashlib.sha256(completed.stdout).hexdigest()
+
+
 def read_text_file(path: Path | None) -> str:
     if path is None:
         return ""
@@ -788,7 +808,7 @@ def human_gate_for_step(
     """
 
     step_id = str(step["id"])
-    full_step = client.show(step_id)
+    full_step = step if dependency_records(step) else client.show(step_id)
     candidates: dict[str, dict[str, Any]] = {}
 
     for blocker_id in blocker_ids(full_step):
@@ -797,20 +817,6 @@ def human_gate_for_step(
             continue
         if gate_type(blocker) == "human":
             candidates[str(blocker["id"])] = blocker
-
-    if not candidates:
-        # Compatibility fallback for older or partially hydrated Beads output:
-        # query gates through the native parent filter, which evaluates the
-        # parent-child dependency in Beads instead of requiring a ``parent``
-        # field in ``bd gate list`` output.
-        for gate in client.list(
-            all_statuses=True,
-            parent=root_id,
-            include_gates=True,
-            issue_type_filter="gate",
-        ):
-            if gate_type(gate) == "human":
-                candidates[str(gate["id"])] = gate
 
     return next(iter(candidates.values())) if len(candidates) == 1 else None
 
@@ -857,14 +863,61 @@ def feature_design_state(client: BeadsClient, context: Mapping[str, Any]) -> dic
     design_path = context.get("design_path")
     slug = context.get("slug")
     current: str | None = None
+    head: str | None = None
+    state = "design_state_unknown"
     if design_path and slug:
         worktree = worktree_for_branch(client.root, f"feat/{slug}")
-        design_file = (worktree or client.root) / str(design_path)
-        if design_file.is_file():
-            current = file_sha256(design_file)
+        if worktree is None:
+            state = "worktree_missing"
+        else:
+            design_file = worktree / str(design_path)
+            if not design_file.is_file():
+                state = "design_missing"
+            else:
+                current = file_sha256(design_file)
+                head = git_file_sha256(worktree, str(design_path))
+                if head is None:
+                    state = "untracked"
+                else:
+                    unchanged = (
+                        run(
+                            ["git", "diff", "--quiet", "HEAD", "--", str(design_path)],
+                            cwd=worktree,
+                            check=False,
+                        ).returncode
+                        == 0
+                    )
+                    state = "committed" if unchanged and current == head else "worktree_mismatch"
     return {
         "current_design_sha256": current,
-        "design_approved": bool(approved and current == approved),
+        "head_design_sha256": head,
+        "design_state": state,
+        "design_approved": bool(
+            approved and state == "committed" and current == head == approved
+        ),
+    }
+
+
+def feature_authorization_state(client: BeadsClient, context: Mapping[str, Any]) -> dict[str, Any]:
+    steps = context.get("steps")
+    if not isinstance(steps, Mapping):
+        return {"human_gate": None, "native_approved": False}
+    specification = client.show(str(steps["specification"]["id"]))
+    approval = client.show(str(steps["approval"]["id"]))
+    gate = human_gate_for_step(
+        client,
+        root_id=str(context["root"]["id"]),
+        step=approval,
+    )
+    states = {
+        "specification": specification.get("status"),
+        "human_gate": gate.get("status") if isinstance(gate, Mapping) else None,
+        "approval": approval.get("status"),
+    }
+    return {
+        "human_gate": gate,
+        "authorization_states": states,
+        "native_approved": all(status == "closed" for status in states.values()),
     }
 
 
@@ -880,17 +933,12 @@ def feature_view(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     work_items = [
         item
         for item in client.children(implementation_id)
-        if has_label(item, "dstack:work:implementation")
-        or issue_type(item) not in {"epic", "molecule", "gate"}
+        if has_label(item, "dstack:work:implementation") or issue_type(item) not in {"epic", "molecule", "gate"}
     ]
     result.update(feature_design_state(client, result))
+    result.update(feature_authorization_state(client, result))
     result.update(
         {
-            "human_gate": human_gate_for_step(
-                client,
-                root_id=root_id,
-                step=steps["approval"],
-            ),
             "work_items": work_items,
             "ready_work": client.ready_children(implementation_id, label="dstack:work:implementation"),
             "progress": client.progress(root_id),

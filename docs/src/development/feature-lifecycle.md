@@ -32,8 +32,9 @@ implementation outcomes with observable acceptance and real native
 dependencies. It commits only actual repository changes using the specification
 Bead footer, reviews the complete design and graph, and asks for explicit human
 authorization. Invocation alone is not approval. After authorization, the
-controller records the design-content digest, resolves the human gate, and
-closes the approval milestone idempotently.
+controller requires a clean conventional worktree and tracked design identical
+to the candidate `HEAD`, converges the exact specification, blocking human gate,
+and approval milestone, then records the committed design-content digest last.
 
 Re-review reconciles the complete native graph rather than only adding work:
 valid tasks are reused, obsolete tasks are closed or superseded, and stale
