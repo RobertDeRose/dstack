@@ -7,15 +7,18 @@ description: "Install and validate dStack formula source, with explicit isolated
 
 Invoking this command authorizes Beads initialization in the current Git repository.
 
-Run the bundled installer:
+Run the read-only plan, review its exact preconditions and changes, then apply from freshly recomputed authority state:
 
 ```bash
 python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
-  install --root . --init
+  plan --root . --init
+python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
+  apply --root . --init --plan-digest "<plan_sha256>"
 ```
 
-Append `--force` only when the user explicitly supplied it. When `--force` was
-requested, the installer first migrates mechanically identifiable legacy book
+Replace `<plan_sha256>` with the digest emitted by the reviewed plan. Append
+`--force` to both commands only when the user explicitly supplied it.
+When `--force` was requested, apply first migrates mechanically identifiable legacy book
 content into `docs/src`, then completes the non-destructive documentation
 foundation/navigation, performs the remaining isolated compatibility repair,
 and finally runs strict documentation validation. Do not invoke repair a second

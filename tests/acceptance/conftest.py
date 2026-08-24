@@ -78,8 +78,23 @@ def beads_repo(real_repo: Path) -> Path:
 
 @pytest.fixture
 def acceptance_repo(real_repo: Path) -> Path:
+    planned = run_command(
+        ["python3", "-S", str(SETUP), "plan", "--root", str(real_repo), "--init"],
+        cwd=real_repo,
+    )
+    digest = json.loads(planned.stdout)["plan_sha256"]
     run_command(
-        ["python3", "-S", str(SETUP), "install", "--root", str(real_repo), "--init"],
+        [
+            "python3",
+            "-S",
+            str(SETUP),
+            "apply",
+            "--root",
+            str(real_repo),
+            "--init",
+            "--plan-digest",
+            digest,
+        ],
         cwd=real_repo,
     )
     run_command(["git", "add", "-A"], cwd=real_repo)

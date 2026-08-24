@@ -1,5 +1,16 @@
 # Testing dStack
 
+## Setup diagnostics
+
+Setup first emits a stateless plan with an authority-state digest. Apply requires that reviewed digest, recomputes the
+plan after a clean-worktree preflight, and refuses changed preconditions. Formula writes use atomic replacement;
+failures compensate setup-owned resources where possible and report observed recovery for boundaries that require
+inspection.
+
+Doctor reports independent, actionable checks for pinned Beads and mdBook versions, formula bytes and validity,
+documentation, interaction-log policy, feature reconciliations, Git worktrees, tracked runtime paths, origin/GitHub
+prerequisites, and pending compatibility migration.
+
 ## Documentation
 
 The tested mdBook release is pinned through mise. Validate required pages, chapter navigation, local links, orphan

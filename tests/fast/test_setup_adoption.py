@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import dstack_commands
 import dstack_compat
 import setup
 from dstack_commands import DstackError
-from dstacklib import FEATURE_STEPS
+from dstacklib import CommandResult, FEATURE_STEPS
 
 from scripted import ScriptedClient, call
 
@@ -72,6 +73,276 @@ def test_adoption_rejects_multiple_current_slug_matches(tmp_path: Path, monkeypa
 def test_setup_without_authorization_refuses_to_initialize(tmp_path: Path) -> None:
     with pytest.raises(setup.SetupError, match="not initialized"):
         setup.ensure_beads(tmp_path, initialize=False)
+
+
+def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    real_run = setup.run
+    monkeypatch.setattr(
+        setup,
+        "run",
+        lambda command, **kwargs: CommandResult(0, "", "")
+        if command[:3] == ["git", "status", "--porcelain"]
+        else real_run(command, **kwargs),
+    )
+
+    first = setup.setup_plan(tmp_path, initialize=True, force=False)
+    second = setup.setup_plan(tmp_path, initialize=True, force=False)
+
+    assert first == second
+    assert first["status"] == "ready"
+    assert {item["action"] for item in first["filesystem"]} == {"create"}
+    assert not (tmp_path / ".beads").exists()
+    assert not (tmp_path / "docs").exists()
+
+
+def test_setup_apply_refuses_dirty_preconditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "dirty.txt").write_text("dirty\n")
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(
+        setup,
+        "setup_plan",
+        lambda *args, **kwargs: pytest.fail("dirty apply reached planning"),
+    )
+    with pytest.raises(DstackError, match="worktree changes"):
+        setup.apply_setup(tmp_path, initialize=True, force=False)
+    assert not (tmp_path / ".beads").exists()
+
+
+def test_setup_apply_refuses_changed_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
+    monkeypatch.setattr(
+        setup,
+        "setup_plan",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "plan_sha256": "new",
+            "preconditions": {"blocked": []},
+            "filesystem": [],
+        },
+    )
+    monkeypatch.setattr(
+        setup,
+        "install",
+        lambda *args, **kwargs: pytest.fail("changed plan reached mutation"),
+    )
+    with pytest.raises(setup.SetupError, match="authority state changed"):
+        setup.apply_setup(
+            tmp_path,
+            initialize=True,
+            force=False,
+            expected_plan_sha256="old",
+        )
+
+
+def test_setup_apply_cleans_internally_created_beads_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(
+        setup,
+        "setup_plan",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "preconditions": {"blocked": []},
+            "filesystem": [{"path": "docs/src/index.md", "action": "create"}],
+        },
+    )
+
+    def fail_install(*args, **kwargs):
+        (tmp_path / ".beads").mkdir()
+        created = tmp_path / "docs/src/index.md"
+        created.parent.mkdir(parents=True)
+        created.write_text("partial\n")
+        raise setup.SetupError("injected failure")
+
+    monkeypatch.setattr(setup, "install", fail_install)
+    monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
+    with pytest.raises(setup.SetupError, match="removed internally created"):
+        setup.apply_setup(tmp_path, initialize=True, force=False)
+    assert not (tmp_path / ".beads").exists()
+    assert not (tmp_path / "docs/src/index.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("remote_url", "network_failure"),
+    [(None, "remote"), ("git@github.com:owner/repo.git", "github")],
+)
+def test_doctor_reports_all_actionable_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    remote_url: str | None,
+    network_failure: str,
+) -> None:
+    (tmp_path / ".beads").mkdir()
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+
+    class Client:
+        def check_version(self):
+            raise DstackError("wrong Beads build")
+
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(
+        setup,
+        "validate_docs",
+        lambda root: (_ for _ in ()).throw(DstackError("bad docs")),
+    )
+    monkeypatch.setattr(setup, "tracked", lambda *args: True)
+    monkeypatch.setattr(
+        setup,
+        "missing_feature_reconciliations",
+        lambda client: ["missing/index.md"],
+    )
+    monkeypatch.setattr(
+        setup,
+        "worktree_records",
+        lambda root: [{"worktree": "/missing", "prunable": True}],
+    )
+    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [{"id": "legacy"}])
+    monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        setup,
+        "legacy_documentation_plan",
+        lambda root: {
+            "configured_source_moves": [],
+            "referenced_content_moves": [],
+            "unresolved_outside_markdown": [],
+        },
+    )
+
+    def fake_run(command, **kwargs):
+        if command[:2] == ["mdbook", "--version"]:
+            return CommandResult(0, "mdbook v9\n", "")
+        if command[:3] == ["git", "remote", "get-url"]:
+            return CommandResult(
+                0 if remote_url else 1,
+                f"{remote_url}\n" if remote_url else "",
+                "" if remote_url else "missing",
+            )
+        if command[:3] == ["gh", "auth", "status"]:
+            return CommandResult(1, "", "not authenticated")
+        if command[:3] == ["git", "ls-files", ".beads"]:
+            return CommandResult(0, ".beads/interactions.jsonl\n", "")
+        return CommandResult(0, "", "")
+
+    monkeypatch.setattr(setup, "run", fake_run)
+    result = setup.doctor(tmp_path)
+
+    assert result["status"] == "error"
+    assert set(result["failed"]) == {
+        "beads_version",
+        "mdbook_version",
+        "formula:dstack-feature",
+        "formula:dstack-project-alignment",
+        "documentation",
+        "interaction_policy",
+        "feature_reconciliations",
+        "worktrees",
+        "runtime_paths",
+        network_failure,
+        "migration",
+    }
+    assert all(result["checks"][name]["recovery"] for name in result["failed"])
+
+
+def test_setup_apply_is_retry_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    package = tmp_path / "package"
+    formulas = package / "formulas"
+    formulas.mkdir(parents=True)
+    for name in setup.FORMULA_NAMES:
+        (formulas / f"{name}.formula.toml").write_text(name)
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "package_root", lambda: package)
+    monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
+    monkeypatch.setattr(
+        setup,
+        "setup_plan",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "preconditions": {"blocked": []},
+            "filesystem": [],
+        },
+    )
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+
+    def fake_install(*args, **kwargs):
+        destination = tmp_path / ".beads/formulas"
+        destination.mkdir(parents=True, exist_ok=True)
+        for name in setup.FORMULA_NAMES:
+            (destination / f"{name}.formula.toml").write_text(name)
+        ignore = tmp_path / ".beads/.gitignore"
+        ignore.write_text("interactions.jsonl\n")
+        return {"status": "ok"}
+
+    monkeypatch.setattr(setup, "install", fake_install)
+    assert setup.apply_setup(tmp_path, initialize=True, force=False)["status"] == "ok"
+    assert setup.apply_setup(tmp_path, initialize=True, force=False)["status"] == "ok"
+
+
+def test_doctor_passes_healthy_supported_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "package"
+    source = package / "formulas"
+    installed = tmp_path / ".beads/formulas"
+    source.mkdir(parents=True)
+    installed.mkdir(parents=True)
+    for name in setup.FORMULA_NAMES:
+        (source / f"{name}.formula.toml").write_text(name)
+        (installed / f"{name}.formula.toml").write_text(name)
+    (tmp_path / ".beads/.gitignore").write_text("interactions.jsonl\n")
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "package_root", lambda: package)
+
+    class Client:
+        def check_version(self):
+            return "bd version 1.2.2 (6c124203e)"
+
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(setup, "validate_formula", lambda *args: None)
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+    monkeypatch.setattr(setup, "tracked", lambda *args: False)
+    monkeypatch.setattr(setup, "missing_feature_reconciliations", lambda client: [])
+    monkeypatch.setattr(setup, "worktree_records", lambda root: [])
+    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [])
+    monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        setup,
+        "legacy_documentation_plan",
+        lambda root: {
+            "configured_source_moves": [],
+            "referenced_content_moves": [],
+            "unresolved_outside_markdown": [],
+        },
+    )
+
+    def fake_run(command, **kwargs):
+        if command[:2] == ["mdbook", "--version"]:
+            return CommandResult(0, "mdbook v0.5.3\n", "")
+        if command[:3] == ["git", "remote", "get-url"]:
+            return CommandResult(0, "/tmp/origin.git\n", "")
+        if command[:3] == ["git", "ls-files", ".beads"]:
+            return CommandResult(0, "", "")
+        return CommandResult(0, "", "")
+
+    monkeypatch.setattr(setup, "run", fake_run)
+    result = setup.doctor(tmp_path)
+    assert result["status"] == "ok"
+    assert result["failed"] == []
 
 
 def test_install_initializes_and_reports_canonical_documentation(
