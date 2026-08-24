@@ -213,7 +213,9 @@ def test_git_commit_amend_and_evidence_commands_use_real_git(git_repo: Path, mon
     assert outputs[-1]["commits"][0]["subject"] == "feat: revise value"
 
 
-def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(monkeypatch, tmp_path: Path) -> None:
+def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(
+    monkeypatch, tmp_path: Path
+) -> None:
     context = {
         "root": {"id": "feature-1"},
         "steps": {"implementation": {"id": "implementation-1"}},
@@ -256,7 +258,9 @@ def test_alignment_delivery_context_excludes_structural_children(monkeypatch, tm
             ],
         ),
     )
-    monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context.copy())
+    monkeypatch.setattr(
+        dstack_delivery, "alignment_context", lambda client, selector: context.copy()
+    )
     observed = dstack_delivery.alignment_delivery_context(beads, "alignment-1")
     assert observed["corrections"] == [correction]
     beads.assert_exhausted()
@@ -318,7 +322,9 @@ def test_evidence_audit_command_returns_controller_owned_result(monkeypatch, tmp
     assert outputs == [{"status": "ok", "missing": []}]
 
 
-def test_delivery_inspect_and_preflight_validate_observed_candidate(monkeypatch, tmp_path: Path) -> None:
+def test_delivery_inspect_and_preflight_validate_observed_candidate(
+    monkeypatch, tmp_path: Path
+) -> None:
     beads = ScriptedClient(tmp_path)
     candidate = payload(
         root={"id": "feature-1"},
@@ -574,7 +580,84 @@ def test_replace_pr_gate_repairs_conflicting_closed_gate(monkeypatch, tmp_path: 
     beads.assert_exhausted()
 
 
-def test_delivery_merge_checks_post_delivery_git_invariant(monkeypatch, tmp_path: Path) -> None:
+def test_cancel_pr_gate_replaces_blocker_with_native_relation(monkeypatch, tmp_path: Path) -> None:
+    gate = {
+        "id": "gate-1",
+        "status": "open",
+        "await_type": "gh:pr",
+        "await_id": "42",
+        "dependencies": [],
+    }
+    closed_gate = {**gate, "status": "closed", "close_reason": "direct delivery"}
+    blocking_root = {
+        "id": "feature-1",
+        "dependencies": [{"type": "blocks", "depends_on_id": "gate-1"}],
+    }
+    related_root = {
+        "id": "feature-1",
+        "dependencies": [{"type": "relates-to", "depends_on_id": "gate-1"}],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "feature-1", result=blocking_root),
+        call("gates", all_statuses=True, result=[gate]),
+        call("show", "gate-1", result=gate),
+        call("resolve_gate", "gate-1", "Cancel PR gate: direct delivery", result=closed_gate),
+        call("remove_dependency", "feature-1", "gate-1", result=None),
+        call("relate", "feature-1", "gate-1", result=None),
+        call("show", "feature-1", result=related_root),
+        call("gates", all_statuses=True, result=[closed_gate]),
+        call("show", "gate-1", result=closed_gate),
+        call("show", "feature-1", result=related_root),
+    )
+    candidate = payload(root={"id": "feature-1"})
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
+    output = []
+    monkeypatch.setattr(dstack_delivery, "emit", output.append)
+
+    assert (
+        dstack_delivery.cmd_delivery_cancel_pr_gate(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="feature-1",
+                reason="direct delivery",
+            )
+        )
+        == 0
+    )
+    assert output[0]["gate"] == closed_gate
+    beads.assert_exhausted()
+
+
+@pytest.mark.parametrize("status", ["open", "closed"])
+def test_delivery_merge_refuses_active_pr_gate_before_git_mutation(monkeypatch, tmp_path: Path, status: str) -> None:
+    gate = {"id": "gate-1", "status": status, "await_type": "gh:pr"}
+    beads = ScriptedClient(tmp_path)
+    candidate = payload(
+        root={"id": "feature-1"},
+        candidate_worktree=str(tmp_path / "candidate"),
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "pr_gate_state",
+        lambda *args: {"all": [gate], "active": [gate]},
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "ensure_clean_worktree",
+        lambda *args: pytest.fail("Git preflight ran with an active PR gate"),
+    )
+
+    with pytest.raises(DstackError, match="active PR gate"):
+        dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1"))
+
+
+def test_delivery_merge_checks_post_delivery_git_invariant(
+    monkeypatch, tmp_path: Path
+) -> None:
     target = tmp_path / "target"
     candidate = tmp_path / "candidate"
     target.mkdir()
@@ -597,6 +680,11 @@ def test_delivery_merge_checks_post_delivery_git_invariant(monkeypatch, tmp_path
     )
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "pr_gate_state",
+        lambda *args: {"all": [], "active": []},
+    )
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
     heads = iter(["target-head", "candidate-head", "candidate-head"])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
@@ -647,6 +735,11 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
     )
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "pr_gate_state",
+        lambda *args: {"all": [], "active": []},
+    )
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
     heads = iter(["target-head", "candidate-head", after_head])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
@@ -660,6 +753,46 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
     with pytest.raises(DstackError, match="delivery completed but Beads finalization changed Git state"):
         dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1"))
     beads.assert_exhausted()
+
+
+@pytest.mark.parametrize("root_status", ["open", "closed"])
+def test_finalization_close_failure_reports_partial_delivery(monkeypatch, tmp_path: Path, root_status: str) -> None:
+    beads = ScriptedClient(tmp_path)
+
+    def fail_close(*args):
+        raise DstackError("storage unavailable")
+
+    beads.close = fail_close
+    beads.show = lambda issue_id: {"id": issue_id, "status": root_status}
+    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: "delivered")
+    monkeypatch.setattr(
+        dstack_delivery,
+        "run",
+        lambda *args, **kwargs: CommandResult(0, "", ""),
+    )
+
+    with pytest.raises(DstackError) as failure:
+        dstack_delivery.finalize_beads_without_git_mutation(
+            beads,
+            root_id="feature-1",
+            worktree=tmp_path,
+            reason="Delivered",
+            expected_head="delivered",
+            delivered_target_head="delivered",
+            before_status="",
+            previous_target_head="previous",
+        )
+    message = str(failure.value)
+    for fact in (
+        "delivery_completed=true",
+        "previous_target_head=previous",
+        "delivered_target_head=delivered",
+        "observed_target_head=delivered",
+        f"root_status={root_status}",
+        "finalization_error=storage unavailable",
+        "mutation_uncertain=true",
+    ):
+        assert fact in message
 
 
 def test_finalize_pr_waits_without_closing_root(monkeypatch, tmp_path: Path) -> None:
@@ -804,7 +937,7 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
     ) as raised:
         dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1"))
     assert "previous_target_head=previous-target" in str(raised.value)
-    assert "delivered_head=remote-delivered-head" in str(raised.value)
+    assert "delivered_target_head=remote-delivered-head" in str(raised.value)
     beads.assert_exhausted()
 
 
@@ -814,7 +947,9 @@ def test_delivery_target_worktree_is_temporary_when_branch_is_not_checked_out(
     subprocess.run(["git", "branch", "release"], cwd=git_repo, check=True)
     assert dstack_delivery.worktree_for_branch(git_repo, "release") is None
 
-    with dstack_delivery.delivery_target_worktree(git_repo, "release", None) as target_worktree:
+    with dstack_delivery.delivery_target_worktree(
+        git_repo, "release", None
+    ) as target_worktree:
         assert target_worktree.is_dir()
         branch = subprocess.run(
             ["git", "branch", "--show-current"],
@@ -846,7 +981,8 @@ def test_temporary_delivery_worktree_preserves_primary_failure_when_cleanup_fail
             raise DstackError("primary delivery failure")
 
     assert any(
-        "failed to remove temporary delivery worktree" in note for note in getattr(raised.value, "__notes__", [])
+        "failed to remove temporary delivery worktree" in note
+        for note in getattr(raised.value, "__notes__", [])
     )
     assert calls[0][:3] == ("git", "worktree", "add")
     assert calls[-1][:3] == ("git", "worktree", "remove")

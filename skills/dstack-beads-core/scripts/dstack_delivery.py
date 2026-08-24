@@ -27,7 +27,6 @@ from dstacklib import (
     dependency_records,
     ensure_clean_worktree,
     feature_authorization_state,
-    branch_exists,
     feature_context,
     feature_design_state,
     git_root,
@@ -41,10 +40,8 @@ from dstacklib import (
     validate_git_revision,
     verify_worktree_identity,
     worktree_for_branch,
-    worktree_records,
 )
 
-from dstack_alignment_plan import canonical_description
 from dstack_docs import validate_docs
 from dstack_commands import (
     BEADS_RUNTIME_DIR_PREFIXES,
@@ -165,30 +162,6 @@ def cmd_evidence_commits(args: argparse.Namespace) -> int:
     return 0
 
 
-def footer_cardinality(
-    mapping: Mapping[str, Sequence[Mapping[str, Any]]],
-    expected: set[str],
-) -> tuple[dict[str, list[Mapping[str, Any]]], list[str]]:
-    multiple: dict[str, list[Mapping[str, Any]]] = {}
-    malformed: list[str] = []
-    for bead_id in sorted(expected):
-        distinct: list[Mapping[str, Any]] = []
-        seen: set[str] = set()
-        repeated = False
-        for record in mapping.get(bead_id, []):
-            commit = str(record.get("commit") or "")
-            if commit in seen:
-                repeated = True
-            else:
-                seen.add(commit)
-                distinct.append(record)
-        if repeated:
-            malformed.append(bead_id)
-        if len(distinct) > 1:
-            multiple[bead_id] = distinct
-    return multiple, malformed
-
-
 def evidence_audit(
     client: BeadsClient,
     *,
@@ -208,16 +181,19 @@ def evidence_audit(
     expected = {str(item["id"]) for item in closed if str(item["id"]) not in no_repository_change}
     allowed = expected | {str(item) for item in allowed_ids}
     missing = sorted(item for item in expected if not mapping.get(item))
-    multiple, malformed = footer_cardinality(mapping, expected)
+    duplicate = {
+        key: value
+        for key, value in mapping.items()
+        if key in expected and len(value) > 1
+    }
     unexpected = sorted(key for key in mapping if key not in allowed)
     orphaned = sorted(bead_id for bead_id in unexpected if client.show_optional(bead_id) is None)
     return {
-        "status": "ok" if not missing and not unexpected and not malformed else "issues",
+        "status": "ok" if not missing and not unexpected else "issues",
         "range": f"{base}..{branch}",
         "missing": missing,
         "no_repository_change": no_repository_change,
-        "multiple_commits": multiple,
-        "malformed_footer_ids": malformed,
+        "multiple_commits": duplicate,
         "unexpected_footer_ids": unexpected,
         "orphaned_footer_ids": orphaned,
         "mapping": {key: value for key, value in mapping.items() if key in expected},
@@ -239,8 +215,6 @@ def feature_delivery_context(client: BeadsClient, selector: str) -> dict[str, An
 
 def alignment_delivery_context(client: BeadsClient, selector: str) -> dict[str, Any]:
     view = alignment_context(client, selector)
-    plan, _, _ = canonical_description(client.show(str(view["steps"]["analysis"]["id"])))
-    view["baseline_commit"] = str(plan["baseline_commit"])
     view["corrections"] = [
         item
         for item in client.children(str(view["steps"]["corrections"]["id"]))
@@ -249,162 +223,11 @@ def alignment_delivery_context(client: BeadsClient, selector: str) -> dict[str, 
     return view
 
 
-def immutable_candidate_revision(root: Path, search_ref: str, closeout_id: str) -> str:
-    """Derive one closeout-footer commit without persisting a Git mapping."""
-
-    validate_git_revision(root, search_ref, name="candidate search ref")
-    matches = commit_footer_ids(root, search_ref).get(closeout_id, [])
-    if len(matches) != 1:
-        count = len(matches)
-        raise DstackError(
-            f"immutable candidate revision is ambiguous for {closeout_id} on "
-            f"{search_ref}: expected exactly one closeout footer, found {count}"
-        )
-    return str(matches[0]["commit"])
-
-
-def require_candidate_head(root: Path, search_ref: str, closeout_id: str, candidate_head: str) -> str:
-    revision = immutable_candidate_revision(root, search_ref, closeout_id)
-    if revision != candidate_head:
-        raise DstackError(
-            "candidate HEAD is not the unique closeout-footer revision; "
-            f"candidate_head={candidate_head}, closeout_revision={revision}"
-        )
-    return revision
-
-
-def delivered_candidate_revision(root: Path, target: str, closeout_id: str) -> tuple[str, str]:
-    refs = [target]
-    remote = f"origin/{target}"
-    if ref_exists(root, remote):
-        refs.append(remote)
-    found: list[tuple[str, str]] = []
-    for ref in refs:
-        matches = commit_footer_ids(root, ref).get(closeout_id, [])
-        commits = {str(item["commit"]) for item in matches}
-        if len(commits) > 1:
-            raise DstackError(
-                f"immutable candidate revision is ambiguous for {closeout_id} on {ref}: found {len(commits)} commits"
-            )
-        if commits:
-            found.append((ref, commits.pop()))
-    revisions = {revision for _, revision in found}
-    if len(revisions) != 1:
-        detail = ", ".join(f"{ref}={revision}" for ref, revision in found) or "none"
-        raise DstackError(f"immutable candidate revision is unavailable or inconsistent for {closeout_id}: {detail}")
-    revision = revisions.pop()
-    search_ref = next(ref for ref, value in found if value == revision)
-    return search_ref, revision
-
-
-def _require_linear_alignment_candidate(root: Path, baseline: str, candidate: str) -> None:
-    if not ancestry(root, baseline, candidate):
-        raise DstackError(
-            f"alignment candidate is not descended from baseline_commit; baseline={baseline}, candidate={candidate}"
-        )
-    merges = run(
-        ["git", "rev-list", "--merges", f"{baseline}..{candidate}"],
-        cwd=root,
-    ).stdout.splitlines()
-    if merges:
-        raise DstackError("alignment candidate evidence is nonlinear: " + ", ".join(merges))
-
-
-def alignment_candidate_revision(
-    root: Path,
-    search_ref: str,
-    view: Mapping[str, Any],
-    *,
-    allow_unavailable: bool = False,
-) -> tuple[str, str] | None:
-    """Derive an alignment candidate from reachable native Git evidence."""
-
-    validate_git_revision(root, search_ref, name="alignment candidate search ref")
-    baseline = str(view.get("baseline_commit") or "")
-    validate_git_revision(root, baseline, name="alignment baseline_commit")
-    if not ancestry(root, baseline, search_ref):
-        raise DstackError(
-            "alignment baseline_commit is not reachable from the candidate search ref; "
-            f"baseline={baseline}, search_ref={search_ref}"
-        )
-
-    landing = view["steps"]["landing"]
-    landing_id = str(landing["id"])
-    mapping = commit_footer_ids(root, search_ref)
-    landing_records = mapping.get(landing_id, [])
-    landing_commits = {str(record["commit"]) for record in landing_records}
-    if len(landing_records) != len(landing_commits) or len(landing_commits) > 1:
-        raise DstackError(f"alignment candidate evidence is ambiguous for landing {landing_id} on {search_ref}")
-    if landing_commits:
-        candidate = landing_commits.pop()
-        _require_linear_alignment_candidate(root, baseline, candidate)
-        return candidate, "unique reachable landing Beads footer"
-
-    corrections = list(view["corrections"])
-    open_ids = sorted(str(item["id"]) for item in corrections if item.get("status") != "closed")
-    if open_ids:
-        raise DstackError("alignment candidate evidence has nonterminal corrections: " + ", ".join(open_ids))
-    changing = [
-        item for item in corrections if not str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
-    ]
-    missing = sorted(str(item["id"]) for item in changing if not mapping.get(str(item["id"])))
-    if missing:
-        if allow_unavailable:
-            return None
-        raise DstackError(
-            "alignment candidate revision is unavailable; missing correction evidence: " + ", ".join(missing)
-        )
-    if changing:
-        expected = {str(item["id"]) for item in changing}
-        _, malformed = footer_cardinality(mapping, expected)
-        if malformed:
-            raise DstackError("alignment correction evidence is ambiguous: " + ", ".join(malformed))
-        commits = {str(record["commit"]) for correction_id in expected for record in mapping[correction_id]}
-        outside_baseline = sorted(commit for commit in commits if not ancestry(root, baseline, commit))
-        if outside_baseline:
-            raise DstackError("alignment correction evidence predates baseline_commit: " + ", ".join(outside_baseline))
-        latest = [candidate for candidate in commits if all(ancestry(root, other, candidate) for other in commits)]
-        if len(latest) != 1:
-            raise DstackError("alignment correction evidence is nonlinear or ambiguous")
-        candidate = latest[0]
-        _require_linear_alignment_candidate(root, baseline, candidate)
-        return candidate, "latest reachable correction Beads footer"
-
-    return baseline, "canonical alignment plan baseline_commit"
-
-
-def delivered_alignment_candidate_revision(root: Path, target: str, view: Mapping[str, Any]) -> tuple[str, str, str]:
-    refs = [target]
-    remote = f"origin/{target}"
-    if ref_exists(root, remote):
-        refs.append(remote)
-    found: list[tuple[str, str, str]] = []
-    for ref in refs:
-        derived = alignment_candidate_revision(root, ref, view, allow_unavailable=True)
-        if derived is not None:
-            found.append((ref, *derived))
-    revisions = {candidate for _, candidate, _ in found}
-    if len(revisions) != 1:
-        if not found:
-            alignment_candidate_revision(root, target, view)
-        detail = ", ".join(f"{ref}={candidate}" for ref, candidate, _ in found)
-        raise DstackError("alignment candidate revision is unavailable or inconsistent: " + detail)
-    candidate = revisions.pop()
-    search_ref, _, derivation = next(item for item in found if item[1] == candidate)
-    return search_ref, candidate, derivation
-
-
-def feature_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
+def feature_evidence_audit(
+    client: BeadsClient, view: Mapping[str, Any]
+) -> dict[str, Any]:
     branch, worktree, base = feature_branch_context(client, view)
     steps = view["steps"]
-    candidate_revision: str | None = None
-    if view["steps"]["closeout"].get("status") == "closed":
-        candidate_revision = require_candidate_head(
-            client.root,
-            branch,
-            str(steps["closeout"]["id"]),
-            current_head(worktree),
-        )
     audit = evidence_audit(
         client,
         worktree=worktree,
@@ -416,103 +239,12 @@ def feature_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict
             str(steps["closeout"]["id"]),
         ],
     )
-    result = {"feature": view["root"]["id"], **audit}
-    if candidate_revision is not None:
-        result.update(
-            {
-                "search_ref": branch,
-                "candidate_revision": candidate_revision,
-                "derivation": "unique reachable closeout Beads footer",
-                "candidate_head": candidate_revision,
-                "evidence_source": candidate_revision,
-            }
-        )
-    return result
+    return {"feature": view["root"]["id"], **audit}
 
 
-def _delivered_evidence_audit(client: BeadsClient, view: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
-    if kind == "feature":
-        target = str(view.get("base_branch") or "")
-        terminal = "closeout"
-        initial = "specification"
-        tasks = view["work_items"]
-        branch = f"feat/{view['slug']}"
-    else:
-        target = str(view.get("target_branch") or "")
-        terminal = "landing"
-        initial = None
-        tasks = view["corrections"]
-        branch = f"audit/{view['slug']}"
-    if not target or not ref_exists(client.root, target):
-        raise DstackError(f"delivered {kind} target ref is unavailable: {target!r}")
-
-    steps = view["steps"]
-    terminal_id = str(steps[terminal]["id"])
-    closed = [item for item in tasks if item.get("status") == "closed"]
-    no_repository_change = sorted(
-        str(item["id"])
-        for item in closed
-        if str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
-    )
-    expected = {str(item["id"]) for item in closed if str(item["id"]) not in no_repository_change}
-    if kind == "feature":
-        search_ref, candidate = delivered_candidate_revision(client.root, target, terminal_id)
-        derivation = "unique reachable closeout Beads footer"
-        expected.add(terminal_id)
-        if initial:
-            expected.add(str(steps[initial]["id"]))
-    else:
-        search_ref, candidate, derivation = delivered_alignment_candidate_revision(client.root, target, view)
-        if derivation == "unique reachable landing Beads footer":
-            expected.add(terminal_id)
-        elif str(steps[terminal].get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX):
-            no_repository_change.append(terminal_id)
-            no_repository_change.sort()
-    reachable = commit_footer_ids(client.root, candidate)
-    missing = sorted(item for item in expected if not reachable.get(item))
-    mapping = {item: reachable[item] for item in sorted(expected) if reachable.get(item)}
-    multiple, malformed = footer_cardinality(reachable, expected)
-    target_reachable = commit_footer_ids(client.root, search_ref)
-    candidate_commits = {item: {str(record["commit"]) for record in reachable.get(item, [])} for item in expected}
-    wrong_source = sorted(
-        item
-        for item in expected
-        if any(str(record["commit"]) not in candidate_commits[item] for record in target_reachable.get(item, []))
-    )
-    present = branch_exists(client.root, branch)
-    result = {
-        kind: view["root"]["id"],
-        "status": "ok" if not missing and not malformed and not wrong_source else "issues",
-        "source": "delivered-target",
-        "search_ref": search_ref,
-        "target_ref": target,
-        "candidate_revision": candidate,
-        "derivation": derivation,
-        "candidate_branch": branch,
-        "candidate_branch_present": present,
-        "worktree_present": worktree_for_branch(client.root, branch) is not None,
-        "evidence_source": candidate,
-        "missing": missing,
-        "no_repository_change": no_repository_change,
-        "multiple_commits": multiple,
-        "malformed_footer_ids": malformed,
-        "wrong_source_footer_ids": wrong_source,
-        "mapping": mapping,
-    }
-    if kind == "feature":
-        result.update({"feature_branch": branch, "feature_branch_present": present})
-    return result
-
-
-def delivered_feature_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
-    return _delivered_evidence_audit(client, view, kind="feature")
-
-
-def delivered_alignment_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
-    return _delivered_evidence_audit(client, view, kind="alignment")
-
-
-def alignment_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
+def alignment_evidence_audit(
+    client: BeadsClient, view: Mapping[str, Any]
+) -> dict[str, Any]:
     slug = str(view["slug"] or "")
     branch = f"audit/{slug}"
     base = str(view["target_branch"] or "")
@@ -531,28 +263,7 @@ def alignment_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> di
             str(steps["landing"]["id"]),
         ],
     )
-    result = {"alignment": view["root"]["id"], **audit}
-    if steps["landing"].get("status") == "closed":
-        derived = alignment_candidate_revision(client.root, branch, view)
-        if derived is None:
-            raise DstackError("alignment candidate revision is unavailable")
-        candidate, derivation = derived
-        head = current_head(worktree)
-        if candidate != head:
-            raise DstackError(
-                "alignment candidate HEAD does not match immutable evidence; "
-                f"candidate_head={head}, candidate_revision={candidate}"
-            )
-        result.update(
-            {
-                "search_ref": branch,
-                "candidate_revision": candidate,
-                "derivation": derivation,
-                "candidate_head": head,
-                "evidence_source": candidate,
-            }
-        )
-    return result
+    return {"alignment": view["root"]["id"], **audit}
 
 
 def cmd_evidence_audit_feature(args: argparse.Namespace) -> int:
@@ -663,38 +374,33 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
     validate_git_branch(client.root, branch, name="candidate branch")
     validate_git_revision(client.root, target, name="target branch")
     validate_git_revision(client.root, branch, name="candidate branch")
-    candidate_worktree = worktree_for_branch(client.root, branch)
-    if candidate_worktree is None:
-        raise DstackError(f"no worktree found for {branch}")
-    candidate_worktree = verify_worktree_identity(client.root, candidate_worktree, branch)
-    candidate = current_head(candidate_worktree)
     if kind == "feature":
         require_approved_design(view)
-        require_candidate_head(
-            client.root,
-            branch,
-            str(view["steps"]["closeout"]["id"]),
-            candidate,
-        )
         evidence = feature_evidence_audit(client, view)
     else:
         evidence = alignment_evidence_audit(client, view)
     if evidence["status"] != "ok":
         details = []
-        for key in (
-            "missing",
-            "malformed_footer_ids",
-            "wrong_source_footer_ids",
-            "unexpected_footer_ids",
-            "orphaned_footer_ids",
-        ):
+        for key in ("missing", "unexpected_footer_ids", "orphaned_footer_ids"):
             values = evidence.get(key) or []
             if values:
                 details.append(f"{key}={','.join(str(value) for value in values)}")
-        raise DstackError(f"{kind} delivery evidence audit failed" + (": " + "; ".join(details) if details else ""))
+        raise DstackError(
+            f"{kind} delivery evidence audit failed"
+            + (": " + "; ".join(details) if details else "")
+        )
+    candidate_worktree = worktree_for_branch(client.root, branch)
+    if candidate_worktree is None:
+        raise DstackError(f"no worktree found for {branch}")
+    candidate_worktree = verify_worktree_identity(
+        client.root, candidate_worktree, branch
+    )
     target_worktree = worktree_for_branch(client.root, target)
     if target_worktree is not None:
-        target_worktree = verify_worktree_identity(client.root, target_worktree, target, conventional=False)
+        target_worktree = verify_worktree_identity(
+            client.root, target_worktree, target, conventional=False
+        )
+    candidate = current_head(candidate_worktree)
     target_head = current_head(client.root, target)
     remote_ref = f"origin/{target}"
     remote_head = current_head(client.root, remote_ref) if ref_exists(client.root, remote_ref) else None
@@ -722,11 +428,9 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
         "slug": slug,
         "target_branch": target,
         "candidate_branch": branch,
-        "closeout_id": str(terminal["id"]) if kind == "feature" else None,
         "target_worktree": str(target_worktree) if target_worktree else None,
         "candidate_worktree": str(candidate_worktree),
         "target_head": target_head,
-        "candidate_revision": candidate,
         "remote_target_head": remote_head,
         "remote_candidate_head": remote_candidate_head,
         "candidate_head": candidate,
@@ -743,114 +447,19 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
     }
 
 
-def _delivery_root(client: BeadsClient, selector: str) -> dict[str, Any]:
-    exact = client.show_optional(selector)
-    if exact is not None and (has_label(exact, "workflow:feature") or has_label(exact, "workflow:project-alignment")):
-        return exact
-    errors: list[str] = []
-    for resolver in (feature_context, alignment_context):
-        try:
-            return dict(resolver(client, selector)["root"])
-        except DstackError as exc:
-            errors.append(str(exc))
-    raise DstackError(f"selector is neither a feature nor a project alignment: {selector}; " + "; ".join(errors))
-
-
-def delivery_inspection(client: BeadsClient, selector: str) -> dict[str, Any]:
-    root = _delivery_root(client, selector)
-    if root.get("status") != "closed":
-        return delivery_view(client, selector)
-
-    if has_label(root, "workflow:feature"):
-        kind = "feature"
-        view = feature_delivery_context(client, str(root["id"]))
-        evidence = delivered_feature_evidence_audit(client, view)
-        target = str(view["base_branch"])
-        branch = f"feat/{view['slug']}"
-        terminal = "closeout"
-    else:
-        kind = "alignment"
-        view = alignment_delivery_context(client, str(root["id"]))
-        evidence = delivered_alignment_evidence_audit(client, view)
-        target = str(view["target_branch"])
-        branch = f"audit/{view['slug']}"
-        terminal = "landing"
-    if evidence["status"] != "ok":
-        details = []
-        for key in ("missing", "malformed_footer_ids", "wrong_source_footer_ids"):
-            values = evidence.get(key) or []
-            if values:
-                details.append(f"{key}={','.join(str(value) for value in values)}")
-        raise DstackError(f"delivered {kind} evidence audit failed" + (": " + "; ".join(details) if details else ""))
-    terminal_id = str(view["steps"][terminal]["id"])
-    return {
-        "kind": kind,
-        "delivery_state": "delivered",
-        "root": root,
-        "slug": str(view["slug"]),
-        "target_branch": target,
-        "candidate_branch": branch,
-        "closeout_id": terminal_id if kind == "feature" else None,
-        "landing_id": terminal_id if kind == "alignment" else None,
-        "target_worktree": None,
-        "candidate_worktree": None,
-        "target_head": current_head(client.root, target),
-        "candidate_revision": evidence["candidate_revision"],
-        "candidate_head": evidence["candidate_revision"],
-        "evidence": evidence,
-    }
-
-
-def _git_snapshot(root: Path) -> tuple[str, str]:
-    return (
-        current_head(root),
-        run(
-            ["git", "status", "--short", "--untracked-files=all"],
-            cwd=root,
-        ).stdout,
-    )
-
-
 def cmd_delivery_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    payload = delivery_inspection(client, args.selector)
+    payload = delivery_view(client, args.selector)
     if args.fetch:
         remote = run(["git", "remote", "get-url", "origin"], cwd=client.root, check=False)
         if remote.returncode == 0:
             run(["git", "fetch", "origin", "--prune"], cwd=client.root)
-            payload = delivery_inspection(client, args.selector)
+            payload = delivery_view(client, args.selector)
     emit({"status": "ok", **payload})
     return 0
 
 
-def ensure_clean_candidate(root: Path, payload: Mapping[str, Any]) -> str | None:
-    worktree_value = payload.get("candidate_worktree")
-    if not worktree_value:
-        return None
-    worktree = Path(str(worktree_value))
-    ensure_clean_worktree(worktree)
-    observed = current_head(worktree)
-    if observed != payload.get("candidate_head"):
-        raise DstackError("candidate HEAD changed after delivery inspection")
-    closeout_id = payload.get("closeout_id")
-    if closeout_id:
-        require_candidate_head(
-            root,
-            str(payload["candidate_branch"]),
-            str(closeout_id),
-            observed,
-        )
-    return observed
-
-
 def validate_delivery(payload: Mapping[str, Any], *, require_remote: bool) -> None:
-    candidate_revision = payload.get("candidate_revision")
-    candidate_head = payload.get("candidate_head")
-    if candidate_revision is not None and candidate_head != candidate_revision:
-        raise DstackError(
-            "candidate HEAD is not the unique closeout-footer revision; "
-            f"candidate_head={candidate_head}, closeout_revision={candidate_revision}"
-        )
     if require_remote:
         if payload.get("remote_target_head") is None:
             raise DstackError("origin target branch is unavailable")
@@ -918,7 +527,6 @@ def cmd_delivery_pr_preflight(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     run(["git", "fetch", "origin", "--prune"], cwd=client.root)
     payload = delivery_view(client, args.selector)
-    ensure_clean_candidate(client.root, payload)
     validate_delivery(payload, require_remote=True)
     pr_copy = validate_pr_copy(
         payload,
@@ -955,10 +563,8 @@ def pr_gate_state(client: BeadsClient, root_id: str) -> dict[str, list[dict[str,
         if superseded_target(gate) is None
         and (
             str(gate["id"]) in root_blockers
-            or (
-                gate.get("status") != "closed"
-                and (str(gate.get("waiter_id") or "") == root_id or issue_parent(gate) == root_id)
-            )
+            or str(gate.get("waiter_id") or "") == root_id
+            or issue_parent(gate) == root_id
         )
     ]
     return {"all": gates, "active": active}
@@ -972,30 +578,9 @@ def unique_pr_gate(client: BeadsClient, root_id: str) -> dict[str, Any]:
     return active[0]
 
 
-def incomplete_pr_gate_cancellations(
-    client: BeadsClient, root_id: str, state: Mapping[str, list[dict[str, Any]]]
-) -> list[str]:
-    gates = state.get("all", [])
-    if not gates:
-        return []
-    root = client.show(root_id)
-    relations = dependency_records(root)
-    incomplete = []
-    for gate in gates:
-        gate_id = str(gate["id"])
-        if gate.get("status") != "closed" or superseded_target(gate) is not None:
-            continue
-        types = [
-            str(record.get("type") or record.get("dependency_type"))
-            for record in relations
-            if str(record.get("depends_on_id") or record.get("id")) == gate_id
-        ]
-        if "blocks" not in types and types.count("relates-to") != 1:
-            incomplete.append(gate_id)
-    return incomplete
-
-
-def register_pr_gate(client: BeadsClient, root_id: str, pr_number: str) -> dict[str, Any]:
+def register_pr_gate(
+    client: BeadsClient, root_id: str, pr_number: str
+) -> dict[str, Any]:
     active = pr_gate_state(client, root_id)["active"]
     if not active:
         return client.create_gate(
@@ -1055,82 +640,28 @@ def cancel_pr_gate(client: BeadsClient, root_id: str, reason: str) -> dict[str, 
     reason = reason.strip()
     if not reason:
         raise DstackError("PR gate cancellation requires a non-empty reason")
-    before = _git_snapshot(client.root)
-    state = pr_gate_state(client, root_id)
-    active = state["active"]
-    if len(active) == 1:
-        gate = active[0]
-    elif not active:
-        recoverable = [
-            item for item in state["all"] if item.get("status") == "closed" and superseded_target(item) is None
-        ]
-        if len(recoverable) != 1:
-            ids = ", ".join(str(item["id"]) for item in recoverable) or "none"
-            raise DstackError(f"root has no unique recoverable PR gate: {ids}")
-        gate = recoverable[0]
-    else:
-        ids = ", ".join(str(item["id"]) for item in active)
-        raise DstackError(f"root has no unique active PR gate: {ids}")
-
+    gate = unique_pr_gate(client, root_id)
     gate_id = str(gate["id"])
+    cancellation_reason = f"Cancel PR gate: {reason}"
+    if gate.get("status") == "closed":
+        client.add_comment(gate_id, cancellation_reason)
+    else:
+        gate = client.resolve_gate(gate_id, cancellation_reason)
+    client.remove_dependency(root_id, gate_id)
+    client.relate(root_id, gate_id)
+
+    observed = pr_gate_state(client, root_id)
+    if observed["active"]:
+        raise DstackError("PR gate cancellation did not remove the active blocker")
+    matches = [item for item in observed["all"] if str(item["id"]) == gate_id]
     root = client.show(root_id)
-    root_relations = [
-        record for record in dependency_records(root) if str(record.get("depends_on_id") or record.get("id")) == gate_id
-    ]
-    blocking = [
-        record for record in root_relations if str(record.get("type") or record.get("dependency_type")) == "blocks"
-    ]
-    related = [
-        record for record in root_relations if str(record.get("type") or record.get("dependency_type")) == "relates-to"
-    ]
-    waiter = str(gate.get("waiter_id") or "")
-    parent = issue_parent(gate)
-    if (
-        len(blocking) > 1
-        or len(related) > 1
-        or len(root_relations) != len(blocking) + len(related)
-        or (blocking and related)
-        or (not blocking and gate.get("status") != "closed")
-        or (waiter and waiter != root_id)
-        or (parent and parent != root_id)
-    ):
-        raise DstackError("PR gate has an unexpected blocker/waiter relation")
-
-    try:
-        cancellation_reason = f"Cancel PR gate: {reason}"
-        if blocking:
-            if gate.get("status") == "closed":
-                client.add_comment(gate_id, cancellation_reason)
-            else:
-                client.resolve_gate(gate_id, cancellation_reason)
-            client.remove_dependency(root_id, gate_id)
-        if not related:
-            client.relate(root_id, gate_id)
-
-        observed = pr_gate_state(client, root_id)
-        matches = [item for item in observed["all"] if str(item["id"]) == gate_id]
-        root = client.show(root_id)
-        related = [
-            record
-            for record in dependency_records(root)
-            if str(record.get("depends_on_id") or record.get("id")) == gate_id
-            and str(record.get("type") or record.get("dependency_type")) == "relates-to"
-        ]
-        if (
-            observed["active"]
-            or len(matches) != 1
-            or matches[0].get("status") != "closed"
-            or len(related) != 1
-            or gate_id in blocker_ids(root)
-        ):
-            raise DstackError("PR gate cancellation did not converge")
-    except DstackError as exc:
-        if _git_snapshot(client.root) != before:
-            raise DstackError(f"{exc}; PR gate cancellation changed Git HEAD or status") from exc
-        raise
-
-    if _git_snapshot(client.root) != before:
-        raise DstackError("PR gate cancellation changed Git HEAD or status")
+    related = any(
+        str(record.get("depends_on_id") or record.get("id")) == gate_id
+        and str(record.get("type") or record.get("dependency_type")) == "relates-to"
+        for record in dependency_records(root)
+    )
+    if len(matches) != 1 or matches[0].get("status") != "closed" or not related:
+        raise DstackError("PR gate cancellation did not converge")
     return matches[0]
 
 
@@ -1138,7 +669,6 @@ def cmd_delivery_register_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     run(["git", "fetch", "origin", "--prune"], cwd=client.root)
     payload = delivery_view(client, args.selector)
-    ensure_clean_candidate(client.root, payload)
     validate_delivery(payload, require_remote=True)
     if payload.get("remote_candidate_head") != payload.get("candidate_head"):
         raise DstackError(
@@ -1153,8 +683,9 @@ def cmd_delivery_register_pr(args: argparse.Namespace) -> int:
 
 def cmd_delivery_cancel_pr_gate(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    root = _delivery_root(client, args.selector)
-    root_id = str(root["id"])
+    payload = delivery_view(client, args.selector)
+    validate_delivery(payload, require_remote=False)
+    root_id = str(payload["root"]["id"])
     gate = cancel_pr_gate(client, root_id, args.reason)
     emit({"status": "ok", "root": root_id, "gate": gate})
     return 0
@@ -1164,7 +695,6 @@ def cmd_delivery_replace_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     run(["git", "fetch", "origin", "--prune"], cwd=client.root)
     payload = delivery_view(client, args.selector)
-    ensure_clean_candidate(client.root, payload)
     validate_delivery(payload, require_remote=True)
     if payload.get("remote_candidate_head") != payload.get("candidate_head"):
         raise DstackError(
@@ -1186,123 +716,37 @@ def cmd_delivery_replace_pr(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cleanup_state(root: Path, worktree: Path, branch: str) -> tuple[bool | None, bool | None, bool | None]:
-    try:
-        path_exists: bool | None = worktree.exists()
-    except OSError:
-        path_exists = None
-
-    try:
-        expected_path = worktree.resolve(strict=False)
-        expected_branch = f"refs/heads/{branch}"
-        registered = any(
-            (
-                isinstance(record.get("worktree"), str)
-                and Path(str(record["worktree"])).resolve(strict=False) == expected_path
-            )
-            or record.get("branch") == expected_branch
-            for record in worktree_records(root)
-        )
-    except Exception:
-        registered = None
-
-    if path_exists is not True:
-        return path_exists, registered, None
-    try:
-        dirty = bool(
-            run(
-                ["git", "status", "--short", "--untracked-files=all"],
-                cwd=worktree,
-            ).stdout.strip()
-        )
-    except Exception:
-        dirty = None
-    return path_exists, registered, dirty
-
-
-def _cleanup_value(value: bool | None) -> str:
-    return "unknown" if value is None else str(value).lower()
-
-
-def _cleanup_failure(
-    *,
-    root: Path,
-    worktree: Path,
-    branch: str,
-    error: str,
-) -> str:
-    path_exists, registered, dirty = _cleanup_state(root, worktree, branch)
-    return (
-        "temporary delivery worktree cleanup failed; "
-        f"retained_path={worktree}; "
-        f"path_exists={_cleanup_value(path_exists)}; "
-        f"registered={_cleanup_value(registered)}; "
-        f"dirty={_cleanup_value(dirty)}; "
-        f"cleanup_error={error}; "
-        "recovery_guidance=inspect the retained path and Git worktree list, "
-        "then remove it manually only after reviewing its files"
-    )
-
 
 @contextmanager
-def delivery_target_worktree(root: Path, branch: str, existing: str | None):
-    """Yield a target worktree, retaining evidence when cleanup is uncertain."""
+def delivery_target_worktree(
+    root: Path, branch: str, existing: str | None
+):
+    """Yield a target-branch worktree, creating a temporary one when absent."""
 
     if existing:
         yield Path(existing)
         return
-
-    parent = Path(tempfile.mkdtemp(prefix="dstack-delivery-target-"))
-    worktree = (parent / "target").resolve()
-    try:
+    with tempfile.TemporaryDirectory(prefix="dstack-delivery-target-") as raw:
+        worktree = (Path(raw) / "target").resolve()
         run(["git", "worktree", "add", "--quiet", str(worktree), branch], cwd=root)
-    except BaseException:
+        primary: BaseException | None = None
         try:
-            parent.rmdir()
-        except OSError:
-            pass
-        raise
-
-    primary: BaseException | None = None
-    try:
-        yield worktree
-    except BaseException as exc:
-        primary = exc
-        raise
-    finally:
-        cleanup_error: str | None = None
-        try:
+            yield worktree
+        except BaseException as exc:
+            primary = exc
+            raise
+        finally:
             removal = run(
-                ["git", "worktree", "remove", str(worktree)],
+                ["git", "worktree", "remove", "--force", str(worktree)],
                 cwd=root,
                 check=False,
             )
             if removal.returncode != 0:
-                cleanup_error = removal.stderr.strip() or removal.stdout.strip()
-                cleanup_error = cleanup_error or f"git worktree remove exited {removal.returncode}"
-            else:
-                path_exists, registered, _ = _cleanup_state(root, worktree, branch)
-                if path_exists is not False or registered is not False:
-                    cleanup_error = "successful worktree removal could not be verified"
+                message = f"failed to remove temporary delivery worktree for {branch}"
+                if primary is not None:
+                    primary.add_note(message)
                 else:
-                    try:
-                        parent.rmdir()
-                    except OSError as exc:
-                        cleanup_error = f"temporary parent removal failed: {exc}"
-        except Exception as exc:
-            cleanup_error = str(exc)
-
-        if cleanup_error is not None:
-            message = _cleanup_failure(
-                root=root,
-                worktree=worktree,
-                branch=branch,
-                error=cleanup_error,
-            )
-            if primary is not None:
-                primary.add_note(message)
-            else:
-                raise DstackError(message)
+                    raise DstackError(message)
 
 
 def finalize_beads_without_git_mutation(
@@ -1363,37 +807,35 @@ def finalize_beads_without_git_mutation(
         "Git history was not rewritten"
     )
 
-
 def cmd_delivery_merge(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)
     validate_delivery(payload, require_remote=False)
     root_id = str(payload["root"]["id"])
-    pr_gates = pr_gate_state(client, root_id)
-    active_pr_gates = pr_gates["active"]
+    active_pr_gates = pr_gate_state(client, root_id)["active"]
     if active_pr_gates:
         ids = ", ".join(str(gate["id"]) for gate in active_pr_gates)
-        raise DstackError(f"direct merge requires explicit cancellation of active PR gate: {ids}")
-    incomplete = incomplete_pr_gate_cancellations(client, root_id, pr_gates)
-    if incomplete:
-        raise DstackError("direct merge rejects incomplete PR gate cancellation: " + ", ".join(incomplete))
+        raise DstackError(
+            f"direct merge requires explicit cancellation of active PR gate: {ids}"
+        )
+    candidate_worktree = Path(str(payload["candidate_worktree"]))
+    ensure_clean_worktree(candidate_worktree)
     with delivery_target_worktree(
         client.root,
         str(payload["target_branch"]),
         str(payload["target_worktree"]) if payload.get("target_worktree") else None,
     ) as target_worktree:
         ensure_clean_worktree(target_worktree)
-        candidate_revision = ensure_clean_candidate(client.root, payload)
-        if candidate_revision is None:
-            raise DstackError("delivery candidate worktree is unavailable")
         before_head = current_head(target_worktree)
-        before_status = run(["git", "status", "--short", "--untracked-files=all"], cwd=target_worktree).stdout
+        before_status = run(
+            ["git", "status", "--short", "--untracked-files=all"], cwd=target_worktree
+        ).stdout
         run(
-            ["git", "merge", "--ff-only", candidate_revision],
+            ["git", "merge", "--ff-only", str(payload["candidate_branch"])],
             cwd=target_worktree,
         )
         merged_head = current_head(target_worktree)
-        if merged_head != candidate_revision:
+        if merged_head != payload["candidate_head"]:
             raise DstackError("fast-forward completed at an unexpected target commit")
         after_head, _ = finalize_beads_without_git_mutation(
             client,
@@ -1419,16 +861,19 @@ def cmd_delivery_merge(args: argparse.Namespace) -> int:
 def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)
-    validate_delivery(payload, require_remote=False)
     root_id = str(payload["root"]["id"])
     client.gate_check()
     gate = unique_pr_gate(client, root_id)
     if gate.get("status") != "closed":
         emit({"status": "waiting", "root": root_id, "gate": gate})
         return 2
+    candidate_worktree = Path(str(payload["candidate_worktree"]))
+    ensure_clean_worktree(candidate_worktree)
     run(["git", "fetch", "origin", "--prune"], cwd=client.root)
     remote_target = f"origin/{payload['target_branch']}"
     delivered_target_head = current_head(client.root, remote_target)
+    if not ancestry(client.root, str(payload["candidate_head"]), remote_target):
+        raise DstackError("PR gate closed but origin target does not contain the candidate commit")
     target_ref = str(payload["target_branch"])
     target_worktree = worktree_for_branch(client.root, target_ref)
     with delivery_target_worktree(
@@ -1437,11 +882,6 @@ def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:
         str(target_worktree) if target_worktree else None,
     ) as observed_target:
         ensure_clean_worktree(observed_target)
-        candidate_revision = ensure_clean_candidate(client.root, payload)
-        if candidate_revision is None:
-            raise DstackError("delivery candidate worktree is unavailable")
-        if not ancestry(client.root, candidate_revision, remote_target):
-            raise DstackError("PR gate closed but origin target does not contain the candidate commit")
         before_head = current_head(observed_target)
         before_status = run(["git", "status", "--short", "--untracked-files=all"], cwd=observed_target).stdout
         finalize_beads_without_git_mutation(

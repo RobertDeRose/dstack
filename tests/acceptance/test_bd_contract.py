@@ -9,7 +9,12 @@ from conftest import ROOT, run_command, run_json
 
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 from dstack_commands import claim_ready_work, reopen_authorization_boundary
-from dstack_delivery import pr_gate_state, register_pr_gate, replace_pr_gates
+from dstack_delivery import (
+    cancel_pr_gate,
+    pr_gate_state,
+    register_pr_gate,
+    replace_pr_gates,
+)
 from dstacklib import BeadsClient, DstackError, root_metadata_value
 
 
@@ -436,6 +441,17 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     ) == (replacement, [])
     active = pr_gate_state(client, feature_root)["active"]
     assert [gate["id"] for gate in active] == [replacement["id"]]
+    cancelled = cancel_pr_gate(client, feature_root, "use direct delivery")
+    assert cancelled["id"] == replacement["id"]
+    gate_state = pr_gate_state(client, feature_root)
+    assert gate_state["active"] == []
+    assert [gate["id"] for gate in gate_state["all"] if gate["id"] == replacement["id"]]
+    root_after_cancellation = client.show(feature_root)
+    assert any(
+        str(record.get("depends_on_id") or record.get("id")) == replacement["id"]
+        and str(record.get("type") or record.get("dependency_type")) == "relates-to"
+        for record in root_after_cancellation.get("dependencies", [])
+    )
 
     client.update(
         feature_root,

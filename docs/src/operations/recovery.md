@@ -18,9 +18,14 @@ and native issues, correct them with native operations, then plan again.
   explicit authorization.
 - Timed-out push, PR, merge, or Beads mutation: query the native system before
   retrying.
+- Active PR gate before direct merge: keep the target unchanged; either continue
+  PR delivery or explicitly run `delivery cancel-pr-gate` with the reason for
+  switching modes. Gate cancellation does not change the GitHub pull request.
 - Post-delivery finalization failure: keep delivered Git history intact; inspect
-  the reported heads and root state. Use a normal revert or a separately
-  authorized correction when product content is wrong.
+  `delivery_completed`, `previous_target_head`, `delivered_target_head`,
+  `observed_target_head`, `root_status`, `finalization_error`, and
+  `mutation_uncertain`. Reread Beads before retry. Use a normal revert or a
+  separately authorized correction only when product content is wrong.
 
 ## Backup and restore
 
