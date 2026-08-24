@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import sys
 from pathlib import Path
 
@@ -129,12 +130,62 @@ def test_alignment_context_reads_only_root_and_stable_steps(tmp_path: Path) -> N
     beads.assert_exhausted()
 
 
-def test_feature_view_projects_real_steps_gate_design_and_ready_work(
-    tmp_path: Path, monkeypatch
-) -> None:
-    design = tmp_path / "docs/src/features/feature/design.md"
+def test_human_gate_requires_the_steps_native_blocking_relation(tmp_path: Path) -> None:
+    approval = {"id": "approval-1", "issue_type": "task", "dependencies": []}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "approval-1", result=approval),
+    )
+
+    assert (
+        dstacklib.human_gate_for_step(
+            beads,
+            root_id="feature-1",
+            step=approval,
+        )
+        is None
+    )
+    beads.assert_exhausted()
+
+
+def test_feature_design_state_uses_registered_committed_content(git_repo: Path, monkeypatch) -> None:
+    relative = "docs/src/features/feature/design.md"
+    design = git_repo / relative
     design.parent.mkdir(parents=True)
     design.write_text("accepted design\n")
+    subprocess.run(["git", "add", relative], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "docs: add design"], cwd=git_repo, check=True)
+    digest = hashlib.sha256(design.read_bytes()).hexdigest()
+    context = {
+        "slug": "feature",
+        "design_path": relative,
+        "approved_design_sha256": digest,
+    }
+    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: git_repo)
+
+    state = dstacklib.feature_design_state(ScriptedClient(git_repo), context)
+    assert state["design_state"] == "committed"
+    assert state["head_design_sha256"] == digest
+    assert state["design_approved"] is True
+
+    design.write_text("changed design\n")
+    state = dstacklib.feature_design_state(ScriptedClient(git_repo), context)
+    assert state["design_state"] == "worktree_mismatch"
+    assert state["design_approved"] is False
+
+    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: None)
+    state = dstacklib.feature_design_state(ScriptedClient(git_repo), context)
+    assert state["design_state"] == "worktree_missing"
+    assert state["current_design_sha256"] is None
+
+
+def test_feature_view_projects_real_steps_gate_design_and_ready_work(git_repo: Path, monkeypatch) -> None:
+    relative = "docs/src/features/feature/design.md"
+    design = git_repo / relative
+    design.parent.mkdir(parents=True)
+    design.write_text("accepted design\n")
+    subprocess.run(["git", "add", relative], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "docs: add design"], cwd=git_repo, check=True)
     digest = hashlib.sha256(design.read_bytes()).hexdigest()
     root = {
         "id": "feature-1",
@@ -143,15 +194,21 @@ def test_feature_view_projects_real_steps_gate_design_and_ready_work(
         "labels": ["workflow:feature", "feature:feature"],
         "metadata": {
             "dstack.base_branch": "main",
-            "dstack.design_path": "docs/src/features/feature/design.md",
+            "dstack.design_path": relative,
             "dstack.approved_design_sha256": digest,
         },
     }
     steps = [
-        {"id": "specification-1", "issue_type": "task", "labels": [FEATURE_STEPS["specification"]]},
+        {
+            "id": "specification-1",
+            "issue_type": "task",
+            "status": "closed",
+            "labels": [FEATURE_STEPS["specification"]],
+        },
         {
             "id": "approval-1",
             "issue_type": "task",
+            "status": "closed",
             "labels": [FEATURE_STEPS["approval"]],
         },
         {
@@ -170,17 +227,23 @@ def test_feature_view_projects_real_steps_gate_design_and_ready_work(
         **steps[1],
         "dependencies": [{"depends_on_id": "gate-1", "type": "blocks"}],
     }
-    gate = {"id": "gate-1", "issue_type": "gate", "await_type": "human"}
+    gate = {
+        "id": "gate-1",
+        "issue_type": "gate",
+        "status": "closed",
+        "await_type": "human",
+    }
     task = {
         "id": "task-1",
         "issue_type": "task",
         "labels": ["dstack:work:implementation"],
     }
     beads = ScriptedClient(
-        tmp_path,
+        git_repo,
         call("show_optional", "feature-1", result=root),
         call("children", "feature-1", result=steps),
         call("children", "implementation-1", result=[task]),
+        call("show", "specification-1", result=steps[0]),
         call("show", "approval-1", result=approval),
         call("show_optional", "gate-1", result=gate),
         call(
@@ -191,11 +254,12 @@ def test_feature_view_projects_real_steps_gate_design_and_ready_work(
         ),
         call("progress", "feature-1", result={"completed": 1, "total": 5}),
     )
-    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: tmp_path)
+    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: git_repo)
 
     observed = dstacklib.feature_view(beads, "feature-1")
     assert observed["steps"]["approval"]["id"] == "approval-1"
     assert observed["human_gate"] == gate
+    assert observed["native_approved"] is True
     assert observed["design_approved"] is True
     assert observed["ready_work"] == [task]
     beads.assert_exhausted()

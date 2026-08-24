@@ -189,12 +189,9 @@ def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(
             result=[task, {"id": "epic-1", "issue_type": "epic", "labels": []}],
         ),
     )
-    monkeypatch.setattr(
-        dstack_delivery, "feature_context", lambda client, selector: context.copy()
-    )
-    monkeypatch.setattr(
-        dstack_delivery, "feature_design_state", lambda client, view: {}
-    )
+    monkeypatch.setattr(dstack_delivery, "feature_context", lambda client, selector: context.copy())
+    monkeypatch.setattr(dstack_delivery, "feature_design_state", lambda client, view: {})
+    monkeypatch.setattr(dstack_delivery, "feature_authorization_state", lambda client, view: {})
     observed = dstack_delivery.feature_delivery_context(beads, "feature-1")
     assert observed["work_items"] == [task]
     beads.assert_exhausted()

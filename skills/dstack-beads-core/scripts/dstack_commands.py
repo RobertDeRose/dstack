@@ -470,10 +470,10 @@ def completion_reason(args: argparse.Namespace, default: str) -> str:
 def require_approved_design(view: Mapping[str, Any]) -> None:
     if not view.get("approved_design_sha256"):
         raise DstackError("feature specification has no approved design digest")
+    if not view.get("native_approved"):
+        raise DstackError("feature native approval state is incomplete")
     if not view.get("design_approved"):
-        raise DstackError(
-            "feature design differs from the approved specification; rerun /review-feature-spec"
-        )
+        raise DstackError("feature design is not the committed approved specification; rerun /review-feature-spec")
 
 
 def preserve_external_blockers(
