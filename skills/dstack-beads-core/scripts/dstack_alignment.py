@@ -34,7 +34,7 @@ from dstacklib import (
 from dstack_commands import (
     ALIGNMENT_PLAN_SCAFFOLD,
     ALIGNMENT_RECONCILIATION_SCAFFOLD,
-    claim_issue_if_needed,
+    claim_ready_step,
     claim_ready_step_with_fan_in,
     claim_ready_work,
     close_issue_if_needed,
@@ -230,7 +230,13 @@ def cmd_alignment_finish_plan(args: argparse.Namespace) -> int:
         source=args.summary_file,
         source_root=client.root,
     )
-    analysis = claim_issue_if_needed(client, analysis)
+    analysis = claim_ready_step(
+        client,
+        root_id=str(view["root"]["id"]),
+        step=analysis,
+        label="dstack:step:alignment-analysis",
+        name="alignment analysis",
+    )
     client.add_comment(str(analysis["id"]), summary)
     analysis = client.close(str(analysis["id"]), "Corrective plan prepared")
     emit(

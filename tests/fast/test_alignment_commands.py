@@ -69,7 +69,9 @@ def test_inspect_emits_observed_alignment(monkeypatch, tmp_path: Path) -> None:
         "alignment_view",
         lambda client, selector: alignment_view(),
     )
-    assert dstack_alignment.cmd_alignment_inspect(argparse.Namespace(root=tmp_path, selector="alignment")) == 0
+    assert dstack_alignment.cmd_alignment_inspect(
+        argparse.Namespace(root=tmp_path, selector="alignment")
+    ) == 0
     assert output[0]["steps"]["corrections"]["id"] == "corrections-1"
 
 
@@ -227,7 +229,9 @@ def test_add_correction_rejects_closed_authorization_without_creation(monkeypatc
     beads.assert_exhausted()
 
 
-def test_alignment_record_scaffold_is_create_only(monkeypatch, tmp_path: Path) -> None:
+def test_alignment_record_scaffold_is_create_only(
+    monkeypatch, tmp_path: Path
+) -> None:
     output = []
     monkeypatch.setattr(dstack_alignment, "emit", output.append)
     path = tmp_path / "plan.md"
@@ -239,7 +243,9 @@ def test_alignment_record_scaffold_is_create_only(monkeypatch, tmp_path: Path) -
     assert output[0]["path"] == str(path)
 
 
-def test_finish_plan_rejects_invalid_record_before_mutation(monkeypatch, tmp_path: Path) -> None:
+def test_finish_plan_rejects_invalid_record_before_mutation(
+    monkeypatch, tmp_path: Path
+) -> None:
     summary = tmp_path / "summary.md"
     summary.write_text("# Minimal plan\n")
     beads = ScriptedClient(tmp_path)
@@ -255,29 +261,30 @@ def test_finish_plan_rejects_invalid_record_before_mutation(monkeypatch, tmp_pat
     beads.assert_exhausted()
 
 
-def test_finish_plan_claims_comments_and_closes_analysis(monkeypatch, tmp_path: Path) -> None:
+def test_finish_plan_uses_native_ready_claim_before_completion(
+    monkeypatch, tmp_path: Path
+) -> None:
     summary = tmp_path / "summary.md"
     summary.write_text(semantic_record("alignment-plan"))
     calls = []
     beads = ScriptedClient(tmp_path)
-    beads.update = lambda *args: (
-        calls.append(("update", *args))
-        or {
-            "id": args[0],
-            "status": "in_progress",
-        }
+    beads.ready_children = lambda *args, **kwargs: (
+        calls.append(("ready_children", *args, kwargs))
+        or [{"id": "analysis-1", "status": "in_progress"}]
     )
     beads.add_comment = lambda *args: calls.append(("comment", *args))
-    beads.close = lambda *args: (
-        calls.append(("close", *args))
-        or {
-            "id": args[0],
-            "status": "closed",
-        }
-    )
+    beads.close = lambda *args: calls.append(("close", *args)) or {
+        "id": args[0],
+        "status": "closed",
+    }
     output = patch_command(monkeypatch, beads)
     args = argparse.Namespace(root=tmp_path, selector="alignment-1", summary_file=summary)
     assert dstack_alignment.cmd_alignment_finish_plan(args) == 0
+    assert calls[0] == (
+        "ready_children",
+        "alignment-1",
+        {"label": "dstack:step:alignment-analysis", "claim": True},
+    )
     assert (
         "comment",
         "analysis-1",
@@ -286,6 +293,34 @@ def test_finish_plan_claims_comments_and_closes_analysis(monkeypatch, tmp_path: 
     assert ("close", "analysis-1", "Corrective plan prepared") in calls
     assert output[0]["audit"] == "alignment-1"
     assert output[0]["analysis"]["status"] == "closed"
+
+
+def test_finish_plan_respects_native_analysis_blocker(
+    monkeypatch, tmp_path: Path
+) -> None:
+    summary = tmp_path / "summary.md"
+    summary.write_text(semantic_record("alignment-plan"))
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "ready_children",
+            "alignment-1",
+            label="dstack:step:alignment-analysis",
+            claim=True,
+            result=[],
+        ),
+    )
+    patch_command(monkeypatch, beads)
+
+    with pytest.raises(DstackError, match="analysis is not ready"):
+        dstack_alignment.cmd_alignment_finish_plan(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                summary_file=summary,
+            )
+        )
+    beads.assert_exhausted()
 
 
 def test_approve_resolves_gate_and_authorizes_execution(monkeypatch, tmp_path: Path) -> None:
@@ -313,7 +348,9 @@ def test_approve_resolves_gate_and_authorizes_execution(monkeypatch, tmp_path: P
         "human_gate_for_step",
         lambda *args, **kwargs: dict(state["gate-1"]),
     )
-    assert dstack_alignment.cmd_alignment_approve(argparse.Namespace(root=tmp_path, selector="alignment-1")) == 0
+    assert dstack_alignment.cmd_alignment_approve(
+        argparse.Namespace(root=tmp_path, selector="alignment-1")
+    ) == 0
     assert ("resolve", "gate-1", "Corrective plan approved") in calls
     assert ("close", "approval-1", "Corrective execution authorized") in calls
     assert output[0]["audit"] == "alignment-1"
@@ -321,7 +358,9 @@ def test_approve_resolves_gate_and_authorizes_execution(monkeypatch, tmp_path: P
     assert state["approval-1"]["status"] == "closed"
 
 
-def test_alignment_reauthorize_reopens_native_boundary_before_scope_changes(monkeypatch, tmp_path: Path) -> None:
+def test_alignment_reauthorize_reopens_native_boundary_before_scope_changes(
+    monkeypatch, tmp_path: Path
+) -> None:
     state = {
         "analysis-1": {"id": "analysis-1", "status": "closed"},
         "approval-1": {"id": "approval-1", "status": "closed"},
