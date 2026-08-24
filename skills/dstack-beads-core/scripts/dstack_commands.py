@@ -434,6 +434,14 @@ def claim_ready_step_with_fan_in(
     return claimed
 
 
+def keep_root_open_for_delivery(client: BeadsClient, root_id: str) -> None:
+    """Compensate for Beads 1.2.2 closing a molecule at its terminal step."""
+
+    root = client.show(root_id)
+    if root.get("status") == "closed" and root.get("close_reason") == "all steps complete":
+        client.reopen(root_id, "Await delivery")
+
+
 def feature_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tuple[str, Path, str]:
     slug = str(view.get("slug") or "")
     base = str(view.get("base_branch") or "")

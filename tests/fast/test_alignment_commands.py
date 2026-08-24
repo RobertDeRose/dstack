@@ -426,6 +426,21 @@ def test_finish_landing_closes_once(monkeypatch, tmp_path: Path) -> None:
             "Alignment landing completed",
             result={"id": "landing-1", "status": "closed"},
         ),
+        call(
+            "show",
+            "alignment-1",
+            result={
+                "id": "alignment-1",
+                "status": "closed",
+                "close_reason": "all steps complete",
+            },
+        ),
+        call(
+            "reopen",
+            "alignment-1",
+            "Await delivery",
+            result={"id": "alignment-1", "status": "open"},
+        ),
     )
     output = patch_command(monkeypatch, beads)
     monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)

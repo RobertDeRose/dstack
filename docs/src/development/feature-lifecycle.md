@@ -75,6 +75,9 @@ check leaves closeout open and prevents delivery.
 - `merge`: perform a clean fast-forward-only delivery and close the root. If
   the target branch is not currently checked out, the controller creates and
   removes a temporary target worktree for the deterministic delivery operation.
+- PR registration is idempotent only for the same unique gate. Conflicting or
+  duplicate gates fail without mutation and require explicit `delivery replace-pr`
+  repair with a reason; replaced gates remain native supersession history.
 - a later `pr` invocation checks the gate and closes the root after merge; PR
   finalization uses the same temporary-worktree behavior when necessary.
 
@@ -125,8 +128,9 @@ Revalidate current repository reality, reconcile durable docs, and use the
 same delivery controller as features. Landing refuses a dirty worktree and
 mechanically requires the current mdBook, documentation policy, and reachable
 correction evidence audit to pass before the native ready landing step closes.
-There is no stored baseline commit; obsolete or already-corrected findings are
-updated or closed based on current evidence.
+The same pinned-version compatibility guard used by feature closeout keeps the
+root open until confirmed delivery. There is no stored baseline commit; obsolete
+or already-corrected findings are updated or closed based on current evidence.
 
 ## Discovery
 

@@ -323,6 +323,189 @@ def test_register_pr_creates_native_gate_only_for_pushed_candidate(monkeypatch, 
     beads.assert_exhausted()
 
 
+def test_register_pr_returns_the_same_unique_gate(monkeypatch, tmp_path: Path) -> None:
+    gate = {
+        "id": "gate-1",
+        "status": "open",
+        "await_type": "gh:pr",
+        "await_id": "42",
+        "dependencies": [],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "show",
+            "feature-1",
+            result={
+                "id": "feature-1",
+                "dependencies": [{"type": "blocks", "depends_on_id": "gate-1"}],
+            },
+        ),
+        call("gates", all_statuses=True, result=[gate]),
+        call("show", "gate-1", result=gate),
+    )
+    candidate = payload(
+        root={"id": "feature-1"},
+        candidate_head="candidate",
+        remote_candidate_head="candidate",
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "run",
+        lambda *args, **kwargs: CommandResult(0, "", ""),
+    )
+    outputs = []
+    monkeypatch.setattr(dstack_delivery, "emit", outputs.append)
+
+    assert (
+        dstack_delivery.cmd_delivery_register_pr(argparse.Namespace(root=tmp_path, selector="feature-1", pr_number=42))
+        == 0
+    )
+    assert outputs[0]["gate"] == gate
+    beads.assert_exhausted()
+
+
+@pytest.mark.parametrize(
+    "gates",
+    [
+        [
+            {
+                "id": "gate-1",
+                "status": "open",
+                "await_type": "gh:pr",
+                "await_id": "41",
+                "dependencies": [],
+            }
+        ],
+        [
+            {
+                "id": "gate-1",
+                "status": "open",
+                "await_type": "gh:pr",
+                "await_id": "42",
+                "dependencies": [],
+            },
+            {
+                "id": "gate-2",
+                "status": "open",
+                "await_type": "gh:pr",
+                "await_id": "42",
+                "dependencies": [],
+            },
+        ],
+    ],
+)
+def test_register_pr_rejects_conflicting_or_duplicate_gates_without_mutation(
+    monkeypatch, tmp_path: Path, gates: list[dict]
+) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "show",
+            "feature-1",
+            result={
+                "id": "feature-1",
+                "dependencies": [{"type": "blocks", "depends_on_id": gate["id"]} for gate in gates],
+            },
+        ),
+        call("gates", all_statuses=True, result=gates),
+        *(call("show", gate["id"], result=gate) for gate in gates),
+    )
+    candidate = payload(
+        root={"id": "feature-1"},
+        candidate_head="candidate",
+        remote_candidate_head="candidate",
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "run",
+        lambda *args, **kwargs: CommandResult(0, "", ""),
+    )
+
+    with pytest.raises(DstackError, match="PR gate"):
+        dstack_delivery.cmd_delivery_register_pr(argparse.Namespace(root=tmp_path, selector="feature-1", pr_number=42))
+    beads.assert_exhausted()
+
+
+def test_replace_pr_gate_repairs_conflicting_closed_gate(monkeypatch, tmp_path: Path) -> None:
+    old = {
+        "id": "gate-old",
+        "status": "closed",
+        "await_type": "gh:pr",
+        "await_id": "41",
+        "dependencies": [],
+    }
+    target = {
+        "id": "gate-target",
+        "status": "open",
+        "await_type": "gh:pr",
+        "await_id": "42",
+        "dependencies": [],
+    }
+    replaced = {
+        **old,
+        "dependencies": [{"type": "superseded-by", "depends_on_id": "gate-target"}],
+    }
+    root = {
+        "id": "feature-1",
+        "dependencies": [
+            {"type": "blocks", "depends_on_id": "gate-old"},
+            {"type": "blocks", "depends_on_id": "gate-target"},
+        ],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "feature-1", result=root),
+        call("gates", all_statuses=True, result=[old, target]),
+        call("show", "gate-old", result=old),
+        call("show", "gate-target", result=target),
+        call(
+            "reopen",
+            "gate-old",
+            "Replace PR gate: incorrect pull request",
+            result={**old, "status": "open"},
+        ),
+        call("supersede", "gate-old", "gate-target", result=None),
+        call("show", "feature-1", result=root),
+        call("gates", all_statuses=True, result=[replaced, target]),
+        call("show", "gate-old", result=replaced),
+        call("show", "gate-target", result=target),
+    )
+    candidate = payload(
+        root={"id": "feature-1"},
+        candidate_head="candidate",
+        remote_candidate_head="candidate",
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "run",
+        lambda *args, **kwargs: CommandResult(0, "", ""),
+    )
+    outputs = []
+    monkeypatch.setattr(dstack_delivery, "emit", outputs.append)
+
+    assert (
+        dstack_delivery.cmd_delivery_replace_pr(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="feature-1",
+                pr_number=42,
+                reason="incorrect pull request",
+            )
+        )
+        == 0
+    )
+    assert outputs[0]["gate"] == target
+    assert outputs[0]["replaced"] == ["gate-old"]
+    beads.assert_exhausted()
+
+
 def test_delivery_merge_checks_post_delivery_git_invariant(
     monkeypatch, tmp_path: Path
 ) -> None:
