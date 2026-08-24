@@ -43,6 +43,9 @@ from dstacklib import (
     root_metadata_value,
     run,
     slugify,
+    validate_git_branch,
+    validate_git_revision,
+    verify_worktree_identity,
     worktree_for_branch,
 )
 
@@ -64,7 +67,7 @@ from dstack_commands import (
     completion_reason,
     descendants,
     emit,
-    ensure_feature_worktree,
+    ensure_branch_worktree,
     evidence_for_bead,
     fail,
     feature_branch_context,
@@ -106,6 +109,10 @@ def cmd_alignment_inspect(args: argparse.Namespace) -> int:
 def cmd_alignment_initialize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     slug = args.slug or slugify(args.title)
+    branch = f"audit/{slug}"
+    validate_git_branch(client.root, branch, name="alignment branch")
+    validate_git_branch(client.root, args.target_branch, name="target branch")
+    validate_git_revision(client.root, args.target_branch, name="target branch")
     try:
         existing = alignment_context(client, slug)
     except DstackError as exc:
@@ -113,15 +120,8 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
             raise
     else:
         if existing["root"].get("status") != "closed":
-            branch = f"audit/{slug}"
-            worktree = worktree_for_branch(client.root, branch)
-            if worktree is None:
-                target_branch = str(existing.get("target_branch") or args.target_branch)
-                if not branch_exists(client.root, branch):
-                    run(["git", "branch", branch, target_branch], cwd=client.root)
-                path = conventional_worktree(client.root, branch)
-                run(["bd", "worktree", "create", str(path), "--branch", branch], cwd=client.root)
-                worktree = worktree_for_branch(client.root, branch)
+            target_branch = str(existing.get("target_branch") or args.target_branch)
+            _, worktree, _, _ = ensure_branch_worktree(client, branch, target_branch)
             emit({"status": "ok", "created": False, "worktree": str(worktree), **existing})
             return 0
         raise DstackError(f"project alignment is already closed: {existing['root']['id']}")
@@ -138,7 +138,6 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
     root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
     if not root_id:
         raise DstackError("bd mol pour returned no alignment root")
-    branch = f"audit/{slug}"
     created_branch = False
     created_worktree = False
     try:
@@ -155,17 +154,7 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
             "--set-metadata",
             f"dstack.scope={args.scope}",
         )
-        if not branch_exists(client.root, branch):
-            run(["git", "branch", branch, args.target_branch], cwd=client.root)
-            created_branch = True
-        worktree = worktree_for_branch(client.root, branch)
-        if worktree is None:
-            path = conventional_worktree(client.root, branch)
-            run(["bd", "worktree", "create", str(path), "--branch", branch], cwd=client.root)
-            created_worktree = True
-            worktree = worktree_for_branch(client.root, branch)
-        if worktree is None:
-            raise DstackError(f"failed to register worktree for {branch}")
+        _, worktree, created_branch, created_worktree = ensure_branch_worktree(client, branch, args.target_branch)
     except Exception:
         if created_worktree:
             run(
@@ -180,7 +169,11 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
                 check=False,
             )
         if created_branch and branch_exists(client.root, branch):
-            run(["git", "branch", "-D", branch], cwd=client.root, check=False)
+            run(
+                ["git", "branch", "-D", "--", branch],
+                cwd=client.root,
+                check=False,
+            )
         run(
             ["bd", "delete", root_id, "--cascade", "--force"],
             cwd=client.root,
@@ -324,10 +317,27 @@ def require_alignment_approval(view: Mapping[str, Any]) -> None:
         raise DstackError("alignment approval milestone is not closed")
 
 
+def alignment_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tuple[str, Path, str]:
+    branch = f"audit/{view['slug']}"
+    target = str(view.get("target_branch") or "")
+    validate_git_branch(client.root, branch, name="alignment branch")
+    validate_git_branch(client.root, target, name="target branch")
+    validate_git_revision(client.root, target, name="target branch")
+    validate_git_revision(client.root, branch, name="alignment branch")
+    worktree = worktree_for_branch(client.root, branch)
+    if worktree is None:
+        raise DstackError(f"no worktree for {branch}")
+    worktree = verify_worktree_identity(client.root, worktree, branch)
+    if not ancestry(client.root, target, branch):
+        raise DstackError(f"alignment branch {branch} does not contain target {target}")
+    return branch, worktree, target
+
+
 def cmd_alignment_claim_next(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
     require_alignment_approval(view)
+    alignment_branch_context(client, view)
     claimed = claim_ready_work(
         client,
         parent_id=str(view["steps"]["corrections"]["id"]),
@@ -342,6 +352,8 @@ def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
     require_alignment_approval(view)
+    branch, worktree, base = alignment_branch_context(client, view)
+    ensure_clean_worktree(worktree)
     parent = str(view["steps"]["corrections"]["id"])
     task = claim_ready_work(
         client,
@@ -361,13 +373,6 @@ def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
             }
         )
         return 0
-    slug = str(view["slug"])
-    branch = f"audit/{slug}"
-    base = str(view["target_branch"])
-    worktree = worktree_for_branch(client.root, branch)
-    if worktree is None:
-        raise DstackError(f"no worktree for {branch}")
-    ensure_clean_worktree(worktree)
     reason = completion_reason(args, "Correction completed")
     evidence = evidence_for_bead(worktree, args.task, f"{base}..{branch}")
     if args.no_repository_change:
@@ -396,10 +401,7 @@ def finish_alignment_workstream(client: BeadsClient, view: Mapping[str, Any], *,
     open_items = open_workstream_children(client, str(workstream["id"]))
     if close and not open_items and workstream.get("status") != "closed":
         require_alignment_approval(view)
-        branch = f"audit/{view['slug']}"
-        worktree = worktree_for_branch(client.root, branch)
-        if worktree is None:
-            raise DstackError(f"no worktree for {branch}")
+        _, worktree, _ = alignment_branch_context(client, view)
         ensure_clean_worktree(worktree)
         client.close(str(workstream["id"]), "All corrections completed")
     return {
@@ -420,6 +422,7 @@ def cmd_alignment_finish_workstream(args: argparse.Namespace) -> int:
 def cmd_alignment_claim_landing(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
+    alignment_branch_context(client, view)
     landing = client.show(str(view["steps"]["landing"]["id"]))
     if landing.get("status") == "closed":
         emit({"status": "ok", "landing": landing, "already_closed": True})
@@ -453,10 +456,7 @@ def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
             source=args.summary_file,
             source_root=client.root,
         )
-    branch = f"audit/{view['slug']}"
-    worktree = worktree_for_branch(client.root, branch)
-    if worktree is None:
-        raise DstackError(f"no worktree for {branch}")
+    branch, worktree, _ = alignment_branch_context(client, view)
     ensure_clean_worktree(worktree)
     documentation = validate_docs(worktree)
     from dstack_delivery import (

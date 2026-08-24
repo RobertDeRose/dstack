@@ -50,8 +50,11 @@ def approved_alignment_view() -> dict:
 def patch_command(monkeypatch, beads, current=None):
     current = current or alignment_view()
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_alignment, "alignment_context", lambda client, selector: current)
     monkeypatch.setattr(
-        dstack_alignment, "alignment_context", lambda client, selector: current
+        dstack_alignment,
+        "alignment_branch_context",
+        lambda *args: ("audit/alignment", beads.root, "main"),
     )
     output = []
     monkeypatch.setattr(dstack_alignment, "emit", output.append)
@@ -72,9 +75,30 @@ def test_inspect_emits_observed_alignment(monkeypatch, tmp_path: Path) -> None:
     assert output[0]["steps"]["corrections"]["id"] == "corrections-1"
 
 
-def test_initialize_pours_formula_and_records_stable_identity(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_initialize_rejects_option_like_target_before_beads_mutation(monkeypatch, git_repo: Path) -> None:
+    beads = ScriptedClient(git_repo)
+    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: beads)
+    with pytest.raises(DstackError, match="invalid target branch"):
+        dstack_alignment.cmd_alignment_initialize(
+            argparse.Namespace(
+                root=git_repo,
+                title="Alignment",
+                slug=None,
+                target_branch="--help",
+                scope="repository",
+            )
+        )
+    beads.assert_exhausted()
+
+
+def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(dstack_alignment, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_alignment, "validate_git_revision", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(
+        dstack_alignment,
+        "ensure_branch_worktree",
+        lambda *args: ("audit/repository-alignment", tmp_path / "worktree", False, False),
+    )
     beads = ScriptedClient(
         tmp_path,
         call(
@@ -381,17 +405,7 @@ def test_claim_next_requires_closed_approval(monkeypatch, tmp_path: Path) -> Non
 
 
 def test_finish_task_rejects_dirty_worktree(monkeypatch, tmp_path: Path) -> None:
-    task = {
-        "id": "correction-1",
-        "parent": "corrections-1",
-        "status": "in_progress",
-        "labels": ["dstack:work:correction"],
-    }
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "correction-1", result=task),
-        call("update", "correction-1", "--claim", result=task),
-    )
+    beads = ScriptedClient(tmp_path)
     patch_command(monkeypatch, beads, approved_alignment_view())
     monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
 
@@ -458,8 +472,11 @@ def test_finish_task_reuses_client_for_workstream_fan_in(monkeypatch, tmp_path: 
         "client_for",
         lambda root: client_requests.append(root) or beads,
     )
+    monkeypatch.setattr(dstack_alignment, "alignment_context", lambda client, selector: current)
     monkeypatch.setattr(
-        dstack_alignment, "alignment_context", lambda client, selector: current
+        dstack_alignment,
+        "alignment_branch_context",
+        lambda *args: ("audit/alignment", tmp_path, "main"),
     )
     monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
     monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", lambda *args: None)
@@ -714,6 +731,8 @@ def test_finish_alignment_workstream_counts_unlabeled_native_children(monkeypatc
 def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setattr(dstack_alignment, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_alignment, "validate_git_revision", lambda *args, **kwargs: "main")
     beads = ScriptedClient(
         tmp_path,
         call(
@@ -749,11 +768,11 @@ def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
         lambda *args: (_ for _ in ()).throw(DstackError("alignment selector resolved to 0 roots")),
     )
     monkeypatch.setattr(dstack_alignment, "require_installed_formula", lambda *args: None)
-    branch_states = iter([False, True])
     monkeypatch.setattr(
-        dstack_alignment, "branch_exists", lambda *args: next(branch_states)
+        dstack_alignment,
+        "ensure_branch_worktree",
+        lambda *args: (_ for _ in ()).throw(DstackError("failed to register worktree")),
     )
-    monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: None)
     commands = []
     monkeypatch.setattr(
         dstack_alignment,
@@ -772,9 +791,7 @@ def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
             )
         )
 
-    assert any(command[:3] == ("bd", "worktree", "remove") for command in commands)
-    assert ("git", "branch", "-D", "audit/repository-alignment") in commands
-    assert ("bd", "delete", "alignment-1", "--cascade", "--force") in commands
+    assert commands == [("bd", "delete", "alignment-1", "--cascade", "--force")]
     beads.assert_exhausted()
 
 

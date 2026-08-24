@@ -45,6 +45,9 @@ from dstacklib import (
     root_metadata_value,
     run,
     slugify,
+    validate_git_branch,
+    validate_git_revision,
+    verify_worktree_identity,
     worktree_for_branch,
 )
 
@@ -362,40 +365,76 @@ def update_root_identity(
     return client.update(root_id, *arguments)
 
 
-def ensure_feature_worktree(client: BeadsClient, slug: str, base_branch: str) -> tuple[str, Path, bool, bool]:
-    branch = f"feat/{slug}"
-    if not ref_exists(client.root, base_branch):
-        raise DstackError(f"base branch/ref does not exist: {base_branch}")
+def ensure_branch_worktree(
+    client: BeadsClient,
+    branch: str,
+    base_branch: str,
+) -> tuple[str, Path, bool, bool]:
+    validate_git_branch(client.root, branch, name="candidate branch")
+    validate_git_branch(client.root, base_branch, name="base branch")
+    validate_git_revision(client.root, base_branch, name="base branch")
 
     created_branch = False
     created_worktree = False
     worktree = worktree_for_branch(client.root, branch)
     if worktree is not None:
-        return branch, worktree, created_branch, created_worktree
+        resolved = verify_worktree_identity(client.root, worktree, branch)
+        if not ancestry(client.root, base_branch, branch):
+            raise DstackError(f"candidate branch {branch} does not contain base {base_branch}")
+        return branch, resolved, created_branch, created_worktree
 
     worktree = conventional_worktree(client.root, branch)
     if worktree.exists():
         raise DstackError(f"conventional worktree path exists but is not registered for {branch}: {worktree}")
 
-    if not branch_exists(client.root, branch):
-        run(["git", "branch", branch, base_branch], cwd=client.root)
-        created_branch = True
-
     try:
+        if not branch_exists(client.root, branch):
+            run(["git", "branch", "--", branch, base_branch], cwd=client.root)
+            created_branch = True
+        elif not ancestry(client.root, base_branch, branch):
+            raise DstackError(f"candidate branch {branch} does not contain base {base_branch}")
+
+        created_worktree = True
         run(
             ["bd", "worktree", "create", str(worktree), "--branch", branch],
             cwd=client.root,
         )
-        created_worktree = True
-    except Exception:
+        resolved = worktree_for_branch(client.root, branch)
+        if resolved is None:
+            raise DstackError(f"Beads created no discoverable worktree for {branch}")
+        resolved = verify_worktree_identity(client.root, resolved, branch)
+        if not ancestry(client.root, base_branch, branch):
+            raise DstackError(f"created candidate branch {branch} does not contain base {base_branch}")
+        return branch, resolved, created_branch, created_worktree
+    except Exception as primary:
+        cleanup: list[str] = []
+        if created_worktree and (worktree.exists() or worktree_for_branch(client.root, branch) is not None):
+            result = run(
+                ["bd", "worktree", "remove", str(worktree), "--force"],
+                cwd=client.root,
+                check=False,
+            )
+            if result.returncode:
+                cleanup.append(result.stderr.strip() or "worktree removal failed")
         if created_branch and branch_exists(client.root, branch):
-            run(["git", "branch", "-D", branch], cwd=client.root, check=False)
+            result = run(
+                ["git", "branch", "-D", "--", branch],
+                cwd=client.root,
+                check=False,
+            )
+            if result.returncode:
+                cleanup.append(result.stderr.strip() or "branch removal failed")
+        if cleanup:
+            raise DstackError(f"{primary}; cleanup failed: " + "; ".join(cleanup)) from primary
         raise
 
-    resolved = worktree_for_branch(client.root, branch)
-    if resolved is None:
-        raise DstackError(f"Beads created no discoverable worktree for {branch}")
-    return branch, resolved, created_branch, created_worktree
+
+def ensure_feature_worktree(
+    client: BeadsClient,
+    slug: str,
+    base_branch: str,
+) -> tuple[str, Path, bool, bool]:
+    return ensure_branch_worktree(client, f"feat/{slug}", base_branch)
 
 
 def descendants(client: BeadsClient, root_id: str) -> list[dict[str, Any]]:
@@ -632,9 +671,15 @@ def feature_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tupl
     if not slug or not base:
         raise DstackError("feature root lacks slug or base branch")
     branch = f"feat/{slug}"
+    validate_git_branch(client.root, branch, name="feature branch")
+    validate_git_branch(client.root, base, name="base branch")
+    validate_git_revision(client.root, base, name="base branch")
     worktree = worktree_for_branch(client.root, branch)
     if worktree is None:
         raise DstackError(f"no worktree is registered for {branch}")
+    worktree = verify_worktree_identity(client.root, worktree, branch)
+    if not ancestry(client.root, base, branch):
+        raise DstackError(f"feature branch {branch} does not contain base {base}")
     return branch, worktree, base
 
 

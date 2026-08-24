@@ -48,6 +48,8 @@ from dstacklib import (
     root_metadata_value,
     run,
     slugify,
+    validate_git_branch,
+    validate_git_revision,
     worktree_for_branch,
 )
 
@@ -134,6 +136,8 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     selector = (args.selector or args.title or "").strip()
     if not selector:
         raise DstackError("feature selector/title is required")
+    validate_git_branch(client.root, args.base_branch, name="base branch")
+    validate_git_revision(client.root, args.base_branch, name="base branch")
 
     existing: dict[str, Any] | None = None
     try:
@@ -195,6 +199,9 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     slug = args.slug or (feature_slug(planned_source) if planned_source else None) or slugify(title)
     inherited_base = root_metadata_value(planned_source, "base_branch") if planned_source else None
     base_branch = inherited_base or args.base_branch
+    validate_git_branch(client.root, base_branch, name="base branch")
+    validate_git_revision(client.root, base_branch, name="base branch")
+    validate_git_branch(client.root, f"feat/{slug}", name="feature branch")
     design_path = default_design_path(client.root, slug)
     if args.design_path and args.design_path != design_path:
         raise DstackError(f"feature design path must be {design_path} for the mdBook layout")
@@ -254,7 +261,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
             )
         if created_branch and branch_exists(client.root, f"feat/{slug}"):
             run(
-                ["git", "branch", "-D", f"feat/{slug}"],
+                ["git", "branch", "-D", "--", f"feat/{slug}"],
                 cwd=client.root,
                 check=False,
             )
@@ -661,6 +668,7 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
 def cmd_feature_claim_next(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
+    feature_branch_context(client, view)
     claimed = claim_ready_work(
         client,
         parent_id=str(view["steps"]["implementation"]["id"]),
@@ -675,6 +683,8 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
     implementation_id = str(view["steps"]["implementation"]["id"])
+    branch, worktree, base = feature_branch_context(client, view)
+    ensure_clean_worktree(worktree)
     task = claim_ready_work(
         client,
         parent_id=implementation_id,
@@ -687,8 +697,6 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
         emit({"status": "ok", "feature": view["root"]["id"], "task": task, "already_closed": True})
         return 0
 
-    branch, worktree, base = feature_branch_context(client, view)
-    ensure_clean_worktree(worktree)
     reason = completion_reason(args, "Implementation completed")
     evidence = evidence_for_bead(worktree, args.task, f"{base}..{branch}")
     if args.no_repository_change:
@@ -748,6 +756,7 @@ def cmd_feature_finish_workstream(args: argparse.Namespace) -> int:
 def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
+    feature_branch_context(client, view)
     closeout = client.show(str(view["steps"]["closeout"]["id"]))
     if closeout.get("status") == "closed":
         emit({"status": "ok", "closeout": closeout, "already_closed": True})

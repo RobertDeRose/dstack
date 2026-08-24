@@ -1049,7 +1049,13 @@ def worktree_for_branch(root: Path, branch: str) -> Path | None:
 
 
 def conventional_worktree(root: Path, branch: str) -> Path:
-    return root.parent / f"{root.name}.{branch.replace('/', '-')}"
+    common = run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=root,
+        check=False,
+    )
+    primary = Path(common.stdout.strip()).parent if common.returncode == 0 else root
+    return primary.parent / f"{primary.name}.{branch.replace('/', '-')}"
 
 
 def ensure_clean_tracked(path: Path) -> None:
@@ -1064,26 +1070,121 @@ def ensure_clean_worktree(path: Path) -> None:
         raise DstackError(f"worktree changes prevent this operation in {path}:\n{status}")
 
 
+def validate_git_branch(root: Path, branch: str, *, name: str = "branch") -> str:
+    if not branch or branch.startswith("-") or any(char in branch for char in "\r\n\0"):
+        raise DstackError(f"invalid {name}: {branch!r}")
+    result = run(
+        ["git", "check-ref-format", "--branch", branch],
+        cwd=root,
+        check=False,
+    )
+    if result.returncode:
+        raise DstackError(f"invalid {name}: {branch!r}")
+    return branch
+
+
+def validate_git_revision(root: Path, ref: str, *, name: str = "revision") -> str:
+    if not ref or ref.startswith("-") or any(char in ref for char in "\r\n\0"):
+        raise DstackError(f"invalid {name}: {ref!r}")
+    result = run(
+        [
+            "git",
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            f"{ref}^{{commit}}",
+        ],
+        cwd=root,
+        check=False,
+    )
+    if result.returncode:
+        raise DstackError(f"{name} does not resolve to a commit: {ref!r}")
+    return ref
+
+
+def validate_git_range(root: Path, value: str, *, name: str = "revision") -> str:
+    separator = "..." if "..." in value else ".." if ".." in value else None
+    if separator is None:
+        return validate_git_revision(root, value, name=name)
+    parts = value.split(separator)
+    if len(parts) != 2 or not all(parts):
+        raise DstackError(f"invalid {name} range: {value!r}")
+    for part in parts:
+        validate_git_revision(root, part, name=name)
+    return value
+
+
+def verify_worktree_identity(
+    root: Path,
+    worktree: Path,
+    branch: str,
+    *,
+    conventional: bool = True,
+) -> Path:
+    validate_git_branch(root, branch)
+    expected = conventional_worktree(root, branch).resolve()
+    resolved = worktree.resolve()
+    if conventional and resolved != expected:
+        raise DstackError(f"worktree for {branch} must use conventional path {expected}: {resolved}")
+    top = run(["git", "rev-parse", "--show-toplevel"], cwd=resolved, check=False)
+    actual_branch = run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=resolved,
+        check=False,
+    )
+    if (
+        top.returncode
+        or Path(top.stdout.strip()).resolve() != resolved
+        or actual_branch.returncode
+        or actual_branch.stdout.strip() != branch
+    ):
+        raise DstackError(
+            f"worktree identity mismatch for {branch}: path={resolved}, "
+            f"branch={actual_branch.stdout.strip() or '<detached>'}"
+        )
+    return resolved
+
+
 def branch_exists(root: Path, branch: str) -> bool:
-    result = run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=root, check=False)
+    result = run(
+        ["git", "show-ref", "--verify", "--quiet", "--", f"refs/heads/{branch}"],
+        cwd=root,
+        check=False,
+    )
     return result.returncode == 0
 
 
 def ref_exists(root: Path, ref: str) -> bool:
-    return run(["git", "rev-parse", "--verify", "--quiet", ref], cwd=root, check=False).returncode == 0
+    return (
+        run(
+            ["git", "rev-parse", "--verify", "--quiet", "--end-of-options", ref],
+            cwd=root,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def ancestry(root: Path, ancestor: str, descendant: str) -> bool:
-    return run(["git", "merge-base", "--is-ancestor", ancestor, descendant], cwd=root, check=False).returncode == 0
+    return (
+        run(
+            ["git", "merge-base", "--is-ancestor", "--", ancestor, descendant],
+            cwd=root,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def current_head(root: Path, ref: str = "HEAD") -> str:
-    return run(["git", "rev-parse", ref], cwd=root).stdout.strip()
+    return run(["git", "rev-parse", "--verify", "--end-of-options", ref], cwd=root).stdout.strip()
 
 
 def commit_footer_ids(root: Path, ref_range: str) -> dict[str, list[dict[str, Any]]]:
     """Return every reachable commit grouped by its ``Beads:`` footer."""
 
+    validate_git_range(root, ref_range, name="evidence revision")
     format_string = "%x1e%H%x00%s%x00%B%x00"
     output = run(
         ["git", "log", f"--format={format_string}", "--name-only", ref_range],

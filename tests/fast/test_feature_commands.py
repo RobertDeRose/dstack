@@ -72,6 +72,11 @@ def patch_command(monkeypatch, module, beads, current=None):
     )
     monkeypatch.setattr(
         module,
+        "feature_branch_context",
+        lambda *args: ("feat/feature", beads.root, "main"),
+    )
+    monkeypatch.setattr(
+        module,
         "feature_authorization_state",
         lambda client, context: {
             "human_gate": current.get("human_gate"),
@@ -121,11 +126,28 @@ def test_default_design_path_rejects_noncanonical_slug(tmp_path: Path, slug: str
         dstack_feature.default_design_path(tmp_path, slug)
 
 
-def test_initialize_rejects_design_path_outside_mdbook_features(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_initialize_rejects_option_like_base_before_beads_mutation(monkeypatch, git_repo: Path) -> None:
+    beads = ScriptedClient(git_repo)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
+    with pytest.raises(DstackError, match="invalid base branch"):
+        dstack_feature.cmd_feature_initialize(
+            argparse.Namespace(
+                root=git_repo,
+                selector="Feature",
+                title=None,
+                slug=None,
+                base_branch="--help",
+                design_path=None,
+            )
+        )
+    beads.assert_exhausted()
+
+
+def test_initialize_rejects_design_path_outside_mdbook_features(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
     monkeypatch.setattr(
         dstack_feature,
         "resolve_feature",
@@ -144,9 +166,9 @@ def test_initialize_rejects_design_path_outside_mdbook_features(
     beads.assert_exhausted()
 
 
-def test_initialize_pours_formula_and_records_only_stable_identity(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
     beads = ScriptedClient(
         tmp_path,
         call(
@@ -703,17 +725,7 @@ def test_claim_next_rejects_wrong_work_label_without_mutation(monkeypatch, tmp_p
 def test_finish_task_rejects_untracked_worktree(monkeypatch, tmp_path: Path, no_repository_change: bool) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "untracked.py").write_text("DIRTY = True\n")
-    task = {
-        "id": "task-1",
-        "parent": "implementation-1",
-        "status": "in_progress",
-        "labels": ["dstack:work:implementation"],
-    }
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "task-1", result=task),
-        call("update", "task-1", "--claim", result=task),
-    )
+    beads = ScriptedClient(tmp_path)
     patch_command(monkeypatch, dstack_feature, beads)
     monkeypatch.setattr(
         dstack_feature,
