@@ -731,6 +731,31 @@ def _links(path: Path) -> list[str]:
     return _markdown_values(path.read_text(encoding="utf-8"), LINK_PATTERN)
 
 
+def validate_decision_records(source: Path) -> list[str]:
+    decisions = source / "decisions"
+    if not decisions.is_dir():
+        return []
+    errors: list[str] = []
+    allowed = {"Proposed", "Accepted", "Deprecated", "Superseded"}
+    for path in sorted(decisions.glob("[0-9][0-9][0-9][0-9]-*.md")):
+        text = path.read_text(encoding="utf-8")
+        fields: dict[str, str] = {}
+        for name in ("Status", "Supersedes", "Superseded by"):
+            match = re.search(rf"^- \*\*{re.escape(name)}:\*\*\s*(.+)$", text, re.MULTILINE)
+            if not match:
+                errors.append(f"{path.name} lacks {name}")
+                continue
+            fields[name] = match.group(1).strip()
+        status = fields.get("Status")
+        if status and status not in allowed:
+            errors.append(f"{path.name} has invalid status {status!r}")
+        for name in ("Supersedes", "Superseded by"):
+            value = fields.get(name)
+            if value and value != "None" and not _markdown_values(value, LINK_PATTERN):
+                errors.append(f"{path.name} {name} must be None or a local link")
+    return errors
+
+
 def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]:
     root = root.resolve()
     docs = _inside(root / "docs", root, "documentation directory escapes repository")
@@ -759,7 +784,7 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
             f"configured source is {raw_source!r}; run /setup-project --force to migrate it"
         )
 
-    errors: list[str] = []
+    errors: list[str] = validate_decision_records(source)
     summary = source / "SUMMARY.md"
     chapters: set[Path] = set()
     for raw in _links(summary):

@@ -4,6 +4,15 @@ Mutation commands return the root identifier and the native objects they touch. 
 `alignment inspect`, or `delivery inspect` when the full current dashboard is required; mutations do not hydrate
 unrelated ready work or progress.
 
+| Boundary | Native operation | Retry contract |
+| --- | --- | --- |
+| Plan | Create/update ordinary planned Beads work | Converges from current intent without Git mutation |
+| Materialize | Pour the stable formula and create native children | Reuses the unique current root and conventional worktree |
+| Authorize | Close planning, resolve the exact human gate, close approval, then store the content digest | Verifies all postconditions; partial authorization can converge on retry |
+| Execute | Native atomic ready claim or ownership re-claim, then evidence-backed close | Exact closed work is idempotent; conflicts require current native state |
+| Reconcile | Native direct-child fan-in plus documentation/evidence validation | Incomplete validation leaves the terminal boundary open |
+| Deliver | Fast-forward Git or registered PR, then Beads finalization | Reinspect uncertain external mutations before retry |
+
 ## Feature lifecycle
 
 ### `/plan-feature [id|slug|title|request]`
