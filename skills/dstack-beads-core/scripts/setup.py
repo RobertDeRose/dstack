@@ -1036,17 +1036,25 @@ def _setup_plan_object(
         desired = _setup_gitignore_content(policy)
         current = policy.read_bytes() if policy.is_file() else None
         if current != desired:
-            filesystem.append({
-                "action": "create" if current is None else "update",
-                "source": None,
-                "destination": ".beads/.gitignore",
-                "expected_source_sha256": None,
-                "expected_destination_sha256": None if current is None else hashlib.sha256(current).hexdigest(),
-                "content_source": "generated",
-                "generated_content": desired.decode("utf-8"),
-                "content_preservation": "generated",
-                "conflict_policy": "fail-if-exists" if current is None else "replace-reviewed",
-            })
+            filesystem.append(
+                {
+                    "action": "create" if current is None else "update",
+                    "source": None,
+                    "destination": ".beads/.gitignore",
+                    "expected_source_sha256": None,
+                    "expected_destination_sha256": None if current is None else hashlib.sha256(current).hexdigest(),
+                    "content_source": "generated",
+                    "generated_content": desired.decode("utf-8"),
+                    "content_preservation": "generated",
+                    "conflict_policy": (
+                        "require-identical"
+                        if current is None and initialization
+                        else "fail-if-exists"
+                        if current is None
+                        else "replace-reviewed"
+                    ),
+                }
+            )
     formulas = []
     source_dir = package_root() / "formulas"
     for name, action in formula_actions.items():
@@ -1119,6 +1127,7 @@ def setup_plan(
     beads: list[dict[str, str]] = []
     if not beads_exists:
         beads.append({"action": "initialize", "target": ".beads"})
+        git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
     else:
         client = BeadsClient(root)
         client.check_version()
@@ -1233,6 +1242,16 @@ def _setup_write_filesystem(root: Path, operation: Mapping[str, Any]) -> None:
     if not destination_path:
         raise SetupError("setup write operation has no destination")
     if action == "create" and destination_path.exists():
+        if operation["conflict_policy"] == "require-identical":
+            expected = str(operation["generated_content"]).encode("utf-8")
+            if destination_path.read_bytes() == expected:
+                return
+            if destination == ".beads/.gitignore":
+                current = destination_path.read_bytes()
+                updated = _setup_gitignore_content(destination_path)
+                if b"interactions.jsonl\n" not in current and updated == current + b"\n" + expected:
+                    atomic_replace(destination_path, updated)
+                    return
         raise SetupError(f"setup destination already exists: {destination}")
     if action == "update" and operation["expected_destination_sha256"] is None and destination_path.exists():
         raise SetupError(f"setup update destination has no reviewed precondition: {destination}")
