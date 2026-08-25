@@ -487,6 +487,29 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
     }
 
 
+def _delivery_root(client: BeadsClient, selector: str) -> dict[str, Any]:
+    exact = client.show_optional(selector)
+    if exact is not None and (has_label(exact, "workflow:feature") or has_label(exact, "workflow:project-alignment")):
+        return exact
+    errors: list[str] = []
+    for resolver in (feature_context, alignment_context):
+        try:
+            return dict(resolver(client, selector)["root"])
+        except DstackError as exc:
+            errors.append(str(exc))
+    raise DstackError(f"selector is neither a feature nor a project alignment: {selector}; " + "; ".join(errors))
+
+
+def _git_snapshot(root: Path) -> tuple[str, str]:
+    return (
+        current_head(root),
+        run(
+            ["git", "status", "--short", "--untracked-files=all"],
+            cwd=root,
+        ).stdout,
+    )
+
+
 def cmd_delivery_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)
@@ -603,8 +626,10 @@ def pr_gate_state(client: BeadsClient, root_id: str) -> dict[str, list[dict[str,
         if superseded_target(gate) is None
         and (
             str(gate["id"]) in root_blockers
-            or str(gate.get("waiter_id") or "") == root_id
-            or issue_parent(gate) == root_id
+            or (
+                gate.get("status") != "closed"
+                and (str(gate.get("waiter_id") or "") == root_id or issue_parent(gate) == root_id)
+            )
         )
     ]
     return {"all": gates, "active": active}
@@ -618,9 +643,30 @@ def unique_pr_gate(client: BeadsClient, root_id: str) -> dict[str, Any]:
     return active[0]
 
 
-def register_pr_gate(
-    client: BeadsClient, root_id: str, pr_number: str
-) -> dict[str, Any]:
+def incomplete_pr_gate_cancellations(
+    client: BeadsClient, root_id: str, state: Mapping[str, list[dict[str, Any]]]
+) -> list[str]:
+    gates = state.get("all", [])
+    if not gates:
+        return []
+    root = client.show(root_id)
+    relations = dependency_records(root)
+    incomplete = []
+    for gate in gates:
+        gate_id = str(gate["id"])
+        if gate.get("status") != "closed" or superseded_target(gate) is not None:
+            continue
+        types = [
+            str(record.get("type") or record.get("dependency_type"))
+            for record in relations
+            if str(record.get("depends_on_id") or record.get("id")) == gate_id
+        ]
+        if "blocks" not in types and types.count("relates-to") != 1:
+            incomplete.append(gate_id)
+    return incomplete
+
+
+def register_pr_gate(client: BeadsClient, root_id: str, pr_number: str) -> dict[str, Any]:
     active = pr_gate_state(client, root_id)["active"]
     if not active:
         return client.create_gate(
@@ -680,28 +726,82 @@ def cancel_pr_gate(client: BeadsClient, root_id: str, reason: str) -> dict[str, 
     reason = reason.strip()
     if not reason:
         raise DstackError("PR gate cancellation requires a non-empty reason")
-    gate = unique_pr_gate(client, root_id)
-    gate_id = str(gate["id"])
-    cancellation_reason = f"Cancel PR gate: {reason}"
-    if gate.get("status") == "closed":
-        client.add_comment(gate_id, cancellation_reason)
+    before = _git_snapshot(client.root)
+    state = pr_gate_state(client, root_id)
+    active = state["active"]
+    if len(active) == 1:
+        gate = active[0]
+    elif not active:
+        recoverable = [
+            item for item in state["all"] if item.get("status") == "closed" and superseded_target(item) is None
+        ]
+        if len(recoverable) != 1:
+            ids = ", ".join(str(item["id"]) for item in recoverable) or "none"
+            raise DstackError(f"root has no unique recoverable PR gate: {ids}")
+        gate = recoverable[0]
     else:
-        gate = client.resolve_gate(gate_id, cancellation_reason)
-    client.remove_dependency(root_id, gate_id)
-    client.relate(root_id, gate_id)
+        ids = ", ".join(str(item["id"]) for item in active)
+        raise DstackError(f"root has no unique active PR gate: {ids}")
 
-    observed = pr_gate_state(client, root_id)
-    if observed["active"]:
-        raise DstackError("PR gate cancellation did not remove the active blocker")
-    matches = [item for item in observed["all"] if str(item["id"]) == gate_id]
+    gate_id = str(gate["id"])
     root = client.show(root_id)
-    related = any(
-        str(record.get("depends_on_id") or record.get("id")) == gate_id
-        and str(record.get("type") or record.get("dependency_type")) == "relates-to"
-        for record in dependency_records(root)
-    )
-    if len(matches) != 1 or matches[0].get("status") != "closed" or not related:
-        raise DstackError("PR gate cancellation did not converge")
+    root_relations = [
+        record for record in dependency_records(root) if str(record.get("depends_on_id") or record.get("id")) == gate_id
+    ]
+    blocking = [
+        record for record in root_relations if str(record.get("type") or record.get("dependency_type")) == "blocks"
+    ]
+    related = [
+        record for record in root_relations if str(record.get("type") or record.get("dependency_type")) == "relates-to"
+    ]
+    waiter = str(gate.get("waiter_id") or "")
+    parent = issue_parent(gate)
+    if (
+        len(blocking) > 1
+        or len(related) > 1
+        or len(root_relations) != len(blocking) + len(related)
+        or (blocking and related)
+        or (not blocking and gate.get("status") != "closed")
+        or (waiter and waiter != root_id)
+        or (parent and parent != root_id)
+    ):
+        raise DstackError("PR gate has an unexpected blocker/waiter relation")
+
+    try:
+        cancellation_reason = f"Cancel PR gate: {reason}"
+        if blocking:
+            if gate.get("status") == "closed":
+                client.add_comment(gate_id, cancellation_reason)
+            else:
+                client.resolve_gate(gate_id, cancellation_reason)
+            client.remove_dependency(root_id, gate_id)
+        if not related:
+            client.relate(root_id, gate_id)
+
+        observed = pr_gate_state(client, root_id)
+        matches = [item for item in observed["all"] if str(item["id"]) == gate_id]
+        root = client.show(root_id)
+        related = [
+            record
+            for record in dependency_records(root)
+            if str(record.get("depends_on_id") or record.get("id")) == gate_id
+            and str(record.get("type") or record.get("dependency_type")) == "relates-to"
+        ]
+        if (
+            observed["active"]
+            or len(matches) != 1
+            or matches[0].get("status") != "closed"
+            or len(related) != 1
+            or gate_id in blocker_ids(root)
+        ):
+            raise DstackError("PR gate cancellation did not converge")
+    except DstackError as exc:
+        if _git_snapshot(client.root) != before:
+            raise DstackError(f"{exc}; PR gate cancellation changed Git HEAD or status") from exc
+        raise
+
+    if _git_snapshot(client.root) != before:
+        raise DstackError("PR gate cancellation changed Git HEAD or status")
     return matches[0]
 
 
@@ -723,9 +823,8 @@ def cmd_delivery_register_pr(args: argparse.Namespace) -> int:
 
 def cmd_delivery_cancel_pr_gate(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    payload = delivery_view(client, args.selector)
-    validate_delivery(payload, require_remote=False)
-    root_id = str(payload["root"]["id"])
+    root = _delivery_root(client, args.selector)
+    root_id = str(root["id"])
     gate = cancel_pr_gate(client, root_id, args.reason)
     emit({"status": "ok", "root": root_id, "gate": gate})
     return 0
@@ -847,16 +946,22 @@ def finalize_beads_without_git_mutation(
         "Git history was not rewritten"
     )
 
+
 def cmd_delivery_merge(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)
     validate_delivery(payload, require_remote=False)
     root_id = str(payload["root"]["id"])
-    active_pr_gates = pr_gate_state(client, root_id)["active"]
+    pr_gates = pr_gate_state(client, root_id)
+    active_pr_gates = pr_gates["active"]
     if active_pr_gates:
         ids = ", ".join(str(gate["id"]) for gate in active_pr_gates)
+        raise DstackError(f"direct merge requires explicit cancellation of active PR gate: {ids}")
+    incomplete = incomplete_pr_gate_cancellations(client, root_id, pr_gates)
+    if incomplete:
         raise DstackError(
-            f"direct merge requires explicit cancellation of active PR gate: {ids}"
+            "direct merge rejects incomplete PR gate cancellation: "
+            + ", ".join(incomplete)
         )
     candidate_worktree = Path(str(payload["candidate_worktree"]))
     ensure_clean_worktree(candidate_worktree)
@@ -901,6 +1006,7 @@ def cmd_delivery_merge(args: argparse.Namespace) -> int:
 def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)
+    validate_delivery(payload, require_remote=False)
     root_id = str(payload["root"]["id"])
     client.gate_check()
     gate = unique_pr_gate(client, root_id)

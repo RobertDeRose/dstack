@@ -586,6 +586,7 @@ def test_cancel_pr_gate_replaces_blocker_with_native_relation(monkeypatch, tmp_p
         "status": "open",
         "await_type": "gh:pr",
         "await_id": "42",
+        "waiter_id": "feature-1",
         "dependencies": [],
     }
     closed_gate = {**gate, "status": "closed", "close_reason": "direct delivery"}
@@ -602,6 +603,7 @@ def test_cancel_pr_gate_replaces_blocker_with_native_relation(monkeypatch, tmp_p
         call("show", "feature-1", result=blocking_root),
         call("gates", all_statuses=True, result=[gate]),
         call("show", "gate-1", result=gate),
+        call("show", "feature-1", result=blocking_root),
         call("resolve_gate", "gate-1", "Cancel PR gate: direct delivery", result=closed_gate),
         call("remove_dependency", "feature-1", "gate-1", result=None),
         call("relate", "feature-1", "gate-1", result=None),
@@ -610,9 +612,18 @@ def test_cancel_pr_gate_replaces_blocker_with_native_relation(monkeypatch, tmp_p
         call("show", "gate-1", result=closed_gate),
         call("show", "feature-1", result=related_root),
     )
-    candidate = payload(root={"id": "feature-1"})
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
-    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
+    monkeypatch.setattr(dstack_delivery, "_delivery_root", lambda *args: blocking_root)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "delivery_view",
+        lambda *args: pytest.fail("cancellation must not inspect a delivery candidate"),
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "_git_snapshot",
+        lambda *args: ("head", ""),
+    )
     output = []
     monkeypatch.setattr(dstack_delivery, "emit", output.append)
 
@@ -627,6 +638,179 @@ def test_cancel_pr_gate_replaces_blocker_with_native_relation(monkeypatch, tmp_p
         == 0
     )
     assert output[0]["gate"] == closed_gate
+    beads.assert_exhausted()
+
+
+def test_cancel_pr_gate_rejects_unexpected_blocker_relation(monkeypatch, tmp_path: Path) -> None:
+    gate = {
+        "id": "gate-1",
+        "status": "open",
+        "await_type": "gh:pr",
+        "await_id": "42",
+        "waiter_id": "feature-1",
+        "dependencies": [],
+    }
+    root = {
+        "id": "feature-1",
+        "dependencies": [{"type": "relates-to", "depends_on_id": "gate-1"}],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "feature-1", result=root),
+        call("gates", all_statuses=True, result=[gate]),
+        call("show", "gate-1", result=gate),
+        call("show", "feature-1", result=root),
+    )
+    monkeypatch.setattr(dstack_delivery, "_git_snapshot", lambda *args: ("head", ""))
+    with pytest.raises(DstackError, match="unexpected blocker/waiter"):
+        dstack_delivery.cancel_pr_gate(beads, "feature-1", "abandon")
+    beads.assert_exhausted()
+
+
+def test_cancel_pr_gate_rejects_git_mutation_after_native_convergence(monkeypatch, tmp_path: Path) -> None:
+    gate = {
+        "id": "gate-1",
+        "status": "open",
+        "await_type": "gh:pr",
+        "await_id": "42",
+        "waiter_id": "feature-1",
+        "dependencies": [],
+    }
+    closed_gate = {**gate, "status": "closed"}
+    before_root = {
+        "id": "feature-1",
+        "dependencies": [{"type": "blocks", "depends_on_id": "gate-1"}],
+    }
+    empty_root = {"id": "feature-1", "dependencies": []}
+    after_root = {
+        "id": "feature-1",
+        "dependencies": [{"type": "relates-to", "depends_on_id": "gate-1"}],
+    }
+
+    class Client:
+        root = tmp_path
+
+        def __init__(self) -> None:
+            self.root_value = before_root
+            self.calls = []
+
+        def show(self, issue_id):
+            self.calls.append(("show", issue_id))
+            return self.root_value
+
+        def resolve_gate(self, gate_id, reason):
+            self.calls.append(("resolve_gate", gate_id, reason))
+            return closed_gate
+
+        def remove_dependency(self, root_id, gate_id):
+            self.calls.append(("remove_dependency", root_id, gate_id))
+            self.root_value = empty_root
+
+        def relate(self, root_id, gate_id):
+            self.calls.append(("relate", root_id, gate_id))
+            self.root_value = after_root
+
+    client = Client()
+    states = iter(
+        [
+            {"all": [gate], "active": [gate]},
+            {"all": [closed_gate], "active": []},
+        ]
+    )
+    monkeypatch.setattr(dstack_delivery, "pr_gate_state", lambda *args: next(states))
+    client.root_value = before_root
+    snapshots = iter([("head", ""), ("other-head", "")])
+    monkeypatch.setattr(dstack_delivery, "_git_snapshot", lambda *args: next(snapshots))
+    with pytest.raises(DstackError, match="changed Git HEAD or status"):
+        dstack_delivery.cancel_pr_gate(client, "feature-1", "abandon")
+    assert ("resolve_gate", "gate-1", "Cancel PR gate: abandon") in client.calls
+    assert ("remove_dependency", "feature-1", "gate-1") in client.calls
+    assert ("relate", "feature-1", "gate-1") in client.calls
+
+
+def test_cancel_pr_gate_relation_failure_is_retryable(monkeypatch, tmp_path: Path) -> None:
+    gate = {
+        "id": "gate-1",
+        "status": "open",
+        "await_type": "gh:pr",
+        "waiter_id": "feature-1",
+        "dependencies": [],
+    }
+    closed_gate = {**gate, "status": "closed"}
+    blocking_root = {
+        "id": "feature-1",
+        "dependencies": [{"type": "blocks", "depends_on_id": "gate-1"}],
+    }
+    empty_root = {"id": "feature-1", "dependencies": []}
+    related_root = {
+        "id": "feature-1",
+        "dependencies": [{"type": "relates-to", "depends_on_id": "gate-1"}],
+    }
+
+    class Client:
+        root = tmp_path
+
+        def __init__(self) -> None:
+            self.root_value = blocking_root
+            self.fail_relation = True
+
+        def show(self, issue_id):
+            return self.root_value
+
+        def resolve_gate(self, gate_id, reason):
+            return closed_gate
+
+        def remove_dependency(self, root_id, gate_id):
+            self.root_value = empty_root
+
+        def relate(self, root_id, gate_id):
+            if self.fail_relation:
+                self.fail_relation = False
+                raise DstackError("relation failed")
+            self.root_value = related_root
+
+    client = Client()
+    states = iter(
+        [
+            {"all": [gate], "active": [gate]},
+            {"all": [closed_gate], "active": []},
+            {"all": [closed_gate], "active": []},
+        ]
+    )
+    monkeypatch.setattr(dstack_delivery, "pr_gate_state", lambda *args: next(states))
+    monkeypatch.setattr(dstack_delivery, "_git_snapshot", lambda *args: ("head", ""))
+    with pytest.raises(DstackError, match="relation failed"):
+        dstack_delivery.cancel_pr_gate(client, "feature-1", "abandon")
+    assert client.root_value == empty_root
+
+    assert dstack_delivery.cancel_pr_gate(client, "feature-1", "abandon") == closed_gate
+    assert client.root_value == related_root
+
+
+def test_delivery_merge_rejects_incomplete_gate_cancellation(monkeypatch, tmp_path: Path) -> None:
+    gate = {
+        "id": "gate-1",
+        "status": "closed",
+        "await_type": "gh:pr",
+        "waiter_id": "feature-1",
+    }
+    root = {"id": "feature-1", "dependencies": []}
+    beads = ScriptedClient(tmp_path, call("show", "feature-1", result=root))
+    candidate = payload(root=root, candidate_worktree=str(tmp_path / "candidate"))
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "pr_gate_state",
+        lambda *args: {"all": [gate], "active": []},
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "ensure_clean_worktree",
+        lambda *args: pytest.fail("Git ran with incomplete cancellation"),
+    )
+    with pytest.raises(DstackError, match="incomplete PR gate cancellation"):
+        dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1"))
     beads.assert_exhausted()
 
 
@@ -795,6 +979,25 @@ def test_finalization_close_failure_reports_partial_delivery(monkeypatch, tmp_pa
         assert fact in message
 
 
+def test_finalize_pr_validates_candidate_before_gate_check(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(tmp_path)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "delivery_view",
+        lambda *args: payload(root={"id": "feature-1"}),
+    )
+
+    def reject_candidate(observed, *, require_remote):
+        assert require_remote is False
+        raise DstackError("invalid delivery candidate")
+
+    monkeypatch.setattr(dstack_delivery, "validate_delivery", reject_candidate)
+    with pytest.raises(DstackError, match="invalid delivery candidate"):
+        dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
 def test_finalize_pr_waits_without_closing_root(monkeypatch, tmp_path: Path) -> None:
     gate = {"id": "gate-1", "status": "open", "await_type": "gh:pr"}
     beads = ScriptedClient(
@@ -815,6 +1018,7 @@ def test_finalize_pr_waits_without_closing_root(monkeypatch, tmp_path: Path) -> 
         root={"id": "feature-1"},
         target_branch="main",
         candidate_head="candidate",
+        remote_matches_local=False,
     )
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
