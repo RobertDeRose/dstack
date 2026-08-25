@@ -147,14 +147,8 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
     root = view["root"]
     root_id = str(root["id"])
     current = bool(view.get("current"))
-    classification = (
-        "planned" if not current else "delivered" if root.get("status") == "closed" else "current"
-    )
-    metadata = {
-        key: value
-        for key, value in sorted(issue_metadata(root).items())
-        if str(key).startswith("dstack.")
-    }
+    classification = "planned" if not current else "delivered" if root.get("status") == "closed" else "current"
+    metadata = {key: value for key, value in sorted(issue_metadata(root).items()) if str(key).startswith("dstack.")}
     payload: dict[str, Any] = {
         "audit_version": 1,
         "kind": "feature",
@@ -236,15 +230,12 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
     items = [
         item
         for item in client.children(implementation_id)
-        if has_label(item, "dstack:work:implementation")
-        or issue_type(item) not in {"epic", "molecule", "gate"}
+        if has_label(item, "dstack:work:implementation") or issue_type(item) not in {"epic", "molecule", "gate"}
     ]
     items = sorted(items, key=lambda item: str(item.get("id") or ""))
     payload["work"] = {
         "items": [issue_fact(item) for item in items],
-        "remaining_or_deferred": [
-            issue_fact(item) for item in items if item.get("status") != "closed"
-        ],
+        "remaining_or_deferred": [issue_fact(item) for item in items if item.get("status") != "closed"],
     }
     view["work_items"] = items
 
@@ -265,9 +256,7 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
                 if root.get("status") == "closed"
                 else feature_evidence_audit(client, view)
             )
-            payload["git_evidence"] = {
-                key: value for key, value in evidence.items() if key != "feature"
-            }
+            payload["git_evidence"] = {key: value for key, value in evidence.items() if key != "feature"}
         except DstackError as exc:
             payload["git_evidence"] = {
                 "status": "unavailable",

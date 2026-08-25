@@ -556,9 +556,7 @@ def test_approve_spec_persists_pending_before_native_authorization(monkeypatch, 
     assert all(state[item]["status"] == "closed" for item in ("specification-1", "gate-1", "approval-1"))
 
 
-def test_approve_spec_resumes_closed_native_state_with_matching_pending_digest(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_approve_spec_resumes_closed_native_state_with_matching_pending_digest(monkeypatch, tmp_path: Path) -> None:
     digest = "accepted-digest"
     state = {
         "feature-1": {
@@ -1320,9 +1318,7 @@ def test_claim_closeout_refuses_open_native_child_before_ready_claim(monkeypatch
     patch_command(monkeypatch, dstack_feature, beads)
 
     with pytest.raises(DstackError, match="native-child"):
-        dstack_feature.cmd_feature_claim_closeout(
-            argparse.Namespace(root=tmp_path, selector="feature-1")
-        )
+        dstack_feature.cmd_feature_claim_closeout(argparse.Namespace(root=tmp_path, selector="feature-1"))
     beads.assert_exhausted()
 
 
@@ -1388,9 +1384,7 @@ def test_claim_closeout_uses_native_atomic_ready_claim(monkeypatch, tmp_path: Pa
     beads.assert_exhausted()
 
 
-def test_closeout_validation_rejects_missing_documentation_impact_target(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_closeout_validation_rejects_missing_documentation_impact_target(monkeypatch, tmp_path: Path) -> None:
     import dstack_docs
 
     worktree = tmp_path / "worktree"
@@ -1412,9 +1406,7 @@ def test_closeout_validation_rejects_missing_documentation_impact_target(
         dstack_feature.validate_feature_documentation(ScriptedClient(tmp_path), view())
 
 
-def test_finish_closeout_requires_reconciliation_before_beads_mutation(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_finish_closeout_requires_reconciliation_before_beads_mutation(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
@@ -1423,9 +1415,7 @@ def test_finish_closeout_requires_reconciliation_before_beads_mutation(
     monkeypatch.setattr(
         dstack_feature,
         "validate_feature_documentation",
-        lambda client, context: (_ for _ in ()).throw(
-            DstackError("feature reconciliation does not exist")
-        ),
+        lambda client, context: (_ for _ in ()).throw(DstackError("feature reconciliation does not exist")),
     )
     args = argparse.Namespace(
         root=tmp_path,

@@ -60,6 +60,7 @@ from dstack_alignment_plan import (
     verify_correction_graph,
 )
 
+
 def cmd_alignment_scaffold_record(args: argparse.Namespace) -> int:
     if args.kind != "reconciliation":
         raise DstackError("alignment plan authoring uses canonical JSON --plan-file")
