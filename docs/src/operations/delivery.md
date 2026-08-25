@@ -24,14 +24,15 @@ PR delivery requires an `origin` remote containing the synchronized target and c
 must be authenticated with permission to read the repository, push the candidate, create pull requests, and inspect
 merge state. The user approves the aggregate title and body before creation.
 
-Exactly one matching native PR gate may represent the delivery. Repeating
-registration for that gate is safe. Missing, conflicting, or duplicate gates
-fail without replacement; explicit `delivery replace-pr` repair requires a
-reason and preserves native supersession history. Switching to direct delivery
-requires `delivery cancel-pr-gate <selector> --reason <reason>`. Cancellation
-closes an open gate, replaces its blocking dependency with a native nonblocking
-relation, and verifies the graph before merge. It does not close or otherwise
-change the GitHub pull request.
+Exactly one matching native PR gate may represent the delivery. Repeating registration for that gate is safe. Missing,
+conflicting, or duplicate gates fail without replacement; explicit `delivery replace-pr` repair requires a reason and
+preserves native supersession history. Switching to direct delivery requires
+`delivery cancel-pr-gate <selector> --reason <reason>`. Cancellation is a Beads-only recovery operation: it resolves
+exactly one active associated `gh:pr` gate, replaces its blocking dependency with a native nonblocking relation,
+verifies the graph, and proves the local Git HEAD and full status are unchanged. It does not inspect or require the
+candidate branch, worktree, documentation, footer evidence, or GitHub pull request, so it also works for an abandoned or
+already-invalid candidate. Full candidate validation remains mandatory for registration, replacement, merge, and
+finalization.
 
 ## Retry and finalization
 

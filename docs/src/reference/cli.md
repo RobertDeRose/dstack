@@ -31,8 +31,11 @@ Internal controller leaves include `feature reauthorize` and `alignment
 reauthorize` before approved graph changes, `delivery replace-pr` for an
 explicit conflicting-gate repair, and `delivery cancel-pr-gate` for an explicit
 switch from a unique PR blocker to direct delivery. These commands require
-reasons and preserve native history; gate cancellation does not change the
-GitHub pull request. Normal commands never invoke legacy repair.
+reasons and preserve native history. Gate cancellation is Beads-only: it does
+not inspect candidate branches/worktrees, docs, footer evidence, or change the
+GitHub pull request, and proves local Git HEAD/status are unchanged. Full
+candidate validation remains required for registration, replacement, merge, and
+finalization. Normal commands never invoke legacy repair.
 
 ## Retry and errors
 
