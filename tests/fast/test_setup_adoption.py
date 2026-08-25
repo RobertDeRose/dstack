@@ -21,21 +21,9 @@ def feature_formula() -> dict:
     return {
         "steps": [
             {"id": "specification", "type": "task", "labels": [FEATURE_STEPS["specification"]]},
-            {
-                "id": "approval",
-                "type": "task",
-                "labels": [FEATURE_STEPS["approval"]],
-                "needs": ["specification"],
-                "gate": {"type": "human"},
-            },
+            {"id": "approval", "type": "task", "labels": [FEATURE_STEPS["approval"]], "needs": ["specification"], "gate": {"type": "human"}},
             {"id": "implementation", "type": "epic", "labels": [FEATURE_STEPS["implementation"]]},
-            {
-                "id": "closeout",
-                "type": "task",
-                "labels": [FEATURE_STEPS["closeout"]],
-                "needs": ["approval"],
-                "waits_for": "children-of(implementation)",
-            },
+            {"id": "closeout", "type": "task", "labels": [FEATURE_STEPS["closeout"]], "needs": ["approval"], "waits_for": "children-of(implementation)"},
         ]
     }
 
@@ -85,25 +73,10 @@ def test_classify_legacy_item_is_explicit_about_ambiguity() -> None:
 def test_adoption_rejects_multiple_current_slug_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     beads = ScriptedClient(
         tmp_path,
-        call(
-            "list",
-            all_statuses=True,
-            labels=["workflow:feature"],
-            result=[
-                {
-                    "id": "feature-1",
-                    "issue_type": "epic",
-                    "status": "open",
-                    "labels": ["workflow:feature", "feature:slug"],
-                },
-                {
-                    "id": "feature-2",
-                    "issue_type": "epic",
-                    "status": "open",
-                    "labels": ["workflow:feature", "feature:slug"],
-                },
-            ],
-        ),
+        call("list", all_statuses=True, labels=["workflow:feature"], result=[
+            {"id": "feature-1", "issue_type": "epic", "status": "open", "labels": ["workflow:feature", "feature:slug"]},
+            {"id": "feature-2", "issue_type": "epic", "status": "open", "labels": ["workflow:feature", "feature:slug"]},
+        ]),
     )
     monkeypatch.setattr(dstack_compat, "feature_context", lambda client, issue_id: {"current": True})
     with pytest.raises(DstackError, match="multiple current"):
@@ -123,9 +96,9 @@ def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(
         setup,
         "run",
-        lambda command, **kwargs: (
-            CommandResult(0, "", "") if command[:3] == ["git", "status", "--porcelain"] else real_run(command, **kwargs)
-        ),
+        lambda command, **kwargs: CommandResult(0, "", "")
+        if command[:3] == ["git", "status", "--porcelain"]
+        else real_run(command, **kwargs),
     )
 
     first = setup.setup_plan(tmp_path, initialize=True, force=False)
@@ -138,7 +111,9 @@ def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: 
     assert not (tmp_path / "docs").exists()
 
 
-def test_setup_apply_refuses_dirty_preconditions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_setup_apply_refuses_dirty_preconditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "dirty.txt").write_text("dirty\n")
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
@@ -152,7 +127,9 @@ def test_setup_apply_refuses_dirty_preconditions(tmp_path: Path, monkeypatch: py
     assert not (tmp_path / ".beads").exists()
 
 
-def test_setup_apply_refuses_changed_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_setup_apply_refuses_changed_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
@@ -268,14 +245,17 @@ def test_doctor_reports_all_actionable_diagnostics(
             )
         if command[:3] == ["gh", "auth", "status"]:
             return CommandResult(1, "", "not authenticated")
+        if command[:4] == ["bd", "gate", "create", "--help"]:
+            return CommandResult(0, "gh:pr\n", "")
         if command[:3] == ["git", "ls-files", ".beads"]:
             return CommandResult(0, ".beads/interactions.jsonl\n", "")
         return CommandResult(0, "", "")
 
     monkeypatch.setattr(setup, "run", fake_run)
-    result = setup.doctor(tmp_path)
+    result = setup.doctor(tmp_path, delivery_mode="pr")
 
     assert result["status"] == "error"
+    assert result["delivery_mode"] == "pr"
     assert set(result["failed"]) == {
         "beads_version",
         "mdbook_version",
@@ -287,12 +267,13 @@ def test_doctor_reports_all_actionable_diagnostics(
         "worktrees",
         "runtime_paths",
         network_failure,
-        "migration",
     }
     assert all(result["checks"][name]["recovery"] for name in result["failed"])
 
 
-def test_setup_apply_is_retry_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_setup_apply_is_retry_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     package = tmp_path / "package"
     formulas = package / "formulas"
@@ -327,7 +308,33 @@ def test_setup_apply_is_retry_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert setup.apply_setup(tmp_path, initialize=True, force=False)["status"] == "ok"
 
 
-def test_doctor_passes_healthy_supported_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("remote", "host"),
+    [
+        ("git@github.com:owner/repo.git", "github.com"),
+        ("ssh://git@github.com/owner/repo.git", "github.com"),
+        ("https://github.com/owner/repo.git", "github.com"),
+        ("https://github.com.attacker.example/owner/repo.git", "github.com.attacker.example"),
+        ("https://github.com@attacker.example/owner/repo.git", "attacker.example"),
+        ("/tmp/github.com/repo.git", None),
+    ],
+)
+def test_remote_host_parses_exact_authority(remote: str, host: str | None) -> None:
+    assert setup._remote_host(remote) == host
+
+
+def test_doctor_requires_explicit_delivery_mode(tmp_path: Path) -> None:
+    with pytest.raises(TypeError):
+        setup.doctor(tmp_path)  # type: ignore[call-arg]
+    with pytest.raises(SystemExit):
+        setup.build_parser().parse_args(["doctor", "--root", str(tmp_path)])
+    args = setup.build_parser().parse_args(["doctor", "--root", str(tmp_path), "--delivery-mode", "merge"])
+    assert args.delivery_mode == "merge"
+
+
+def test_doctor_passes_healthy_merge_repository_without_remote_or_github(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     package = tmp_path / "package"
     source = package / "formulas"
     installed = tmp_path / ".beads/formulas"
@@ -367,15 +374,63 @@ def test_doctor_passes_healthy_supported_repository(tmp_path: Path, monkeypatch:
         if command[:2] == ["mdbook", "--version"]:
             return CommandResult(0, "mdbook v0.5.3\n", "")
         if command[:3] == ["git", "remote", "get-url"]:
-            return CommandResult(0, "/tmp/origin.git\n", "")
+            raise AssertionError("merge doctor must not inspect remotes")
+        if command[:4] == ["bd", "gate", "create", "--help"]:
+            raise AssertionError("merge doctor must not inspect PR gate capability")
         if command[:3] == ["git", "ls-files", ".beads"]:
             return CommandResult(0, "", "")
         return CommandResult(0, "", "")
 
     monkeypatch.setattr(setup, "run", fake_run)
-    result = setup.doctor(tmp_path)
+    result = setup.doctor(tmp_path, delivery_mode="merge")
     assert result["status"] == "ok"
+    assert result["delivery_mode"] == "merge"
     assert result["failed"] == []
+    assert result["checks"]["remote"]["status"] == "not-applicable"
+    assert result["checks"]["github"]["status"] == "not-applicable"
+    assert result["checks"]["pr_gate"]["status"] == "not-applicable"
+
+
+def test_doctor_pr_mode_reports_missing_native_gate_capability(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    package = tmp_path / "package"
+    source = package / "formulas"
+    installed = tmp_path / ".beads/formulas"
+    source.mkdir(parents=True)
+    installed.mkdir(parents=True)
+    for name in setup.FORMULA_NAMES:
+        (source / f"{name}.formula.toml").write_text(name)
+        (installed / f"{name}.formula.toml").write_text(name)
+    (tmp_path / ".beads/.gitignore").write_text("interactions.jsonl\n")
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "package_root", lambda: package)
+
+    class Client:
+        def check_version(self):
+            return "bd version 1.2.2 (6c124203e)"
+
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(setup, "validate_formula", lambda *args: None)
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+    monkeypatch.setattr(setup, "tracked", lambda *args: False)
+    monkeypatch.setattr(setup, "missing_feature_reconciliations", lambda client: [])
+    monkeypatch.setattr(setup, "worktree_records", lambda root: [])
+
+    def fake_run(command, **kwargs):
+        if command[:2] == ["mdbook", "--version"]:
+            return CommandResult(0, "mdbook v0.5.3\n", "")
+        if command[:3] == ["git", "remote", "get-url"]:
+            return CommandResult(0, "git@github.com:owner/repo.git\n", "")
+        if command[:4] == ["gh", "auth", "status", "--hostname"]:
+            return CommandResult(0, "Logged in\n", "")
+        if command[:4] == ["bd", "gate", "create", "--help"]:
+            return CommandResult(0, "human, timer\n", "")
+        return CommandResult(0, "", "")
+
+    monkeypatch.setattr(setup, "run", fake_run)
+    result = setup.doctor(tmp_path, delivery_mode="pr")
+    assert result["status"] == "error"
+    assert result["failed"] == ["pr_gate"]
+    assert "gh:pr" in result["checks"]["pr_gate"]["error"]
 
 
 def test_install_initializes_and_reports_canonical_documentation(
@@ -467,7 +522,9 @@ def test_forced_install_repairs_legacy_before_strict_documentation_validation(
     assert result["documentation"] == {"status": "ok"}
     assert result["template_artifacts_removed"] == ["legacy-template"]
     assert result["molecule_items_normalized"] == ["feature-1"]
-    assert result["missing_feature_reconciliations"] == ["docs/src/features/old/index.md"]
+    assert result["missing_feature_reconciliations"] == [
+        "docs/src/features/old/index.md"
+    ]
     assert result["interaction_log_untracked"] is True
 
 
@@ -485,8 +542,12 @@ def test_legacy_repair_reports_required_changes_before_mutation(
         "legacy_template_artifacts",
         lambda client: [{"id": "dstack-feature.template"}],
     )
-    monkeypatch.setattr(setup, "normalize_current_features", lambda client, force: ["feature-1"])
-    monkeypatch.setattr(setup, "normalize_current_alignments", lambda client, force: [])
+    monkeypatch.setattr(
+        setup, "normalize_current_features", lambda client, force: ["feature-1"]
+    )
+    monkeypatch.setattr(
+        setup, "normalize_current_alignments", lambda client, force: []
+    )
     monkeypatch.setattr(
         setup,
         "missing_feature_reconciliations",
@@ -523,7 +584,9 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
     )
     feature_index = tmp_path / "docs/src/features/index.md"
     feature_index.parent.mkdir(parents=True)
-    feature_index.write_text("# Feature Records\n\n- [Feature](../../features/feature/design.md)\n")
+    feature_index.write_text(
+        "# Feature Records\n\n- [Feature](../../features/feature/design.md)\n"
+    )
     root = {
         "id": "feature-1",
         "labels": ["workflow:feature", "feature:feature"],
@@ -545,10 +608,7 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
             "feature-1",
             "--set-metadata",
             "dstack.design_path=docs/src/features/feature/design.md",
-            result={
-                **root,
-                "metadata": {**root["metadata"], "dstack.design_path": "docs/src/features/feature/design.md"},
-            },
+            result={**root, "metadata": {**root["metadata"], "dstack.design_path": "docs/src/features/feature/design.md"}},
         ),
         call("children", "feature-1", result=[]),
     )
@@ -595,7 +655,9 @@ def test_explicit_repair_recovers_move_completed_before_metadata_update(
 
     assert setup.normalize_current_features(beads, force=True) == ["feature-1"]
     assert destination.read_text() == "moved design\n"
-    assert "features/feature/design.md" in (tmp_path / "docs/src/SUMMARY.md").read_text()
+    assert "features/feature/design.md" in (
+        tmp_path / "docs/src/SUMMARY.md"
+    ).read_text()
     beads.assert_exhausted()
 
 
@@ -680,11 +742,15 @@ def test_missing_historical_reconciliation_is_reported(tmp_path: Path) -> None:
         ),
     )
 
-    assert setup.missing_feature_reconciliations(beads) == ["docs/src/features/feature/index.md"]
+    assert setup.missing_feature_reconciliations(beads) == [
+        "docs/src/features/feature/index.md"
+    ]
     beads.assert_exhausted()
 
 
-def test_forced_repair_validates_resulting_book(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_forced_repair_validates_resulting_book(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("check_version", result="bd version 1.2.2 (6c124203e)"),
@@ -811,5 +877,7 @@ def test_external_blocker_is_preserved_on_compatible_native_step(
         call("add_dependency", destination, "blocker-1", result=None),
     )
     monkeypatch.setattr(dstack_commands, "descendants", lambda *args: [])
-    assert dstack_commands.preserve_external_blockers(beads, source, "feature-1") == ["blocker-1"]
+    assert dstack_commands.preserve_external_blockers(
+        beads, source, "feature-1"
+    ) == ["blocker-1"]
     beads.assert_exhausted()

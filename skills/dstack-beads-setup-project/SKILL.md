@@ -24,17 +24,20 @@ foundation/navigation, performs the remaining isolated compatibility repair,
 and finally runs strict documentation validation. Do not invoke repair a second
 time.
 
-Finally run the setup doctor once:
+Finally run the setup doctor once with the explicitly selected delivery profile
+(use `merge` for local/direct delivery or `pr` when GitHub PR delivery is intended):
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" doctor --root .
+python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
+  doctor --root . --delivery-mode merge
 ```
 
-Report formula install/validation, Beads version, canonical mdBook foundation
-creation/validation, the local interaction-log policy, missing historical
-feature reconciliations, applied documentation moves/reference rewrites, and
-other compatibility repair. Report ambiguous Markdown that cannot be placed in
-the book mechanically; leave it for user/agent judgment. Do not commit
-automatically. Ask the user to review and commit the setup boundary before
-starting feature work.
-Normal feature commands do not run setup doctor or legacy repair.
+The mode is required; never infer it from remotes. Merge mode does not require a remote, GitHub, or `gh`. PR mode
+additionally checks a usable GitHub target remote, GitHub CLI authentication, and native Beads `gh:pr` gate capability.
+Report the selected mode and every diagnostic.
+
+Report formula install/validation, Beads version, canonical mdBook foundation creation/validation, the local
+interaction-log policy, missing historical feature reconciliations, applied documentation moves/reference rewrites, and
+other compatibility repair. Report ambiguous Markdown that cannot be placed in the book mechanically; leave it for
+user/agent judgment. Do not commit automatically. Ask the user to review and commit the setup boundary before starting
+feature work. Normal feature commands do not run setup doctor or legacy repair.
