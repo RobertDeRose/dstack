@@ -116,6 +116,20 @@ After a stable boundary, prefer a fresh agent session before starting another su
 session must resume from Beads, Git, and durable repository documentation alone; no handoff packet or session state is
 required.
 
+### `/adopt-feature` compatibility boundary
+
+Legacy adoption is an explicit two-pass native transition, never a normal feature claim. The agent supplies one strict
+classification file and reviews the pure closed-world plan before apply. Apply rereads all legacy, lifecycle, and
+affected external issues, then creates or reuses exact replacement tasks before changing old work. Every compatible
+outgoing blocker and incoming dependent edge is added and verified before its legacy edge is removed; unsupported
+incoming translation fails closed. Planned nonblocking context remains native. Readiness is reread around each
+translation so unrelated external work cannot become ready early.
+
+Retries reconstruct replacement identity from native parentage, labels, content, relationships, and supersession; no
+migration map is stored. Incorporated unresolved decisions keep their blocker and the legacy root unsuperseded until an
+approved committed-design retry verifies the exact section. Only after graph, readiness, reachability, and supersession
+postconditions converge may old work and the legacy root be superseded.
+
 ## Project-alignment lifecycle
 
 ### `/project-alignment-review`

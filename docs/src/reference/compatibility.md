@@ -63,29 +63,26 @@ content; normal feature execution never runs compatibility repair.
 
 ## Active legacy feature adoption
 
-`/adopt-feature` is an explicit compatibility boundary. Planning consumes a
-strict temporary `dstack.adoption-classification/v1` JSON document with exactly
-`schema`, `legacy_root_id`, and sorted `entries`. Every open executable
-descendant appears exactly once under one of the supported classifications:
-completed history, remaining implementation, obsolete lifecycle ceremony,
-unresolved decision, or preserved unchanged. Completed history requires sorted
-Git-footer/source/test/documentation evidence and either verified evidence or an
-explicit accepted-risk reason. Remaining and preserved recreation entries carry
-exact replacement title, description, acceptance, and priority; unresolved
-decisions carry either an incorporated design section or a named native blocker.
-Unknown fields, IDs, paths, strategies, missing work, duplicate entries, and
-unsupported relationships fail before any Beads mutation.
+`/adopt-feature` is an explicit compatibility boundary. Planning consumes a strict temporary
+`dstack.adoption-classification/v1` JSON document with exactly `schema`, `legacy_root_id`, and sorted `entries`. Every
+open executable descendant appears exactly once under one of the supported classifications: completed history, remaining
+implementation, obsolete lifecycle ceremony, unresolved decision, or preserved unchanged. Completed history requires
+sorted Git-footer/source/test/documentation evidence and either verified evidence or an explicit accepted-risk reason.
+Remaining and preserved recreation entries carry exact replacement title, description, acceptance, and priority;
+unresolved decisions carry either an incorporated design section or a named native blocker. Unknown fields, IDs, paths,
+strategies, missing work, duplicate entries, and unsupported relationships fail before any Beads mutation.
 
-The pure planner inventories all descendants, closed history, outgoing external
-blockers, and incoming external dependents. Its in-memory plan records exact
-replacement parent/label/approval requirements, preserve/redirect/lifecycle-only
-relationship operations, add-before-remove ordering, and supersession
-postconditions. Native task/bug/chore/gate relationships are checked against the
-pinned Beads compatibility matrix; an unsupported bug/chore approval topology or
-root remap fails before pour. Native adoption execution is a separate pass; no
-migration packet, manifest, Git-SHA mapping, or dStack migration database is
-created.
-Closed historical work remains in place.
+The pure planner inventories all descendants, closed history, outgoing external blockers, and incoming external
+dependents. Its in-memory plan records exact replacement parent/label/approval requirements,
+preserve/redirect/lifecycle-only relationship operations, add-before-remove ordering, and supersession postconditions.
+Native task/bug/chore/gate relationships are checked against the pinned Beads compatibility matrix; an unsupported
+bug/chore approval topology or root remap fails before pour. Apply is a separate two-pass native execution: exact
+replacement content, parent, labels, and approval edges converge first; compatible outgoing blockers and incoming
+external dependents are added and reread before old edges are removed. Unsupported incoming translation fails closed,
+while planned nonblocking context is preserved. Native readiness is checked before and around translation. Interruption
+retries use native replacement associations, relationships, and supersession only; no migration map is written.
+Incorporated decisions keep their blocker and the legacy root unsuperseded until an approved committed-design retry
+verifies resolution. Closed historical work remains in place.
 
-When no active old-dStack features remain in supported repositories, the
-adoption command may be moved to an optional compatibility package or removed.
+When no active old-dStack features remain in supported repositories, the adoption command may be moved to an optional
+compatibility package or removed.

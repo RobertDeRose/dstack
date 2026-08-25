@@ -16,13 +16,17 @@ mechanics and emits JSON.
 | `/project-alignment-land ...` | Full correction candidate | Landing and optional delivery | Reviewed candidate or delivered root |
 | `dstackctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic facts include the immutable closeout candidate, source revisions, limitations, and reconciliation; delivered evidence survives cleanup |
 
-Adoption planning writes no durable state. Run `dstackctl adopt plan LEGACY
---classification-file CLASSIFICATION.json` with a temporary strict
-`dstack.adoption-classification/v1` document; the command only reads Beads/Git
-and emits a deterministic in-memory transformation plan. Apply the same file
-with `dstackctl adopt apply LEGACY --classification-file CLASSIFICATION.json`;
-all validation and complete graph planning occur before pour or any other Beads
-mutation.
+Adoption planning writes no durable state. Run `dstackctl adopt plan LEGACY --classification-file CLASSIFICATION.json`
+with a temporary strict `dstack.adoption-classification/v1` document; the command only reads Beads/Git and emits a
+deterministic in-memory transformation plan. Apply the same file with
+`dstackctl adopt apply LEGACY --classification-file CLASSIFICATION.json`; all validation and complete graph planning
+occur before pour or any other Beads mutation. Apply rereads every legacy, lifecycle, and affected external endpoint;
+creates or reuses exact replacements from native parentage, labels, content, and supersession/association evidence; and
+adds and verifies each compatible blocker before removing its legacy edge. Incoming external dependents are redirected
+in add-before-remove order or the apply fails closed. Planned nonblocking context is preserved. Native readiness is
+reread around each translation so an unrelated external task cannot become ready early. An incorporated decision keeps
+the legacy root reachable until an approved committed-design retry resolves it; only then may old work and the root be
+superseded. No migration map is stored.
 
 Alignment review writes one temporary strict `dstack.alignment-plan/v1` JSON
 object and finalizes it with `alignment finish-plan AUDIT --plan-file PLAN.json`.
