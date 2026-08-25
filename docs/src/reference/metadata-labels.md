@@ -13,6 +13,8 @@ lifecycle roles, not transient execution state.
 | `dstack.approved_design_sha256` | Digest of accepted committed design bytes; invalidated before reauthorization |
 | `dstack.target_branch` | Project-alignment delivery target |
 | `dstack.scope` | Durable alignment scope |
+| `dstack.pending_alignment_plan_sha256` | Canonical alignment-plan digest while approval is incomplete |
+| `dstack.approved_alignment_plan_sha256` | Canonical alignment-plan digest after approval |
 
 Never store task-to-commit, implementation, delivery/finalization, evidence, or bookkeeping commit mappings, worktree
 paths, claims, next commands, or delivery state in metadata. The narrow project-alignment `baseline_commit` workflow

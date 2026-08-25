@@ -9,7 +9,6 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_docs
 from dstack_commands import (
-    ALIGNMENT_PLAN_SCAFFOLD,
     ALIGNMENT_RECONCILIATION_SCAFFOLD,
     DESIGN_SCAFFOLD,
     RECORD_SUBJECTS,
@@ -159,7 +158,6 @@ def test_record_local_links_and_scaffolds_share_the_contract(tmp_path: Path) -> 
     scaffolds = {
         "feature-design": DESIGN_SCAFFOLD.format(planned_intent="Intent.", planned_acceptance="Acceptance."),
         "feature-reconciliation": RECONCILIATION_SCAFFOLD.format(title="Feature"),
-        "alignment-plan": ALIGNMENT_PLAN_SCAFFOLD,
         "alignment-reconciliation": ALIGNMENT_RECONCILIATION_SCAFFOLD,
     }
     for kind, scaffold in scaffolds.items():

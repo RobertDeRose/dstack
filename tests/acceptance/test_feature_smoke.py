@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -398,6 +399,8 @@ External blocker B replaces blocker A.
         alignment_root,
         "--title",
         "Add aligned behavior",
+        "--description",
+        "Implement aligned behavior in the acceptance repository.",
         "--acceptance",
         "The correction is committed and delivered with native readiness.",
     )["correction"]
@@ -412,19 +415,87 @@ External blocker B replaces blocker A.
             "--parent",
             alignment_graph["steps"]["corrections"]["id"],
             "--deps",
-            alignment_graph["steps"]["approval"]["id"],
+            f"{alignment_graph['steps']['approval']['id']},{correction['id']}",
+            "--labels",
+            "dstack:work:correction",
+            "--no-inherit-labels",
+            "--description",
+            "Preserve fan-in acceptance behavior.",
             "--acceptance",
             "Landing waits for every direct child.",
         )
     )[0]
-    alignment_plan = acceptance_repo.parent / "alignment-plan.md"
-    alignment_plan.write_text(semantic_record("alignment-plan"))
+    baseline = subprocess.run(
+        ["git", "rev-parse", "main^{commit}"],
+        cwd=acceptance_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    alignment_plan = acceptance_repo.parent / "alignment-plan.json"
+    alignment_plan.write_text(
+        json.dumps(
+            {
+                "schema": "dstack.alignment-plan/v1",
+                "baseline_commit": baseline,
+                "scope": "whole repository",
+                "findings": [],
+                "accepted_corrections": [
+                    {
+                        "title": correction["title"],
+                        "description": correction.get("description")
+                        or "Implement aligned behavior in the acceptance repository.",
+                        "acceptance": correction["acceptance_criteria"],
+                        "priority": correction["priority"],
+                        "depends_on": [],
+                    },
+                    {
+                        "title": native_correction["title"],
+                        "description": native_correction.get("description") or "Preserve fan-in acceptance behavior.",
+                        "acceptance": native_correction["acceptance_criteria"],
+                        "priority": native_correction["priority"],
+                        "depends_on": [correction["title"]],
+                    },
+                ],
+                "rejected_corrections": [],
+                "validation_expectations": ["Acceptance scenario"],
+                "documentation_impact": {
+                    "end_user_operator": [],
+                    "developer_reviewer": [],
+                    "future_auditor": [],
+                },
+                "deferred_findings": [],
+                "accepted_risks": [],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    run_command(
+        ["bd", "dep", "add", native_correction["id"], unrelated["id"], "--type", "related"],
+        cwd=acceptance_repo,
+    )
+    drifted = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "finish-plan",
+        alignment_root,
+        "--plan-file",
+        str(alignment_plan),
+        check=False,
+    )
+    assert drifted.returncode != 0
+    assert "graph changed" in drifted.stderr
+    run_command(
+        ["bd", "dep", "remove", native_correction["id"], unrelated["id"]],
+        cwd=acceptance_repo,
+    )
     run_ctl(
         acceptance_repo,
         "alignment",
         "finish-plan",
         alignment_root,
-        "--summary-file",
+        "--plan-file",
         str(alignment_plan),
     )
     run_ctl(acceptance_repo, "alignment", "approve", alignment_root)

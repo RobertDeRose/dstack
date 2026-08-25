@@ -459,6 +459,7 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
         "--set-metadata",
         "dstack.approved_design_sha256=accepted",
     )
+    client.update(claimed_closeout[0]["id"], "--status", "open", "--assignee", "")
     reopen_authorization_boundary(
         client,
         root_id=feature_root,
@@ -538,6 +539,7 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     )
     assert claimed_revision and claimed_revision["id"] == revision["id"]
 
+    client.update(claimed_landing[0]["id"], "--status", "open", "--assignee", "")
     reopen_authorization_boundary(
         client,
         root_id=alignment_root,

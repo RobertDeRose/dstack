@@ -16,6 +16,13 @@ mechanics and emits JSON.
 | `/project-alignment-land ...` | Full correction candidate | Landing and optional delivery | Reviewed candidate or delivered root |
 | `dstackctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic explicit audit facts; delivered evidence survives branch cleanup and nothing is published |
 
+Alignment review writes one temporary strict `dstack.alignment-plan/v1` JSON
+object and finalizes it with `alignment finish-plan AUDIT --plan-file PLAN.json`.
+The object includes the exact `baseline_commit`, correction content and graph,
+validation expectations, documentation impact, deferred findings, and accepted
+risks. Markdown scaffolds and `finish-plan --summary-file` are not alignment-plan
+interfaces; Markdown reconciliation remains a separate landing record.
+
 Internal controller leaves include `feature reauthorize` and `alignment
 reauthorize` before approved graph changes, `delivery replace-pr` for an
 explicit conflicting-gate repair, and `delivery cancel-pr-gate` for an explicit

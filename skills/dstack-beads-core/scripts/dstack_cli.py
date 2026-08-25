@@ -213,7 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
         "scaffold-record",
         "create an alignment plan or reconciliation scaffold without overwriting",
     )
-    alignment_scaffold.add_argument("kind", choices=("plan", "reconciliation"))
+    alignment_scaffold.add_argument("kind", choices=("reconciliation",))
     alignment_scaffold.add_argument("--path", type=Path, required=True)
     alignment_scaffold.set_defaults(func=cmd_alignment_scaffold_record)
     alignment_init = mechanical_parser(alignment_sub, "initialize", "create a project-alignment workstream")
@@ -234,7 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
     correction.set_defaults(func=cmd_alignment_add_correction)
     finish_plan = mechanical_parser(alignment_sub, "finish-plan", "finish the alignment plan before execution")
     finish_plan.add_argument("selector")
-    finish_plan.add_argument("--summary-file", type=Path)
+    finish_plan.add_argument("--plan-file", type=Path, required=True)
     finish_plan.set_defaults(func=cmd_alignment_finish_plan)
     alignment_approve = mechanical_parser(alignment_sub, "approve", "approve the alignment plan and resolve its gate")
     alignment_approve.add_argument("selector")
