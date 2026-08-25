@@ -41,6 +41,7 @@ from dstacklib import (
     validate_git_revision,
     verify_worktree_identity,
     worktree_for_branch,
+    worktree_records,
 )
 
 from dstack_docs import validate_docs
@@ -965,37 +966,123 @@ def cmd_delivery_replace_pr(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cleanup_state(root: Path, worktree: Path, branch: str) -> tuple[bool | None, bool | None, bool | None]:
+    try:
+        path_exists: bool | None = worktree.exists()
+    except OSError:
+        path_exists = None
+
+    try:
+        expected_path = worktree.resolve(strict=False)
+        expected_branch = f"refs/heads/{branch}"
+        registered = any(
+            (
+                isinstance(record.get("worktree"), str)
+                and Path(str(record["worktree"])).resolve(strict=False) == expected_path
+            )
+            or record.get("branch") == expected_branch
+            for record in worktree_records(root)
+        )
+    except Exception:
+        registered = None
+
+    if path_exists is not True:
+        return path_exists, registered, None
+    try:
+        dirty = bool(
+            run(
+                ["git", "status", "--short", "--untracked-files=all"],
+                cwd=worktree,
+            ).stdout.strip()
+        )
+    except Exception:
+        dirty = None
+    return path_exists, registered, dirty
+
+
+def _cleanup_value(value: bool | None) -> str:
+    return "unknown" if value is None else str(value).lower()
+
+
+def _cleanup_failure(
+    *,
+    root: Path,
+    worktree: Path,
+    branch: str,
+    error: str,
+) -> str:
+    path_exists, registered, dirty = _cleanup_state(root, worktree, branch)
+    return (
+        "temporary delivery worktree cleanup failed; "
+        f"retained_path={worktree}; "
+        f"path_exists={_cleanup_value(path_exists)}; "
+        f"registered={_cleanup_value(registered)}; "
+        f"dirty={_cleanup_value(dirty)}; "
+        f"cleanup_error={error}; "
+        "recovery_guidance=inspect the retained path and Git worktree list, "
+        "then remove it manually only after reviewing its files"
+    )
+
 
 @contextmanager
-def delivery_target_worktree(
-    root: Path, branch: str, existing: str | None
-):
-    """Yield a target-branch worktree, creating a temporary one when absent."""
+def delivery_target_worktree(root: Path, branch: str, existing: str | None):
+    """Yield a target worktree, retaining evidence when cleanup is uncertain."""
 
     if existing:
         yield Path(existing)
         return
-    with tempfile.TemporaryDirectory(prefix="dstack-delivery-target-") as raw:
-        worktree = (Path(raw) / "target").resolve()
+
+    parent = Path(tempfile.mkdtemp(prefix="dstack-delivery-target-"))
+    worktree = (parent / "target").resolve()
+    try:
         run(["git", "worktree", "add", "--quiet", str(worktree), branch], cwd=root)
-        primary: BaseException | None = None
+    except BaseException:
         try:
-            yield worktree
-        except BaseException as exc:
-            primary = exc
-            raise
-        finally:
+            parent.rmdir()
+        except OSError:
+            pass
+        raise
+
+    primary: BaseException | None = None
+    try:
+        yield worktree
+    except BaseException as exc:
+        primary = exc
+        raise
+    finally:
+        cleanup_error: str | None = None
+        try:
             removal = run(
-                ["git", "worktree", "remove", "--force", str(worktree)],
+                ["git", "worktree", "remove", str(worktree)],
                 cwd=root,
                 check=False,
             )
             if removal.returncode != 0:
-                message = f"failed to remove temporary delivery worktree for {branch}"
-                if primary is not None:
-                    primary.add_note(message)
+                cleanup_error = removal.stderr.strip() or removal.stdout.strip()
+                cleanup_error = cleanup_error or f"git worktree remove exited {removal.returncode}"
+            else:
+                path_exists, registered, _ = _cleanup_state(root, worktree, branch)
+                if path_exists is not False or registered is not False:
+                    cleanup_error = "successful worktree removal could not be verified"
                 else:
-                    raise DstackError(message)
+                    try:
+                        parent.rmdir()
+                    except OSError as exc:
+                        cleanup_error = f"temporary parent removal failed: {exc}"
+        except Exception as exc:
+            cleanup_error = str(exc)
+
+        if cleanup_error is not None:
+            message = _cleanup_failure(
+                root=root,
+                worktree=worktree,
+                branch=branch,
+                error=cleanup_error,
+            )
+            if primary is not None:
+                primary.add_note(message)
+            else:
+                raise DstackError(message)
 
 
 def finalize_beads_without_git_mutation(
