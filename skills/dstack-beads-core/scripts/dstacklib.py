@@ -1012,6 +1012,8 @@ def alignment_context(client: BeadsClient, selector: str) -> dict[str, Any]:
         "steps": {name: step_by_label(children, label) for name, label in ALIGNMENT_STEPS.items()},
         "target_branch": root_metadata_value(root, "dstack.target_branch", "target_branch"),
         "scope": root_metadata_value(root, "dstack.scope", "scope"),
+        "pending_alignment_plan_sha256": root_metadata_value(root, "dstack.pending_alignment_plan_sha256"),
+        "approved_alignment_plan_sha256": root_metadata_value(root, "dstack.approved_alignment_plan_sha256"),
     }
 
 

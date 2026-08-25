@@ -189,27 +189,6 @@ RECONCILIATION_SCAFFOLD = """# {title}
 ## Validation and limitations
 """
 
-ALIGNMENT_PLAN_SCAFFOLD = """# Alignment plan
-
-## Scope and current evidence
-
-## Findings and rationale
-
-## Proposed corrections
-
-## Architecture and interface effects
-
-## Failure and security implications
-
-## Compatibility and recovery
-
-## Validation strategy
-
-## Documentation impact
-
-## Risks and deferred decisions
-"""
-
 ALIGNMENT_RECONCILIATION_SCAFFOLD = """# Alignment reconciliation
 
 ## Delivered corrections
@@ -263,12 +242,6 @@ RECORD_SUBJECTS = {
         "Developer and reviewer",
         "Future auditor",
         "Validation and limitations",
-    ),
-    "alignment-plan": (
-        "Scope and current evidence", "Findings and rationale", "Proposed corrections",
-        "Architecture and interface effects", "Failure and security implications",
-        "Compatibility and recovery", "Validation strategy", "Documentation impact",
-        "Risks and deferred decisions",
     ),
     "alignment-reconciliation": (
         "Delivered corrections",
@@ -630,6 +603,14 @@ def claim_ready_step_with_fan_in(
     return claimed
 
 
+def require_open_unassigned_terminal(issue: Mapping[str, Any], *, name: str) -> None:
+    if issue.get("status") != "open" or issue.get("assignee") not in (None, ""):
+        raise DstackError(
+            f"{name} must be exactly open and unassigned before reauthorization: "
+            f"status={issue.get('status')!r}, assignee={issue.get('assignee')!r}"
+        )
+
+
 def reopen_authorization_boundary(
     client: BeadsClient,
     *,
@@ -647,15 +628,8 @@ def reopen_authorization_boundary(
     if not reason:
         raise DstackError("reauthorization requires a non-empty reason")
     terminal = client.show(terminal_id)
-    if terminal.get("status") == "closed":
-        raise DstackError(
-            "terminal reconciliation is already closed; use a new superseding workflow"
-        )
-    in_flight = [
-        item
-        for item in client.children(workstream_id)
-        if item.get("status") in {"claimed", "in_progress"}
-    ]
+    require_open_unassigned_terminal(terminal, name="terminal reconciliation")
+    in_flight = [item for item in client.children(workstream_id) if item.get("status") in {"claimed", "in_progress"}]
     if in_flight:
         ids = ", ".join(str(item["id"]) for item in in_flight)
         raise DstackError(f"cannot reauthorize while work is claimed: {ids}")
@@ -672,9 +646,8 @@ def reopen_authorization_boundary(
         elif status in {"claimed", "in_progress"}:
             client.update(issue_id, "--status", "open")
         elif status != "open":
-            raise DstackError(
-                f"cannot reauthorize {issue_id} from unsupported status {status!r}"
-            )
+            raise DstackError(f"cannot reauthorize {issue_id} from unsupported status {status!r}")
+    require_open_unassigned_terminal(client.show(terminal_id), name="terminal reconciliation")
 
 
 def keep_root_open_for_delivery(client: BeadsClient, root_id: str) -> None:
