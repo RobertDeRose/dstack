@@ -13,11 +13,14 @@ import dstack_delivery
 from dstack_commands import DstackError
 from dstack_delivery import (
     docs_check,
+    ensure_clean_candidate,
+    immutable_candidate_revision,
     read_commit_message,
+    require_candidate_head,
     validate_delivery,
     validate_pr_copy,
 )
-from dstacklib import CommandResult
+from dstacklib import CommandResult, current_head
 
 from scripted import ScriptedClient, call
 
@@ -136,6 +139,14 @@ def test_validate_delivery_rejects_safety_boundary(bad: dict) -> None:
         validate_delivery(payload(**bad), require_remote=False)
 
 
+def test_validate_delivery_rejects_post_closeout_candidate_head() -> None:
+    with pytest.raises(DstackError, match="candidate HEAD"):
+        validate_delivery(
+            payload(candidate_head="later", candidate_revision="closeout"),
+            require_remote=False,
+        )
+
+
 def test_validate_pr_copy_rejects_docs_title_for_code(tmp_path: Path) -> None:
     body = tmp_path / "body.md"
     body.write_text("Summary")
@@ -213,9 +224,110 @@ def test_git_commit_amend_and_evidence_commands_use_real_git(git_repo: Path, mon
     assert outputs[-1]["commits"][0]["subject"] == "feat: revise value"
 
 
-def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(
-    monkeypatch, tmp_path: Path
+def test_immutable_candidate_requires_unique_closeout_footer(git_repo: Path) -> None:
+    change = git_repo / "feature.py"
+    change.write_text("delivered = True\n")
+    subprocess.run(["git", "add", "feature.py"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "feat: deliver\n\nBeads: closeout-1"],
+        cwd=git_repo,
+        check=True,
+    )
+    candidate = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=git_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert immutable_candidate_revision(git_repo, "main", "closeout-1") == candidate
+    assert require_candidate_head(git_repo, "main", "closeout-1", candidate) == candidate
+
+    later = git_repo / "later.py"
+    later.write_text("post_closeout = True\n")
+    subprocess.run(["git", "add", "later.py"], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "chore: later"], cwd=git_repo, check=True)
+    with pytest.raises(DstackError, match="candidate HEAD"):
+        require_candidate_head(git_repo, "main", "closeout-1", "HEAD")
+
+
+def test_clean_candidate_recheck_rejects_post_inspection_commit(
+    git_repo: Path,
 ) -> None:
+    (git_repo / "closeout.py").write_text("closed = True\n")
+    subprocess.run(["git", "add", "closeout.py"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "closeout\n\nBeads: closeout-1"],
+        cwd=git_repo,
+        check=True,
+    )
+    candidate = current_head(git_repo)
+    (git_repo / "later.py").write_text("later = True\n")
+    subprocess.run(["git", "add", "later.py"], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "post-closeout"], cwd=git_repo, check=True)
+
+    with pytest.raises(DstackError, match="candidate HEAD"):
+        ensure_clean_candidate(
+            git_repo,
+            payload(
+                candidate_worktree=str(git_repo),
+                candidate_branch="main",
+                candidate_head=candidate,
+                candidate_revision=candidate,
+                closeout_id="closeout-1",
+            ),
+        )
+
+
+def test_clean_candidate_recheck_rejects_rewritten_closeout(
+    git_repo: Path,
+) -> None:
+    path = git_repo / "closeout.py"
+    path.write_text("version = 1\n")
+    subprocess.run(["git", "add", "closeout.py"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "closeout\n\nBeads: closeout-1"],
+        cwd=git_repo,
+        check=True,
+    )
+    inspected = current_head(git_repo)
+    path.write_text("version = 2\n")
+    subprocess.run(["git", "add", "closeout.py"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "--amend", "-qm", "closeout\n\nBeads: closeout-1"],
+        cwd=git_repo,
+        check=True,
+    )
+
+    with pytest.raises(DstackError, match="candidate HEAD changed"):
+        ensure_clean_candidate(
+            git_repo,
+            payload(
+                candidate_worktree=str(git_repo),
+                candidate_branch="main",
+                candidate_head=inspected,
+                candidate_revision=inspected,
+                closeout_id="closeout-1",
+            ),
+        )
+
+
+def test_immutable_candidate_reports_zero_and_duplicate_footers(git_repo: Path) -> None:
+    with pytest.raises(DstackError, match="found 0"):
+        immutable_candidate_revision(git_repo, "main", "missing-closeout")
+    path = git_repo / "duplicate.py"
+    path.write_text("x = 1\n")
+    subprocess.run(["git", "add", "duplicate.py"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "one\n\nBeads: duplicate\nBeads: duplicate"],
+        cwd=git_repo,
+        check=True,
+    )
+    with pytest.raises(DstackError, match="found 2"):
+        immutable_candidate_revision(git_repo, "main", "duplicate")
+
+
+def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(monkeypatch, tmp_path: Path) -> None:
     context = {
         "root": {"id": "feature-1"},
         "steps": {"implementation": {"id": "implementation-1"}},
@@ -839,9 +951,43 @@ def test_delivery_merge_refuses_active_pr_gate_before_git_mutation(monkeypatch, 
         dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1"))
 
 
-def test_delivery_merge_checks_post_delivery_git_invariant(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_delivery_merge_rechecks_candidate_after_target_preparation(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    candidate = tmp_path / "candidate"
+    target.mkdir()
+    candidate.mkdir()
+    beads = ScriptedClient(tmp_path)
+    observed = payload(
+        root={"id": "feature-1"},
+        target_worktree=str(target),
+        candidate_worktree=str(candidate),
+        candidate_branch="feat/feature",
+        candidate_head="closeout-head",
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "pr_gate_state",
+        lambda *args: {"all": [], "active": []},
+    )
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "current_head",
+        lambda root, *args: "post-closeout-head" if Path(root) == candidate else "target",
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "run",
+        lambda *args, **kwargs: pytest.fail("merge ran after candidate changed"),
+    )
+    with pytest.raises(DstackError, match="candidate HEAD changed"):
+        dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
+def test_delivery_merge_checks_post_delivery_git_invariant(monkeypatch, tmp_path: Path) -> None:
     target = tmp_path / "target"
     candidate = tmp_path / "candidate"
     target.mkdir()
@@ -870,7 +1016,7 @@ def test_delivery_merge_checks_post_delivery_git_invariant(
         lambda *args: {"all": [], "active": []},
     )
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
-    heads = iter(["target-head", "candidate-head", "candidate-head"])
+    heads = iter(["candidate-head", "target-head", "candidate-head", "candidate-head"])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     monkeypatch.setattr(
         dstack_delivery,
@@ -925,7 +1071,7 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
         lambda *args: {"all": [], "active": []},
     )
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
-    heads = iter(["target-head", "candidate-head", after_head])
+    heads = iter(["candidate-head", "target-head", "candidate-head", after_head])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     statuses = iter(["", after_status])
 
@@ -998,6 +1144,46 @@ def test_finalize_pr_validates_candidate_before_gate_check(monkeypatch, tmp_path
     beads.assert_exhausted()
 
 
+def test_finalize_pr_rechecks_candidate_after_fetch_and_target_preparation(monkeypatch, tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    target = tmp_path / "target"
+    candidate.mkdir()
+    target.mkdir()
+    gate = {"id": "gate-1", "status": "closed", "await_type": "gh:pr"}
+    root = {
+        "id": "feature-1",
+        "dependencies": [{"depends_on_id": "gate-1", "type": "blocks"}],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("gate_check", result=[gate]),
+        call("show", "feature-1", result=root),
+        call("gates", all_statuses=True, result=[gate]),
+        call("show", "gate-1", result=gate),
+    )
+    observed = payload(
+        root=root,
+        target_branch="main",
+        target_head="previous-target",
+        candidate_head="closeout-head",
+        candidate_worktree=str(candidate),
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(dstack_delivery, "worktree_for_branch", lambda *args: target)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda *args: None)
+    heads = iter(["remote-delivered-head", "post-closeout-head"])
+    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
+    monkeypatch.setattr(
+        dstack_delivery,
+        "run",
+        lambda *args, **kwargs: CommandResult(0, "", ""),
+    )
+    with pytest.raises(DstackError, match="candidate HEAD changed"):
+        dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
 def test_finalize_pr_waits_without_closing_root(monkeypatch, tmp_path: Path) -> None:
     gate = {"id": "gate-1", "status": "open", "await_type": "gh:pr"}
     beads = ScriptedClient(
@@ -1056,7 +1242,11 @@ def test_finalize_pr_refuses_dirty_worktree_before_closing_root(monkeypatch, tmp
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
-    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: "remote-head")
+    monkeypatch.setattr(
+        dstack_delivery,
+        "current_head",
+        lambda root, *args: "candidate-head" if Path(root) == candidate else "remote-head",
+    )
     monkeypatch.setattr(dstack_delivery, "worktree_for_branch", lambda *args: target)
     monkeypatch.setattr(dstack_delivery, "run", lambda *args, **kwargs: CommandResult(0, "", ""))
 
@@ -1126,7 +1316,7 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
         "worktree_for_branch",
         lambda *args: target,
     )
-    heads = iter(["remote-delivered-head", "target-head", after_head])
+    heads = iter(["remote-delivered-head", "candidate-head", "target-head", after_head])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     statuses = iter(["", after_status])
 
