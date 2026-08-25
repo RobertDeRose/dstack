@@ -52,14 +52,17 @@ cross-link into a `SUMMARY.md` hierarchy. Repository source/configuration files 
 documentation merely because a page links to them. Missing reconciliation records for older delivered features are
 reported for authorship rather than created as empty pages.
 
-Run repair only through `/setup-project --force` or the explicit setup repair
-command. Forced setup first normalizes mechanically safe legacy documentation,
-then completes missing core documentation/navigation, applies the remaining
-known compatibility repair, and finally performs strict mdBook validation.
-This order lets a repairable legacy source or navigation shape reach the
-canonical layout before strict validation. The resulting mdBook must validate.
-Normal setup creates missing core documentation but never relocates legacy
-content; normal feature execution never runs compatibility repair.
+Run repair only through `/setup-project --force` or the explicit setup repair command. Forced setup first normalizes
+mechanically safe legacy documentation, then completes missing core documentation/navigation, applies the remaining
+known compatibility repair, and finally performs strict mdBook validation. This order lets a repairable legacy source or
+navigation shape reach the canonical layout before strict validation. The resulting mdBook must validate. Normal setup
+creates missing core documentation but never relocates legacy content; normal feature execution never runs compatibility
+repair.
+
+Setup repair uses strict `dstack.setup-plan/v2` mutation records. The reviewed SHA-256 covers the complete canonical
+operation object, not display summaries; apply receives only that digest, recomputes one object, and executes it without
+a second discovery pass. Initialization is an explicit reviewed operation, and filesystem/formula/navigation records
+carry their exact source, destination, content, conflict, and before/after hash predicates. Drift requires a new plan.
 
 ## Active legacy feature adoption
 
