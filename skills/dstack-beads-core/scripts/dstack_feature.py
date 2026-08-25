@@ -785,9 +785,7 @@ def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     return 0
 
 
-def validate_feature_documentation(
-    client: BeadsClient, view: Mapping[str, Any]
-) -> dict[str, object]:
+def validate_feature_documentation(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, object]:
     _, worktree, _ = feature_branch_context(client, view)
     ensure_clean_worktree(worktree)
     design_file, _ = safe_design_file(worktree, str(view.get("design_path") or ""))
@@ -799,8 +797,7 @@ def validate_feature_documentation(
     untouched = RECONCILIATION_SCAFFOLD.format(title=title)
     if not content.strip() or content.strip() == untouched.strip():
         raise DstackError(
-            "feature reconciliation is still the untouched scaffold; "
-            "record the delivered result before closeout"
+            "feature reconciliation is still the untouched scaffold; record the delivered result before closeout"
         )
     validate_record(
         content,

@@ -28,12 +28,19 @@ reread around each translation so an unrelated external task cannot become ready
 the legacy root reachable until an approved committed-design retry resolves it; only then may old work and the root be
 superseded. No migration map is stored.
 
-Alignment review writes one temporary strict `dstack.alignment-plan/v1` JSON
-object and finalizes it with `alignment finish-plan AUDIT --plan-file PLAN.json`.
-The object includes the exact `baseline_commit`, correction content and graph,
-validation expectations, documentation impact, deferred findings, and accepted
-risks. Markdown scaffolds and `finish-plan --summary-file` are not alignment-plan
-interfaces; Markdown reconciliation remains a separate landing record.
+`delivery inspect` is lifecycle-aware. An open root with closed terminal work is inspected from the active
+target-to-candidate range and still requires the clean registered candidate at its derived immutable revision. A closed
+delivered root is inspected from the configured target and does not require the candidate branch or worktree. Feature
+derivation uses the closeout footer. Alignment derivation uses a landing footer, the latest linear correction footer
+when landing made no commit, or the canonical plan baseline when no landing footer exists and all corrections explicitly
+changed no repository content. The reported search ref, candidate revision, derivation, and evidence source remain
+stable after later target commits; delivered feature results match `audit feature`.
+
+Alignment review writes one temporary strict `dstack.alignment-plan/v1` JSON object and finalizes it with
+`alignment finish-plan AUDIT --plan-file PLAN.json`. The object includes the exact `baseline_commit`, correction content
+and graph, validation expectations, documentation impact, deferred findings, and accepted risks. Markdown scaffolds and
+`finish-plan --summary-file` are not alignment-plan interfaces; Markdown reconciliation remains a separate landing
+record.
 
 `setup.py doctor --delivery-mode merge|pr` requires an explicit delivery profile and reports the selected mode. Merge
 checks only common/local requirements; PR adds a usable GitHub target remote, authenticated `gh`, and native Beads

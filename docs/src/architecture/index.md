@@ -199,16 +199,15 @@ rewrite after a failed or incorrect delivery is a separate native Git operation,
 
 ### Immutable delivered-candidate audit
 
-A closed feature audit searches the configured target ref for exactly one commit
-with the closeout `Beads:` footer. That commit is the immutable candidate
-revision. Delivery preflight requires the clean candidate HEAD to equal this
-revision, so a post-closeout candidate commit cannot silently change the
-boundary. Direct fast-forward delivery and pull requests that preserve the
-candidate as a target ancestor are supported; squash, rebase, and unsupported
-nonlinear histories fail revision consistency.
+A closed feature inspection searches the configured target ref for exactly one commit with the closeout `Beads:` footer.
+A project alignment uses its unique landing-footer commit when landing changed the repository, otherwise the latest
+linear correction-evidence commit, or the canonical plan `baseline_commit` when there is no landing footer and all
+corrections explicitly made no repository change. Delivery preflight requires the clean candidate HEAD to equal the
+revision derived by the same rule, so unreviewed candidate commits cannot silently change the boundary. Direct
+fast-forward delivery and pull requests that preserve the candidate as a target ancestor are supported; squash, rebase,
+ambiguous evidence, and unsupported nonlinear histories fail revision consistency.
 
-Audit documentation and filtered footer evidence are read directly from blobs at
-the candidate revision. The audit reports the search ref, derivation rule,
-revision, branch/worktree presence, documentation/evidence sources, missing
-records, and reconciliation status. It never substitutes the current target
-tip or caller checkout and never stores a Git-to-Beads mapping in Beads.
+Delivered evidence is read from the candidate revision. Feature audit documentation is also read directly from its
+blobs. Inspection reports the search ref, derivation rule, revision, branch/worktree presence, evidence source, and
+missing records. It never substitutes the current target tip or caller checkout and never stores a Git-to-Beads mapping
+in Beads.

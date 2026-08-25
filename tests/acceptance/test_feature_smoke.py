@@ -91,6 +91,113 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
     assert "dstack:delivery-ready" not in observed["labels"]
 
 
+def test_no_change_alignment_landing_derives_plan_baseline(
+    acceptance_repo: Path,
+) -> None:
+    alignment = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "initialize",
+        "--title",
+        "No-change alignment",
+        "--slug",
+        "no-change-alignment",
+        "--target-branch",
+        "main",
+        "--scope",
+        "repository",
+    )
+    root_id = alignment["root"]["id"]
+    correction = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "add-correction",
+        root_id,
+        "--title",
+        "Confirm alignment",
+        "--description",
+        "Confirm that the repository already satisfies the requirement.",
+        "--acceptance",
+        "The correction closes without repository changes.",
+    )["correction"]
+    baseline = subprocess.run(
+        ["git", "rev-parse", "main^{commit}"],
+        cwd=acceptance_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    plan_file = acceptance_repo.parent / "no-change-alignment-plan.json"
+    plan_file.write_text(
+        json.dumps(
+            {
+                "schema": "dstack.alignment-plan/v1",
+                "baseline_commit": baseline,
+                "scope": "whole repository",
+                "findings": [],
+                "accepted_corrections": [
+                    {
+                        "title": correction["title"],
+                        "description": correction["description"],
+                        "acceptance": correction["acceptance_criteria"],
+                        "priority": correction["priority"],
+                        "depends_on": [],
+                    }
+                ],
+                "rejected_corrections": [],
+                "validation_expectations": ["No repository changes are required."],
+                "documentation_impact": {
+                    "end_user_operator": [],
+                    "developer_reviewer": [],
+                    "future_auditor": [],
+                },
+                "deferred_findings": [],
+                "accepted_risks": [],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    run_ctl(
+        acceptance_repo,
+        "alignment",
+        "finish-plan",
+        root_id,
+        "--plan-file",
+        str(plan_file),
+    )
+    run_ctl(acceptance_repo, "alignment", "approve", root_id)
+    run_ctl(acceptance_repo, "alignment", "claim-next", root_id)
+    run_ctl(
+        acceptance_repo,
+        "alignment",
+        "finish-task",
+        root_id,
+        "--task",
+        correction["id"],
+        "--no-repository-change",
+        "--reason",
+        "repository already aligned",
+    )
+    run_ctl(acceptance_repo, "alignment", "finish-workstream", root_id)
+    run_ctl(acceptance_repo, "alignment", "claim-landing", root_id)
+    summary = acceptance_repo.parent / "no-change-alignment-reconciliation.md"
+    summary.write_text(semantic_record("alignment-reconciliation"))
+    landed = run_ctl(
+        acceptance_repo,
+        "alignment",
+        "finish-landing",
+        root_id,
+        "--summary-file",
+        str(summary),
+    )
+    assert landed["landing"]["close_reason"] == "Alignment landing completed"
+
+    inspected = run_ctl(acceptance_repo, "delivery", "inspect", root_id)
+    assert inspected["candidate_revision"] == baseline
+    assert inspected["evidence"]["derivation"] == ("canonical alignment plan baseline_commit")
+
+
 def test_feature_smoke_runs_shipped_lifecycle(acceptance_repo: Path) -> None:
     before = run_command(["git", "status", "--porcelain=v1", "--branch"], cwd=acceptance_repo).stdout
     blocker_a = items(run_json(acceptance_repo, "create", "External blocker A", "--type", "epic"))[0]
@@ -573,6 +680,13 @@ External blocker B replaces blocker A.
         cwd=alignment_worktree,
         check=True,
     )
+    correction_candidate = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=alignment_worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     finished_correction = run_ctl(
         acceptance_repo,
         "alignment",
@@ -602,6 +716,7 @@ External blocker B replaces blocker A.
         cwd=acceptance_repo,
     )
     run_ctl(acceptance_repo, "alignment", "finish-workstream", alignment_root)
+    run_ctl(acceptance_repo, "alignment", "claim-landing", alignment_root)
     alignment_reconciliation = acceptance_repo.parent / "alignment-reconciliation.md"
     alignment_reconciliation.write_text(semantic_record("alignment-reconciliation"))
     landed = run_ctl(
@@ -624,3 +739,27 @@ External blocker B replaces blocker A.
     assert delivered_alignment["root"] == alignment_root
     alignment_closed = items(run_json(acceptance_repo, "show", alignment_root))[0]
     assert alignment_closed["status"] == "closed"
+    subprocess.run(
+        ["git", "worktree", "remove", str(alignment_worktree)],
+        cwd=acceptance_repo,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "branch", "-d", "audit/acceptance-alignment"],
+        cwd=acceptance_repo,
+        check=True,
+    )
+    (acceptance_repo / "after-alignment.txt").write_text("target advanced\n")
+    subprocess.run(["git", "add", "after-alignment.txt"], cwd=acceptance_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "chore: advance after alignment"],
+        cwd=acceptance_repo,
+        check=True,
+    )
+    delivered_alignment_inspection = run_ctl(acceptance_repo, "delivery", "inspect", alignment_root)
+    assert delivered_alignment_inspection["delivery_state"] == "delivered"
+    assert delivered_alignment_inspection["candidate_worktree"] is None
+    assert delivered_alignment_inspection["evidence"]["source"] == "delivered-target"
+    assert delivered_alignment_inspection["evidence"]["candidate_branch_present"] is False
+    assert delivered_alignment_inspection["evidence"]["candidate_revision"] == (correction_candidate)
+    assert delivered_alignment_inspection["evidence"]["derivation"] == ("latest reachable correction Beads footer")
