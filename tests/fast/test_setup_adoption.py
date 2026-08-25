@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -884,6 +886,239 @@ def test_setup_plan_v2_rejects_invalid_or_contradictory_operations(mutate) -> No
         setup.canonicalize_setup_plan(value)
 
 
+class SetupPostconditionClient:
+    def __init__(self, root: Path, issues: Mapping[str, dict[str, Any]], mode: str = "normal") -> None:
+        self.root = root
+        self.issues = copy.deepcopy(dict(issues))
+        self.mode = mode
+
+    def check_version(self) -> str:
+        return "bd version 1.2.2 (6c124203e)"
+
+    def show(self, issue_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self.issues[issue_id])
+
+    def update(self, issue_id: str, *arguments: str) -> dict[str, Any]:
+        issue = self.issues[issue_id]
+        if self.mode == "no-op":
+            return copy.deepcopy(issue)
+        iterator = iter(arguments)
+        for argument in iterator:
+            value = next(iterator)
+            if argument == "--set-metadata":
+                key, content = value.split("=", 1)
+                issue.setdefault("metadata", {})[key] = content
+            elif argument == "--unset-metadata":
+                issue.setdefault("metadata", {}).pop(value, None)
+            elif argument == "--add-label":
+                issue.setdefault("labels", []).append(value)
+            elif argument == "--remove-label":
+                issue["labels"] = [label for label in issue.get("labels", []) if label != value]
+        if self.mode == "concurrent-extra":
+            issue.setdefault("dependencies", []).append({"depends_on_id": "concurrent-1", "type": "blocks"})
+        return copy.deepcopy(issue)
+
+    def add_dependency(self, source: str, destination: str, *, relation_type: str = "blocks") -> None:
+        if self.mode == "wrong-direction":
+            self.issues[destination].setdefault("dependencies", []).append(
+                {"depends_on_id": source, "type": relation_type}
+            )
+            return
+        relation = "tracks" if self.mode == "wrong-relation" else relation_type
+        self.issues[source].setdefault("dependencies", []).append({"depends_on_id": destination, "type": relation})
+
+    def remove_dependency(self, source: str, destination: str) -> None:
+        if self.mode == "retained-relation":
+            return
+        self.issues[source]["dependencies"] = [
+            item for item in self.issues[source].get("dependencies", []) if item.get("depends_on_id") != destination
+        ]
+
+    def supersede(self, source: str, destination: str) -> None:
+        self.issues[source]["status"] = "closed"
+        if self.mode != "partial-supersession":
+            self.issues[source].setdefault("dependencies", []).append(
+                {"depends_on_id": destination, "type": "superseded-by"}
+            )
+
+
+def minimal_setup_mutation(**changes: Any) -> dict[str, Any]:
+    value = {
+        "schema": setup.SETUP_PLAN_SCHEMA,
+        "initialization": [],
+        "beads_issues": [],
+        "dependencies": [],
+        "supersessions": [],
+        "filesystem": [],
+        "git_index": [],
+        "formulas": [],
+        "navigation_references": [],
+    }
+    value.update(changes)
+    return setup.canonicalize_setup_plan(value)
+
+
+def execute_setup_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: Mapping[str, Any],
+    issues: Mapping[str, dict[str, Any]],
+    *,
+    mode: str,
+) -> dict[str, Any]:
+    (tmp_path / ".beads").mkdir(exist_ok=True)
+    client = SetupPostconditionClient(tmp_path, issues, mode)
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: client)
+    monkeypatch.setattr(setup, "validate_bundle", lambda root: None)
+    monkeypatch.setattr(setup, "validate_formula", lambda root, name: None)
+    return setup._execute_setup_plan(tmp_path, mutation)
+
+
+def issue_mutation() -> dict[str, Any]:
+    return {
+        "issue_id": "issue-1",
+        "set_metadata": {"current": "yes"},
+        "unset_metadata": ["legacy"],
+        "add_labels": ["current"],
+        "remove_labels": ["legacy"],
+    }
+
+
+def initial_issue() -> dict[str, Any]:
+    return {
+        "id": "issue-1",
+        "status": "open",
+        "metadata": {"legacy": "yes", "preserved": "yes"},
+        "labels": ["legacy", "preserved"],
+        "dependencies": [],
+    }
+
+
+def test_setup_apply_rereads_exact_issue_postconditions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    result = execute_setup_mutation(
+        tmp_path,
+        monkeypatch,
+        minimal_setup_mutation(beads_issues=[issue_mutation()]),
+        {"issue-1": initial_issue()},
+        mode="normal",
+    )
+    assert result["status"] == "ok"
+
+
+@pytest.mark.parametrize("mode", ["no-op", "concurrent-extra"])
+def test_setup_apply_rejects_success_without_exact_issue_postconditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    with pytest.raises(
+        setup.SetupError,
+        match=r"operation=beads_issue.*target_issue=issue-1.*rollback_completed=false.*mutation_state_uncertain=true",
+    ):
+        execute_setup_mutation(
+            tmp_path,
+            monkeypatch,
+            minimal_setup_mutation(beads_issues=[issue_mutation()]),
+            {"issue-1": initial_issue()},
+            mode=mode,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mode", "operation"),
+    [
+        ("wrong-relation", "dependency:add"),
+        ("wrong-direction", "dependency:add"),
+        ("retained-relation", "dependency:remove"),
+    ],
+)
+def test_setup_apply_rejects_wrong_or_retained_relationships(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    operation: str,
+) -> None:
+    action = "remove" if mode == "retained-relation" else "add"
+    dependencies = [] if action == "add" else [{"depends_on_id": "target-1", "type": "blocks"}]
+    issue = {**initial_issue(), "dependencies": dependencies}
+    issues = {
+        "issue-1": issue,
+        "target-1": {**initial_issue(), "id": "target-1"},
+    }
+    mutation = minimal_setup_mutation(
+        dependencies=[
+            {
+                "action": action,
+                "source_id": "issue-1",
+                "destination_id": "target-1",
+                "relationship_type": "blocks",
+            }
+        ]
+    )
+    with pytest.raises(
+        setup.SetupError,
+        match=rf"operation={operation}.*target_issue=issue-1.*expected_post_state=.*observed_post_state=",
+    ):
+        execute_setup_mutation(tmp_path, monkeypatch, mutation, issues, mode=mode)
+
+
+def test_setup_apply_rejects_partial_supersession_and_reports_no_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutation = minimal_setup_mutation(supersessions=[{"source_id": "issue-1", "destination_id": "replacement-1"}])
+    with pytest.raises(
+        setup.SetupError,
+        match=r"operation=supersession.*target_issue=issue-1.*rollback_completed=false.*mutation_state_uncertain=true",
+    ):
+        execute_setup_mutation(
+            tmp_path,
+            monkeypatch,
+            mutation,
+            {"issue-1": initial_issue()},
+            mode="partial-supersession",
+        )
+
+
+def test_setup_apply_reports_failed_rollback_and_uncertain_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".beads").mkdir()
+    mutation = minimal_setup_mutation(beads_issues=[issue_mutation()])
+    digest = setup.setup_plan_digest(mutation)
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
+    monkeypatch.setattr(
+        setup,
+        "setup_plan",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "mutation_plan": mutation,
+            "plan_sha256": digest,
+            "preconditions": {"blocked": []},
+        },
+    )
+    monkeypatch.setattr(
+        setup,
+        "_execute_setup_plan",
+        lambda *args: (_ for _ in ()).throw(setup.SetupError("failed")),
+    )
+    monkeypatch.setattr(
+        setup,
+        "_restore_setup_files",
+        lambda *args: (_ for _ in ()).throw(OSError("rollback failed")),
+    )
+    monkeypatch.setattr(setup, "tracked", lambda *args: False)
+    with pytest.raises(
+        setup.SetupError,
+        match=r"setup-owned file restore failed: rollback failed.*rollback_completed=false.*mutation_state_uncertain=true",
+    ):
+        setup.apply_setup(
+            tmp_path,
+            initialize=False,
+            force=False,
+            expected_plan_sha256=digest,
+        )
+
+
 def test_setup_apply_requires_digest_and_executes_verified_plan_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -951,6 +1186,221 @@ def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: 
     assert {item["action"] for item in first["filesystem"]} == {"create"}
     assert not (tmp_path / ".beads").exists()
     assert not (tmp_path / "docs").exists()
+
+
+def setup_file_operation(
+    *,
+    action: str = "create",
+    source: str | None = None,
+    destination: str | None = None,
+    source_hash: str | None = None,
+    destination_hash: str | None = None,
+    content: str | None = "managed\n",
+) -> dict[str, Any]:
+    return {
+        "action": action,
+        "source": source,
+        "destination": destination,
+        "expected_source_sha256": source_hash,
+        "expected_destination_sha256": destination_hash,
+        "content_source": "generated" if content is not None else "existing-source",
+        "generated_content": content,
+        "content_preservation": "generated" if content is not None else "byte-for-byte",
+        "conflict_policy": "replace-reviewed" if action == "update" else "fail-if-exists",
+    }
+
+
+def test_setup_formula_install_rejects_external_symlinked_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    package = tmp_path / "package"
+    source = package / "formulas/dstack-feature.formula.toml"
+    source.parent.mkdir(parents=True)
+    source.write_text("formula\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / ".beads").mkdir(parents=True)
+    (repo / ".beads/formulas").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(setup, "package_root", lambda: package)
+    mutation = minimal_setup_mutation(
+        formulas=[
+            {
+                "name": "dstack-feature",
+                "action": "create",
+                "source": "formulas/dstack-feature.formula.toml",
+                "destination": ".beads/formulas/dstack-feature.formula.toml",
+                "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                "expected_destination_sha256": None,
+                "conflict_policy": "fail-if-different",
+            }
+        ]
+    )
+
+    with pytest.raises(setup.SetupError, match=r"\.beads/formulas.*contained"):
+        execute_setup_mutation(repo, monkeypatch, mutation, {}, mode="normal")
+
+    assert list(outside.iterdir()) == []
+
+
+def test_setup_filesystem_rejects_external_intermediate_parent(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs/guides").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(setup.SetupError, match=r"docs/guides/page\.md.*contained"):
+        setup._setup_write_filesystem(
+            repo,
+            setup_file_operation(destination="docs/guides/page.md"),
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+def test_setup_filesystem_rejects_external_final_symlink(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    external = tmp_path / "external.md"
+    external.write_text("external\n")
+    destination = repo / "docs/page.md"
+    destination.parent.mkdir(parents=True)
+    destination.symlink_to(external)
+    original = external.read_bytes()
+
+    with pytest.raises(setup.SetupError, match=r"docs/page\.md.*contained"):
+        setup._setup_write_filesystem(
+            repo,
+            setup_file_operation(
+                action="update",
+                destination="docs/page.md",
+                destination_hash=hashlib.sha256(original).hexdigest(),
+            ),
+        )
+
+    assert destination.is_symlink()
+    assert external.read_bytes() == original
+
+
+def test_setup_filesystem_rejects_external_source_without_deleting_it(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    external = outside / "legacy.md"
+    external.write_text("external\n")
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs/legacy").symlink_to(outside, target_is_directory=True)
+    original = external.read_bytes()
+
+    with pytest.raises(setup.SetupError, match=r"docs/legacy/legacy\.md.*contained"):
+        setup._setup_write_filesystem(
+            repo,
+            setup_file_operation(
+                action="delete",
+                source="docs/legacy/legacy.md",
+                source_hash=hashlib.sha256(original).hexdigest(),
+                content=None,
+            ),
+        )
+
+    assert external.read_bytes() == original
+
+
+def test_setup_restore_rejects_external_symlinked_parent(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    external = outside / "page.md"
+    external.write_text("external\n")
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs/recovery").symlink_to(outside, target_is_directory=True)
+    original = external.read_bytes()
+
+    with pytest.raises(setup.SetupError, match=r"docs/recovery/page\.md.*contained"):
+        setup._restore_setup_files(repo, {"docs/recovery/page.md": b"restored\n"})
+
+    assert external.read_bytes() == original
+
+
+def test_setup_apply_rejects_parent_symlink_replaced_after_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".beads").mkdir(parents=True)
+    (repo / ".beads/.gitignore").write_text("interactions.jsonl\n")
+    reviewed = minimal_setup_mutation(filesystem=[setup_file_operation(destination="docs/generated/page.md")])
+    digest = setup.setup_plan_digest(reviewed)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / "docs").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(setup, "git_root", lambda root: repo)
+    monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
+    monkeypatch.setattr(setup, "tracked", lambda *args: False)
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+
+    def execute(root: Path, mutation: Mapping[str, Any]) -> dict[str, Any]:
+        setup._setup_write_filesystem(root, mutation["filesystem"][0])
+        return {"status": "ok"}
+
+    monkeypatch.setattr(setup, "_execute_setup_plan", execute)
+    monkeypatch.setattr(
+        setup,
+        "setup_plan",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "preconditions": {"blocked": []},
+            "mutation_plan": reviewed,
+            "plan_sha256": digest,
+            "documentation": {},
+        },
+    )
+
+    with pytest.raises(setup.SetupError, match=r"docs/generated/page\.md.*contained"):
+        setup.apply_setup(repo, initialize=False, force=False, expected_plan_sha256=digest)
+
+    assert list(outside.iterdir()) == []
+
+
+def test_setup_doctor_rejects_external_beads_symlink_before_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "marker"
+    marker.write_bytes(b"unchanged\n")
+    (repo / ".beads").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(setup, "git_root", lambda root: repo)
+    monkeypatch.setattr(
+        setup,
+        "BeadsClient",
+        lambda root: pytest.fail("doctor reached external Beads validation"),
+    )
+
+    with pytest.raises(setup.SetupError, match=r"\.beads.*contained"):
+        setup.doctor(repo, delivery_mode="merge")
+
+    assert marker.read_bytes() == b"unchanged\n"
+
+
+def test_setup_filesystem_allows_nested_and_nonexistent_destinations(
+    tmp_path: Path,
+) -> None:
+    setup._setup_write_filesystem(
+        tmp_path,
+        setup_file_operation(destination="docs/nested/new/page.md"),
+    )
+
+    assert (tmp_path / "docs/nested/new/page.md").read_text() == "managed\n"
 
 
 def test_setup_apply_rejects_formula_destination_drift_before_mutation(

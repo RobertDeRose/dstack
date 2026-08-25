@@ -39,15 +39,15 @@ interfaces; Markdown reconciliation remains a separate landing record.
 checks only common/local requirements; PR adds a usable GitHub target remote, authenticated `gh`, and native Beads
 `gh:pr` gate capability. No profile is inferred from incidental remote state.
 
-`setup.py plan` emits a human-readable envelope containing one strict
-`dstack.setup-plan/v2` `mutation_plan` and its SHA-256. The mutation object has
-complete initialization, Beads issue/dependency/supersession, filesystem,
-Git-index, formula, and navigation/reference records; canonical bytes normalize
-Unicode/newlines, repository-relative POSIX paths, hashes, and collection order.
-`setup.py apply` requires that digest, recomputes the same object once, and
-executes only the digest-matched operations. It does not rediscover broader
-normalization or compare unavailable original plan bytes. Any changed source,
-precondition, destination, formula, or navigation result fails closed.
+`setup.py plan` emits a human-readable envelope containing one strict `dstack.setup-plan/v2` `mutation_plan` and its
+SHA-256. The mutation object has complete initialization, Beads issue/dependency/supersession, filesystem, Git-index,
+formula, and navigation/reference records; canonical bytes normalize Unicode/newlines, repository-relative POSIX paths,
+hashes, and collection order. `setup.py apply` requires that digest, recomputes the same object once, and executes only
+the digest-matched operations. It does not rediscover broader normalization or compare unavailable original plan bytes.
+After native Beads mutation, apply rereads each affected issue and requires its complete metadata, labels, parentage,
+relationships, and supersession state to equal the reviewed post-state. Missing, extra, wrongly directed, or wrongly
+typed state fails closed with the operation, target, expected and observed state, rollback completion, and mutation
+uncertainty. Any changed source, precondition, destination, formula, or navigation result also fails closed.
 
 Internal controller leaves include `feature reauthorize` and `alignment reauthorize` before approved graph changes,
 `delivery replace-pr` for an explicit conflicting-gate repair, and `delivery cancel-pr-gate` for an explicit switch from

@@ -6,16 +6,17 @@ controlled. Review them before authorizing mutation.
 
 ## Privileges and confirmation
 
-Controller subprocesses inherit the invoking user's filesystem, Git, Beads, and
-GitHub privileges. Use least-privilege credentials and repository-scoped GitHub
-permissions. Human confirmation is required for specification authorization,
-PR content, force setup repair, destructive cleanup, rollback, and history
-rewrite. A finite review count never replaces authorization.
+Controller subprocesses inherit the invoking user's filesystem, Git, Beads, and GitHub privileges. Use least-privilege
+credentials and repository-scoped GitHub permissions. Human confirmation is required for specification authorization, PR
+content, destructive cleanup, rollback, and history rewrite. A finite review count never replaces authorization.
 
-Path validation keeps managed documentation and worktrees inside their expected
-roots and rejects symlink traversal. Commands use structured argument arrays,
-not shell interpolation. Timeouts report whether an operation may have mutated
-state; callers must inspect the native authority before retrying.
+Path validation keeps managed documentation, worktrees, and installed Pi resources inside their expected roots and
+rejects symlink traversal. Before Beads initialization, the controller validates the pinned executable and packaged
+formula contracts. These checks and later filesystem operations are separate system calls, not a filesystem sandbox: a
+process with concurrent write access could replace a path component between them. Run mutating commands only in a
+trusted, quiescent checkout and inspect repository and external paths after any interrupted or suspicious run. Commands
+use structured argument arrays, not shell interpolation. Timeouts report whether an operation may have mutated state;
+callers must inspect the native authority before retrying.
 
 ## Sensitive data
 

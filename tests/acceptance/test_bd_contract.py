@@ -751,3 +751,38 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
             corrections["id"],
         )
     )
+
+
+def test_setup_rejects_external_formula_parent_before_mutation(
+    beads_repo: Path,
+) -> None:
+    formulas = beads_repo / ".beads/formulas"
+    for path in formulas.iterdir():
+        path.unlink()
+    formulas.rmdir()
+    outside = beads_repo.parent / "outside"
+    outside.mkdir()
+    marker = outside / "marker"
+    marker.write_bytes(b"unchanged\n")
+    formulas.symlink_to(outside, target_is_directory=True)
+    before = {path.name: path.read_bytes() for path in outside.iterdir()}
+
+    result = run_command(
+        [
+            "python3",
+            "-S",
+            str(ROOT / "skills/dstack-beads-core/scripts/setup.py"),
+            "plan",
+            "--root",
+            str(beads_repo),
+            "--force",
+        ],
+        cwd=beads_repo,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert ".beads/formulas" in result.stderr
+    assert "physically contained" in result.stderr
+    assert formulas.is_symlink()
+    assert {path.name: path.read_bytes() for path in outside.iterdir()} == before
