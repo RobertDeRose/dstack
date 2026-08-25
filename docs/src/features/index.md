@@ -11,5 +11,4 @@ remains in the sections where readers look for that behavior.
 - [Canonical mdBook Documentation System](canonical-mdbook-documentation-system/index.md)
 - [Harden workflow authority and auditability](harden-workflow-authority-auditability/index.md)
 - [Resolve remaining workflow authority findings](resolve-remaining-workflow-authority-findings/index.md)
-
-- [Complete dStack workflow authority, adoption, and recovery hardening](complete-workflow-authority-adoption-recovery-hardening/design.md)
+- [Complete dStack workflow authority, adoption, and recovery hardening](complete-workflow-authority-adoption-recovery-hardening/index.md)
