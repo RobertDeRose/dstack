@@ -747,6 +747,13 @@ def _rewrite_external_references(root: Path, *, apply: bool) -> list[dict[str, s
     return result
 
 
+MANUAL_MIGRATION_ACTION = "choose a docs/src chapter, move the file, update SUMMARY.md, and rerun setup"
+
+
+def _manual_actions(unresolved: list[str]) -> list[dict[str, str]]:
+    return [{"path": path, "action": MANUAL_MIGRATION_ACTION} for path in unresolved]
+
+
 def _unresolved_outside_markdown(root: Path) -> list[str]:
     _, _, unresolved = _referenced_content_state(root)
     return unresolved
@@ -769,10 +776,26 @@ def legacy_documentation_plan(root: Path) -> dict[str, object]:
     # Reference migration can only be inspected against the canonical source.
     if not configured:
         references = _rewrite_external_references(root, apply=False)
+        unresolved = _unresolved_outside_markdown(root)
+    else:
+        _, configured_path = configured_source(root)
+        configured_path = configured_path.resolve()
+        source_root = (root / "docs/src").resolve()
+        unresolved = []
+        for path in (root / "docs").rglob("*.md"):
+            resolved = path.resolve()
+            if resolved == configured_path or configured_path in resolved.parents:
+                continue
+            try:
+                resolved.relative_to(source_root)
+            except ValueError:
+                unresolved.append(path.relative_to(root).as_posix())
+        unresolved.sort()
     return {
         "configured_source_moves": configured,
         "referenced_content_moves": references,
-        "unresolved_outside_markdown": ([] if configured else _unresolved_outside_markdown(root)),
+        "unresolved_outside_markdown": unresolved,
+        "manual_actions": _manual_actions(unresolved),
     }
 
 
@@ -790,10 +813,12 @@ def migrate_legacy_documentation(root: Path) -> dict[str, object]:
     _reject_documentation_symlinks(root)
     configured = _migrate_configured_source(root, apply=True)
     references = _rewrite_external_references(root, apply=True)
+    unresolved = _unresolved_outside_markdown(root)
     return {
         "configured_source_moves": configured,
         "referenced_content_moves": references,
-        "unresolved_outside_markdown": _unresolved_outside_markdown(root),
+        "unresolved_outside_markdown": unresolved,
+        "manual_actions": _manual_actions(unresolved),
     }
 
 

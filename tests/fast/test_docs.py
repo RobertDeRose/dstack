@@ -8,6 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_docs
+import setup
 from dstack_commands import (
     ALIGNMENT_RECONCILIATION_SCAFFOLD,
     DESIGN_SCAFFOLD,
@@ -334,6 +335,24 @@ def test_validation_rejects_noncanonical_book_source(tmp_path: Path, monkeypatch
         dstack_docs.validate_docs(tmp_path)
 
 
+def test_configured_source_plan_reports_external_manual_action(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    legacy = docs / "book"
+    legacy.mkdir(parents=True)
+    (docs / "book.toml").write_text('[book]\nsrc = "book"\n')
+    (legacy / "SUMMARY.md").write_text("# Summary\n")
+    (legacy / "README.md").write_text("# Existing home\n")
+    note = docs / "notes/placement.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# Choose a chapter\n")
+
+    plan = dstack_docs.legacy_documentation_plan(tmp_path)
+
+    assert plan["configured_source_moves"]
+    assert plan["unresolved_outside_markdown"] == ["docs/notes/placement.md"]
+    assert plan["manual_actions"][0]["path"] == "docs/notes/placement.md"
+
+
 def test_migration_moves_configured_book_source_before_foundation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -423,9 +442,187 @@ def test_migration_leaves_unreferenced_outside_markdown_for_semantic_judgment(
 
     assert plan["referenced_content_moves"] == []
     assert plan["unresolved_outside_markdown"] == ["docs/notes/internal.md"]
+    assert plan["manual_actions"] == [
+        {
+            "path": "docs/notes/internal.md",
+            "action": "choose a docs/src chapter, move the file, update SUMMARY.md, and rerun setup",
+        }
+    ]
     assert migrated["referenced_content_moves"] == []
     assert migrated["unresolved_outside_markdown"] == ["docs/notes/internal.md"]
+    assert migrated["manual_actions"] == plan["manual_actions"]
     assert note.is_file()
+
+
+REPRESENTATIVE_MIGRATIONS = {
+    "distributed": {
+        "summary": (
+            "- [Runtime](../legacy/distributed/architecture/runtime.md)\n"
+            "- [Runbook](../legacy/distributed/operations/runbook.md)\n"
+        ),
+        "canonical": {
+            "docs/src/architecture/index.md": (
+                "# Service architecture\n\n[Runtime](../../legacy/distributed/architecture/runtime.md)\n"
+            )
+        },
+        "external": {
+            "docs/legacy/distributed/architecture/runtime.md": (
+                "# Runtime topology\n\n[Runbook](../operations/runbook.md)\n"
+            ),
+            "docs/legacy/distributed/operations/runbook.md": ("# Service runbook\n\nRestart the worker pool.\n"),
+        },
+        "ambiguous": "docs/legacy/distributed/decisions/placement.md",
+        "manual_destination": "docs/src/operations/placement.md",
+    },
+    "embedded": {
+        "summary": "- [Hardware](hardware/index.md)\n",
+        "canonical": {
+            "docs/src/hardware/index.md": ("# Board hardware\n\n{{#include ../../legacy/embedded/pinout.md}}\n")
+        },
+        "external": {
+            "docs/legacy/embedded/pinout.md": ("# Pinout\n\n{{#include provisioning/boot.md}}\n"),
+            "docs/legacy/embedded/provisioning/boot.md": ("# Boot provisioning\n\nUse the recovery jumper.\n"),
+        },
+        "ambiguous": "docs/legacy/embedded/notes/board.md",
+        "manual_destination": "docs/src/hardware/board-notes.md",
+    },
+    "modular": {
+        "summary": ("- [Modules](modules/index.md)\n- [Core API](../legacy/modular/core/api.md#stable)\n"),
+        "canonical": {
+            "docs/src/modules/index.md": ("# Modules\n\n[Core API](../../legacy/modular/core/api.md#stable)\n")
+        },
+        "external": {
+            "docs/legacy/modular/core/api.md": ("# Core API\n\nThe stable module contract.\n"),
+        },
+        "ambiguous": "docs/legacy/modular/proposals/plugin.md",
+        "manual_destination": "docs/src/modules/plugin-proposal.md",
+    },
+}
+
+
+def _write_representative_fixture(root: Path, case: dict[str, object]) -> tuple[Path, Path]:
+    dstack_docs.create_foundation(root)
+    summary = root / "docs/src/SUMMARY.md"
+    summary.write_text(summary.read_text() + str(case["summary"]))
+    for relative, content in case["canonical"].items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    for relative, content in case["external"].items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    ambiguous = root / str(case["ambiguous"])
+    ambiguous.parent.mkdir(parents=True, exist_ok=True)
+    ambiguous.write_text("# Placement needs a human decision\n")
+    return summary, ambiguous
+
+
+@pytest.mark.parametrize("shape", REPRESENTATIVE_MIGRATIONS)
+def test_representative_project_shapes_migrate_without_semantic_guessing(tmp_path: Path, shape: str) -> None:
+    case = REPRESENTATIVE_MIGRATIONS[shape]
+    summary, ambiguous = _write_representative_fixture(tmp_path, case)
+
+    plan = dstack_docs.legacy_documentation_plan(tmp_path)
+    expected_moves = [
+        {
+            "source": relative,
+            "destination": relative.replace("docs/", "docs/src/", 1),
+        }
+        for relative in sorted(case["external"])
+    ]
+    assert plan["referenced_content_moves"] == expected_moves
+    assert plan["unresolved_outside_markdown"] == [str(case["ambiguous"])]
+    assert plan["manual_actions"] == [
+        {
+            "path": case["ambiguous"],
+            "action": "choose a docs/src chapter, move the file, update SUMMARY.md, and rerun setup",
+        }
+    ]
+
+    original = {relative: (tmp_path / relative).read_bytes() for relative in case["external"]}
+    migrated = dstack_docs.migrate_legacy_documentation(tmp_path)
+    assert migrated["referenced_content_moves"] == expected_moves
+    assert migrated["unresolved_outside_markdown"] == [str(case["ambiguous"])]
+    for relative, content in original.items():
+        destination = tmp_path / relative.replace("docs/", "docs/src/", 1)
+        assert destination.read_bytes() == content
+        assert not (tmp_path / relative).exists()
+    assert "../legacy/" not in summary.read_text()
+    assert ambiguous.is_file()
+
+    manual_destination = tmp_path / str(case["manual_destination"])
+    manual_destination.parent.mkdir(parents=True, exist_ok=True)
+    ambiguous.replace(manual_destination)
+    summary.write_text(
+        summary.read_text() + f"- [Manual notes]({manual_destination.relative_to(tmp_path / 'docs/src')})\n"
+    )
+    converged = dstack_docs.legacy_documentation_plan(tmp_path)
+    assert converged["referenced_content_moves"] == []
+    assert converged["unresolved_outside_markdown"] == []
+    assert converged["manual_actions"] == []
+
+
+@pytest.mark.parametrize("shape", REPRESENTATIVE_MIGRATIONS)
+def test_representative_migration_conflict_is_fail_closed(tmp_path: Path, shape: str) -> None:
+    case = REPRESENTATIVE_MIGRATIONS[shape]
+    _write_representative_fixture(tmp_path, case)
+    source_relative, source_content = next(iter(case["external"].items()))
+    source = tmp_path / source_relative
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(source_content)
+    destination = tmp_path / source_relative.replace("docs/", "docs/src/", 1)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text("authored canonical content\n")
+
+    with pytest.raises(DstackError, match="conflict"):
+        dstack_docs.migrate_legacy_documentation(tmp_path)
+    assert source.read_text() == source_content
+    assert destination.read_text() == "authored canonical content\n"
+
+
+@pytest.mark.parametrize("shape", REPRESENTATIVE_MIGRATIONS)
+def test_setup_repair_reports_and_converges_manual_migration(
+    tmp_path: Path, shape: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = REPRESENTATIVE_MIGRATIONS[shape]
+    summary, ambiguous = _write_representative_fixture(tmp_path, case)
+
+    class Client:
+        def check_version(self) -> str:
+            return "bd version 1.2.2 (6c124203e)"
+
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [])
+    monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "missing_feature_reconciliations", lambda client: [])
+    monkeypatch.setattr(setup, "tracked", lambda *args: False)
+    monkeypatch.setattr(setup, "ensure_interaction_log_policy", lambda root: {})
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+
+    first = setup.repair_legacy(tmp_path, force=True)
+    assert first["status"] == "manual-action-required"
+    assert first["documentation_migration"]["unresolved_outside_markdown"] == [str(case["ambiguous"])]
+    assert first["documentation_migration"]["manual_actions"] == [
+        {
+            "path": str(case["ambiguous"]),
+            "action": dstack_docs.MANUAL_MIGRATION_ACTION,
+        }
+    ]
+
+    manual_destination = tmp_path / str(case["manual_destination"])
+    manual_destination.parent.mkdir(parents=True, exist_ok=True)
+    ambiguous.replace(manual_destination)
+    summary.write_text(
+        summary.read_text() + f"- [Manual notes]({manual_destination.relative_to(tmp_path / 'docs/src')})\n"
+    )
+
+    second = setup.repair_legacy(tmp_path, force=True)
+    assert second["status"] == "ok"
+    assert second["documentation_migration"]["unresolved_outside_markdown"] == []
+    assert second["documentation_migration"]["manual_actions"] == []
 
 
 def test_migration_rejects_symlinked_configured_source(tmp_path: Path) -> None:
