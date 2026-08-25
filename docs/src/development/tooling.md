@@ -22,6 +22,13 @@ python3 skills/dstack-beads-core/scripts/dstackctl.py docs validate
 
 The build uses temporary output and external URLs are not fetched.
 
+Forced setup migration is covered by compact feature-heavy distributed-service, embedded/system, and modular-application
+fixtures. Each fixture proves that known `SUMMARY.md` or include targets move without authored-byte loss, conflicts fail
+closed, and local links keep their query/fragment suffixes. Unreferenced Markdown remains at its exact legacy path with
+a manual navigation action; setup reports `manual-action-required` instead of claiming migration is complete. After the
+reported move and `SUMMARY.md` update, a repeat plan must converge with no unresolved paths. No fixture relies on
+semantic heading or filename guesses.
+
 ## Fast suite
 
 The default suite exercises controller decisions in-process with immutable Beads protocol snapshots. It uses disposable

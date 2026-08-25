@@ -425,7 +425,7 @@ def apply_setup(
         raise SetupError(
             f"setup apply failed: {exc}; observed recovery: " + "; ".join(recovery)
         ) from exc
-    return {"status": "ok", "plan": plan, "applied": result}
+    return {"status": result.get("status", "ok"), "plan": plan, "applied": result}
 
 
 def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
@@ -469,12 +469,13 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
             "beads_gitignore_changed": bool(repair["beads_gitignore_changed"]),
         }
         repair_payload = {
+            "status": repair["status"],
             "template_artifacts_removed": repair["template_artifacts_removed"],
             "molecule_items_normalized": repair["molecule_items_normalized"],
             "missing_feature_reconciliations": repair["missing_feature_reconciliations"],
         }
     return {
-        "status": "ok",
+        "status": repair_payload.get("status", "ok") if force else "ok",
         "root": str(root),
         "beads_version": version,
         "formulas": installed,
@@ -975,7 +976,7 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
     documentation = validate_docs(root)
 
     return {
-        "status": "ok",
+        "status": ("manual-action-required" if documentation_migration["unresolved_outside_markdown"] else "ok"),
         "template_artifacts_removed": removed,
         "molecule_items_normalized": normalized,
         "missing_feature_reconciliations": missing_reconciliations,

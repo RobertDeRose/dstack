@@ -1249,6 +1249,7 @@ def test_legacy_repair_reports_required_changes_before_mutation(
             "configured_source_moves": [],
             "referenced_content_moves": [],
             "unresolved_outside_markdown": [],
+            "manual_actions": [],
         },
     }
     beads.assert_exhausted()
@@ -1431,9 +1432,45 @@ def test_missing_historical_reconciliation_is_reported(tmp_path: Path) -> None:
     beads.assert_exhausted()
 
 
-def test_forced_repair_validates_resulting_book(
+def test_forced_repair_marks_unresolved_documentation_for_manual_action(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("check_version", result="bd version 1.2.2 (6c124203e)"),
+    )
+    migration = {
+        "configured_source_moves": [],
+        "referenced_content_moves": [],
+        "unresolved_outside_markdown": ["docs/notes/placement.md"],
+        "manual_actions": [
+            {
+                "path": "docs/notes/placement.md",
+                "action": "choose a docs/src chapter, move the file, update SUMMARY.md, and rerun setup",
+            }
+        ],
+    }
+    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: beads)
+    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [])
+    monkeypatch.setattr(setup, "legacy_documentation_plan", lambda root: migration)
+    monkeypatch.setattr(setup, "migrate_legacy_documentation", lambda root: migration)
+    monkeypatch.setattr(setup, "create_foundation", lambda root: [])
+    monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "missing_feature_reconciliations", lambda client: [])
+    monkeypatch.setattr(setup, "tracked", lambda *args: False)
+    monkeypatch.setattr(setup, "ensure_interaction_log_policy", lambda root: {})
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+
+    result = setup.repair_legacy(tmp_path, force=True)
+
+    assert result["status"] == "manual-action-required"
+    assert result["documentation_migration"] == migration
+    beads.assert_exhausted()
+
+
+def test_forced_repair_validates_resulting_book(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("check_version", result="bd version 1.2.2 (6c124203e)"),
