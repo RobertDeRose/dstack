@@ -315,8 +315,8 @@ def _validate_relation_compatibility(
             raise DstackError(
                 f"incompatible blocks relationship: {source_id} ({source_kind}) -> {target_id} ({target_kind})"
             )
-    if relation == "parent-child" and source_kind not in {"epic", "molecule"}:
-        raise DstackError(f"parent-child source is not a container: {source_id}")
+    if relation == "parent-child" and target_kind not in {"epic", "molecule", "feature"}:
+        raise DstackError(f"parent-child target is not a container: {target_id}")
 
 
 def _relation(record: Mapping[str, Any]) -> tuple[str, str] | None:
@@ -335,6 +335,157 @@ def _replacement_ref(entry: Mapping[str, Any]) -> str | None:
         if entry.get("strategy") == "recreate":
             return str(entry["legacy_id"])
     return None
+
+
+_SNAPSHOT_ISSUE_FIELDS = (
+    "id",
+    "status",
+    "issue_type",
+    "type",
+    "parent",
+    "parent_id",
+    "assignee",
+    "labels",
+    "priority",
+    "title",
+    "description",
+    "acceptance_criteria",
+    "metadata",
+    "gate_ids",
+    "dependencies",
+)
+
+
+def _snapshot_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: issue[key] for key in _SNAPSHOT_ISSUE_FIELDS if key in issue}
+
+
+def adoption_graph_snapshot(client: BeadsClient, legacy_root_id: str) -> dict[str, Any]:
+    """Read the legacy graph from native authorities for drift reconciliation."""
+    root = client.show(legacy_root_id)
+    child_records = descendants(client, legacy_root_id)
+    legacy_records = [dict(root), *[dict(item) for item in child_records]]
+    raw_ids = [item.get("id") for item in legacy_records]
+    legacy_ids = {str(item_id) for item_id in raw_ids if item_id}
+    if any(not item_id for item_id in raw_ids) or len(legacy_ids) != len(legacy_records):
+        raise DstackError("legacy graph snapshot contains duplicate or missing IDs")
+    all_records = [*client.list(all_statuses=True), *client.gates(all_statuses=True)]
+    all_issues: dict[str, dict[str, Any]] = {}
+    for item in all_records:
+        item_id = item.get("id")
+        if not item_id:
+            continue
+        key = str(item_id)
+        if key in all_issues and all_issues[key] != dict(item):
+            raise DstackError(f"native graph snapshot has conflicting issue records: {key}")
+        all_issues[key] = dict(item)
+    for item in legacy_records:
+        all_issues[str(item["id"])] = item
+
+    internal: list[dict[str, str]] = []
+    outgoing: list[dict[str, str]] = []
+    incoming: list[dict[str, str]] = []
+    for source_id, issue in sorted(((str(item["id"]), item) for item in legacy_records), key=lambda pair: pair[0]):
+        for record in dependency_records(issue):
+            target = record.get("depends_on_id") or record.get("id")
+            if not isinstance(target, str) or not target:
+                raise DstackError(f"legacy graph snapshot has invalid edge: {source_id}")
+            relation = str(record.get("type") or record.get("dependency_type") or "blocks")
+            edge = {
+                "source_id": source_id,
+                "target_id": target,
+                "relationship_type": relation,
+            }
+            (internal if target in legacy_ids else outgoing).append(edge)
+            if target not in legacy_ids and target not in all_issues:
+                raise DstackError(f"legacy graph snapshot points to unknown issue: {target}")
+    for source_id, issue in sorted(all_issues.items()):
+        if source_id in legacy_ids:
+            continue
+        for record in dependency_records(issue):
+            target = record.get("depends_on_id") or record.get("id")
+            if not isinstance(target, str) or not target:
+                raise DstackError(f"native graph snapshot has invalid edge: {source_id}")
+            if target not in legacy_ids:
+                continue
+            incoming.append(
+                {
+                    "source_id": source_id,
+                    "target_id": target,
+                    "relationship_type": str(record.get("type") or record.get("dependency_type") or "blocks"),
+                }
+            )
+    for edges in (internal, outgoing, incoming):
+        edges.sort(key=lambda item: (item["source_id"], item["target_id"], item["relationship_type"]))
+    return {
+        "legacy_root_id": legacy_root_id,
+        "legacy_ids": sorted(legacy_ids),
+        "legacy_records": sorted(
+            (_snapshot_issue(item) for item in legacy_records),
+            key=lambda item: str(item["id"]),
+        ),
+        "internal": internal,
+        "outgoing_external": outgoing,
+        "incoming_external": incoming,
+    }
+
+
+def adoption_graph_signature(
+    snapshot: Mapping[str, Any],
+    *,
+    ignored_edges: set[tuple[str, str, str]] | frozenset[tuple[str, str, str]] = frozenset(),
+    ignored_ids: set[str] | frozenset[str] = frozenset(),
+) -> str:
+    """Canonicalize a snapshot while ignoring only explicitly expected native edges."""
+    value = {
+        "legacy_root_id": snapshot.get("legacy_root_id"),
+        "legacy_ids": sorted(str(item) for item in snapshot.get("legacy_ids", []) if str(item) not in ignored_ids),
+    }
+    for name in ("internal", "outgoing_external", "incoming_external"):
+        value[name] = [
+            dict(edge)
+            for edge in snapshot.get(name, [])
+            if (
+                str(edge.get("source_id")) not in ignored_ids
+                and str(edge.get("target_id")) not in ignored_ids
+                and (
+                    str(edge.get("source_id")),
+                    str(edge.get("target_id")),
+                    str(edge.get("relationship_type")),
+                )
+                not in ignored_edges
+            )
+        ]
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def reconcile_adoption_graph(
+    client: BeadsClient,
+    expected: Mapping[str, Any],
+    legacy_root_id: str,
+    *,
+    ignored_edges: set[tuple[str, str, str]] | frozenset[tuple[str, str, str]] = frozenset(),
+    ignored_ids: set[str] | frozenset[str] = frozenset(),
+) -> None:
+    actual = adoption_graph_snapshot(client, legacy_root_id)
+    if adoption_graph_signature(
+        expected, ignored_edges=ignored_edges, ignored_ids=ignored_ids
+    ) != adoption_graph_signature(actual, ignored_edges=ignored_edges, ignored_ids=ignored_ids):
+        raise DstackError("legacy adoption graph drifted; no destructive mutation is safe")
+
+
+def adoption_plan_graph_matches(plan: Mapping[str, Any], snapshot: Mapping[str, Any]) -> bool:
+    inventory = plan.get("inventory")
+    if not isinstance(inventory, Mapping):
+        return False
+    if sorted(str(item) for item in inventory.get("legacy_ids", [])) != sorted(
+        str(item) for item in snapshot.get("legacy_ids", [])
+    ):
+        return False
+    for key in ("internal", "outgoing_external", "incoming_external"):
+        if inventory.get(key, []) != snapshot.get(key, []):
+            return False
+    return True
 
 
 def plan_adoption(
@@ -621,6 +772,7 @@ def plan_adoption(
         "legacy_root_id": legacy_root_id,
         "entries": entries,
         "inventory": {
+            "legacy_ids": sorted(issues),
             "open_executable_descendants": executable,
             "closed_history": sorted(item_id for item_id, item in by_id.items() if item.get("status") == "closed"),
             "internal": internal_edges,

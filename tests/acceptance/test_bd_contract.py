@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ROOT, run_command, run_json
+from conftest import ROOT, run_command, run_ctl, run_json
 
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 from dstack_commands import claim_ready_work, reopen_authorization_boundary
@@ -97,6 +97,133 @@ print(json.dumps(claimed))
     assert all(worker.returncode == 0 for worker in workers), results
     claimed_ids = {json.loads(stdout)["id"] for stdout, _ in results}
     assert claimed_ids == {child["id"] for child in children}
+
+
+def test_external_dependent_stays_blocked_through_add_before_remove(
+    beads_repo: Path,
+) -> None:
+    old = items(run_json(beads_repo, "create", "legacy blocker", "--type", "task"))[0]
+    replacement = items(run_json(beads_repo, "create", "replacement blocker", "--type", "task"))[0]
+    dependent = items(run_json(beads_repo, "create", "external dependent", "--type", "task"))[0]
+    run_command(
+        ["bd", "dep", "add", dependent["id"], old["id"], "--type", "blocks"],
+        cwd=beads_repo,
+    )
+    ready = items(run_json(beads_repo, "ready", "--limit", "0"))
+    assert dependent["id"] not in {item["id"] for item in ready}
+
+    run_command(
+        [
+            "bd",
+            "dep",
+            "add",
+            dependent["id"],
+            replacement["id"],
+            "--type",
+            "blocks",
+        ],
+        cwd=beads_repo,
+    )
+    ready = items(run_json(beads_repo, "ready", "--limit", "0"))
+    assert dependent["id"] not in {item["id"] for item in ready}
+
+    run_command(
+        ["bd", "dep", "remove", dependent["id"], old["id"]],
+        cwd=beads_repo,
+    )
+    ready = items(run_json(beads_repo, "ready", "--limit", "0"))
+    assert dependent["id"] not in {item["id"] for item in ready}
+
+    run_command(
+        ["bd", "close", replacement["id"], "--reason", "replacement delivered"],
+        cwd=beads_repo,
+    )
+    ready = items(run_json(beads_repo, "ready", "--limit", "0"))
+    assert dependent["id"] in {item["id"] for item in ready}
+
+
+def test_real_adoption_keeps_incoming_dependent_blocked(beads_repo: Path) -> None:
+    legacy = items(
+        run_json(
+            beads_repo,
+            "create",
+            "Legacy feature",
+            "--type",
+            "epic",
+            "--labels",
+            "workflow:feature",
+        )
+    )[0]
+    child = items(
+        run_json(
+            beads_repo,
+            "create",
+            "Remaining work",
+            "--type",
+            "task",
+            "--parent",
+            legacy["id"],
+        )
+    )[0]
+    dependent = items(run_json(beads_repo, "create", "External dependent", "--type", "task"))[0]
+    run_command(
+        ["bd", "dep", "add", dependent["id"], child["id"], "--type", "blocks"],
+        cwd=beads_repo,
+    )
+    classification = {
+        "schema": "dstack.adoption-classification/v1",
+        "legacy_root_id": legacy["id"],
+        "entries": [
+            {
+                "legacy_id": child["id"],
+                "classification": "remaining-implementation",
+                "reason": "product work remains",
+                "replacement": {
+                    "title": "Remaining work",
+                    "description": "Continue the remaining work.",
+                    "acceptance": "The work is complete.",
+                    "priority": 2,
+                },
+            }
+        ],
+    }
+    classification_file = beads_repo / "classification.json"
+    classification_file.write_text(json.dumps(classification))
+    result = run_ctl(
+        beads_repo,
+        "adopt",
+        "apply",
+        legacy["id"],
+        "--title",
+        "Adopted feature",
+        "--slug",
+        "adopted-feature",
+        "--classification-file",
+        str(classification_file),
+    )
+    replacement_id = result["mapping"][child["id"]]
+    dependent_after = items(run_json(beads_repo, "show", dependent["id"]))[0]
+    dependency_ids = {
+        str(record.get("depends_on_id") or record.get("id")) for record in dependent_after.get("dependencies", [])
+    }
+    assert replacement_id in dependency_ids
+    assert child["id"] not in dependency_ids
+    ready = items(run_json(beads_repo, "ready", "--limit", "0"))
+    assert dependent["id"] not in {item["id"] for item in ready}
+
+    run_command(
+        [
+            "bd",
+            "close",
+            replacement_id,
+            "--force",
+            "--reason",
+            "replacement delivered",
+        ],
+        cwd=beads_repo,
+    )
+    ready = items(run_json(beads_repo, "ready", "--limit", "0"))
+    assert dependent["id"] in {item["id"] for item in ready}
 
 
 def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:

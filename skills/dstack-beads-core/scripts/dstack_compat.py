@@ -12,7 +12,13 @@ import argparse
 from pathlib import Path
 from typing import Any, Mapping
 
-from dstack_adoption import parse_classification_file, plan_adoption
+from dstack_adoption import (
+    adoption_graph_snapshot,
+    adoption_plan_graph_matches,
+    parse_classification_file,
+    plan_adoption,
+    reconcile_adoption_graph,
+)
 from dstack_adoption_apply import (
     execute_adoption_plan,
     validate_adoption_preflight,
@@ -206,6 +212,9 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
         classification,
         target_design_path=design,
     )
+    planned_graph = adoption_graph_snapshot(client, str(legacy["id"]))
+    if not adoption_plan_graph_matches(plan, planned_graph):
+        raise DstackError("legacy adoption graph drifted during planning")
     validate_adoption_preflight(
         client,
         plan,
@@ -215,6 +224,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
     current = current_feature_for_slug(client, slug, exclude_id=str(legacy["id"]))
     if current is None:
         require_installed_formula(client.root, "dstack-feature")
+        reconcile_adoption_graph(client, planned_graph, str(legacy["id"]))
         pour = client.pour(
             "dstack-feature",
             {
@@ -227,6 +237,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
         if not root_id:
             raise DstackError("bd mol pour returned no feature root")
         validate_target_topology(client, root_id)
+        reconcile_adoption_graph(client, planned_graph, str(legacy["id"]))
         update_root_identity(
             client,
             root_id,
@@ -238,6 +249,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
     else:
         root_id = str(current["id"])
     view = feature_context(client, root_id)
+    reconcile_adoption_graph(client, planned_graph, str(legacy["id"]))
     validate_adoption_preflight(
         client,
         plan,
@@ -251,6 +263,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
         legacy_root_id=str(legacy["id"]),
         new_root_id=root_id,
         view=view,
+        expected_graph=planned_graph,
     )
     emit({**result, **feature_context(client, root_id)})
     return 0

@@ -413,6 +413,36 @@ def test_closed_retry_target_requires_converged_existing_edge() -> None:
     dstack_adoption_apply._ensure_edge(Client(), "closed-step", "blocker", "blocks")
 
 
+def test_adoption_rereads_native_readiness_for_incoming_dependents() -> None:
+    class Client:
+        def json(self, command: list[str]) -> list[dict[str, str]]:
+            assert command == ["bd", "ready", "--limit", "0", "--json"]
+            return [{"id": "dependent"}]
+
+    plan = {
+        "inventory": {
+            "incoming_external": [
+                {
+                    "source_id": "dependent",
+                    "target_id": "legacy",
+                    "relationship_type": "blocks",
+                }
+            ]
+        },
+        "relationship_operations": [
+            {
+                "source_id": "dependent",
+                "target_id": "legacy",
+                "relationship_type": "blocks",
+                "decision": "deferred-redirect",
+            }
+        ],
+    }
+    dependents = dstack_adoption_apply._incoming_dependent_ids(plan)
+    with pytest.raises(DstackError, match="became ready"):
+        dstack_adoption_apply._assert_not_ready(Client(), dependents, phase="test")
+
+
 def test_raw_poured_topology_rejects_invalid_root_before_identity_update() -> None:
     class Client:
         def show(self, issue_id: str) -> dict[str, Any]:
@@ -423,6 +453,68 @@ def test_raw_poured_topology_rejects_invalid_root_before_identity_update() -> No
 
     with pytest.raises(DstackError, match="invalid status"):
         dstack_adoption_apply.validate_target_topology(Client(), "new-root")
+
+
+def test_execute_adoption_rejects_post_plan_incoming_graph_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+
+    def reconcile(*args: Any, **kwargs: Any) -> None:
+        calls.append(len(calls) + 1)
+        if len(calls) == 2:
+            raise DstackError("legacy adoption graph drifted; incoming blocker added")
+
+    monkeypatch.setattr(dstack_adoption_apply, "reconcile_adoption_graph", reconcile)
+
+    class Native:
+        root = Path(".")
+
+        def show(self, issue_id: str) -> dict[str, Any]:
+            return {"id": issue_id, "status": "open", "issue_type": "task"}
+
+        def supersede(self, *args: Any, **kwargs: Any) -> None:
+            raise AssertionError("graph drift must block root supersession")
+
+    plan = {
+        "schema": dstack_adoption.PLAN_SCHEMA,
+        "legacy_root_id": "legacy",
+        "entries": [],
+        "replacements": [],
+        "decision_staging": [],
+        "relationship_operations": [
+            {
+                "source_id": "dependent",
+                "target_id": "legacy",
+                "relationship_type": "blocks",
+                "decision": "deferred-redirect",
+            }
+        ],
+        "inventory": {
+            "internal": [],
+            "outgoing_external": [],
+            "incoming_external": [
+                {
+                    "source_id": "dependent",
+                    "target_id": "legacy",
+                    "relationship_type": "blocks",
+                }
+            ],
+        },
+        "supersession": {"eligible": True},
+    }
+    with pytest.raises(DstackError, match="incoming blocker added"):
+        dstack_adoption_apply.execute_adoption_plan(
+            Native(),
+            plan,
+            legacy_root_id="legacy",
+            new_root_id="new-root",
+            view={
+                "steps": {name: {"id": name} for name in ("specification", "approval", "implementation", "closeout")}
+            },
+            expected_graph={"legacy_root_id": "legacy"},
+        )
+    assert calls == [1, 2]
 
 
 def test_execute_adoption_adds_replacement_edge_before_removing_legacy_edge() -> None:
