@@ -6,11 +6,19 @@ This section is the operator contract for installing and running dStack. The
 ## Install and configure
 
 1. Install the pinned Python, Beads, mdBook, Git, and `uv` toolchain.
-2. Invoke `/setup-project`. Setup emits a read-only plan containing exact
-   filesystem, Git-index, Beads, formula, and documentation changes.
-3. Review the plan, then let setup apply its digest. Apply recomputes the plan
-   after a clean-worktree preflight and refuses changed authority state.
-4. Run setup doctor and resolve every reported diagnostic before feature work.
+2. Invoke `/setup-project`. Setup emits a read-only plan containing exact filesystem, Git-index, Beads, formula, and
+   documentation changes.
+3. Review the plan, then let setup apply its digest. Apply recomputes the plan after a clean-worktree preflight and
+   refuses changed authority state.
+4. Run setup doctor with an explicit delivery profile and resolve every reported diagnostic before feature work:
+
+   ```text
+   setup.py doctor --root . --delivery-mode merge
+   setup.py doctor --root . --delivery-mode pr
+   ```
+
+   Merge mode is local/direct-delivery health and does not require a remote, GitHub, or `gh`; PR mode additionally
+   checks a usable GitHub target remote, authenticated `gh`, and native Beads `gh:pr` gate support.
 
 Setup creates only missing documentation foundation files. `--force` is an explicit compatibility boundary for replacing
 drifted formulas and applying mechanically identifiable legacy repair. It is not routine startup behavior.

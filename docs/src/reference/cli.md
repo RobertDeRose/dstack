@@ -23,6 +23,10 @@ validation expectations, documentation impact, deferred findings, and accepted
 risks. Markdown scaffolds and `finish-plan --summary-file` are not alignment-plan
 interfaces; Markdown reconciliation remains a separate landing record.
 
+`setup.py doctor --delivery-mode merge|pr` requires an explicit delivery profile and reports the selected mode. Merge
+checks only common/local requirements; PR adds a usable GitHub target remote, authenticated `gh`, and native Beads
+`gh:pr` gate capability. No profile is inferred from incidental remote state.
+
 Internal controller leaves include `feature reauthorize` and `alignment
 reauthorize` before approved graph changes, `delivery replace-pr` for an
 explicit conflicting-gate repair, and `delivery cancel-pr-gate` for an explicit
