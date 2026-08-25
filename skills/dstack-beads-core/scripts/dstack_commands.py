@@ -462,8 +462,6 @@ def release_claim(client: BeadsClient, issue_id: str) -> dict[str, Any]:
 def release_claims(client: BeadsClient, claimed: Sequence[Mapping[str, Any]]) -> list[str]:
     errors = []
     for item in claimed:
-        if item.get("status") == "closed":
-            continue
         try:
             release_claim(client, str(item["id"]))
         except DstackError as exc:
@@ -493,29 +491,24 @@ def claim_ready_work(
         if requested.get("status") in {"claimed", "in_progress"}:
             return client.update(requested_id, "--claim")
         if requested.get("status") != "open":
-            raise DstackError(
-                f"task {requested_id} cannot be claimed from status {requested.get('status')!r}"
-            )
-
-    ready = client.ready_children(parent_id, label=label)
-    if not ready:
-        if requested_id:
+            raise DstackError(f"task {requested_id} cannot be claimed from status {requested.get('status')!r}")
+        ready = client.ready_children(parent_id, label=label)
+        if not any(str(item.get("id")) == requested_id for item in ready):
             raise DstackError(f"task {requested_id} is not currently ready")
-        return None
-    candidate = ready[0]
-    validate(candidate)
-    if requested_id and str(candidate["id"]) != requested_id:
-        raise DstackError(f"task {requested_id} is not the next native ready task")
 
+    # Do not preselect a no-selector candidate: the native atomic claim owns
+    # selection, including races between ready candidates.
     claimed = client.ready_children(parent_id, label=label, claim=True)
-    expected_id = requested_id or str(candidate["id"])
-    if len(claimed) != 1 or str(claimed[0].get("id")) != expected_id:
+    expected_id = requested_id
+    if not claimed:
+        raise DstackError(
+            "native ready claim returned no task" + (f" for requested {requested_id}" if requested_id else "")
+        )
+    if len(claimed) != 1 or (expected_id is not None and str(claimed[0].get("id")) != expected_id):
         recovery_errors = release_claims(client, claimed)
         detail = f"; {'; '.join(recovery_errors)}" if recovery_errors else ""
-        raise DstackError(
-            f"native ready claim did not return requested singleton {expected_id}"
-            f"{detail}"
-        )
+        expected = expected_id or "a valid singleton"
+        raise DstackError(f"native ready claim did not return requested singleton {expected}{detail}")
     try:
         validate(claimed[0])
     except DstackError:

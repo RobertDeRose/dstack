@@ -621,12 +621,6 @@ def test_claim_next_delegates_readiness_and_claim(monkeypatch, tmp_path: Path) -
             "ready_children",
             "corrections-1",
             label="dstack:work:correction",
-            result=[ready],
-        ),
-        call(
-            "ready_children",
-            "corrections-1",
-            label="dstack:work:correction",
             claim=True,
             result=[correction],
         ),
