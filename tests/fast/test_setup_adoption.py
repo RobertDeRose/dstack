@@ -3,11 +3,14 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
+import dstack_adoption
+import dstack_adoption_apply
 import dstack_commands
 import dstack_compat
 import setup
@@ -21,9 +24,21 @@ def feature_formula() -> dict:
     return {
         "steps": [
             {"id": "specification", "type": "task", "labels": [FEATURE_STEPS["specification"]]},
-            {"id": "approval", "type": "task", "labels": [FEATURE_STEPS["approval"]], "needs": ["specification"], "gate": {"type": "human"}},
+            {
+                "id": "approval",
+                "type": "task",
+                "labels": [FEATURE_STEPS["approval"]],
+                "needs": ["specification"],
+                "gate": {"type": "human"},
+            },
             {"id": "implementation", "type": "epic", "labels": [FEATURE_STEPS["implementation"]]},
-            {"id": "closeout", "type": "task", "labels": [FEATURE_STEPS["closeout"]], "needs": ["approval"], "waits_for": "children-of(implementation)"},
+            {
+                "id": "closeout",
+                "type": "task",
+                "labels": [FEATURE_STEPS["closeout"]],
+                "needs": ["approval"],
+                "waits_for": "children-of(implementation)",
+            },
         ]
     }
 
@@ -65,6 +80,577 @@ def test_compatibility_shims_have_reproducers_and_retirement_conditions() -> Non
         assert shim["retirement"]
 
 
+def test_adoption_classification_rejects_unknown_fields_and_normalizes_replacement(
+    tmp_path: Path,
+) -> None:
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy-1",
+        "entries": [
+            {
+                "legacy_id": "task-1",
+                "classification": "remaining-implementation",
+                "reason": "work remains",
+                "replacement": {
+                    "title": "Continue work",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+    }
+    assert (
+        dstack_adoption.canonicalize_classification(classification, root=tmp_path, legacy_root_id="legacy-1")[
+            "entries"
+        ][0]["replacement"]["priority"]
+        == 1
+    )
+    classification["unexpected"] = True
+    with pytest.raises(DstackError, match="unknown unexpected"):
+        dstack_adoption.canonicalize_classification(classification, root=tmp_path, legacy_root_id="legacy-1")
+
+
+@pytest.mark.parametrize("kind", ["bug", "chore"])
+def test_adoption_plan_includes_native_executable_kinds(tmp_path: Path, kind: str) -> None:
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy-1",
+        "entries": [
+            {
+                "legacy_id": "task-1",
+                "classification": "remaining-implementation",
+                "reason": "work remains",
+                "replacement": {
+                    "title": "Continue work",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+    }
+    task = {"id": "task-1", "status": "open", "issue_type": kind}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "legacy-1", result={"id": "legacy-1", "status": "open"}),
+        call("children", "legacy-1", result=[task]),
+        call("children", "task-1", result=[]),
+        call("list", all_statuses=True, result=[]),
+        call("gates", all_statuses=True, result=[]),
+    )
+    plan = dstack_adoption.plan_adoption(beads, "legacy-1", classification)
+    assert plan["inventory"]["open_executable_descendants"] == ["task-1"]
+    beads.assert_exhausted()
+
+
+def test_adoption_plan_fails_closed_missing_native_status_or_type(tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "legacy-1", result={"id": "legacy-1", "status": "open"}),
+        call("children", "legacy-1", result=[{"id": "task-1", "issue_type": "task"}]),
+        call("children", "task-1", result=[]),
+    )
+    with pytest.raises(DstackError, match="lacks native status/type"):
+        dstack_adoption.plan_adoption(
+            beads,
+            "legacy-1",
+            {"schema": dstack_adoption.SCHEMA, "legacy_root_id": "legacy-1", "entries": []},
+        )
+    beads.assert_exhausted()
+
+
+def test_adoption_plan_translates_root_blocker_to_approval_step(tmp_path: Path) -> None:
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy-1",
+        "entries": [
+            {
+                "legacy_id": "task-1",
+                "classification": "remaining-implementation",
+                "reason": "work remains",
+                "replacement": {
+                    "title": "Continue work",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+    }
+    root = {
+        "id": "legacy-1",
+        "status": "open",
+        "issue_type": "epic",
+        "dependencies": [{"depends_on_id": "blocker", "type": "blocks"}],
+    }
+    task = {"id": "task-1", "status": "open", "issue_type": "task"}
+    blocker = {"id": "blocker", "status": "open", "issue_type": "task"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "legacy-1", result=root),
+        call("children", "legacy-1", result=[task]),
+        call("children", "task-1", result=[]),
+        call("list", all_statuses=True, result=[root, task, blocker]),
+        call("gates", all_statuses=True, result=[]),
+    )
+    plan = dstack_adoption.plan_adoption(beads, "legacy-1", classification)
+    op = next(item for item in plan["relationship_operations"] if item["target_id"] == "blocker")
+    assert op["decision"] == "redirect"
+    assert op["target_step"] == "approval"
+    assert op["add_before_remove"] is True
+    beads.assert_exhausted()
+
+
+def test_adoption_plan_includes_gate_and_native_supersession_edges(tmp_path: Path) -> None:
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy-1",
+        "entries": [
+            {
+                "legacy_id": "task-1",
+                "classification": "remaining-implementation",
+                "reason": "work remains",
+                "replacement": {
+                    "title": "Continue work",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+    }
+    root = {
+        "id": "legacy-1",
+        "status": "open",
+        "issue_type": "epic",
+        "dependencies": [{"depends_on_id": "gate-1", "type": "supersedes"}],
+    }
+    task = {"id": "task-1", "status": "open", "issue_type": "task"}
+    gate = {"id": "gate-1", "status": "open", "issue_type": "gate"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "legacy-1", result=root),
+        call("children", "legacy-1", result=[task]),
+        call("children", "task-1", result=[]),
+        call("list", all_statuses=True, result=[root, task]),
+        call("gates", all_statuses=True, result=[gate]),
+    )
+    plan = dstack_adoption.plan_adoption(beads, "legacy-1", classification)
+    assert plan["inventory"]["outgoing_external"] == [
+        {"source_id": "legacy-1", "target_id": "gate-1", "relationship_type": "supersedes"}
+    ]
+    operation = plan["relationship_operations"][0]
+    assert operation["decision"] == "preserve-native-supersession"
+    assert operation["add_before_remove"] is False
+    beads.assert_exhausted()
+
+
+def test_adoption_plan_requires_canonical_design_path_for_incorporated_decision(
+    tmp_path: Path,
+) -> None:
+    design = tmp_path / "docs/src/features/new-feature/design.md"
+    design.parent.mkdir(parents=True)
+    design.write_text("# Requirements\n\nResolve this decision.\n")
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy-1",
+        "entries": [
+            {
+                "legacy_id": "decision-1",
+                "classification": "unresolved-decision",
+                "reason": "decision needs incorporation",
+                "strategy": "incorporated",
+                "specification_section": "docs/src/features/other/design.md#Requirements",
+                "blocking_target": None,
+            }
+        ],
+    }
+    with pytest.raises(DstackError, match="specification_section path"):
+        dstack_adoption.canonicalize_classification(
+            classification,
+            root=tmp_path,
+            legacy_root_id="legacy-1",
+            design_path="docs/src/features/new-feature/design.md",
+        )
+
+
+def test_replacement_reuse_requires_native_supersession_proof(tmp_path: Path) -> None:
+    class Client:
+        root = tmp_path
+
+        def children(self, parent: str) -> list[dict[str, Any]]:
+            return [{"id": "unrelated", "title": "same title", "status": "open", "issue_type": "task"}]
+
+    with pytest.raises(DstackError, match="supersession proof"):
+        dstack_adoption_apply._find_existing_replacement(
+            Client(),
+            {
+                "legacy_id": "legacy-task",
+                "replacement": {"title": "same title"},
+            },
+            implementation_id="implementation",
+            approval_id="approval",
+            expected_id=None,
+            reserved=set(),
+        )
+
+
+def test_preflight_rejects_bug_replacement_before_mutation(tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "legacy", result={"id": "legacy", "status": "open", "issue_type": "epic"}),
+        call("show", "bug-1", result={"id": "bug-1", "status": "open", "issue_type": "bug"}),
+        call("show", "bug-1", result={"id": "bug-1", "status": "open", "issue_type": "bug"}),
+    )
+    plan = {
+        "entries": [{"legacy_id": "bug-1", "classification": "remaining-implementation"}],
+        "replacements": [{"legacy_id": "bug-1", "source_type": "bug"}],
+        "inventory": {"internal": [], "outgoing_external": [], "incoming_external": []},
+        "relationship_operations": [],
+    }
+    with pytest.raises(DstackError, match="cannot use the task approval blocker"):
+        dstack_adoption_apply.validate_adoption_preflight(beads, plan, legacy_root_id="legacy")
+    beads.assert_exhausted()
+
+
+def test_preflight_rejects_claimed_legacy_root_before_pour(tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "show",
+            "legacy",
+            result={
+                "id": "legacy",
+                "status": "claimed",
+                "issue_type": "epic",
+                "assignee": "worker",
+            },
+        ),
+    )
+    with pytest.raises(DstackError, match="open and unassigned"):
+        dstack_adoption_apply.validate_adoption_preflight(
+            beads,
+            {
+                "entries": [],
+                "replacements": [],
+                "inventory": {"internal": [], "outgoing_external": [], "incoming_external": []},
+            },
+            legacy_root_id="legacy",
+        )
+    beads.assert_exhausted()
+
+
+def test_incorporated_decision_retry_requires_approved_committed_section(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    design = tmp_path / "docs/src/features/new-feature/design.md"
+    design.parent.mkdir(parents=True)
+    design.write_text("# Requirements\n\nResolved decision text.\n")
+    view = {"slug": "new-feature", "design_path": "docs/src/features/new-feature/design.md"}
+    monkeypatch.setattr(dstack_adoption_apply, "feature_design_state", lambda *args: {"design_approved": True})
+    monkeypatch.setattr(
+        dstack_adoption_apply,
+        "feature_authorization_state",
+        lambda *args: {"native_approved": True},
+    )
+    monkeypatch.setattr(dstack_adoption_apply, "worktree_for_branch", lambda *args: tmp_path)
+    assert dstack_adoption_apply._incorporated_decision_authorized(
+        type("Client", (), {"root": tmp_path})(),
+        view,
+        "docs/src/features/new-feature/design.md#Requirements",
+    )
+    monkeypatch.setattr(
+        dstack_adoption_apply,
+        "feature_authorization_state",
+        lambda *args: {"native_approved": False},
+    )
+    assert not dstack_adoption_apply._incorporated_decision_authorized(
+        type("Client", (), {"root": tmp_path})(),
+        view,
+        "docs/src/features/new-feature/design.md#Requirements",
+    )
+
+
+def test_retry_association_ignores_ordinary_external_context() -> None:
+    class Client:
+        def children(self, parent: str) -> list[dict[str, Any]]:
+            return [{"id": "replacement", "parent": "implementation"}] if parent == "implementation" else []
+
+    client = Client()
+    ordinary = {
+        "id": "legacy",
+        "dependencies": [{"depends_on_id": "context", "type": "relates-to"}],
+    }
+    retry = {
+        "id": "legacy",
+        "dependencies": [{"depends_on_id": "replacement", "type": "relates-to"}],
+    }
+    assert dstack_adoption_apply._replacement_association(client, ordinary, implementation_id="implementation") is None
+    assert (
+        dstack_adoption_apply._replacement_association(client, retry, implementation_id="implementation")
+        == "replacement"
+    )
+
+
+def test_closed_retry_target_requires_converged_existing_edge() -> None:
+    class Client:
+        root = Path(".")
+
+        def show(self, issue_id: str) -> dict[str, Any]:
+            if issue_id == "closed-step":
+                return {
+                    "id": issue_id,
+                    "status": "closed",
+                    "issue_type": "task",
+                    "dependencies": [{"depends_on_id": "blocker", "type": "blocks"}],
+                }
+            return {"id": issue_id, "status": "open", "issue_type": "task"}
+
+        def add_dependency(self, *args: Any, **kwargs: Any) -> None:
+            raise AssertionError("closed retry target required no new mutation")
+
+    dstack_adoption_apply._ensure_edge(Client(), "closed-step", "blocker", "blocks")
+
+
+def test_raw_poured_topology_rejects_invalid_root_before_identity_update() -> None:
+    class Client:
+        def show(self, issue_id: str) -> dict[str, Any]:
+            return {"id": issue_id, "status": "closed", "issue_type": "epic"}
+
+        def children(self, parent: str) -> list[dict[str, Any]]:
+            return []
+
+    with pytest.raises(DstackError, match="invalid status"):
+        dstack_adoption_apply.validate_target_topology(Client(), "new-root")
+
+
+def test_execute_adoption_adds_replacement_edge_before_removing_legacy_edge() -> None:
+    class Native:
+        root = Path(".")
+
+        def __init__(self) -> None:
+            self.events: list[tuple[str, str, str]] = []
+            self.issues = {
+                "legacy": {
+                    "id": "legacy",
+                    "status": "open",
+                    "issue_type": "epic",
+                    "dependencies": [{"depends_on_id": "blocker", "type": "blocks"}],
+                },
+                "task": {
+                    "id": "task",
+                    "status": "open",
+                    "issue_type": "task",
+                    "parent": "legacy",
+                    "description": "desc",
+                    "acceptance_criteria": "accept",
+                    "priority": 1,
+                    "dependencies": [{"depends_on_id": "blocker", "type": "blocks"}],
+                },
+                "blocker": {"id": "blocker", "status": "open", "issue_type": "task"},
+                "approval": {"id": "approval", "status": "open", "issue_type": "task"},
+                "implementation": {"id": "implementation", "status": "open", "issue_type": "epic"},
+                "specification": {"id": "specification", "status": "open", "issue_type": "task"},
+                "closeout": {"id": "closeout", "status": "open", "issue_type": "task"},
+            }
+
+        def show(self, issue_id: str) -> dict[str, Any]:
+            return dict(self.issues[issue_id])
+
+        def create(self, title: str, **kwargs: Any) -> dict[str, Any]:
+            self.issues["replacement"] = {
+                "id": "replacement",
+                "title": title,
+                "description": kwargs["description"],
+                "acceptance_criteria": kwargs["acceptance"],
+                "priority": kwargs["priority"],
+                "parent": kwargs["parent"],
+                "labels": kwargs["labels"],
+                "dependencies": [{"depends_on_id": "approval", "type": "blocks"}],
+                "status": "open",
+                "issue_type": "task",
+            }
+            return {"id": "replacement"}
+
+        def add_dependency(self, source: str, target: str, *, relation_type: str = "blocks") -> None:
+            self.events.append(("add", source, target))
+            self.issues[source].setdefault("dependencies", []).append({"depends_on_id": target, "type": relation_type})
+
+        def remove_dependency(self, source: str, target: str) -> None:
+            self.events.append(("remove", source, target))
+            self.issues[source]["dependencies"] = [
+                item for item in self.issues[source].get("dependencies", []) if item.get("depends_on_id") != target
+            ]
+
+        def supersede(self, old: str, new: str) -> None:
+            self.events.append(("supersede", old, new))
+            self.issues[old]["status"] = "closed"
+            self.issues[old]["dependencies"] = [{"depends_on_id": new, "type": "superseded-by"}]
+
+        def children(self, parent: str) -> list[dict[str, Any]]:
+            return []
+
+    native = Native()
+    plan = {
+        "schema": dstack_adoption.PLAN_SCHEMA,
+        "legacy_root_id": "legacy",
+        "entries": [
+            {
+                "legacy_id": "task",
+                "classification": "remaining-implementation",
+                "reason": "remaining",
+                "replacement": {
+                    "title": "replacement",
+                    "description": "desc",
+                    "acceptance": "accept",
+                    "priority": 1,
+                },
+            }
+        ],
+        "replacements": [
+            {
+                "legacy_id": "task",
+                "replacement": {
+                    "title": "replacement",
+                    "description": "desc",
+                    "acceptance": "accept",
+                    "priority": 1,
+                },
+            }
+        ],
+        "decision_staging": [],
+        "relationship_operations": [
+            {
+                "source_id": "task",
+                "target_id": "blocker",
+                "relationship_type": "blocks",
+                "decision": "redirect",
+            }
+        ],
+        "supersession": {"eligible": True},
+    }
+    result = dstack_adoption_apply.execute_adoption_plan(
+        native,
+        plan,
+        legacy_root_id="legacy",
+        new_root_id="new-root",
+        view={"steps": {name: {"id": name} for name in ("specification", "approval", "implementation", "closeout")}},
+    )
+    assert native.events.index(("add", "replacement", "blocker")) < native.events.index(("remove", "task", "blocker"))
+    assert result["root_superseded"] is True
+
+
+def test_adopt_apply_validates_plan_before_pouring_or_other_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    legacy = {"id": "legacy-1", "status": "open", "title": "Feature: Old"}
+    beads = ScriptedClient(tmp_path)
+    monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_compat, "resolve_feature", lambda *args: legacy)
+    monkeypatch.setattr(dstack_compat, "feature_context", lambda *args: {"current": False})
+    invalid = tmp_path / "classification.json"
+    invalid.write_text(
+        '{"schema":"dstack.adoption-classification/v1","legacy_root_id":"legacy-1","entries":[],"unknown":true}'
+    )
+    args = type(
+        "Args",
+        (),
+        {
+            "root": tmp_path,
+            "selector": "legacy-1",
+            "title": None,
+            "slug": "old",
+            "base_branch": "main",
+            "design_path": None,
+            "classification_file": invalid,
+            "remaining": [],
+            "spec_ceremony": [],
+            "implementation_coordinator": [],
+            "closeout_ceremony": [],
+        },
+    )()
+    with pytest.raises(DstackError, match="unknown"):
+        dstack_compat.cmd_adopt_apply(args)
+    beads.assert_exhausted()
+
+
+def test_adoption_classification_rejects_foreign_and_omitted_open_work(
+    tmp_path: Path,
+) -> None:
+    base = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy-1",
+        "entries": [],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "legacy-1", result={"id": "legacy-1", "status": "open"}),
+        call(
+            "children",
+            "legacy-1",
+            result=[{"id": "task-1", "status": "open", "issue_type": "task"}],
+        ),
+        call("children", "task-1", result=[]),
+    )
+    with pytest.raises(DstackError, match="omits open executable"):
+        dstack_adoption.plan_adoption(beads, "legacy-1", base)
+    beads.assert_exhausted()
+
+
+def test_adoption_plan_inventories_both_external_relationship_directions(
+    tmp_path: Path,
+) -> None:
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy-1",
+        "entries": [
+            {
+                "legacy_id": "task-1",
+                "classification": "remaining-implementation",
+                "reason": "work remains",
+                "replacement": {
+                    "title": "Continue work",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+    }
+    legacy = {
+        "id": "legacy-1",
+        "status": "open",
+        "issue_type": "epic",
+        "dependencies": [{"depends_on_id": "outside-blocker", "type": "blocks"}],
+    }
+    task = {"id": "task-1", "status": "open", "issue_type": "task", "parent": "legacy-1"}
+    outside = {
+        "id": "outside-dependent",
+        "status": "open",
+        "issue_type": "task",
+        "dependencies": [{"depends_on_id": "task-1", "type": "blocks"}],
+    }
+    blocker = {"id": "outside-blocker", "status": "open", "issue_type": "task"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "legacy-1", result=legacy),
+        call("children", "legacy-1", result=[task]),
+        call("children", "task-1", result=[]),
+        call("list", all_statuses=True, result=[legacy, task, outside, blocker]),
+        call("gates", all_statuses=True, result=[]),
+    )
+    plan = dstack_adoption.plan_adoption(beads, "legacy-1", classification)
+    inventory = plan["inventory"]
+    assert inventory["outgoing_external"] == [
+        {"source_id": "legacy-1", "target_id": "outside-blocker", "relationship_type": "blocks"}
+    ]
+    assert inventory["incoming_external"] == [
+        {"source_id": "outside-dependent", "target_id": "task-1", "relationship_type": "blocks"}
+    ]
+    beads.assert_exhausted()
+
+
 def test_classify_legacy_item_is_explicit_about_ambiguity() -> None:
     assert dstack_compat.classify_legacy_item({"title": "Implement: code"}) == "implementation-coordinator"
     assert dstack_compat.classify_legacy_item({"title": "unrelated"}) == "ambiguous"
@@ -73,10 +659,25 @@ def test_classify_legacy_item_is_explicit_about_ambiguity() -> None:
 def test_adoption_rejects_multiple_current_slug_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     beads = ScriptedClient(
         tmp_path,
-        call("list", all_statuses=True, labels=["workflow:feature"], result=[
-            {"id": "feature-1", "issue_type": "epic", "status": "open", "labels": ["workflow:feature", "feature:slug"]},
-            {"id": "feature-2", "issue_type": "epic", "status": "open", "labels": ["workflow:feature", "feature:slug"]},
-        ]),
+        call(
+            "list",
+            all_statuses=True,
+            labels=["workflow:feature"],
+            result=[
+                {
+                    "id": "feature-1",
+                    "issue_type": "epic",
+                    "status": "open",
+                    "labels": ["workflow:feature", "feature:slug"],
+                },
+                {
+                    "id": "feature-2",
+                    "issue_type": "epic",
+                    "status": "open",
+                    "labels": ["workflow:feature", "feature:slug"],
+                },
+            ],
+        ),
     )
     monkeypatch.setattr(dstack_compat, "feature_context", lambda client, issue_id: {"current": True})
     with pytest.raises(DstackError, match="multiple current"):
@@ -96,9 +697,9 @@ def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(
         setup,
         "run",
-        lambda command, **kwargs: CommandResult(0, "", "")
-        if command[:3] == ["git", "status", "--porcelain"]
-        else real_run(command, **kwargs),
+        lambda command, **kwargs: (
+            CommandResult(0, "", "") if command[:3] == ["git", "status", "--porcelain"] else real_run(command, **kwargs)
+        ),
     )
 
     first = setup.setup_plan(tmp_path, initialize=True, force=False)
@@ -127,9 +728,7 @@ def test_setup_apply_refuses_dirty_preconditions(
     assert not (tmp_path / ".beads").exists()
 
 
-def test_setup_apply_refuses_changed_plan(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_setup_apply_refuses_changed_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
@@ -271,9 +870,7 @@ def test_doctor_reports_all_actionable_diagnostics(
     assert all(result["checks"][name]["recovery"] for name in result["failed"])
 
 
-def test_setup_apply_is_retry_safe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_setup_apply_is_retry_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     package = tmp_path / "package"
     formulas = package / "formulas"
@@ -522,9 +1119,7 @@ def test_forced_install_repairs_legacy_before_strict_documentation_validation(
     assert result["documentation"] == {"status": "ok"}
     assert result["template_artifacts_removed"] == ["legacy-template"]
     assert result["molecule_items_normalized"] == ["feature-1"]
-    assert result["missing_feature_reconciliations"] == [
-        "docs/src/features/old/index.md"
-    ]
+    assert result["missing_feature_reconciliations"] == ["docs/src/features/old/index.md"]
     assert result["interaction_log_untracked"] is True
 
 
@@ -542,12 +1137,8 @@ def test_legacy_repair_reports_required_changes_before_mutation(
         "legacy_template_artifacts",
         lambda client: [{"id": "dstack-feature.template"}],
     )
-    monkeypatch.setattr(
-        setup, "normalize_current_features", lambda client, force: ["feature-1"]
-    )
-    monkeypatch.setattr(
-        setup, "normalize_current_alignments", lambda client, force: []
-    )
+    monkeypatch.setattr(setup, "normalize_current_features", lambda client, force: ["feature-1"])
+    monkeypatch.setattr(setup, "normalize_current_alignments", lambda client, force: [])
     monkeypatch.setattr(
         setup,
         "missing_feature_reconciliations",
@@ -584,9 +1175,7 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
     )
     feature_index = tmp_path / "docs/src/features/index.md"
     feature_index.parent.mkdir(parents=True)
-    feature_index.write_text(
-        "# Feature Records\n\n- [Feature](../../features/feature/design.md)\n"
-    )
+    feature_index.write_text("# Feature Records\n\n- [Feature](../../features/feature/design.md)\n")
     root = {
         "id": "feature-1",
         "labels": ["workflow:feature", "feature:feature"],
@@ -608,7 +1197,13 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
             "feature-1",
             "--set-metadata",
             "dstack.design_path=docs/src/features/feature/design.md",
-            result={**root, "metadata": {**root["metadata"], "dstack.design_path": "docs/src/features/feature/design.md"}},
+            result={
+                **root,
+                "metadata": {
+                    **root["metadata"],
+                    "dstack.design_path": "docs/src/features/feature/design.md",
+                },
+            },
         ),
         call("children", "feature-1", result=[]),
     )
@@ -655,9 +1250,7 @@ def test_explicit_repair_recovers_move_completed_before_metadata_update(
 
     assert setup.normalize_current_features(beads, force=True) == ["feature-1"]
     assert destination.read_text() == "moved design\n"
-    assert "features/feature/design.md" in (
-        tmp_path / "docs/src/SUMMARY.md"
-    ).read_text()
+    assert "features/feature/design.md" in (tmp_path / "docs/src/SUMMARY.md").read_text()
     beads.assert_exhausted()
 
 
@@ -742,9 +1335,7 @@ def test_missing_historical_reconciliation_is_reported(tmp_path: Path) -> None:
         ),
     )
 
-    assert setup.missing_feature_reconciliations(beads) == [
-        "docs/src/features/feature/index.md"
-    ]
+    assert setup.missing_feature_reconciliations(beads) == ["docs/src/features/feature/index.md"]
     beads.assert_exhausted()
 
 
@@ -877,7 +1468,5 @@ def test_external_blocker_is_preserved_on_compatible_native_step(
         call("add_dependency", destination, "blocker-1", result=None),
     )
     monkeypatch.setattr(dstack_commands, "descendants", lambda *args: [])
-    assert dstack_commands.preserve_external_blockers(
-        beads, source, "feature-1"
-    ) == ["blocker-1"]
+    assert dstack_commands.preserve_external_blockers(beads, source, "feature-1") == ["blocker-1"]
     beads.assert_exhausted()

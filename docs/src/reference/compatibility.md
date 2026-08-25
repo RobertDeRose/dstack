@@ -63,14 +63,29 @@ content; normal feature execution never runs compatibility repair.
 
 ## Active legacy feature adoption
 
-`/adopt-feature` first runs a deterministic inspection that classifies obvious
-old lifecycle nodes. The agent decides only which ambiguous tasks represent
-real remaining product work. The apply step then pours one current molecule,
-recreates selected remaining tasks, uses native `supersedes` relationships, and
-leaves specification approval open.
+`/adopt-feature` is an explicit compatibility boundary. Planning consumes a
+strict temporary `dstack.adoption-classification/v1` JSON document with exactly
+`schema`, `legacy_root_id`, and sorted `entries`. Every open executable
+descendant appears exactly once under one of the supported classifications:
+completed history, remaining implementation, obsolete lifecycle ceremony,
+unresolved decision, or preserved unchanged. Completed history requires sorted
+Git-footer/source/test/documentation evidence and either verified evidence or an
+explicit accepted-risk reason. Remaining and preserved recreation entries carry
+exact replacement title, description, acceptance, and priority; unresolved
+decisions carry either an incorporated design section or a named native blocker.
+Unknown fields, IDs, paths, strategies, missing work, duplicate entries, and
+unsupported relationships fail before any Beads mutation.
 
-No migration packet, manifest, Git-SHA mapping, or dStack migration database is
-created. Closed historical work remains in place.
+The pure planner inventories all descendants, closed history, outgoing external
+blockers, and incoming external dependents. Its in-memory plan records exact
+replacement parent/label/approval requirements, preserve/redirect/lifecycle-only
+relationship operations, add-before-remove ordering, and supersession
+postconditions. Native task/bug/chore/gate relationships are checked against the
+pinned Beads compatibility matrix; an unsupported bug/chore approval topology or
+root remap fails before pour. Native adoption execution is a separate pass; no
+migration packet, manifest, Git-SHA mapping, or dStack migration database is
+created.
+Closed historical work remains in place.
 
 When no active old-dStack features remain in supported repositories, the
 adoption command may be moved to an optional compatibility package or removed.

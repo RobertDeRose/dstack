@@ -16,6 +16,14 @@ mechanics and emits JSON.
 | `/project-alignment-land ...` | Full correction candidate | Landing and optional delivery | Reviewed candidate or delivered root |
 | `dstackctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic facts include the immutable closeout candidate, source revisions, limitations, and reconciliation; delivered evidence survives cleanup |
 
+Adoption planning writes no durable state. Run `dstackctl adopt plan LEGACY
+--classification-file CLASSIFICATION.json` with a temporary strict
+`dstack.adoption-classification/v1` document; the command only reads Beads/Git
+and emits a deterministic in-memory transformation plan. Apply the same file
+with `dstackctl adopt apply LEGACY --classification-file CLASSIFICATION.json`;
+all validation and complete graph planning occur before pour or any other Beads
+mutation.
+
 Alignment review writes one temporary strict `dstack.alignment-plan/v1` JSON
 object and finalizes it with `alignment finish-plan AUDIT --plan-file PLAN.json`.
 The object includes the exact `baseline_commit`, correction content and graph,
