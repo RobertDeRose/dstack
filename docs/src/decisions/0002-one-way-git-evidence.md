@@ -21,9 +21,9 @@ repository snapshot. The sole current exception is `baseline_commit` in the cano
 
 ## Consequences
 
-Amend, rebase, and cherry-pick require no Beads remapping. Completion and
-delivery must query the relevant reachable range and reject missing or unexpected
-evidence. Moving the configured alignment target invalidates authorization until
-the baseline is reviewed again; it never triggers commit remapping. A
-no-repository-change close is explicit, reasoned, clean, and has no reachable
-footer evidence.
+Amend, rebase, and cherry-pick require no Beads remapping. Completion and delivery query the relevant reachable source
+and reject missing, unexpected, orphaned, malformed, or outside-candidate evidence. Multiple distinct reachable commits
+for one Bead are valid fixup history and remain visible informationally; repeating the same footer in one commit is
+malformed. Moving the configured alignment target invalidates authorization until the baseline is reviewed again; it
+never triggers commit remapping. A no-repository-change close is explicit, reasoned, clean, and has no reachable footer
+evidence.

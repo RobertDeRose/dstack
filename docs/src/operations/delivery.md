@@ -1,9 +1,10 @@
 # Delivery authority
 
-Delivery is an explicit reconciliation boundary, not a side effect of finishing
-implementation work. The candidate must have complete fan-in, approved design
-content, reviewed documentation, required validation, clean worktrees, and
-reachable `Beads:` footer evidence.
+Delivery is an explicit reconciliation boundary, not a side effect of finishing implementation work. The candidate must
+have complete fan-in, approved design content, reviewed documentation, required validation, clean worktrees, and
+reachable `Beads:` footer evidence. One Bead may have multiple distinct reachable commits, including authorized fixups;
+this is reported without failing evidence. A repeated identical footer in one commit is malformed, while missing,
+unexpected, orphaned, or outside-candidate evidence remains blocking.
 
 ## Direct merge
 

@@ -12,8 +12,10 @@ sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 import dstack_delivery
 from dstack_commands import DstackError
 from dstack_delivery import (
+    delivered_feature_evidence_audit,
     docs_check,
     ensure_clean_candidate,
+    evidence_audit,
     immutable_candidate_revision,
     read_commit_message,
     require_candidate_head,
@@ -182,6 +184,99 @@ def test_git_commit_amend_and_evidence_commands_use_real_git(git_repo: Path, mon
     )
     assert dstack_delivery.cmd_evidence_commits(argparse.Namespace(root=git_repo, bead="task-1", ref="HEAD")) == 0
     assert outputs[-1]["commits"][0]["subject"] == "feat: revise value"
+
+
+def commit_with_footer(repo: Path, filename: str, subject: str, *footers: str) -> str:
+    (repo / filename).write_text(subject + "\n")
+    subprocess.run(["git", "add", filename], cwd=repo, check=True)
+    message = subject + "\n\n" + "\n".join(f"Beads: {footer}" for footer in footers)
+    subprocess.run(["git", "commit", "-qm", message], cwd=repo, check=True)
+    return current_head(repo)
+
+
+def delivered_evidence_view() -> dict:
+    return {
+        "root": {"id": "feature-1"},
+        "slug": "audit",
+        "base_branch": "main",
+        "steps": {
+            "specification": {"id": "specification-1"},
+            "closeout": {"id": "closeout-1"},
+        },
+        "work_items": [{"id": "task-1", "status": "closed"}],
+    }
+
+
+def test_delivered_evidence_accepts_reachable_fixup_commits(git_repo: Path) -> None:
+    commit_with_footer(git_repo, "spec.md", "specification", "specification-1")
+    commit_with_footer(git_repo, "feature.py", "implementation", "task-1")
+    commit_with_footer(git_repo, "fix.py", "authorized fixup", "task-1")
+    candidate = commit_with_footer(git_repo, "close.md", "closeout", "closeout-1")
+
+    audit = delivered_feature_evidence_audit(ScriptedClient(git_repo), delivered_evidence_view())
+
+    assert audit["status"] == "ok"
+    assert audit["candidate_revision"] == candidate
+    assert len(audit["mapping"]["task-1"]) == 2
+    assert set(audit["multiple_commits"]) == {"task-1"}
+    assert audit["malformed_footer_ids"] == []
+    assert audit["wrong_source_footer_ids"] == []
+
+
+def test_delivered_evidence_rejects_repeated_footer_in_one_commit(
+    git_repo: Path,
+) -> None:
+    commit_with_footer(git_repo, "spec.md", "specification", "specification-1")
+    commit_with_footer(git_repo, "feature.py", "implementation", "task-1", "task-1")
+    commit_with_footer(git_repo, "close.md", "closeout", "closeout-1")
+
+    audit = delivered_feature_evidence_audit(ScriptedClient(git_repo), delivered_evidence_view())
+
+    assert audit["status"] == "issues"
+    assert audit["malformed_footer_ids"] == ["task-1"]
+    assert audit["multiple_commits"] == {}
+
+
+def test_delivered_evidence_rejects_expected_footer_outside_candidate(
+    git_repo: Path,
+) -> None:
+    commit_with_footer(git_repo, "spec.md", "specification", "specification-1")
+    commit_with_footer(git_repo, "feature.py", "implementation", "task-1")
+    commit_with_footer(git_repo, "close.md", "closeout", "closeout-1")
+    later = commit_with_footer(git_repo, "later.py", "later fix", "task-1")
+
+    audit = delivered_feature_evidence_audit(ScriptedClient(git_repo), delivered_evidence_view())
+
+    assert audit["status"] == "issues"
+    assert audit["wrong_source_footer_ids"] == ["task-1"]
+    assert later not in {item["commit"] for item in audit["mapping"]["task-1"]}
+
+
+def test_pre_delivery_evidence_rejects_repeated_and_orphaned_footers(
+    git_repo: Path,
+) -> None:
+    base = current_head(git_repo)
+    commit_with_footer(git_repo, "feature.py", "implementation", "task-1", "task-1")
+    commit_with_footer(git_repo, "orphan.py", "orphan", "orphan-1")
+    client = ScriptedClient(
+        git_repo,
+        call("show_optional", "orphan-1", result=None),
+    )
+
+    audit = evidence_audit(
+        client,
+        worktree=git_repo,
+        base=base,
+        branch="main",
+        tasks=[{"id": "task-1", "status": "closed"}],
+        allowed_ids=[],
+    )
+
+    assert audit["status"] == "issues"
+    assert audit["malformed_footer_ids"] == ["task-1"]
+    assert audit["unexpected_footer_ids"] == ["orphan-1"]
+    assert audit["orphaned_footer_ids"] == ["orphan-1"]
+    client.assert_exhausted()
 
 
 def test_immutable_candidate_requires_unique_closeout_footer(git_repo: Path) -> None:
