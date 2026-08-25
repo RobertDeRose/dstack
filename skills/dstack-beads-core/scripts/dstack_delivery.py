@@ -164,6 +164,30 @@ def cmd_evidence_commits(args: argparse.Namespace) -> int:
     return 0
 
 
+def footer_cardinality(
+    mapping: Mapping[str, Sequence[Mapping[str, Any]]],
+    expected: set[str],
+) -> tuple[dict[str, list[Mapping[str, Any]]], list[str]]:
+    multiple: dict[str, list[Mapping[str, Any]]] = {}
+    malformed: list[str] = []
+    for bead_id in sorted(expected):
+        distinct: list[Mapping[str, Any]] = []
+        seen: set[str] = set()
+        repeated = False
+        for record in mapping.get(bead_id, []):
+            commit = str(record.get("commit") or "")
+            if commit in seen:
+                repeated = True
+            else:
+                seen.add(commit)
+                distinct.append(record)
+        if repeated:
+            malformed.append(bead_id)
+        if len(distinct) > 1:
+            multiple[bead_id] = distinct
+    return multiple, malformed
+
+
 def evidence_audit(
     client: BeadsClient,
     *,
@@ -183,19 +207,16 @@ def evidence_audit(
     expected = {str(item["id"]) for item in closed if str(item["id"]) not in no_repository_change}
     allowed = expected | {str(item) for item in allowed_ids}
     missing = sorted(item for item in expected if not mapping.get(item))
-    duplicate = {
-        key: value
-        for key, value in mapping.items()
-        if key in expected and len(value) > 1
-    }
+    multiple, malformed = footer_cardinality(mapping, expected)
     unexpected = sorted(key for key in mapping if key not in allowed)
     orphaned = sorted(bead_id for bead_id in unexpected if client.show_optional(bead_id) is None)
     return {
-        "status": "ok" if not missing and not unexpected else "issues",
+        "status": "ok" if not missing and not unexpected and not malformed else "issues",
         "range": f"{base}..{branch}",
         "missing": missing,
         "no_repository_change": no_repository_change,
-        "multiple_commits": duplicate,
+        "multiple_commits": multiple,
+        "malformed_footer_ids": malformed,
         "unexpected_footer_ids": unexpected,
         "orphaned_footer_ids": orphaned,
         "mapping": {key: value for key, value in mapping.items() if key in expected},
@@ -336,13 +357,18 @@ def delivered_feature_evidence_audit(
     reachable = commit_footer_ids(client.root, candidate)
     missing = sorted(item for item in expected if not reachable.get(item))
     mapping = {item: reachable[item] for item in sorted(expected) if reachable.get(item)}
-    multiple = {
-        item: commits for item, commits in mapping.items() if len(commits) > 1
-    }
+    multiple, malformed = footer_cardinality(reachable, expected)
+    target_reachable = commit_footer_ids(client.root, search_ref)
+    candidate_commits = {item: {str(record["commit"]) for record in reachable.get(item, [])} for item in expected}
+    wrong_source = sorted(
+        item
+        for item in expected
+        if any(str(record["commit"]) not in candidate_commits[item] for record in target_reachable.get(item, []))
+    )
     branch = f"feat/{view['slug']}"
     return {
         "feature": view["root"]["id"],
-        "status": "ok" if not missing and not multiple else "issues",
+        "status": "ok" if not missing and not malformed and not wrong_source else "issues",
         "source": "delivered-target",
         "search_ref": search_ref,
         "target_ref": target,
@@ -355,6 +381,8 @@ def delivered_feature_evidence_audit(
         "missing": missing,
         "no_repository_change": no_repository_change,
         "multiple_commits": multiple,
+        "malformed_footer_ids": malformed,
+        "wrong_source_footer_ids": wrong_source,
         "mapping": mapping,
     }
 
@@ -507,7 +535,13 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
         evidence = alignment_evidence_audit(client, view)
     if evidence["status"] != "ok":
         details = []
-        for key in ("missing", "unexpected_footer_ids", "orphaned_footer_ids"):
+        for key in (
+            "missing",
+            "malformed_footer_ids",
+            "wrong_source_footer_ids",
+            "unexpected_footer_ids",
+            "orphaned_footer_ids",
+        ):
             values = evidence.get(key) or []
             if values:
                 details.append(f"{key}={','.join(str(value) for value in values)}")
