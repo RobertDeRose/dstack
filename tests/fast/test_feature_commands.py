@@ -742,12 +742,6 @@ def test_claim_next_uses_native_ready_result(monkeypatch, tmp_path: Path) -> Non
             "ready_children",
             "implementation-1",
             label="dstack:work:implementation",
-            result=[ready],
-        ),
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
             claim=True,
             result=[task],
         ),
@@ -760,12 +754,6 @@ def test_claim_next_uses_native_ready_result(monkeypatch, tmp_path: Path) -> Non
 
 
 def test_claim_next_releases_every_unexpected_native_claim(monkeypatch, tmp_path: Path) -> None:
-    ready = {
-        "id": "task-1",
-        "parent": "implementation-1",
-        "status": "open",
-        "labels": ["dstack:work:implementation"],
-    }
     unexpected = [
         {
             "id": f"task-{index}",
@@ -777,12 +765,6 @@ def test_claim_next_releases_every_unexpected_native_claim(monkeypatch, tmp_path
         for index in (2, 3)
     ]
     calls = [
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
-            result=[ready],
-        ),
         call(
             "ready_children",
             "implementation-1",
@@ -810,10 +792,8 @@ def test_claim_next_releases_every_unexpected_native_claim(monkeypatch, tmp_path
     beads = ScriptedClient(tmp_path, *calls)
     patch_command(monkeypatch, dstack_feature, beads)
 
-    with pytest.raises(DstackError, match="requested singleton task-1"):
-        dstack_feature.cmd_feature_claim_next(
-            argparse.Namespace(root=tmp_path, selector="feature-1", task=None)
-        )
+    with pytest.raises(DstackError, match="valid singleton"):
+        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task=None))
     beads.assert_exhausted()
 
 
@@ -843,8 +823,38 @@ def test_claim_next_releases_claim_with_invalid_returned_scope(monkeypatch, tmp_
             "ready_children",
             "implementation-1",
             label="dstack:work:implementation",
-            result=[ready],
+            claim=True,
+            result=[claimed],
         ),
+        call(
+            "update",
+            "task-1",
+            "--status",
+            "open",
+            "--assignee",
+            "",
+            result=released,
+        ),
+        call("show", "task-1", result=released),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+
+    with pytest.raises(DstackError, match="lacks required label"):
+        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task=None))
+    beads.assert_exhausted()
+
+
+def test_claim_next_releases_returned_foreign_parent(monkeypatch, tmp_path: Path) -> None:
+    claimed = {
+        "id": "task-1",
+        "parent": "other-implementation",
+        "status": "in_progress",
+        "assignee": "worker",
+        "labels": ["dstack:work:implementation"],
+    }
+    released = {**claimed, "status": "open", "assignee": ""}
+    beads = ScriptedClient(
+        tmp_path,
         call(
             "ready_children",
             "implementation-1",
@@ -864,11 +874,73 @@ def test_claim_next_releases_claim_with_invalid_returned_scope(monkeypatch, tmp_
         call("show", "task-1", result=released),
     )
     patch_command(monkeypatch, dstack_feature, beads)
+    with pytest.raises(DstackError, match="not a direct child"):
+        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task=None))
+    beads.assert_exhausted()
 
-    with pytest.raises(DstackError, match="lacks required label"):
-        dstack_feature.cmd_feature_claim_next(
-            argparse.Namespace(root=tmp_path, selector="feature-1", task=None)
-        )
+
+def test_claim_next_rejects_empty_native_claim(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call(
+            "ready_children",
+            "implementation-1",
+            label="dstack:work:implementation",
+            claim=True,
+            result=[],
+        ),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+    with pytest.raises(DstackError, match="native ready claim returned no task"):
+        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task=None))
+    beads.assert_exhausted()
+
+
+def test_claim_next_releases_explicit_mismatched_native_claim(monkeypatch, tmp_path: Path) -> None:
+    requested = {
+        "id": "task-1",
+        "parent": "implementation-1",
+        "status": "open",
+        "labels": ["dstack:work:implementation"],
+    }
+    claimed = {
+        "id": "task-2",
+        "parent": "implementation-1",
+        "status": "in_progress",
+        "assignee": "worker",
+        "labels": ["dstack:work:implementation"],
+    }
+    released = {**claimed, "status": "open", "assignee": ""}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "task-1", result=requested),
+        call(
+            "ready_children",
+            "implementation-1",
+            label="dstack:work:implementation",
+            result=[requested],
+        ),
+        call(
+            "ready_children",
+            "implementation-1",
+            label="dstack:work:implementation",
+            claim=True,
+            result=[claimed],
+        ),
+        call(
+            "update",
+            "task-2",
+            "--status",
+            "open",
+            "--assignee",
+            "",
+            result=released,
+        ),
+        call("show", "task-2", result=released),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+    with pytest.raises(DstackError, match="requested singleton task-1"):
+        dstack_feature.cmd_feature_claim_next(argparse.Namespace(root=tmp_path, selector="feature-1", task="task-1"))
     beads.assert_exhausted()
 
 

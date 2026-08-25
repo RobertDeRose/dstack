@@ -39,10 +39,10 @@ finalization. Normal commands never invoke legacy repair.
 
 ## Retry and errors
 
-Inspection, planning, and converged no-op commands are retry-safe. A task claim
-is accepted only when the native atomic ready claim returns the exact expected
-item; re-claiming lets Beads verify ownership. Closed exact work remains
-idempotent. Completion requires a fully clean worktree and either reachable Git
+Inspection, planning, and converged no-op commands are retry-safe. A task claim without a selector delegates selection
+directly to Beads' atomic ready claim; dStack does not preselect a stale ready-list entry. An explicit `--task` remains
+exact: the requested task must be ready, and any different native claim is verified-released (or ownership uncertainty
+is reported). Closed exact work remains idempotent. Completion requires a fully clean worktree and either reachable Git
 footer evidence or `--no-repository-change` with a specific reason and no footer.
 
 Errors are JSON on standard error and do not imply rollback. Validation errors mean no intended terminal mutation

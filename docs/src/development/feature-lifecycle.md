@@ -49,28 +49,24 @@ removed through Beads.
 
 ### `/implement-feature [feature] [task|--all]`
 
-The controller verifies the design digest and atomically claims the next native
-ready implementation task. The agent implements, runs focused and task-required
-checks, reviews and corrects the complete candidate diff, commits through the
-Git helper, verifies the reachable Bead footer and changed paths, then closes
-only that task. If validation fails, times out, is interrupted, runs the wrong
-scope, unexpectedly skips required tests, or substitutes weaker coverage, the
-agent reports the exact check and stops before commit or completion.
+The controller verifies the design digest and atomically claims the next native ready implementation task. With no task
+selector, Beads chooses the singleton candidate directly; dStack does not preselect a stale ready-list entry. An
+explicit `--task` remains exact: dStack verifies that requested task is currently ready, then rejects and
+verified-releases any different native claim. The agent implements, runs focused and task-required checks, reviews and
+corrects the complete candidate diff, commits through the Git helper, verifies the reachable Bead footer and changed
+paths, then closes only that task. If validation fails, times out, is interrupted, runs the wrong scope, unexpectedly
+skips required tests, or substitutes weaker coverage, the agent reports the exact check and stops before commit or
+completion.
 
-`--all` repeats only over native ready implementation tasks and stops when none
-remain. It never closes the implementation workstream, claims closeout, or
-starts delivery. If a task intentionally changes no repository content, finish
-it with `--no-repository-change --reason "..."`; the native close reason records
-that outcome for delivery audit. Ordinary completed tasks still require a
-reachable Bead footer. Feature and alignment transitions validate the exact
-direct parent and work label, delegate open claims to native `ready --claim`,
-and use native re-claiming to verify ownership. Feature specification and
-alignment analysis use the same exact native-ready claim boundary. If a native
-claim returns an unexpected issue or a terminal fan-in race appears, dStack
-restores both open status and an empty assignee and verifies the reread before
-reporting recovery. Completion requires a wholly clean worktree, including
-untracked files. Empty workstreams close only after their native approval
-milestone is closed.
+`--all` repeats only over native ready implementation tasks and stops when none remain. It never closes the
+implementation workstream, claims closeout, or starts delivery. If a task intentionally changes no repository content,
+finish it with `--no-repository-change --reason "..."`; the native close reason records that outcome for delivery audit.
+Ordinary completed tasks still require a reachable Bead footer. Feature and alignment transitions validate the exact
+direct parent and work label, delegate open claims to native `ready --claim`, and use native re-claiming to verify
+ownership. Feature specification and alignment analysis use the same exact native-ready claim boundary. If a native
+claim returns an unexpected issue or a terminal fan-in race appears, dStack restores both open status and an empty
+assignee and verifies the reread before reporting recovery. Completion requires a wholly clean worktree, including
+untracked files. Empty workstreams close only after their native approval milestone is closed.
 
 ### `/close-feature [feature] [ready|pr|merge]`
 

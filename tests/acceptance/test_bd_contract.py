@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -30,6 +31,71 @@ def by_label(values, label: str) -> dict:
     matches = [item for item in values if label in item.get("labels", [])]
     assert len(matches) == 1, (label, matches)
     return matches[0]
+
+
+def test_native_claims_are_scoped_and_atomic_under_concurrency(beads_repo: Path) -> None:
+    parent = items(
+        run_json(
+            beads_repo,
+            "create",
+            "Concurrent implementation",
+            "--type",
+            "task",
+            "--labels",
+            "dstack:work:implementation",
+        )
+    )[0]
+    children = [
+        items(
+            run_json(
+                beads_repo,
+                "create",
+                f"Concurrent child {suffix}",
+                "--type",
+                "task",
+                "--parent",
+                parent["id"],
+                "--labels",
+                "dstack:work:implementation",
+            )
+        )[0]
+        for suffix in ("a", "b")
+    ]
+    script = """
+import json
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from dstack_commands import claim_ready_work
+from dstacklib import BeadsClient
+claimed = claim_ready_work(
+    BeadsClient(Path.cwd()),
+    parent_id=sys.argv[2],
+    label="dstack:work:implementation",
+)
+print(json.dumps(claimed))
+"""
+    workers = [
+        subprocess.Popen(
+            [
+                "python3",
+                "-S",
+                "-c",
+                script,
+                str(ROOT / "skills/dstack-beads-core/scripts"),
+                parent["id"],
+            ],
+            cwd=beads_repo,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        for _ in children
+    ]
+    results = [worker.communicate(timeout=60) for worker in workers]
+    assert all(worker.returncode == 0 for worker in workers), results
+    claimed_ids = {json.loads(stdout)["id"] for stdout, _ in results}
+    assert claimed_ids == {child["id"] for child in children}
 
 
 def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
