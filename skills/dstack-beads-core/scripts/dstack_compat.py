@@ -9,8 +9,15 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Any, Mapping
 
+from dstack_adoption import parse_classification_file, plan_adoption
+from dstack_adoption_apply import (
+    execute_adoption_plan,
+    validate_adoption_preflight,
+    validate_target_topology,
+)
 from dstacklib import (
     BeadsClient,
     DstackError,
@@ -21,7 +28,6 @@ from dstacklib import (
     issue_labels,
     issue_type,
     issue_metadata,
-    read_text_file,
     resolve_feature,
     root_metadata_value,
     slugify,
@@ -31,7 +37,6 @@ from dstack_commands import (
     client_for,
     descendants,
     emit,
-    preserve_external_blockers,
     require_installed_formula,
     superseded_target,
     update_root_identity,
@@ -84,6 +89,22 @@ def classify_legacy_item(item: Mapping[str, Any]) -> str:
     if "reconcile specification" in title:
         return "spec-ceremony"
     return "ambiguous"
+
+
+def cmd_adopt_plan(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    legacy = resolve_feature(client, args.selector)
+    if legacy.get("status") == "closed":
+        raise DstackError(f"legacy feature is already closed: {legacy['id']}")
+    if feature_context(client, str(legacy["id"]))["current"]:
+        raise DstackError(f"feature already uses current dStack workflow: {legacy['id']}")
+    if not args.classification_file:
+        raise DstackError("adoption planning requires --classification-file")
+    classification = parse_classification_file(
+        Path(args.classification_file), root=client.root, legacy_root_id=str(legacy["id"])
+    )
+    emit(plan_adoption(client, str(legacy["id"]), classification))
+    return 0
 
 
 def cmd_adopt_inspect(args: argparse.Namespace) -> int:
@@ -150,6 +171,46 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
     design = canonical_feature_design_path(slug)
     if args.design_path and args.design_path != design:
         raise DstackError(f"feature design path must be {design} for the mdBook layout")
+    legacy_flags = any(
+        getattr(args, name, None)
+        for name in (
+            "remaining",
+            "spec_ceremony",
+            "implementation_coordinator",
+            "closeout_ceremony",
+            "spec_note_file",
+            "closeout_note_file",
+        )
+    )
+    if legacy_flags:
+        raise DstackError(
+            "legacy compatibility flags are not authoritative; use only "
+            "--classification-file with complete strict classification"
+        )
+    if not getattr(args, "classification_file", None):
+        raise DstackError(
+            "adoption apply requires --classification-file; classify every open executable descendant first"
+        )
+
+    classification = parse_classification_file(
+        Path(args.classification_file),
+        root=client.root,
+        legacy_root_id=str(legacy["id"]),
+        design_path=design,
+    )
+    # This is deliberately before pour/create: invalid classifications and graph
+    # drift must not mutate Beads.
+    plan = plan_adoption(
+        client,
+        str(legacy["id"]),
+        classification,
+        target_design_path=design,
+    )
+    validate_adoption_preflight(
+        client,
+        plan,
+        legacy_root_id=str(legacy["id"]),
+    )
 
     current = current_feature_for_slug(client, slug, exclude_id=str(legacy["id"]))
     if current is None:
@@ -165,6 +226,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
         root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
         if not root_id:
             raise DstackError("bd mol pour returned no feature root")
+        validate_target_topology(client, root_id)
         update_root_identity(
             client,
             root_id,
@@ -176,57 +238,19 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
     else:
         root_id = str(current["id"])
     view = feature_context(client, root_id)
-
-    mapping: dict[str, str] = {}
-    for old_id in args.remaining:
-        old = client.show(old_id)
-        target = superseded_target(old)
-        if target:
-            mapping[old_id] = target
-            continue
-        replacement = client.create(
-            str(old.get("title", old_id)),
-            parent=str(view["steps"]["implementation"]["id"]),
-            labels=["dstack:work:implementation"],
-            dependencies=[str(view["steps"]["approval"]["id"])],
-            description=str(old.get("description") or ""),
-            acceptance=str(old.get("acceptance_criteria") or old.get("acceptance") or ""),
-            priority=int(old.get("priority") or 2),
-        )
-        mapping[old_id] = str(replacement["id"])
-        client.supersede(old_id, str(replacement["id"]))
-
-    categories = (
-        (args.spec_ceremony, str(view["steps"]["specification"]["id"])),
-        (args.implementation_coordinator, str(view["steps"]["implementation"]["id"])),
-        (args.closeout_ceremony, str(view["steps"]["closeout"]["id"])),
+    validate_adoption_preflight(
+        client,
+        plan,
+        legacy_root_id=str(legacy["id"]),
+        target_view=view,
     )
-    for old_ids, target in categories:
-        for old_id in old_ids:
-            mapping[old_id] = target
-            client.supersede(old_id, target)
 
-    if args.spec_note_file:
-        client.add_comment(
-            str(view["steps"]["specification"]["id"]),
-            read_text_file(args.spec_note_file),
-        )
-    if args.closeout_note_file:
-        client.add_comment(
-            str(view["steps"]["closeout"]["id"]),
-            read_text_file(args.closeout_note_file),
-        )
-
-    preserved_blockers = preserve_external_blockers(client, legacy, root_id)
-    client.supersede(str(legacy["id"]), root_id)
-    emit(
-        {
-            "status": "ok",
-            "legacy_root": legacy["id"],
-            "new_root": root_id,
-            "mapping": mapping,
-            "external_blockers_preserved": preserved_blockers,
-            **feature_context(client, root_id),
-        }
+    result = execute_adoption_plan(
+        client,
+        plan,
+        legacy_root_id=str(legacy["id"]),
+        new_root_id=root_id,
+        view=view,
     )
+    emit({**result, **feature_context(client, root_id)})
     return 0

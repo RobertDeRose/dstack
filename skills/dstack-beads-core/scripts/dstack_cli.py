@@ -53,7 +53,7 @@ from dstack_delivery import (
     cmd_delivery_merge,
     cmd_delivery_finalize_pr,
 )
-from dstack_compat import cmd_adopt_inspect, cmd_adopt_apply
+from dstack_compat import cmd_adopt_inspect, cmd_adopt_plan, cmd_adopt_apply
 
 HELP_BY_DEST = {
     "root": "Repository root; defaults to the current directory.",
@@ -77,6 +77,7 @@ HELP_BY_DEST = {
     "bead": "Beads ID to reference in the Git footer.",
     "subject": "One-line Git commit subject.",
     "body_file": "Read the Git or PR body from this file.",
+    "classification_file": "Temporary strict adoption classification JSON file.",
     "ref": "Git ref or range to inspect.",
     "base": "Base Git ref for documentation comparison.",
     "head": "Candidate Git ref for documentation comparison.",
@@ -355,6 +356,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     adopt = mechanical_parser(top, "adopt", "explicitly inspect or adopt legacy workflow data")
     adopt_sub = adopt.add_subparsers(dest="command", required=True)
+    adopt_plan = mechanical_parser(adopt_sub, "plan", "plan legacy adoption without mutation")
+    adopt_plan.add_argument("selector")
+    adopt_plan.add_argument("--classification-file", type=Path, required=True)
+    adopt_plan.set_defaults(func=cmd_adopt_plan)
     adopt_inspect = mechanical_parser(adopt_sub, "inspect", "inspect legacy workflow data without mutation")
     adopt_inspect.add_argument("selector")
     adopt_inspect.set_defaults(func=cmd_adopt_inspect)
@@ -370,6 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
     adopt_apply.add_argument("--closeout-ceremony", action="append", default=[])
     adopt_apply.add_argument("--spec-note-file", type=Path)
     adopt_apply.add_argument("--closeout-note-file", type=Path)
+    adopt_apply.add_argument("--classification-file", type=Path)
     adopt_apply.set_defaults(func=cmd_adopt_apply)
 
     fill_argument_help(parser)

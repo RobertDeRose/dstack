@@ -14,24 +14,30 @@ This authorizes Beads adoption mutations only—no source, Git-history, branch, 
      adopt inspect <legacy-feature>
    ```
 
-2. Decide only the ambiguous cases:
-   - which open items are real remaining implementation outcomes;
-   - which are specification ceremony;
-   - which are implementation coordinators;
-   - which are closeout/validation ceremony;
-   - which unresolved decisions must stay on specification review.
-3. Apply the explicit classification:
+2. Decide every open executable descendant, including bug/chore work, and write one temporary strict
+   `dstack.adoption-classification/v1` JSON file. The file must contain the common `legacy_root_id`, one sorted entry
+   per open executable item, exact replacement content where needed, durable evidence for completed history, and an
+   explicit unresolved-decision or preserved-work strategy. Do not use Beads IDs as a persisted migration map. Bug/chore
+   work is inventoried, but an unsupported approval or root-remap topology fails closed rather than emitting a
+   cross-type blocker.
+3. Validate the complete plan before allowing native mutation:
+
+   ```bash
+   dstackctl.py adopt plan <legacy-feature> \
+     --classification-file CLASSIFICATION.json
+   ```
+
+4. Apply the same classification file only after reviewing the emitted plan:
 
    ```bash
    dstackctl.py adopt apply <legacy-feature> \
-     [--remaining <id>] \
-     [--spec-ceremony <id>] \
-     [--implementation-coordinator <id>] \
-     [--closeout-ceremony <id>]
+     --classification-file CLASSIFICATION.json
    ```
 
-The controller pours one current molecule, copies only selected remaining work,
-uses native supersession, and leaves specification approval open. It creates no
-migration packet, SHA mapping, or dStack migration database.
+The controller validates descendants, gates, both graph directions, evidence, replacement topology, and canonical design
+sections before pouring a current molecule. Native execution creates/reuses replacements first, adds translated
+relationships before removing old edges, records explicit accepted-risk comments, and vetoes root supersession when
+decisions or preserved work remain unsafe. Retries reconstruct native state; no migration packet, SHA mapping, or dStack
+migration database is created.
 
 Return the new root/steps, selected remaining work, ambiguous decisions, and `/review-feature-spec <slug>`.
