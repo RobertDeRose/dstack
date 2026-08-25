@@ -12,25 +12,25 @@ and native issues, correct them with native operations, then plan again.
 
 ## Delivery failures
 
-- Dirty candidate or target: preserve the files, decide whether to commit,
-  relocate, or discard them, then rerun preflight.
-- Changed target or candidate: fetch and inspect; rebase or supersede only with
-  explicit authorization. Delivery preflight also rejects any candidate whose
-  clean HEAD is not the unique closeout-footer revision.
-- Missing, duplicate, or later-only closeout footer evidence: treat the
-  immutable-candidate derivation as unresolved. Do not substitute the current
-  target tip, caller checkout, or uncommitted files; restore supported
-  fast-forward/ancestor history or record the limitation for manual recovery.
-- Timed-out push, PR, merge, or Beads mutation: query the native system before
-  retrying.
-- Active PR gate before direct merge: keep the target unchanged; either continue
-  PR delivery or explicitly run `delivery cancel-pr-gate` with the reason for
-  switching modes. Gate cancellation does not change the GitHub pull request.
-- Post-delivery finalization failure: keep delivered Git history intact; inspect
-  `delivery_completed`, `previous_target_head`, `delivered_target_head`,
-  `observed_target_head`, `root_status`, `finalization_error`, and
-  `mutation_uncertain`. Reread Beads before retry. Use a normal revert or a
-  separately authorized correction only when product content is wrong.
+- Dirty candidate or target: preserve the files, decide whether to commit, relocate, or discard them, then rerun
+  preflight.
+- Changed target or candidate: fetch and inspect; rebase or supersede only with explicit authorization. Delivery
+  preflight also rejects any candidate whose clean HEAD is not the unique closeout-footer revision.
+- Missing, duplicate, or later-only closeout footer evidence: treat the immutable-candidate derivation as unresolved. Do
+  not substitute the current target tip, caller checkout, or uncommitted files; restore supported fast-forward/ancestor
+  history or record the limitation for manual recovery.
+- Timed-out push, PR, merge, or Beads mutation: query the native system before retrying.
+- Active PR gate before direct merge: keep the target unchanged; either continue PR delivery or explicitly run
+  `delivery cancel-pr-gate` with the reason for switching modes. Gate cancellation does not change the GitHub pull
+  request.
+- Post-delivery finalization failure: keep delivered Git history intact; inspect `delivery_completed`,
+  `previous_target_head`, `delivered_target_head`, `observed_target_head`, `root_status`, `finalization_error`, and
+  `mutation_uncertain`. Reread Beads before retry. Use a normal revert or a separately authorized correction only when
+  product content is wrong.
+- Temporary target-worktree cleanup failure: dStack retains the path and reports `retained_path`, `path_exists`,
+  `registered`, `dirty`, `cleanup_error`, and `recovery_guidance`. Inspect the retained files and
+  `git worktree list --porcelain` before manually removing the worktree. Never use broad `git worktree prune` or delete
+  a path while registration or state is unknown.
 
 ## Backup and restore
 

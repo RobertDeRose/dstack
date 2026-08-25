@@ -1258,15 +1258,14 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
     beads.assert_exhausted()
 
 
-def test_delivery_target_worktree_is_temporary_when_branch_is_not_checked_out(
+def test_delivery_target_worktree_is_removed_completely_when_clean(
     git_repo: Path,
 ) -> None:
     subprocess.run(["git", "branch", "release"], cwd=git_repo, check=True)
     assert dstack_delivery.worktree_for_branch(git_repo, "release") is None
 
-    with dstack_delivery.delivery_target_worktree(
-        git_repo, "release", None
-    ) as target_worktree:
+    with dstack_delivery.delivery_target_worktree(git_repo, "release", None) as target_worktree:
+        parent = target_worktree.parent
         assert target_worktree.is_dir()
         branch = subprocess.run(
             ["git", "branch", "--show-current"],
@@ -1278,28 +1277,77 @@ def test_delivery_target_worktree_is_temporary_when_branch_is_not_checked_out(
         assert branch == "release"
         assert dstack_delivery.worktree_for_branch(git_repo, "release") == target_worktree
 
+    assert not target_worktree.exists()
+    assert not parent.exists()
     assert dstack_delivery.worktree_for_branch(git_repo, "release") is None
 
 
-def test_temporary_delivery_worktree_preserves_primary_failure_when_cleanup_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    calls = []
+def test_failed_delivery_worktree_cleanup_retains_dirty_files(git_repo: Path) -> None:
+    subprocess.run(["git", "branch", "release"], cwd=git_repo, check=True)
+    retained: Path | None = None
+    with pytest.raises(DstackError) as raised:
+        with dstack_delivery.delivery_target_worktree(git_repo, "release", None) as path:
+            retained = path
+            (path / "recovery.txt").write_text("keep me\n")
 
-    def fake_run(command, *, cwd, check=True, **kwargs):
-        calls.append(tuple(command))
-        if command[:3] == ["git", "worktree", "remove"]:
-            return CommandResult(1, "", "cleanup failed")
-        return CommandResult(0, "", "")
+    assert retained is not None
+    assert retained.is_dir()
+    assert (retained / "recovery.txt").read_text() == "keep me\n"
+    assert dstack_delivery.worktree_for_branch(git_repo, "release") == retained
+    message = str(raised.value)
+    assert "path_exists=true" in message
+    assert "registered=true" in message
+    assert "dirty=true" in message
+    assert "cleanup_error=" in message
+    assert "recovery_guidance=" in message
 
-    monkeypatch.setattr(dstack_delivery, "run", fake_run)
+    subprocess.run(["git", "worktree", "remove", "--force", str(retained)], cwd=git_repo, check=True)
+    retained.parent.rmdir()
+
+
+def test_primary_delivery_failure_remains_primary_when_cleanup_fails(git_repo: Path) -> None:
+    subprocess.run(["git", "branch", "release"], cwd=git_repo, check=True)
+    retained: Path | None = None
     with pytest.raises(DstackError, match="primary delivery failure") as raised:
-        with dstack_delivery.delivery_target_worktree(tmp_path, "main", None):
+        with dstack_delivery.delivery_target_worktree(git_repo, "release", None) as path:
+            retained = path
+            (path / "recovery.txt").write_text("keep me\n")
             raise DstackError("primary delivery failure")
 
-    assert any(
-        "failed to remove temporary delivery worktree" in note
-        for note in getattr(raised.value, "__notes__", [])
+    assert retained is not None and retained.is_dir()
+    notes = "\n".join(getattr(raised.value, "__notes__", []))
+    assert "path_exists=true" in notes
+    assert "registered=true" in notes
+    assert "dirty=true" in notes
+    assert "recovery_guidance=" in notes
+    subprocess.run(["git", "worktree", "remove", "--force", str(retained)], cwd=git_repo, check=True)
+    retained.parent.rmdir()
+
+
+def test_cleanup_reports_unknown_registration_and_status(monkeypatch: pytest.MonkeyPatch, git_repo: Path) -> None:
+    subprocess.run(["git", "branch", "release"], cwd=git_repo, check=True)
+    real_run = dstack_delivery.run
+
+    def unavailable(command, **kwargs):
+        if command[:3] == ["git", "status", "--short"]:
+            raise DstackError("status unavailable")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(dstack_delivery, "run", unavailable)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "worktree_records",
+        lambda root: (_ for _ in ()).throw(DstackError("registration unavailable")),
     )
-    assert calls[0][:3] == ("git", "worktree", "add")
-    assert calls[-1][:3] == ("git", "worktree", "remove")
+    retained: Path | None = None
+    with pytest.raises(DstackError) as raised:
+        with dstack_delivery.delivery_target_worktree(git_repo, "release", None) as path:
+            retained = path
+            (path / "recovery.txt").write_text("keep me\n")
+
+    assert retained is not None
+    message = str(raised.value)
+    assert "registered=unknown" in message
+    assert "dirty=unknown" in message
+    subprocess.run(["git", "worktree", "remove", "--force", str(retained)], cwd=git_repo, check=True)
+    retained.parent.rmdir()
