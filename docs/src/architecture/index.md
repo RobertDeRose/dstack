@@ -196,6 +196,21 @@ untracked files, performs the native delivery/finalization operations, and repor
 finalization with explicit delivered/recovery facts. It never rewrites delivered Git history or creates a post-delivery
 bookkeeping commit.
 
-This invariant governs normal delivery. An explicit user-authorized rollback,
-reset, repair, correction, or history rewrite after a failed or incorrect
-delivery is a separate native Git operation, not a dStack recovery lifecycle.
+This invariant governs normal delivery. An explicit user-authorized rollback, reset, repair, correction, or history
+rewrite after a failed or incorrect delivery is a separate native Git operation, not a dStack recovery lifecycle.
+
+### Immutable delivered-candidate audit
+
+A closed feature audit searches the configured target ref for exactly one commit
+with the closeout `Beads:` footer. That commit is the immutable candidate
+revision. Delivery preflight requires the clean candidate HEAD to equal this
+revision, so a post-closeout candidate commit cannot silently change the
+boundary. Direct fast-forward delivery and pull requests that preserve the
+candidate as a target ancestor are supported; squash, rebase, and unsupported
+nonlinear histories fail revision consistency.
+
+Audit documentation and filtered footer evidence are read directly from blobs at
+the candidate revision. The audit reports the search ref, derivation rule,
+revision, branch/worktree presence, documentation/evidence sources, missing
+records, and reconciliation status. It never substitutes the current target
+tip or caller checkout and never stores a Git-to-Beads mapping in Beads.

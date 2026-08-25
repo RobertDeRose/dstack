@@ -305,7 +305,9 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def git_file_sha256(root: Path, path: str, ref: str = "HEAD") -> str | None:
+def _git_blob_bytes(root: Path, path: str, ref: str = "HEAD") -> bytes | None:
+    if not path or path.startswith("/") or ".." in Path(path).parts:
+        raise DstackError(f"invalid Git blob path: {path!r}")
     command = ["git", "cat-file", "blob", f"{ref}:{path}"]
     try:
         completed = subprocess.run(
@@ -317,12 +319,25 @@ def git_file_sha256(root: Path, path: str, ref: str = "HEAD") -> str | None:
             timeout=command_timeout(command),
         )
     except subprocess.TimeoutExpired as exc:
-        raise DstackError(
-            f"command timed out ({' '.join(command)}) in {root}; operation was read-only"
-        ) from exc
-    if completed.returncode != 0:
+        raise DstackError(f"command timed out ({' '.join(command)}) in {root}; operation was read-only") from exc
+    return completed.stdout if completed.returncode == 0 else None
+
+
+def git_blob_text(root: Path, path: str, ref: str = "HEAD") -> str | None:
+    """Read one UTF-8 blob directly from an immutable Git revision."""
+
+    blob = _git_blob_bytes(root, path, ref)
+    if blob is None:
         return None
-    return hashlib.sha256(completed.stdout).hexdigest()
+    try:
+        return blob.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise DstackError(f"Git blob is not UTF-8 text: {ref}:{path}") from exc
+
+
+def git_file_sha256(root: Path, path: str, ref: str = "HEAD") -> str | None:
+    blob = _git_blob_bytes(root, path, ref)
+    return None if blob is None else hashlib.sha256(blob).hexdigest()
 
 
 def read_text_file(path: Path | None) -> str:

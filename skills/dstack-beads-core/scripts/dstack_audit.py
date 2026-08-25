@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import posixpath
 import sys
 from pathlib import Path
 from typing import Any, Mapping, cast
+from urllib.parse import unquote, urlsplit
 
 from dstack_commands import client_for
 from dstack_delivery import (
@@ -15,7 +17,7 @@ from dstack_delivery import (
     feature_evidence_audit,
     pr_gate_state,
 )
-from dstack_docs import HEADING_PATTERN, LINK_PATTERN, _markdown_values, validate_record
+from dstack_docs import HEADING_PATTERN, LINK_PATTERN, markdown_values, validate_record
 from dstack_types import FeatureAuditView
 from dstacklib import (
     BeadsClient,
@@ -31,6 +33,7 @@ from dstacklib import (
     issue_metadata,
     issue_parent,
     issue_type,
+    git_blob_text,
     ref_exists,
     worktree_for_branch,
 )
@@ -59,21 +62,28 @@ def issue_fact(item: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def record_fact(path: Path, kind: str, root: Path) -> dict[str, Any]:
-    if not path.is_file():
+def record_fact_text(
+    relative_path: str,
+    text: str | None,
+    kind: str | None = None,
+    *,
+    source: Path | None = None,
+    source_root: Path | None = None,
+) -> dict[str, Any]:
+    if text is None:
         return {
-            "path": path.relative_to(root).as_posix(),
+            "path": relative_path,
             "status": "missing",
             "links": [],
             "validation_and_limitations": None,
         }
-    text = path.read_text(encoding="utf-8")
     error: str | None = None
-    try:
-        validate_record(text, kind, source=path, source_root=root)
-    except DstackError as exc:
-        error = str(exc)
-    links = sorted(_markdown_values(text, LINK_PATTERN))
+    if kind is not None:
+        try:
+            validate_record(text, kind, source=source, source_root=source_root)
+        except DstackError as exc:
+            error = str(exc)
+    links = sorted(markdown_values(text, LINK_PATTERN))
     validation: str | None = None
     headings = list(HEADING_PATTERN.finditer(text))
     for index, heading in enumerate(headings):
@@ -83,12 +93,53 @@ def record_fact(path: Path, kind: str, root: Path) -> dict[str, Any]:
         validation = text[heading.end() : end].strip() or None
         break
     return {
-        "path": path.relative_to(root).as_posix(),
+        "path": relative_path,
         "status": "valid" if error is None else "malformed",
         "error": error,
         "links": links,
         "validation_and_limitations": validation,
     }
+
+
+def record_fact(path: Path, kind: str, root: Path) -> dict[str, Any]:
+    relative = path.relative_to(root).as_posix()
+    text = path.read_text(encoding="utf-8") if path.is_file() else None
+    return record_fact_text(relative, text, kind, source=path, source_root=root)
+
+
+def revision_records(
+    root: Path, revision: str, paths: Mapping[str, str | None]
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Read linked documentation blobs from one immutable revision."""
+
+    records: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    pending = list(paths.items())
+    while pending:
+        path, kind = pending.pop(0)
+        if path in records:
+            continue
+        text = git_blob_text(root, path, revision)
+        record = record_fact_text(path, text, kind)
+        records[path] = record
+        if text is None:
+            missing.append(path)
+            continue
+        for raw in record["links"]:
+            target = raw.strip()
+            if target.startswith("<") and ">" in target:
+                target = target[1 : target.index(">")]
+            else:
+                target = target.split(maxsplit=1)[0]
+            parsed = urlsplit(target)
+            if parsed.scheme or parsed.netloc or not parsed.path:
+                continue
+            linked = posixpath.normpath(posixpath.join(posixpath.dirname(path), unquote(parsed.path)))
+            if linked.startswith("../") or linked.startswith("/"):
+                missing.append(f"invalid-link:{path}->{target}")
+                continue
+            pending.append((linked, None))
+    return records, sorted(missing)
 
 
 def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
@@ -211,7 +262,7 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
         try:
             evidence = (
                 delivered_feature_evidence_audit(client, view)
-                if worktree is None
+                if root.get("status") == "closed"
                 else feature_evidence_audit(client, view)
             )
             payload["git_evidence"] = {
@@ -221,32 +272,39 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
             payload["git_evidence"] = {
                 "status": "unavailable",
                 "reason": str(exc),
+                "search_ref": base,
+                "candidate_revision": None,
+                "derivation": "unique reachable closeout Beads footer",
+                "evidence_source": None,
             }
 
-    record_root = worktree
     relative_design = str(view.get("design_path") or "")
-    if (
-        record_root is None
-        and root.get("status") == "closed"
-        and (client.root / relative_design).is_file()
-    ):
-        record_root = client.root
-    if record_root is not None:
-        design_path = record_root / relative_design
-        reconciliation = design_path.with_name("index.md")
-        design_record = record_fact(design_path, "feature-design", record_root)
-        reconciliation_record = record_fact(
-            reconciliation, "feature-reconciliation", record_root
+    git_evidence = cast(dict[str, Any], payload["git_evidence"])
+    candidate_revision = git_evidence.get("candidate_revision")
+    if candidate_revision:
+        relative_reconciliation = str(Path(relative_design).with_name("index.md"))
+        records, missing_records = revision_records(
+            client.root,
+            str(candidate_revision),
+            {
+                relative_design: "feature-design",
+                relative_reconciliation: "feature-reconciliation",
+            },
         )
-        links = sorted(
-            set(design_record["links"]) | set(reconciliation_record["links"])
-        )
+        design_record = records[relative_design]
+        reconciliation_record = records[relative_reconciliation]
+        linked_records = {
+            path: record for path, record in records.items() if path not in {relative_design, relative_reconciliation}
+        }
+        links = sorted(set(design_record["links"]) | set(reconciliation_record["links"]))
         payload["documentation"] = {
+            "source": str(candidate_revision),
             "design": design_record,
             "reconciliation": reconciliation_record,
-            "current_product_links": [
-                link for link in links if "design.md" not in link and "decisions/" not in link
-            ],
+            "reconciliation_status": reconciliation_record["status"],
+            "linked_records": linked_records,
+            "missing_records": missing_records,
+            "current_product_links": [link for link in links if "design.md" not in link and "decisions/" not in link],
             "related_adrs": [link for link in links if "decisions/" in link],
         }
         for name, record in (
@@ -254,9 +312,32 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
             ("reconciliation", reconciliation_record),
         ):
             if record["status"] != "valid":
-                payload["missing_observations"].append(
-                    f"{name}:{record['status']}"
-                )
+                payload["missing_observations"].append(f"{name}:{record['status']}")
+        payload["missing_observations"].extend(f"record:{path}" for path in missing_records)
+        if missing_records:
+            git_evidence["status"] = "issues"
+            git_evidence["missing_records"] = missing_records
+    elif worktree is not None and root.get("status") != "closed":
+        design_path = worktree / relative_design
+        reconciliation = design_path.with_name("index.md")
+        design_record = record_fact(design_path, "feature-design", worktree)
+        reconciliation_record = record_fact(reconciliation, "feature-reconciliation", worktree)
+        links = sorted(set(design_record["links"]) | set(reconciliation_record["links"]))
+        payload["documentation"] = {
+            "design": design_record,
+            "reconciliation": reconciliation_record,
+            "reconciliation_status": reconciliation_record["status"],
+            "current_product_links": [link for link in links if "design.md" not in link and "decisions/" not in link],
+            "related_adrs": [link for link in links if "decisions/" in link],
+        }
+        for name, record in (
+            ("design", design_record),
+            ("reconciliation", reconciliation_record),
+        ):
+            if record["status"] != "valid":
+                payload["missing_observations"].append(f"{name}:{record['status']}")
+    elif root.get("status") == "closed":
+        payload["missing_observations"].append("documentation:immutable-source-unavailable")
 
     direct: bool | None = None
     if base and ref_exists(client.root, base) and ref_exists(client.root, branch):

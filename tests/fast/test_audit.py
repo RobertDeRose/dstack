@@ -10,6 +10,8 @@ sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 
 import dstack_audit
 from dstack_commands import RECORD_SUBJECTS
+from dstack_delivery import delivered_candidate_revision, immutable_candidate_revision
+from dstacklib import ancestry, current_head
 from scripted import ScriptedClient, call
 
 
@@ -35,6 +37,56 @@ def root(status: str = "open") -> dict:
             "dstack.approved_design_sha256": "approved",
         },
     }
+
+
+def test_immutable_candidate_supports_pr_merge_ancestry(git_repo: Path) -> None:
+    subprocess.run(["git", "checkout", "-qb", "feat/audit"], cwd=git_repo, check=True)
+    change = git_repo / "feature.py"
+    change.write_text("delivered = True\n")
+    subprocess.run(["git", "add", "feature.py"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "feat: deliver\n\nBeads: closeout-1"],
+        cwd=git_repo,
+        check=True,
+    )
+    candidate = current_head(git_repo)
+    subprocess.run(["git", "checkout", "main"], cwd=git_repo, check=True)
+    (git_repo / "target.txt").write_text("target changed\n")
+    subprocess.run(["git", "add", "target.txt"], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "chore: target change"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "merge", "--no-ff", "feat/audit", "-m", "Merge feature"],
+        cwd=git_repo,
+        check=True,
+    )
+
+    assert immutable_candidate_revision(git_repo, "main", "closeout-1") == candidate
+    assert ancestry(git_repo, candidate, "main")
+
+
+def test_delivered_candidate_uses_remote_target_when_local_is_stale(
+    git_repo: Path,
+) -> None:
+    subprocess.run(["git", "checkout", "-qb", "feat/audit"], cwd=git_repo, check=True)
+    (git_repo / "feature.py").write_text("delivered = True\n")
+    subprocess.run(["git", "add", "feature.py"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "feat: deliver\n\nBeads: closeout-1"],
+        cwd=git_repo,
+        check=True,
+    )
+    candidate = current_head(git_repo)
+    subprocess.run(["git", "checkout", "main"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/main", candidate],
+        cwd=git_repo,
+        check=True,
+    )
+
+    assert delivered_candidate_revision(git_repo, "main", "closeout-1") == (
+        "origin/main",
+        candidate,
+    )
 
 
 def current_context(status: str = "open") -> dict:
@@ -181,7 +233,7 @@ def test_current_audit_reports_missing_and_pr_observations(monkeypatch, tmp_path
     client.assert_exhausted()
 
 
-def test_delivered_audit_joins_docs_evidence_and_direct_delivery(monkeypatch, tmp_path: Path) -> None:
+def test_closed_audit_never_falls_back_to_live_worktree_docs(monkeypatch, tmp_path: Path) -> None:
     context = current_context("closed")
     design = tmp_path / context["design_path"]
     design.parent.mkdir(parents=True)
@@ -200,7 +252,7 @@ def test_delivered_audit_joins_docs_evidence_and_direct_delivery(monkeypatch, tm
     patch_current(monkeypatch, context, worktree=tmp_path)
     monkeypatch.setattr(
         dstack_audit,
-        "feature_evidence_audit",
+        "delivered_feature_evidence_audit",
         lambda *args: {
             "feature": "feature-1",
             "status": "issues",
@@ -220,9 +272,9 @@ def test_delivered_audit_joins_docs_evidence_and_direct_delivery(monkeypatch, tm
     payload = dstack_audit.feature_audit(client, "audit")
     assert payload["classification"] == "delivered"
     assert payload["git_evidence"]["status"] == "issues"
-    assert payload["documentation"]["reconciliation"]["status"] == "valid"
-    assert payload["documentation"]["reconciliation"]["validation_and_limitations"]
-    assert payload["documentation"]["current_product_links"] == ["../../architecture/index.md"]
+    assert payload["documentation"]["design"] is None
+    assert payload["documentation"]["reconciliation"] is None
+    assert "documentation:immutable-source-unavailable" in payload["missing_observations"]
     assert payload["delivery"]["direct_merge_observed"] is True
     rendered = dstack_audit.render_markdown(payload)
     embedded = rendered.split("```json\n", 1)[1].rsplit("\n```", 1)[0]
@@ -250,6 +302,9 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
     design = worktree / "docs/src/features/audit/design.md"
     design.parent.mkdir(parents=True)
     design.write_text(record("feature-design"))
+    architecture = worktree / "docs/src/architecture/index.md"
+    architecture.parent.mkdir(parents=True, exist_ok=True)
+    architecture.write_text("# Candidate architecture\n")
     subprocess.run(["git", "add", "docs"], cwd=worktree, check=True)
     subprocess.run(
         [
@@ -269,7 +324,12 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
         cwd=worktree,
         check=True,
     )
-    design.with_name("index.md").write_text(record("feature-reconciliation"))
+    design.with_name("index.md").write_text(
+        record("feature-reconciliation").replace(
+            "Evidence for Delivered capability.",
+            "Delivered. [Architecture](../../architecture/index.md)",
+        )
+    )
     subprocess.run(["git", "add", "docs"], cwd=worktree, check=True)
     subprocess.run(
         ["git", "commit", "-qm", "docs: reconcile audit\n\nBeads: closeout-1"],
@@ -279,6 +339,19 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
     subprocess.run(["git", "merge", "--ff-only", "feat/audit"], cwd=git_repo, check=True)
     subprocess.run(["git", "worktree", "remove", str(worktree)], cwd=git_repo, check=True)
     subprocess.run(["git", "branch", "-d", "feat/audit"], cwd=git_repo, check=True)
+    # Advance the configured target, then put conflicting documentation on an
+    # unrelated checkout. The audit must continue reading the closeout revision.
+    (git_repo / "after-delivery.txt").write_text("target advanced\n")
+    subprocess.run(["git", "add", "after-delivery.txt"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "chore: advance target\n\nBeads: later-task"],
+        cwd=git_repo,
+        check=True,
+    )
+    subprocess.run(["git", "checkout", "-qb", "unrelated-docs"], cwd=git_repo, check=True)
+    (git_repo / "docs/src/features/audit/index.md").write_text("# conflicting current checkout\n")
+    subprocess.run(["git", "add", "docs"], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "docs: unrelated conflict"], cwd=git_repo, check=True)
 
     context = current_context("closed")
     task = {
@@ -309,6 +382,9 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
     evidence = payload["git_evidence"]
     assert evidence["status"] == "ok"
     assert evidence["source"] == "delivered-target"
+    assert evidence["search_ref"] == "main"
+    assert evidence["candidate_revision"] == evidence["mapping"]["closeout-1"][0]["commit"]
+    assert evidence["derivation"] == "unique reachable closeout Beads footer"
     assert evidence["target_ref"] == "main"
     assert evidence["feature_branch_present"] is False
     assert set(evidence["mapping"]) == {
@@ -318,6 +394,10 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
     }
     assert evidence["no_repository_change"] == ["task-no-change"]
     assert "other-task" not in evidence["mapping"]
+    assert "later-task" not in evidence["mapping"]
+    assert payload["documentation"]["source"] == evidence["candidate_revision"]
+    assert payload["documentation"]["reconciliation"]["status"] == "valid"
+    assert payload["documentation"]["linked_records"]["docs/src/architecture/index.md"]["status"] == "valid"
     assert "worktree" not in payload["missing_observations"]
     client.assert_exhausted()
 

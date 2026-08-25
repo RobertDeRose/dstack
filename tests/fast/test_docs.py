@@ -17,6 +17,11 @@ from dstack_commands import (
 )
 
 
+def test_markdown_values_is_public_and_ignores_code() -> None:
+    text = "[real](docs/index.md) and `[fake](ignored.md)`"
+    assert dstack_docs.markdown_values(text, dstack_docs.LINK_PATTERN) == ["docs/index.md"]
+
+
 REQUIRED = {
     "docs/book.toml",
     "docs/src/SUMMARY.md",

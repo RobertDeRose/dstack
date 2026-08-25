@@ -112,9 +112,15 @@ def _markdown_matches(text: str, pattern: re.Pattern[str]) -> tuple[str, list[re
     return masked, matches
 
 
-def _markdown_values(text: str, pattern: re.Pattern[str]) -> list[str]:
+def markdown_values(text: str, pattern: re.Pattern[str]) -> list[str]:
+    """Return values matched by a Markdown pattern outside code spans."""
+
     _, matches = _markdown_matches(text, pattern)
     return [match.group(1) for match in matches]
+
+
+# Keep the internal spelling available to the existing migration helpers.
+_markdown_values = markdown_values
 
 
 HEADING_PATTERN = re.compile(r"^(#{1,6}) ([^#\n].*?)[ \t]*$", re.MULTILINE)
