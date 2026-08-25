@@ -8,8 +8,9 @@ from pathlib import Path
 
 from conftest import ROOT, run_command, run_ctl, run_json
 
+SETUP = ROOT / "skills/dstack-beads-core/scripts/setup.py"
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-from dstack_commands import RECORD_SUBJECTS
+from dstack_commands import RECORD_SUBJECTS  # noqa: E402
 
 
 def semantic_record(kind: str) -> str:
@@ -43,6 +44,53 @@ def dependency_ids(issue: dict, relation: str = "blocks") -> set[str]:
 
 def resolved_id(repo: Path, selector: str) -> str:
     return run_ctl(repo, "feature", "resolve", selector)["root"]["id"]
+
+
+def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -> None:
+    issue = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Legacy setup state",
+            "--type",
+            "epic",
+            "--labels",
+            "workflow:feature,feature:setup-postconditions,dstack:delivery-ready",
+        )
+    )[0]
+    run_json(
+        acceptance_repo,
+        "update",
+        issue["id"],
+        "--set-metadata",
+        "base_branch=main",
+        "--set-metadata",
+        "branch=legacy",
+    )
+    planned = run_command(
+        ["python3", "-S", str(SETUP), "plan", "--root", str(acceptance_repo), "--force"],
+        cwd=acceptance_repo,
+    )
+    digest = json.loads(planned.stdout)["plan_sha256"]
+    run_command(
+        [
+            "python3",
+            "-S",
+            str(SETUP),
+            "apply",
+            "--root",
+            str(acceptance_repo),
+            "--force",
+            "--plan-digest",
+            digest,
+        ],
+        cwd=acceptance_repo,
+    )
+    observed = items(run_json(acceptance_repo, "show", issue["id"]))[0]
+    assert observed["metadata"]["dstack.base_branch"] == "main"
+    assert "base_branch" not in observed["metadata"]
+    assert "branch" not in observed["metadata"]
+    assert "dstack:delivery-ready" not in observed["labels"]
 
 
 def test_feature_smoke_runs_shipped_lifecycle(acceptance_repo: Path) -> None:

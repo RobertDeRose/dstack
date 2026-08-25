@@ -38,12 +38,14 @@ from dstacklib import (
     DstackError,
     as_items,
     canonical_feature_design_path,
+    dependency_records,
     ensure_clean_worktree,
     feature_slug,
     git_root,
     has_label,
     issue_labels,
     issue_metadata,
+    issue_parent,
     parse_json,
     root_metadata_value,
     run,
@@ -525,6 +527,34 @@ class SetupError(DstackError):
     """Raised when setup or repair cannot proceed safely."""
 
 
+def _setup_repo_path(root: Path, relative: str) -> Path:
+    """Resolve one setup-managed path without leaving its repository root."""
+
+    pure = PurePosixPath(relative)
+    if pure.is_absolute() or ".." in pure.parts:
+        raise SetupError(f"setup managed path {relative!r} escapes the repository")
+    normalized = "/".join(part for part in pure.parts if part not in {"", "."})
+    if not normalized:
+        raise SetupError("setup managed path is empty")
+    resolved_root = root.resolve()
+    candidate = resolved_root.joinpath(*PurePosixPath(normalized).parts)
+    try:
+        candidate.resolve(strict=False).relative_to(resolved_root)
+    except (OSError, ValueError) as exc:
+        raise SetupError(
+            f"setup managed path {normalized!r} is not physically contained within repository {resolved_root}"
+        ) from exc
+    return candidate
+
+
+def _validate_setup_tree(root: Path, relative: str) -> Path:
+    base = _setup_repo_path(root, relative)
+    if base.is_dir():
+        for path in base.rglob("*"):
+            _setup_repo_path(root, path.relative_to(root.resolve()).as_posix())
+    return base
+
+
 def package_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
@@ -708,11 +738,12 @@ def copy_formula(source: Path, destination: Path, *, force: bool) -> str:
 
 
 def documentation_change_plan(root: Path) -> list[dict[str, str]]:
-    before = {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in (root / "docs").rglob("*")
-        if path.is_file()
-    } if (root / "docs").is_dir() else {}
+    _validate_setup_tree(root, "docs")
+    before = (
+        {path.relative_to(root).as_posix(): path.read_bytes() for path in (root / "docs").rglob("*") if path.is_file()}
+        if (root / "docs").is_dir()
+        else {}
+    )
     with tempfile.TemporaryDirectory(prefix="dstack-docs-plan-") as raw:
         scratch = Path(raw) / root.name
         scratch.mkdir()
@@ -863,7 +894,8 @@ def _setup_feature_design_moves(client: BeadsClient) -> list[tuple[str, str]]:
         design = root_metadata_value(feature, "dstack.design_path", "design_path")
         canonical = canonical_feature_design_path(slug) if slug else ""
         if design and design != canonical and canonical:
-            source = client.root / design
+            source = _setup_repo_path(client.root, design)
+            _setup_repo_path(client.root, canonical)
             if source.is_file() and not source.is_symlink():
                 moves.append((design, canonical))
     return sorted(set(moves))
@@ -920,12 +952,12 @@ def _setup_navigation_plan(
 def _setup_doc_filesystem_plan(
     root: Path, *, force: bool, design_moves: Sequence[tuple[str, str]]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    docs = root / "docs"
-    before = {
-        path.relative_to(root).as_posix(): path.read_bytes()
-        for path in docs.rglob("*")
-        if path.is_file()
-    } if docs.is_dir() else {}
+    docs = _validate_setup_tree(root, "docs")
+    before = (
+        {path.relative_to(root).as_posix(): path.read_bytes() for path in docs.rglob("*") if path.is_file()}
+        if docs.is_dir()
+        else {}
+    )
     with tempfile.TemporaryDirectory(prefix="dstack-docs-plan-v2-") as raw:
         scratch = Path(raw) / root.name
         scratch.mkdir()
@@ -1028,10 +1060,8 @@ def _setup_plan_object(
             }
         ]
     design_moves = _setup_feature_design_moves(client) if client and force else []
-    filesystem, navigation = _setup_doc_filesystem_plan(
-        root, force=force, design_moves=design_moves
-    )
-    policy = root / ".beads/.gitignore"
+    filesystem, navigation = _setup_doc_filesystem_plan(root, force=force, design_moves=design_moves)
+    policy = _setup_repo_path(root, ".beads/.gitignore")
     if initialization or policy.is_file():
         desired = _setup_gitignore_content(policy)
         current = policy.read_bytes() if policy.is_file() else None
@@ -1056,46 +1086,47 @@ def _setup_plan_object(
                 }
             )
     formulas = []
-    source_dir = package_root() / "formulas"
     for name, action in formula_actions.items():
         if action not in {"create", "update"}:
             continue
-        source = source_dir / f"{name}.formula.toml"
+        source = _setup_repo_path(package_root(), f"formulas/{name}.formula.toml")
         try:
             source_relative = source.relative_to(root).as_posix()
         except ValueError:
             source_relative = f"formulas/{source.name}"
-        formulas.append({
-            "name": name,
-            "action": action,
-            "source": source_relative,
-            "destination": (root / ".beads/formulas" / source.name).relative_to(root).as_posix(),
-            "source_sha256": _setup_sha256(source),
-            "expected_destination_sha256": (
-                _setup_sha256(root / ".beads/formulas" / source.name)
-                if (root / ".beads/formulas" / source.name).is_file()
-                else None
-            ),
-            "conflict_policy": "replace-reviewed" if action == "update" else "fail-if-different",
-        })
-    return canonicalize_setup_plan({
-        "schema": SETUP_PLAN_SCHEMA,
-        "initialization": initialization,
-        "beads_issues": _setup_normalization_plan(client) if client and force else [],
-        "dependencies": [],
-        "supersessions": [],
-        "filesystem": filesystem,
-        "git_index": git_index,
-        "formulas": formulas,
-        "navigation_references": navigation,
-    })
+        destination = _setup_repo_path(root, f".beads/formulas/{source.name}")
+        formulas.append(
+            {
+                "name": name,
+                "action": action,
+                "source": source_relative,
+                "destination": destination.relative_to(root).as_posix(),
+                "source_sha256": _setup_sha256(source),
+                "expected_destination_sha256": (_setup_sha256(destination) if destination.is_file() else None),
+                "conflict_policy": "replace-reviewed" if action == "update" else "fail-if-different",
+            }
+        )
+    return canonicalize_setup_plan(
+        {
+            "schema": SETUP_PLAN_SCHEMA,
+            "initialization": initialization,
+            "beads_issues": _setup_normalization_plan(client) if client and force else [],
+            "dependencies": [],
+            "supersessions": [],
+            "filesystem": filesystem,
+            "git_index": git_index,
+            "formulas": formulas,
+            "navigation_references": navigation,
+        }
+    )
 
 
-def setup_plan(
-    root_arg: Path, *, initialize: bool, force: bool
-) -> dict[str, Any]:
+def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     root = git_root(root_arg)
-    beads_exists = (root / ".beads").is_dir()
+    beads = _setup_repo_path(root, ".beads")
+    _setup_repo_path(root, ".beads/formulas")
+    _validate_setup_tree(root, "docs")
+    beads_exists = beads.is_dir()
     status = run(["git", "status", "--porcelain"], cwd=root).stdout.strip()
     blocked: list[str] = []
     if status:
@@ -1103,12 +1134,11 @@ def setup_plan(
     if not beads_exists and not initialize:
         blocked.append("Beads initialization is not authorized")
 
-    source_dir = package_root() / "formulas"
     display_filesystem = documentation_change_plan(root)
     formulas: dict[str, str] = {}
     for name in FORMULA_NAMES:
-        source = source_dir / f"{name}.formula.toml"
-        destination = root / ".beads" / "formulas" / source.name
+        source = _setup_repo_path(package_root(), f"formulas/{name}.formula.toml")
+        destination = _setup_repo_path(root, f".beads/formulas/{source.name}")
         if not destination.exists():
             action = "create"
         elif destination.read_bytes() == source.read_bytes():
@@ -1182,7 +1212,7 @@ def setup_plan(
 
 def _restore_setup_files(root: Path, snapshots: Mapping[str, bytes | None]) -> None:
     for relative, content in snapshots.items():
-        path = root / relative
+        path = _setup_repo_path(root, relative)
         if content is None:
             path.unlink(missing_ok=True)
             continue
@@ -1190,10 +1220,10 @@ def _restore_setup_files(root: Path, snapshots: Mapping[str, bytes | None]) -> N
 
 
 def _setup_resolve_source(root: Path, relative: str) -> Path:
-    candidate = root / relative
+    candidate = _setup_repo_path(root, relative)
     if candidate.is_file():
         return candidate
-    package_candidate = package_root() / relative
+    package_candidate = _setup_repo_path(package_root(), relative)
     if package_candidate.is_file():
         return package_candidate
     raise SetupError(f"setup source file is missing: {relative}")
@@ -1210,8 +1240,8 @@ def _setup_write_filesystem(root: Path, operation: Mapping[str, Any]) -> None:
     action = str(operation["action"])
     source = operation["source"]
     destination = operation["destination"]
-    source_path = root / source if source else None
-    destination_path = root / destination if destination else None
+    source_path = _setup_repo_path(root, str(source)) if source else None
+    destination_path = _setup_repo_path(root, str(destination)) if destination else None
     if source_path:
         _setup_check_hash(source_path, operation["expected_source_sha256"], "source")
     if destination_path and operation["expected_destination_sha256"] is not None:
@@ -1223,7 +1253,7 @@ def _setup_write_filesystem(root: Path, operation: Mapping[str, Any]) -> None:
     if action == "delete":
         if not source_path:
             raise SetupError("setup delete operation has no source")
-        source_path.unlink()
+        _setup_repo_path(root, str(source)).unlink()
         return
     if action == "move":
         if not source_path or not destination_path:
@@ -1237,6 +1267,8 @@ def _setup_write_filesystem(root: Path, operation: Mapping[str, Any]) -> None:
                 return
             raise SetupError(f"setup destination already exists: {destination}")
         destination_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path = _setup_repo_path(root, str(source))
+        destination_path = _setup_repo_path(root, str(destination))
         source_path.replace(destination_path)
         return
     if not destination_path:
@@ -1262,24 +1294,142 @@ def _setup_write_filesystem(root: Path, operation: Mapping[str, Any]) -> None:
             raise SetupError("setup existing-source write has no source")
         content = source_path.read_bytes()
     destination_path.parent.mkdir(parents=True, exist_ok=True)
+    destination_path = _setup_repo_path(root, str(destination))
     atomic_replace(destination_path, content)
+
+
+def _validate_setup_plan_paths(root: Path, plan: Mapping[str, Any]) -> None:
+    for record in plan["initialization"]:
+        _setup_repo_path(root, str(record["target"]))
+    for operation in plan["filesystem"]:
+        for relative in (operation["source"], operation["destination"]):
+            if relative:
+                _setup_repo_path(root, str(relative))
+    for operation in plan["formulas"]:
+        _setup_resolve_source(root, str(operation["source"]))
+        _setup_repo_path(root, str(operation["destination"]))
+    for operation in plan["git_index"]:
+        _setup_repo_path(root, str(operation["path"]))
+    for operation in plan["navigation_references"]:
+        _setup_repo_path(root, str(operation["affected_path"]))
+
+
+def _setup_relationships(issue: Mapping[str, Any]) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    for record in dependency_records(issue):
+        target = record.get("depends_on_id") or record.get("id")
+        if not isinstance(target, str) or not target:
+            raise SetupError(f"setup issue has an invalid relationship: {issue.get('id')}")
+        relation = str(record.get("type") or record.get("dependency_type") or "blocks")
+        result.append((relation.replace("superseded_by", "superseded-by"), target))
+    return sorted(result)
+
+
+def _setup_issue_state(issue: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "metadata": issue_metadata(issue),
+        "labels": sorted(issue_labels(issue)),
+        "relationships": _setup_relationships(issue),
+        "parent": issue_parent(issue),
+        "status": str(issue.get("status") or ""),
+    }
+
+
+def _setup_expected_beads_states(
+    client: BeadsClient, mutation: Mapping[str, Any]
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
+    issue_ids = (
+        {str(operation["issue_id"]) for operation in mutation["beads_issues"]}
+        | {str(operation["source_id"]) for operation in mutation["dependencies"]}
+        | {str(operation["source_id"]) for operation in mutation["supersessions"]}
+    )
+    expected = {issue_id: _setup_issue_state(client.show(issue_id)) for issue_id in sorted(issue_ids)}
+    operations: dict[str, list[str]] = {issue_id: [] for issue_id in issue_ids}
+    for operation in mutation["beads_issues"]:
+        issue_id = str(operation["issue_id"])
+        state = expected[issue_id]
+        operations[issue_id].append("beads_issue")
+        for key, value in operation["set_metadata"].items():
+            if value is None:
+                state["metadata"].pop(key, None)
+            else:
+                state["metadata"][key] = value
+        for key in operation["unset_metadata"]:
+            state["metadata"].pop(key, None)
+        labels = set(state["labels"])
+        labels.update(operation["add_labels"])
+        labels.difference_update(operation["remove_labels"])
+        state["labels"] = sorted(labels)
+    for operation in mutation["dependencies"]:
+        source = str(operation["source_id"])
+        destination = str(operation["destination_id"])
+        relation = str(operation["relationship_type"])
+        action = str(operation["action"])
+        state = expected[source]
+        operations[source].append(f"dependency:{action}")
+        relationship = (relation, destination)
+        if action == "add":
+            state["relationships"].append(relationship)
+            if relation == "parent-child":
+                state["parent"] = destination
+        else:
+            if relationship in state["relationships"]:
+                state["relationships"].remove(relationship)
+            if relation == "parent-child" and state["parent"] == destination:
+                state["parent"] = None
+        state["relationships"].sort()
+    for operation in mutation["supersessions"]:
+        source = str(operation["source_id"])
+        destination = str(operation["destination_id"])
+        state = expected[source]
+        operations[source].append("supersession")
+        relationship = ("superseded-by", destination)
+        if relationship not in state["relationships"]:
+            state["relationships"].append(relationship)
+            state["relationships"].sort()
+        state["status"] = "closed"
+    return expected, operations
+
+
+def _verify_setup_beads_postconditions(
+    client: BeadsClient,
+    expected: Mapping[str, Mapping[str, Any]],
+    operations: Mapping[str, Sequence[str]],
+) -> None:
+    for issue_id in sorted(expected):
+        observed = _setup_issue_state(client.show(issue_id))
+        if observed == expected[issue_id]:
+            continue
+        expected_json = json.dumps(expected[issue_id], sort_keys=True, separators=(",", ":"))
+        observed_json = json.dumps(observed, sort_keys=True, separators=(",", ":"))
+        raise SetupError(
+            "setup Beads postcondition failed: "
+            f"operation={','.join(operations[issue_id])}; "
+            f"target_issue={issue_id}; expected_post_state={expected_json}; "
+            f"observed_post_state={observed_json}; rollback_completed=false; "
+            "mutation_state_uncertain=true"
+        )
 
 
 def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     mutation = plan
+    _validate_setup_tree(package_root(), "formulas")
+    _validate_setup_plan_paths(root, mutation)
     initialization = mutation["initialization"]
     if initialization:
         record = initialization[0]
-        if (root / str(record["target"])).exists():
+        target = _setup_repo_path(root, str(record["target"]))
+        if target.exists():
             raise SetupError("setup initialization precondition changed")
         ensure_beads(root, initialize=True)
-        if not (root / str(record["target"])).is_dir():
+        if not _setup_repo_path(root, str(record["target"])).is_dir():
             raise SetupError("setup initialization postcondition failed")
-    elif not (root / ".beads").is_dir():
+    elif not _setup_repo_path(root, ".beads").is_dir():
         raise SetupError("Beads is not initialized and the reviewed plan omits initialization")
 
     client = BeadsClient(root)
     version = client.check_version()
+    expected_beads, beads_operations = _setup_expected_beads_states(client, mutation)
     for operation in mutation["beads_issues"]:
         arguments: list[str] = []
         for key, value in operation["set_metadata"].items():
@@ -1315,7 +1465,7 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
         source = _setup_resolve_source(root, str(operation["source"]))
         if _setup_sha256(source) != operation["source_sha256"]:
             raise SetupError(f"setup formula source changed: {source}")
-        destination = root / str(operation["destination"])
+        destination = _setup_repo_path(root, str(operation["destination"]))
         if operation["action"] == "create" and destination.exists():
             raise SetupError(f"setup formula destination already exists: {destination}")
         if operation["action"] == "update":
@@ -1329,6 +1479,7 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
         atomic_replace(destination, source.read_bytes())
 
     for operation in mutation["git_index"]:
+        _setup_repo_path(root, str(operation["path"]))
         run(
             [
                 "git",
@@ -1344,14 +1495,17 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
 
     for operation in mutation["supersessions"]:
         client.supersede(str(operation["source_id"]), str(operation["destination_id"]))
+    _verify_setup_beads_postconditions(client, expected_beads, beads_operations)
 
     for operation in mutation["navigation_references"]:
-        path = root / str(operation["affected_path"])
+        path = _setup_repo_path(root, str(operation["affected_path"]))
         _setup_check_hash(path, operation["expected_after_sha256"], "navigation result")
 
     for operation in mutation["formulas"]:
-        destination = root / str(operation["destination"])
-        if not destination.is_file() or _setup_sha256(destination) != _setup_sha256(_setup_resolve_source(root, str(operation["source"]))):
+        destination = _setup_repo_path(root, str(operation["destination"]))
+        if not destination.is_file() or _setup_sha256(destination) != _setup_sha256(
+            _setup_resolve_source(root, str(operation["source"]))
+        ):
             raise SetupError(f"setup formula postcondition failed: {destination}")
     validate_bundle(package_root() / "formulas")
     for name in FORMULA_NAMES:
@@ -1378,24 +1532,16 @@ def apply_setup(
     if digest != expected_plan_sha256 or digest != plan["plan_sha256"]:
         raise SetupError("setup authority state changed since plan; rerun setup plan and review it")
 
-    beads_existed = (root / ".beads").is_dir()
+    beads_existed = _setup_repo_path(root, ".beads").is_dir()
     snapshot_paths = {
-        path
-        for operation in mutation["filesystem"]
-        for path in (operation["source"], operation["destination"])
-        if path
+        path for operation in mutation["filesystem"] for path in (operation["source"], operation["destination"]) if path
     }
-    snapshot_paths.update(
-        operation["affected_path"] for operation in mutation["navigation_references"]
-    )
-    snapshot_paths.update(
-        path
-        for operation in mutation["formulas"]
-        for path in (operation["destination"],)
-    )
+    snapshot_paths.update(operation["affected_path"] for operation in mutation["navigation_references"])
+    snapshot_paths.update(path for operation in mutation["formulas"] for path in (operation["destination"],))
+    snapshot_destinations = {path: _setup_repo_path(root, path) for path in snapshot_paths}
     snapshots = {
-        path: (root / path).read_bytes() if (root / path).is_file() else None
-        for path in snapshot_paths
+        path: destination.read_bytes() if destination.is_file() else None
+        for path, destination in snapshot_destinations.items()
     }
     interaction_was_tracked = tracked(root, ".beads/interactions.jsonl")
     try:
@@ -1403,38 +1549,55 @@ def apply_setup(
         if plan.get("documentation", {}).get("unresolved_outside_markdown"):
             result["status"] = "manual-action-required"
         validate_docs(root)
-        policy = root / ".beads/.gitignore"
+        policy = _setup_repo_path(root, ".beads/.gitignore")
         if "interactions.jsonl" not in policy.read_text().splitlines():
             raise SetupError("setup postcondition failed for interaction-log policy")
     except Exception as exc:
         recovery: list[str] = []
-        _restore_setup_files(root, snapshots)
-        recovery.append("restored setup-owned files")
-        if not beads_existed and (root / ".beads").exists():
-            shutil.rmtree(root / ".beads", ignore_errors=True)
-            recovery.append("removed internally created .beads directory")
+        recovery_errors: list[str] = []
+        try:
+            _restore_setup_files(root, snapshots)
+            recovery.append("restored setup-owned files")
+        except Exception as recovery_exc:
+            recovery_errors.append(f"setup-owned file restore failed: {recovery_exc}")
+        beads_path = _setup_repo_path(root, ".beads")
+        if not beads_existed and beads_path.exists():
+            shutil.rmtree(beads_path, ignore_errors=True)
+            if _setup_repo_path(root, ".beads").exists():
+                recovery_errors.append("internally created .beads directory removal failed")
+            else:
+                recovery.append("removed internally created .beads directory")
         if interaction_was_tracked:
-            run(
+            result = run(
                 ["git", "add", "--force", "--", ".beads/interactions.jsonl"],
                 cwd=root,
                 check=False,
             )
+            if result.returncode:
+                recovery_errors.append("interaction-log index restore failed")
+        graph_mutation = any(mutation[field] for field in ("beads_issues", "dependencies", "supersessions"))
+        rollback_completed = not graph_mutation and not recovery_errors
         if force:
-            recovery.append(
-                "inspect documented migration moves and Beads normalization before retry"
-            )
+            recovery.append("inspect documented migration moves and Beads normalization before retry")
+        details = recovery + recovery_errors
         raise SetupError(
-            f"setup apply failed: {exc}; observed recovery: " + "; ".join(recovery)
+            f"setup apply failed: {exc}; observed recovery: "
+            + "; ".join(details)
+            + f"; rollback_completed={str(rollback_completed).lower()}"
+            + f"; mutation_state_uncertain={str(graph_mutation or bool(recovery_errors)).lower()}"
         ) from exc
     return {"status": result.get("status", "ok"), "plan": plan, "applied": result}
 
 
 def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     root = git_root(root_arg)
+    _setup_repo_path(root, ".beads")
+    _setup_repo_path(root, ".beads/formulas")
+    _validate_setup_tree(root, "docs")
     ensure_beads(root, initialize=initialize)
     client = BeadsClient(root)
     version = client.check_version()
-    source_dir = package_root() / "formulas"
+    source_dir = _validate_setup_tree(package_root(), "formulas")
     validate_bundle(source_dir)
 
     # Non-forced setup is deliberately strict. A forced setup is the explicit
@@ -1451,8 +1614,8 @@ def install(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     installed: dict[str, str] = {}
     for name in FORMULA_NAMES:
         installed[name] = copy_formula(
-            source_dir / f"{name}.formula.toml",
-            root / ".beads" / "formulas" / f"{name}.formula.toml",
+            _setup_repo_path(package_root(), f"formulas/{name}.formula.toml"),
+            _setup_repo_path(root, f".beads/formulas/{name}.formula.toml"),
             force=force,
         )
         validate_formula(root, name)
@@ -1517,6 +1680,10 @@ def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
     if delivery_mode not in {"merge", "pr"}:
         raise SetupError("delivery_mode must be explicitly merge or pr")
     root = git_root(root_arg)
+    beads_path = _setup_repo_path(root, ".beads")
+    _setup_repo_path(root, ".beads/formulas")
+    ignore_path = _setup_repo_path(root, ".beads/.gitignore")
+    source_dir = _validate_setup_tree(package_root(), "formulas")
     checks: dict[str, dict[str, Any]] = {}
 
     def check(name: str, recovery: str, operation) -> Any:
@@ -1533,7 +1700,7 @@ def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
         return value
 
     client: BeadsClient | None = None
-    if (root / ".beads").is_dir():
+    if beads_path.is_dir():
         client = BeadsClient(root)
         check("beads_version", "install the pinned Beads 1.2.2 build", client.check_version)
     else:
@@ -1550,13 +1717,12 @@ def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
         return version
 
     check("mdbook_version", "install mdBook 0.5.3", mdbook_version)
-    source_dir = package_root() / "formulas"
     for name in FORMULA_NAMES:
 
         def formula_check(name=name) -> str:
             if client is None:
                 raise SetupError("Beads is not initialized")
-            installed = root / ".beads/formulas" / f"{name}.formula.toml"
+            installed = _setup_repo_path(root, f".beads/formulas/{name}.formula.toml")
             source = source_dir / f"{name}.formula.toml"
             if not installed.is_file():
                 raise SetupError(f"missing installed formula: {installed}")
@@ -1580,8 +1746,7 @@ def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
     def interaction_policy() -> str:
         if tracked(root, ".beads/interactions.jsonl"):
             raise SetupError(".beads/interactions.jsonl is tracked")
-        ignore = root / ".beads/.gitignore"
-        if not ignore.is_file() or "interactions.jsonl" not in ignore.read_text().splitlines():
+        if not ignore_path.is_file() or "interactions.jsonl" not in ignore_path.read_text().splitlines():
             raise SetupError(".beads/.gitignore does not ignore interactions.jsonl")
         return "local-only"
 
@@ -1733,7 +1898,7 @@ def ensure_interaction_log_policy(root: Path) -> dict[str, bool]:
     """Keep the Beads audit log local under dStack's Git-decoupling policy."""
 
     ignore_changed = add_gitignore_line(
-        root / ".beads" / ".gitignore",
+        _setup_repo_path(root, ".beads/.gitignore"),
         "interactions.jsonl",
         header="# dStack: local Beads audit state (not repository history)",
     )
@@ -1786,7 +1951,7 @@ def migrate_feature_design(
         if design_path == legacy and "source and canonical target are missing" in str(exc):
             raise SetupError("legacy feature design is missing") from exc
         raise SetupError(str(exc)) from exc
-    destination = root / canonical
+    destination = _setup_repo_path(root, canonical)
     title = str(feature.get("title") or slug).removeprefix("Feature: ")
     ensure_feature_navigation(
         root,
@@ -1927,6 +2092,9 @@ def normalize_current_alignments(client: BeadsClient, *, force: bool) -> list[st
 
 def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
     root = git_root(root_arg)
+    _setup_repo_path(root, ".beads")
+    _setup_repo_path(root, ".beads/.gitignore")
+    _validate_setup_tree(root, "docs")
     client = BeadsClient(root)
     client.check_version()
     templates = legacy_template_artifacts(client)
@@ -1944,7 +2112,7 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
     )
     missing_reconciliations = missing_feature_reconciliations(client)
     interaction_tracked = tracked(root, ".beads/interactions.jsonl")
-    beads_ignore = root / ".beads" / ".gitignore"
+    beads_ignore = _setup_repo_path(root, ".beads/.gitignore")
     ignore_lines = beads_ignore.read_text().splitlines() if beads_ignore.exists() else []
     interaction_ignore_missing = "interactions.jsonl" not in ignore_lines
     documentation_repairs = bool(

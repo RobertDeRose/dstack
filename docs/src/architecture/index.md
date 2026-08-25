@@ -76,19 +76,17 @@ It may not:
 - cache a Git-to-Beads mapping;
 - poll GitHub instead of using Beads gates.
 
-Every invocation derives truth from the current repository and Beads database.
-Mutation commands load only stable identity, metadata, and lifecycle steps, then
-query the additional native state required for that operation. Full dashboard
-hydration (gates, ready work, progress, and delivery state) is reserved for
-inspection and delivery. Nested transitions reuse the invocation's Beads client;
-no cache or state survives the process.
+Every invocation derives truth from the current repository and Beads database. Mutation commands load only stable
+identity, metadata, and lifecycle steps, then query the additional native state required for that operation. Setup
+snapshots the affected native issue state in memory, applies only the reviewed operations, and rereads exact metadata,
+labels, parentage, relationships, and supersession postconditions without performing another normalization discovery.
+Full dashboard hydration (gates, ready work, progress, and delivery state) is reserved for inspection and delivery.
+Nested transitions reuse the invocation's Beads client; no cache or state survives the process.
 
-Compatibility is an explicit boundary: legacy adoption is dispatched only by
-`adopt`, and repository repair is dispatched only by the explicit setup repair
-operation. Normal feature, alignment, evidence, and delivery operations do not
-run either path or rewrite historical workflow data. The isolated compatibility
-module can be retired once supported repositories no longer contain active
-legacy workflows.
+Compatibility is an explicit boundary: legacy adoption is dispatched only by `adopt`, and repository repair is
+dispatched only by the explicit setup repair operation. Normal feature, alignment, evidence, and delivery operations do
+not run either path or rewrite historical workflow data. The isolated compatibility module can be retired once supported
+repositories no longer contain active legacy workflows.
 
 ### Pi skills
 
