@@ -1,4 +1,8 @@
-# dStack
+<!-- rumdl-disable-file MD041 -->
+
+<p align="center">
+  <img src="docs/src/assets/img/dstack_logo.png" alt="dstack logo">
+</p>
 
 `dStack` is a small Pi workflow package for software engineering with Beads and Git. It is policy plus stateless
 automation—not another workflow engine.
