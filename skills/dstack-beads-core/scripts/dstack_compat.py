@@ -30,11 +30,12 @@ from dstacklib import (
     canonical_feature_design_path,
     display_title,
     feature_context,
+    feature_roots,
     feature_slug,
     issue_labels,
-    issue_type,
     issue_metadata,
-    resolve_feature,
+    is_current_feature,
+    resolve_legacy_feature,
     root_metadata_value,
     slugify,
 )
@@ -99,10 +100,10 @@ def classify_legacy_item(item: Mapping[str, Any]) -> str:
 
 def cmd_adopt_plan(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    legacy = resolve_feature(client, args.selector)
+    legacy = resolve_legacy_feature(client, args.selector)
     if legacy.get("status") == "closed":
         raise DstackError(f"legacy feature is already closed: {legacy['id']}")
-    if feature_context(client, str(legacy["id"]))["current"]:
+    if is_current_feature(client, legacy):
         raise DstackError(f"feature already uses current dStack workflow: {legacy['id']}")
     if not args.classification_file:
         raise DstackError("adoption planning requires --classification-file")
@@ -115,10 +116,10 @@ def cmd_adopt_plan(args: argparse.Namespace) -> int:
 
 def cmd_adopt_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    root = resolve_feature(client, args.selector)
+    root = resolve_legacy_feature(client, args.selector)
     if root.get("status") == "closed":
         raise DstackError(f"legacy feature is already closed: {root['id']}")
-    if feature_context(client, str(root["id"]))["current"]:
+    if is_current_feature(client, root):
         raise DstackError(f"feature already uses current dstack workflow: {root['id']}")
     items = [item for item in descendants(client, str(root["id"])) if item.get("status") != "closed"]
     classified: dict[str, list[dict[str, Any]]] = {}
@@ -136,9 +137,8 @@ def current_feature_for_slug(
 ) -> dict[str, Any] | None:
     matches = [
         root
-        for root in client.list(all_statuses=True, labels=["workflow:feature"])
-        if issue_type(root) in {"epic", "molecule"}
-        and str(root.get("id")) != exclude_id
+        for root in feature_roots(client)
+        if str(root.get("id")) != exclude_id
         and root.get("status") != "closed"
         and feature_slug(root) == slug
         and feature_context(client, str(root["id"]))["current"]
@@ -153,7 +153,7 @@ def current_feature_for_slug(
 
 def cmd_adopt_apply(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    legacy = resolve_feature(client, args.selector)
+    legacy = resolve_legacy_feature(client, args.selector)
     existing_replacement = superseded_target(legacy)
     if legacy.get("status") == "closed":
         if existing_replacement:
@@ -168,7 +168,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
             )
             return 0
         raise DstackError("legacy feature is already closed")
-    if feature_context(client, str(legacy["id"]))["current"]:
+    if is_current_feature(client, legacy):
         raise DstackError("feature already uses current dStack workflow")
 
     title = args.title or display_title(str(legacy.get("title", "")))

@@ -279,11 +279,6 @@ def gate_type(issue: Mapping[str, Any]) -> str:
     return str(issue.get("await_type") or issue.get("gate_type") or "")
 
 
-def label_value(issue: Mapping[str, Any], prefix: str) -> str | None:
-    matches = [label[len(prefix) :] for label in issue_labels(issue) if label.startswith(prefix)]
-    return matches[0] if len(matches) == 1 and matches[0] else None
-
-
 def display_title(title: str) -> str:
     """Return a feature title without the optional ``Feature:`` prefix."""
 
@@ -727,21 +722,90 @@ def step_by_label(children: Sequence[Mapping[str, Any]], label: str) -> dict[str
     return matches[0]
 
 
-def feature_slug(issue: Mapping[str, Any]) -> str | None:
-    slug = label_value(issue, "feature:")
-    if slug:
-        return slug
+def _workflow_identity_values(
+    issue: Mapping[str, Any],
+    *,
+    label_prefix: str,
+    metadata_keys: Sequence[str],
+) -> set[str]:
+    values = {
+        label.removeprefix(label_prefix)
+        for label in issue_labels(issue)
+        if label.startswith(label_prefix) and label != label_prefix
+    }
     metadata = issue_metadata(issue)
-    for key in ("dstack.feature_slug", "feature_slug"):
+    for key in metadata_keys:
         value = metadata.get(key)
         if isinstance(value, str) and value:
-            return value
+            values.add(value)
     variables = metadata.get("variables")
     if isinstance(variables, dict):
-        value = variables.get("feature_slug")
+        key = metadata_keys[-1]
+        value = variables.get(key)
         if isinstance(value, str) and value:
-            return value
-    return None
+            values.add(value)
+    return values
+
+
+def feature_identity_values(issue: Mapping[str, Any]) -> set[str]:
+    return _workflow_identity_values(
+        issue,
+        label_prefix="feature:",
+        metadata_keys=("dstack.feature_slug", "feature_slug"),
+    )
+
+
+def feature_slug(issue: Mapping[str, Any]) -> str | None:
+    values = feature_identity_values(issue)
+    return next(iter(values)) if len(values) == 1 else None
+
+
+def alignment_identity_values(issue: Mapping[str, Any]) -> set[str]:
+    return _workflow_identity_values(
+        issue,
+        label_prefix="audit:",
+        metadata_keys=("dstack.audit_slug", "audit_slug"),
+    )
+
+
+def _has_one_canonical_identity(values: set[str]) -> bool:
+    return len(values) == 1 and slugify(next(iter(values))) == next(iter(values))
+
+
+def is_legacy_feature_root(issue: Mapping[str, Any]) -> bool:
+    return (
+        issue_parent(issue) is None
+        and issue_type(issue) in {"epic", "molecule"}
+        and _has_one_canonical_identity(feature_identity_values(issue))
+        and not alignment_identity_values(issue)
+        and not has_label(issue, "workflow:project-alignment")
+    )
+
+
+def is_feature_root(issue: Mapping[str, Any]) -> bool:
+    return is_legacy_feature_root(issue) and (
+        has_label(issue, "workflow:feature") or has_label(issue, "dstack:feature-idea")
+    )
+
+
+def is_alignment_root(issue: Mapping[str, Any]) -> bool:
+    return (
+        issue_parent(issue) is None
+        and issue_type(issue) in {"epic", "molecule"}
+        and _has_one_canonical_identity(alignment_identity_values(issue))
+        and not feature_identity_values(issue)
+        and not has_label(issue, "workflow:feature")
+        and not has_label(issue, "dstack:feature-idea")
+        and has_label(issue, "workflow:project-alignment")
+    )
+
+
+def feature_roots_from_inventory(issues: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(item) for item in issues if is_feature_root(item)]
+
+
+def alignment_roots_from_inventory(issues: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(item) for item in issues if is_alignment_root(item)]
 
 
 def canonical_feature_design_path(slug: str) -> str:
@@ -776,25 +840,28 @@ def is_current_feature(client: BeadsClient, root_issue: Mapping[str, Any]) -> bo
 
 
 def feature_roots(client: BeadsClient) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in client.list(all_statuses=True)
-        if issue_type(item) in {"epic", "molecule"}
-        and (has_label(item, "workflow:feature") or (has_label(item, "dstack:feature-idea") and feature_slug(item)))
-    ]
+    return feature_roots_from_inventory(client.list(all_statuses=True))
 
 
-def resolve_feature(client: BeadsClient, selector: str | None) -> dict[str, Any]:
+def _resolve_feature(
+    client: BeadsClient,
+    selector: str | None,
+    *,
+    root_predicate: Callable[[Mapping[str, Any]], bool],
+) -> dict[str, Any]:
     if selector:
         exact = client.show_optional(selector)
-        if (
-            exact is not None
-            and issue_type(exact) in {"epic", "molecule"}
-            and (has_label(exact, "workflow:feature") or feature_slug(exact))
-        ):
-            return exact
+        if exact is not None:
+            if root_predicate(exact):
+                return exact
+            if (
+                has_label(exact, "workflow:feature")
+                or has_label(exact, "dstack:feature-idea")
+                or feature_identity_values(exact)
+            ):
+                raise DstackError(f"Bead {selector} is not a feature workflow root")
 
-    roots = feature_roots(client)
+    roots = [dict(item) for item in client.list(all_statuses=True) if root_predicate(item)]
     if not selector:
         branch = run(["git", "branch", "--show-current"], cwd=client.root).stdout.strip()
         if branch.startswith("feat/"):
@@ -828,6 +895,14 @@ def resolve_feature(client: BeadsClient, selector: str | None) -> dict[str, Any]
     if len(candidates) == 1:
         return candidates[0]
     raise DstackError("feature selector is ambiguous: " + ", ".join(str(item.get("id")) for item in candidates))
+
+
+def resolve_feature(client: BeadsClient, selector: str | None) -> dict[str, Any]:
+    return _resolve_feature(client, selector, root_predicate=is_feature_root)
+
+
+def resolve_legacy_feature(client: BeadsClient, selector: str) -> dict[str, Any]:
+    return _resolve_feature(client, selector, root_predicate=is_legacy_feature_root)
 
 
 def human_gate_for_step(
@@ -984,28 +1059,21 @@ def feature_view(client: BeadsClient, selector: str | None) -> dict[str, Any]:
 
 
 def alignment_slug(issue: Mapping[str, Any]) -> str | None:
-    slug = label_value(issue, "audit:")
-    if slug:
-        return slug
-    return root_metadata_value(issue, "dstack.audit_slug", "audit_slug")
+    values = alignment_identity_values(issue)
+    return next(iter(values)) if len(values) == 1 else None
 
 
 def alignment_roots(client: BeadsClient) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in client.list(all_statuses=True, labels=["workflow:project-alignment"])
-        if issue_type(item) in {"epic", "molecule"}
-    ]
+    return alignment_roots_from_inventory(client.list(all_statuses=True))
 
 
 def resolve_alignment(client: BeadsClient, selector: str) -> dict[str, Any]:
     exact = client.show_optional(selector)
-    if (
-        exact is not None
-        and issue_type(exact) in {"epic", "molecule"}
-        and has_label(exact, "workflow:project-alignment")
-    ):
-        return exact
+    if exact is not None:
+        if is_alignment_root(exact):
+            return exact
+        if has_label(exact, "workflow:project-alignment") or alignment_identity_values(exact):
+            raise DstackError(f"Bead {selector} is not a project-alignment workflow root")
     normalized = normalize_title(selector)
     candidates = [
         item

@@ -57,6 +57,32 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
             "workflow:feature,feature:setup-postconditions,dstack:delivery-ready",
         )
     )[0]
+    implementation = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Legacy implementation coordinator",
+            "--type",
+            "epic",
+            "--parent",
+            issue["id"],
+            "--labels",
+            "workflow:feature,feature:setup-postconditions,dstack:step:implementation,keep:child",
+        )
+    )[0]
+    task = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Legacy implementation task",
+            "--type",
+            "task",
+            "--parent",
+            implementation["id"],
+            "--labels",
+            "workflow:feature,feature:setup-postconditions,keep:task",
+        )
+    )[0]
     run_json(
         acceptance_repo,
         "update",
@@ -66,11 +92,22 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
         "--set-metadata",
         "branch=legacy",
     )
+    run_json(
+        acceptance_repo,
+        "update",
+        implementation["id"],
+        "--set-metadata",
+        "dstack.base_branch=main",
+    )
     planned = run_command(
         [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
         cwd=acceptance_repo,
     )
-    digest = json.loads(planned.stdout)["plan_sha256"]
+    payload = json.loads(planned.stdout)
+    mutations = payload["mutation_plan"]["beads_issues"]
+    mutation_ids = [mutation["issue_id"] for mutation in mutations]
+    assert len(mutation_ids) == len(set(mutation_ids))
+    assert {issue["id"], implementation["id"], task["id"]} <= set(mutation_ids)
     run_command(
         [
             str(DSTACK),
@@ -80,7 +117,7 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
             str(acceptance_repo),
             "--force",
             "--plan-digest",
-            digest,
+            payload["plan_sha256"],
         ],
         cwd=acceptance_repo,
     )
@@ -89,6 +126,13 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
     assert "base_branch" not in observed["metadata"]
     assert "branch" not in observed["metadata"]
     assert "dstack:delivery-ready" not in observed["labels"]
+    for descendant, unrelated in ((implementation, "keep:child"), (task, "keep:task")):
+        observed = items(run_json(acceptance_repo, "show", descendant["id"]))[0]
+        assert "workflow:feature" not in observed["labels"]
+        assert "feature:setup-postconditions" not in observed["labels"]
+        assert unrelated in observed["labels"]
+    observed_implementation = items(run_json(acceptance_repo, "show", implementation["id"]))[0]
+    assert "dstack.base_branch" not in observed_implementation.get("metadata", {})
 
 
 def test_no_change_alignment_landing_derives_plan_baseline(

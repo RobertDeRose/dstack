@@ -173,6 +173,116 @@ def test_external_dependent_stays_blocked_through_add_before_remove(
     assert dependent["id"] in {item["id"] for item in ready}
 
 
+def test_forced_setup_preserves_metadata_only_legacy_root_before_adoption(acceptance_repo: Path) -> None:
+    legacy = items(run_json(acceptance_repo, "create", "Legacy feature", "--type", "epic"))[0]
+    run_json(
+        acceptance_repo,
+        "update",
+        legacy["id"],
+        "--set-metadata",
+        "feature_slug=legacy",
+    )
+    child = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Legacy remaining work",
+            "--type",
+            "task",
+            "--parent",
+            legacy["id"],
+            "--labels",
+            "feature:legacy,keep:legacy",
+        )
+    )[0]
+    run_json(acceptance_repo, "update", child["id"], "--set-metadata", "feature_slug=legacy")
+    before = {
+        issue_id: items(run_json(acceptance_repo, "show", issue_id))[0] for issue_id in (legacy["id"], child["id"])
+    }
+
+    formula = acceptance_repo / ".beads/formulas/dstack-feature.formula.toml"
+    formula.write_text(formula.read_text() + "\n# historical formula\n")
+    run_command(["git", "add", str(formula.relative_to(acceptance_repo))], cwd=acceptance_repo)
+    run_command(["git", "commit", "-qm", "test: install historical feature formula"], cwd=acceptance_repo)
+
+    planned = json.loads(
+        run_command(
+            [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
+            cwd=acceptance_repo,
+        ).stdout
+    )
+    assert planned["formulas"]["dstack-feature"] == "update"
+    mutation_ids = {item["issue_id"] for item in planned["mutation_plan"]["beads_issues"]}
+    assert {legacy["id"], child["id"]}.isdisjoint(mutation_ids)
+    run_command(
+        [
+            str(DSTACK),
+            "setup",
+            "apply",
+            "--root",
+            str(acceptance_repo),
+            "--force",
+            "--plan-digest",
+            planned["plan_sha256"],
+        ],
+        cwd=acceptance_repo,
+    )
+
+    assert formula.read_bytes() == (ROOT / "formulas/dstack-feature.formula.toml").read_bytes()
+    after = {
+        issue_id: items(run_json(acceptance_repo, "show", issue_id))[0] for issue_id in (legacy["id"], child["id"])
+    }
+    for issue_id in before:
+        for field in ("issue_type", "status", "labels", "metadata", "parent"):
+            assert after[issue_id].get(field) == before[issue_id].get(field)
+    doctor = json.loads(
+        run_command(
+            [str(DSTACK), "setup", "doctor", "--root", str(acceptance_repo), "--delivery-mode", "merge"],
+            cwd=acceptance_repo,
+        ).stdout
+    )
+    assert doctor["checks"]["workflow_topology"]["value"] == [
+        f"active legacy feature: run /adopt-feature {legacy['id']}"
+    ]
+
+    classification = acceptance_repo / "classification.json"
+    classification.write_text(
+        json.dumps(
+            {
+                "schema": "dstack.adoption-classification/v1",
+                "legacy_root_id": legacy["id"],
+                "entries": [
+                    {
+                        "legacy_id": child["id"],
+                        "classification": "remaining-implementation",
+                        "reason": "product work remains",
+                        "replacement": {
+                            "title": "Legacy remaining work",
+                            "description": "Continue the remaining work.",
+                            "acceptance": "The work is complete.",
+                            "priority": 2,
+                        },
+                    }
+                ],
+            }
+        )
+    )
+    adopted = run_ctl(
+        acceptance_repo,
+        "adopt",
+        "apply",
+        legacy["id"],
+        "--title",
+        "Adopted legacy feature",
+        "--slug",
+        "legacy",
+        "--classification-file",
+        str(classification),
+    )
+    assert adopted["root_superseded"] is True
+    assert child["id"] in adopted["mapping"]
+
+
 def test_real_adoption_keeps_incoming_dependent_blocked(beads_repo: Path) -> None:
     legacy = items(
         run_json(
@@ -182,7 +292,7 @@ def test_real_adoption_keeps_incoming_dependent_blocked(beads_repo: Path) -> Non
             "--type",
             "epic",
             "--labels",
-            "workflow:feature",
+            "workflow:feature,feature:legacy-feature",
         )
     )[0]
     child = items(
