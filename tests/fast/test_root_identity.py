@@ -167,6 +167,52 @@ def test_setup_normalizes_polluted_descendants_from_one_inventory(tmp_path: Path
     beads.assert_exhausted()
 
 
+@pytest.mark.parametrize(
+    "issue_type",
+    ["task", "bug", "chore", "gate", "spike", "decision", "story", "feature", "milestone"],
+)
+@pytest.mark.parametrize("feature_marker", ["workflow:feature", "dstack:feature-idea"])
+def test_setup_repairs_identity_free_root_ineligible_descendants(
+    tmp_path: Path, issue_type: str, feature_marker: str
+) -> None:
+    inventory = [
+        feature("feature-root"),
+        feature(
+            "feature-child",
+            parent="feature-root",
+            issue_type=issue_type,
+            labels=[feature_marker, "keep:feature"],
+        ),
+        alignment("alignment-root"),
+        feature(
+            "alignment-child",
+            parent="alignment-root",
+            issue_type=issue_type,
+            labels=["workflow:project-alignment", "keep:alignment"],
+        ),
+    ]
+    beads = ScriptedClient(tmp_path, call("list", all_statuses=True, result=inventory))
+    mutations = {item["issue_id"]: item for item in setup._setup_normalization_plan(beads)}
+    assert mutations["feature-child"]["remove_labels"] == [feature_marker]
+    assert mutations["alignment-child"]["remove_labels"] == ["workflow:project-alignment"]
+    beads.assert_exhausted()
+
+
+@pytest.mark.parametrize("issue_type", ["epic", "molecule"])
+@pytest.mark.parametrize("feature_marker", ["workflow:feature", "dstack:feature-idea"])
+def test_setup_rejects_identity_free_root_capable_descendants(
+    tmp_path: Path, issue_type: str, feature_marker: str
+) -> None:
+    inventory = [
+        feature("root"),
+        feature("nested", parent="root", issue_type=issue_type, labels=[feature_marker]),
+    ]
+    beads = ScriptedClient(tmp_path, call("list", all_statuses=True, result=inventory))
+    with pytest.raises(setup.SetupError, match="ambiguous workflow topology"):
+        setup._setup_normalization_plan(beads)
+    beads.assert_exhausted()
+
+
 def test_setup_repairs_known_formula_placeholder_descendants(tmp_path: Path) -> None:
     inventory = [
         feature("feature-root"),

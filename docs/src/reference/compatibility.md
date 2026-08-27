@@ -40,8 +40,9 @@ Explicit legacy repair may:
 
 - remove verified persisted formula-template artifacts;
 - remove obsolete duplicated metadata/labels from current molecules;
-- remove inherited workflow/root identity from descendants when one parentless current same-kind root and matching
-  identity prove the repair;
+- remove inherited workflow/root identity from descendants beneath one parentless current same-kind root when a matching
+  identity, formula placeholder, or root-ineligible native issue type proves the repair; identity-free nested epics and
+  molecules remain ambiguous;
 - preserve a parentless active legacy feature root with one canonical historical identity, together with its
   adoption-owned descendants, while formulas and repository policy are updated;
 - repair an older repository that still tracks `.beads/interactions.jsonl`;

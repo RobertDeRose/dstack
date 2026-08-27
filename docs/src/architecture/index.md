@@ -95,8 +95,10 @@ marker when the structural invariants hold and no alignment identity is present.
 
 Forced setup uses one invocation-local all-status inventory and parent/children index. It removes mechanically proven
 inherited current-root identity at any depth while preserving a recognized active legacy feature root and its
-descendants for explicit adoption. Doctor reports that boundary as active legacy work. Ambiguous, orphaned, cyclic,
-mismatched, competing, or cross-kind topology fails before mutation, and no graph state survives the invocation.
+descendants for explicit adoption. Proof is a compatible duplicated identity or formula placeholder, or an identity-free
+descendant whose native type cannot be a root, beneath exactly one current same-kind root. Identity-free nested epics and
+molecules remain ambiguous. Doctor reports active legacy work, and orphaned, cyclic, mismatched, competing, or cross-kind
+topology fails before mutation. No graph state survives the invocation.
 
 Compatibility is an explicit boundary: legacy adoption is dispatched only by `adopt`, and repository repair is
 dispatched only by the explicit setup repair operation. Normal feature, alignment, evidence, and delivery operations do

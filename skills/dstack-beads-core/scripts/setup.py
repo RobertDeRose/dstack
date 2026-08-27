@@ -52,6 +52,7 @@ from dstacklib import (
     issue_labels,
     issue_metadata,
     issue_parent,
+    issue_type,
     is_alignment_root,
     is_feature_root,
     is_legacy_feature_root,
@@ -1023,14 +1024,20 @@ def _setup_normalization_plan(
             labels = issue_labels(issue)
             feature_values = feature_identity_values(issue)
             alignment_values = alignment_identity_values(issue)
+            root_capable = issue_type(issue) in {"epic", "molecule"}
             if kind == "feature":
                 if has_label(issue, "workflow:project-alignment") or alignment_values:
                     raise _ambiguous_workflow(issue_id, "feature descendant carries alignment identity")
                 concrete_values = feature_values - {"{{feature_slug}}"}
                 if concrete_values and concrete_values != {identity}:
                     raise _ambiguous_workflow(issue_id, f"feature identity does not match {identity}")
-                if has_label(issue, "workflow:feature") and not (
-                    concrete_values == {identity} or (not concrete_values and "{{feature_slug}}" in feature_values)
+                if (
+                    (has_label(issue, "workflow:feature") or has_label(issue, "dstack:feature-idea"))
+                    and root_capable
+                    and not (
+                        concrete_values == {identity}
+                        or (not concrete_values and "{{feature_slug}}" in feature_values)
+                    )
                 ):
                     raise _ambiguous_workflow(issue_id, "nested feature workflow identity is missing or mismatched")
                 remove = [
@@ -1046,8 +1053,13 @@ def _setup_normalization_plan(
                 concrete_values = alignment_values - {"{{audit_slug}}"}
                 if concrete_values and concrete_values != {identity}:
                     raise _ambiguous_workflow(issue_id, f"alignment identity does not match {identity}")
-                if has_label(issue, "workflow:project-alignment") and not (
-                    concrete_values == {identity} or (not concrete_values and "{{audit_slug}}" in alignment_values)
+                if (
+                    has_label(issue, "workflow:project-alignment")
+                    and root_capable
+                    and not (
+                        concrete_values == {identity}
+                        or (not concrete_values and "{{audit_slug}}" in alignment_values)
+                    )
                 ):
                     raise _ambiguous_workflow(issue_id, "nested alignment workflow identity is missing or mismatched")
                 remove = [

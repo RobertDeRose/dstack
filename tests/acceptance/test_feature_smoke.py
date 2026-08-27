@@ -72,14 +72,17 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
         run_json(
             acceptance_repo,
             "create",
-            "Legacy implementation task",
+            "Legacy identity-free implementation bug",
             "--type",
-            "task",
+            "bug",
             "--parent",
             implementation["id"],
             "--labels",
-            "workflow:feature,feature:setup-postconditions,keep:task",
+            "workflow:feature,keep:task",
         )
+    )[0]
+    task = items(
+        run_json(acceptance_repo, "close", task["id"], "--reason", "Historical fix delivered")
     )[0]
     run_json(
         acceptance_repo,
@@ -161,6 +164,7 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
     assert "dstack:delivery-ready" not in observed["labels"]
     for descendant, unrelated in ((implementation, "keep:child"), (task, "keep:task")):
         observed = items(run_json(acceptance_repo, "show", descendant["id"]))[0]
+        assert observed["status"] == descendant["status"]
         assert "workflow:feature" not in observed["labels"]
         assert "feature:setup-postconditions" not in observed["labels"]
         assert unrelated in observed["labels"]
