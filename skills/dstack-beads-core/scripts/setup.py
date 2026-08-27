@@ -64,13 +64,14 @@ from dstacklib import (
 from dstack_commands import (
     BEADS_RUNTIME_DIR_PREFIXES,
     BEADS_RUNTIME_TOP_LEVEL_PATTERNS,
+    BEADS_SENSITIVE_BASENAMES,
     DSTACK_UNTRACKED_BEADS_FILES,
 )
 
 FORMULA_NAMES = ("dstack-feature", "dstack-project-alignment")
 SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.3"
 SUPPORTED_PYTHON_VERSION_OUTPUT = "Python 3.14.7"
-SETUP_PLAN_SCHEMA = "dstack.setup-plan/v3"
+SETUP_PLAN_SCHEMA = "dstack.setup-plan/v4"
 SETUP_PLAN_FIELDS = {
     "schema",
     "authority",
@@ -78,6 +79,7 @@ SETUP_PLAN_FIELDS = {
     "beads_issues",
     "dependencies",
     "supersessions",
+    "template_deletions",
     "filesystem",
     "git_index",
     "formulas",
@@ -292,6 +294,27 @@ def _setup_supersessions(value: Any) -> list[dict[str, str]]:
         seen.add((source, destination))
         result.append({"source_id": source, "destination_id": destination})
     return sorted(result, key=lambda item: (item["source_id"], item["destination_id"]))
+
+
+def _setup_template_deletions(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        raise SetupError("setup plan template_deletions must be an array")
+    result: list[dict[str, str]] = []
+    for index, raw in enumerate(value):
+        item = _setup_fields(
+            raw,
+            {"action", "issue_id", "precondition"},
+            f"template_deletions[{index}]",
+        )
+        issue_id = _setup_id(item["issue_id"], f"template_deletions[{index}].issue_id")
+        if not any(issue_id == name or issue_id.startswith(f"{name}.") for name in FORMULA_NAMES):
+            raise SetupError(f"setup template deletion uses non-reserved ID: {issue_id}")
+        if item["action"] != "delete" or item["precondition"] != "is-template":
+            raise SetupError("setup template deletion record is invalid")
+        result.append({"action": "delete", "issue_id": issue_id, "precondition": "is-template"})
+    if len({item["issue_id"] for item in result}) != len(result):
+        raise SetupError("duplicate setup template deletion")
+    return sorted(result, key=lambda item: item["issue_id"])
 
 
 def _setup_filesystem(value: Any) -> list[dict[str, Any]]:
@@ -536,6 +559,7 @@ def canonicalize_setup_plan(value: Any) -> dict[str, Any]:
         "beads_issues": _setup_beads_issues(value["beads_issues"]),
         "dependencies": _setup_dependencies(value["dependencies"]),
         "supersessions": _setup_supersessions(value["supersessions"]),
+        "template_deletions": _setup_template_deletions(value["template_deletions"]),
         "filesystem": _setup_filesystem(value["filesystem"]),
         "git_index": _setup_git_index(value["git_index"]),
         "formulas": _setup_formulas(value["formulas"]),
@@ -856,31 +880,6 @@ def copy_formula(source: Path, destination: Path, *, force: bool) -> str:
         state = "installed"
     atomic_replace(destination, source.read_bytes())
     return state
-
-
-def documentation_change_plan(root: Path) -> list[dict[str, str]]:
-    _validate_setup_tree(root, "docs")
-    before = (
-        {path.relative_to(root).as_posix(): path.read_bytes() for path in (root / "docs").rglob("*") if path.is_file()}
-        if (root / "docs").is_dir()
-        else {}
-    )
-    with tempfile.TemporaryDirectory(prefix="dstack-docs-plan-") as raw:
-        scratch = Path(raw) / root.name
-        scratch.mkdir()
-        if (root / "docs").exists():
-            shutil.copytree(root / "docs", scratch / "docs", symlinks=True)
-        create_foundation(scratch)
-        after = {
-            path.relative_to(scratch).as_posix(): path.read_bytes()
-            for path in (scratch / "docs").rglob("*")
-            if path.is_file()
-        }
-    return [
-        {"path": path, "action": "create" if path not in before else "update"}
-        for path, content in sorted(after.items())
-        if before.get(path) != content
-    ]
 
 
 def _setup_sha256(path: Path) -> str:
@@ -1278,6 +1277,84 @@ def _setup_gitignore_content(path: Path) -> bytes:
     return updated.encode("utf-8")
 
 
+def _setup_status(root: Path) -> tuple[str, set[str], bool]:
+    status = run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=root,
+    ).stdout
+    paths: set[str] = set()
+    unmerged = False
+    records = status.split("\0")
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if not record:
+            continue
+        if len(record) < 4 or record[2] != " ":
+            raise SetupError("Git returned invalid porcelain status during setup preflight")
+        code = record[:2]
+        paths.add(record[3:])
+        unmerged = unmerged or "U" in code or code in {"AA", "DD"}
+        if "R" in code or "C" in code:
+            if index >= len(records) or not records[index]:
+                raise SetupError("Git returned an incomplete rename during setup preflight")
+            paths.add(records[index])
+            index += 1
+    return status, paths, unmerged
+
+
+def _setup_index_entries(root: Path, path: str) -> str:
+    return run(["git", "ls-files", "--stage", "--", path], cwd=root).stdout
+
+
+def _is_beads_runtime_path(path: str) -> bool:
+    if path in DSTACK_UNTRACKED_BEADS_FILES or any(path.startswith(prefix) for prefix in BEADS_RUNTIME_DIR_PREFIXES):
+        return True
+    relative = path.removeprefix(".beads/")
+    if not path.startswith(".beads/"):
+        return False
+    if ".corrupt.backup/" in relative or relative.rsplit("/", 1)[-1] in BEADS_SENSITIVE_BASENAMES:
+        return True
+    return "/" not in relative and any(
+        fnmatch.fnmatch(relative, pattern) for pattern in BEADS_RUNTIME_TOP_LEVEL_PATTERNS
+    )
+
+
+def _supported_interaction_index(root: Path, path: str) -> bool:
+    entries = _setup_index_entries(root, path).splitlines()
+    if len(entries) != 1 or "\t" not in entries[0]:
+        return False
+    fields = entries[0].split("\t", 1)[0].split()
+    if (
+        len(fields) != 3
+        or fields[0] != "100644"
+        or fields[2] != "0"
+        or not fields[1].strip("0")
+        or _setup_repo_path(root, path).is_symlink()
+    ):
+        return False
+    return (
+        run(["git", "ls-files", "-v", "--", path], cwd=root).stdout == f"H {path}\n"
+        and re.search(r"\bflags: 0\s*\Z", run(["git", "ls-files", "--debug", "--", path], cwd=root).stdout) is not None
+    )
+
+
+def _setup_preflight(root: Path, *, force: bool) -> tuple[str, bool]:
+    status, paths, unmerged = _setup_status(root)
+    interaction = ".beads/interactions.jsonl"
+    relevant_paths = {path for path in paths if not _is_beads_runtime_path(path) or path == interaction}
+    allowed = (
+        bool(status)
+        and force
+        and not unmerged
+        and (
+            not relevant_paths or (relevant_paths == {interaction} and _supported_interaction_index(root, interaction))
+        )
+    )
+    return status, allowed
+
+
 def _setup_plan_object(
     root: Path,
     *,
@@ -1287,6 +1364,8 @@ def _setup_plan_object(
     formula_actions: Mapping[str, str],
     git_index: list[dict[str, str]],
     client: BeadsClient | None,
+    inventory: Sequence[Mapping[str, Any]],
+    template_artifacts: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     initialization = []
     if not _setup_repo_path(root, ".beads").is_dir() and initialize:
@@ -1298,11 +1377,10 @@ def _setup_plan_object(
                 "options": {"skip_agents": True, "skip_hooks": True, "non_interactive": True},
             }
         ]
-    inventory = client.list(all_statuses=True) if client and force else []
     design_moves = _setup_feature_design_moves(client, inventory=inventory) if client and force else []
     filesystem, navigation = _setup_doc_filesystem_plan(root, force=force, design_moves=design_moves)
     policy = _setup_repo_path(root, ".beads/.gitignore")
-    if initialization or policy.is_file():
+    if initialization or _setup_repo_path(root, ".beads").is_dir():
         desired = _setup_gitignore_content(policy)
         current = policy.read_bytes() if policy.is_file() else None
         if current != desired:
@@ -1354,6 +1432,14 @@ def _setup_plan_object(
             "beads_issues": (_setup_normalization_plan(client, inventory=inventory) if client and force else []),
             "dependencies": [],
             "supersessions": [],
+            "template_deletions": [
+                {
+                    "action": "delete",
+                    "issue_id": str(item["id"]),
+                    "precondition": "is-template",
+                }
+                for item in template_artifacts
+            ],
             "filesystem": filesystem,
             "git_index": git_index,
             "formulas": formulas,
@@ -1364,19 +1450,47 @@ def _setup_plan_object(
 
 def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     root = git_root(root_arg)
+    status, allowed_interaction_change = _setup_preflight(root, force=force)
     authority = _current_setup_authority(root)
-    beads = _setup_repo_path(root, ".beads")
+    if status and not allowed_interaction_change:
+        mutation_plan = canonicalize_setup_plan(
+            {
+                "schema": SETUP_PLAN_SCHEMA,
+                "authority": authority,
+                "initialization": [],
+                "beads_issues": [],
+                "dependencies": [],
+                "supersessions": [],
+                "template_deletions": [],
+                "filesystem": [],
+                "git_index": [],
+                "formulas": [],
+                "navigation_references": [],
+            }
+        )
+        return {
+            "schema": SETUP_PLAN_SCHEMA,
+            "status": "blocked",
+            "root": str(root),
+            "preconditions": {"clean_worktree": False, "blocked": ["worktree has unrelated changes"]},
+            "authority": authority,
+            "mutation_plan": mutation_plan,
+            "plan_sha256": setup_plan_digest(mutation_plan),
+            "filesystem": [],
+            "git_index": [],
+            "beads": [],
+            "formulas": {},
+            "documentation": {},
+        }
+
+    beads_path = _setup_repo_path(root, ".beads")
     _setup_repo_path(root, ".beads/formulas")
     _validate_setup_tree(root, "docs")
-    beads_exists = beads.is_dir()
-    status = run(["git", "status", "--porcelain"], cwd=root).stdout.strip()
+    beads_exists = beads_path.is_dir()
     blocked: list[str] = []
-    if status:
-        blocked.append("worktree is not clean")
     if not beads_exists and not initialize:
         blocked.append("Beads initialization is not authorized")
 
-    display_filesystem = documentation_change_plan(root)
     formulas: dict[str, str] = {}
     for name in FORMULA_NAMES:
         source = _setup_repo_path(package_root(), f"formulas/{name}.formula.toml")
@@ -1391,26 +1505,20 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
             action = "conflict"
             blocked.append(f"formula differs without --force: {destination}")
         formulas[name] = action
-        if action in {"create", "update"}:
-            display_filesystem.append({"path": destination.relative_to(root).as_posix(), "action": action})
 
     client: BeadsClient | None = None
     git_index: list[dict[str, str]] = []
-    beads: list[dict[str, str]] = []
+    inventory: list[dict[str, Any]] = []
+    template_artifacts: list[dict[str, Any]] = []
     if not beads_exists:
-        beads.append({"action": "initialize", "target": ".beads"})
         git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
     else:
         client = BeadsClient(root)
         if tracked(root, ".beads/interactions.jsonl"):
             git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
-        ignore = root / ".beads/.gitignore"
-        lines = ignore.read_text().splitlines() if ignore.is_file() else []
-        if "interactions.jsonl" not in lines:
-            display_filesystem.append({"path": ".beads/.gitignore", "action": "update"})
         if force:
-            templates = legacy_template_artifacts(client)
-            beads.extend({"action": "delete-template", "target": str(item["id"])} for item in templates)
+            inventory = all_issue_inventory(client)
+            template_artifacts = legacy_template_artifacts(client, inventory=inventory)
 
     migration = (
         legacy_documentation_plan(root)
@@ -1430,13 +1538,36 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
         formula_actions=formulas,
         git_index=git_index,
         client=client,
+        inventory=inventory,
+        template_artifacts=template_artifacts,
     )
-    beads.extend({"action": "normalize", "target": mutation["issue_id"]} for mutation in mutation_plan["beads_issues"])
+    display_filesystem = [
+        {
+            "path": str(operation["destination"] or operation["source"]),
+            "action": str(operation["action"]),
+        }
+        for operation in mutation_plan["filesystem"]
+    ]
+    display_filesystem.extend(
+        {
+            "path": str(operation["destination"]),
+            "action": str(operation["action"]),
+        }
+        for operation in mutation_plan["formulas"]
+    )
+    beads = [
+        *([{"action": "initialize", "target": ".beads"}] if mutation_plan["initialization"] else []),
+        *(
+            {"action": "delete-template", "target": operation["issue_id"]}
+            for operation in mutation_plan["template_deletions"]
+        ),
+        *({"action": "normalize", "target": mutation["issue_id"]} for mutation in mutation_plan["beads_issues"]),
+    ]
     payload = {
         "schema": SETUP_PLAN_SCHEMA,
         "status": "blocked" if blocked else "ready",
         "root": str(root),
-        "preconditions": {"clean_worktree": not status, "blocked": blocked},
+        "preconditions": {"clean_worktree": not status or allowed_interaction_change, "blocked": blocked},
         "authority": authority,
         "mutation_plan": mutation_plan,
         "plan_sha256": setup_plan_digest(mutation_plan),
@@ -1676,6 +1807,11 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
 
     client = BeadsClient(root)
     version = str(mutation["authority"]["beads_version"])
+    for operation in mutation["template_deletions"]:
+        issue_id = str(operation["issue_id"])
+        issue = client.show(issue_id)
+        if issue.get("is_template") is not True and not has_label(issue, "template"):
+            raise SetupError(f"reviewed setup template is no longer a template: {issue_id}")
     expected_beads, beads_operations = _setup_expected_beads_states(client, mutation)
     for operation in mutation["beads_issues"]:
         client.update(str(operation["issue_id"]), *_setup_mutation_arguments(operation))
@@ -1689,6 +1825,11 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
             )
         else:
             client.remove_dependency(str(operation["source_id"]), str(operation["destination_id"]))
+
+    template_ids = [str(operation["issue_id"]) for operation in mutation["template_deletions"]]
+    if template_ids:
+        run(["bd", "delete", *template_ids, "--dry-run", "--json"], cwd=root)
+        run(["bd", "delete", *template_ids, "--force", "--json"], cwd=root)
 
     for operation in sorted(
         mutation["filesystem"],
@@ -1729,6 +1870,16 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     for operation in mutation["supersessions"]:
         client.supersede(str(operation["source_id"]), str(operation["destination_id"]))
     _verify_setup_beads_postconditions(client, expected_beads, beads_operations)
+    observed_template_ids = (
+        {str(item.get("id") or "") for item in all_issue_inventory(client)} if template_ids else set()
+    )
+    remaining_templates = observed_template_ids.intersection(template_ids)
+    if remaining_templates:
+        raise SetupError(
+            "setup template deletion postcondition failed: "
+            + ", ".join(sorted(remaining_templates))
+            + "; rollback_completed=false; mutation_state_uncertain=true"
+        )
 
     for operation in mutation["navigation_references"]:
         path = _setup_repo_path(root, str(operation["affected_path"]))
@@ -1745,6 +1896,15 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     return {"status": "ok", "beads_version": version}
 
 
+def _restore_setup_index(root: Path, snapshots: Mapping[str, str]) -> None:
+    for path, entries in snapshots.items():
+        run(["git", "update-index", "--force-remove", "--", path], cwd=root)
+        if entries:
+            run(["git", "update-index", "--index-info"], cwd=root, input_text=entries)
+        if _setup_index_entries(root, path) != entries:
+            raise SetupError(f"setup Git-index restore postcondition failed: {path}")
+
+
 def apply_setup(
     root_arg: Path,
     *,
@@ -1755,7 +1915,12 @@ def apply_setup(
     if not expected_plan_sha256:
         raise SetupError("setup plan digest is required")
     root = git_root(root_arg)
-    ensure_clean_worktree(root)
+    if force:
+        status, allowed_interaction_change = _setup_preflight(root, force=True)
+        if status and not allowed_interaction_change:
+            raise SetupError("worktree changes are present outside the forced interaction-log repair boundary")
+    else:
+        ensure_clean_worktree(root)
     plan = setup_plan(root, initialize=initialize, force=force)
     if plan["status"] != "ready":
         raise SetupError("setup apply preconditions changed: " + "; ".join(plan["preconditions"]["blocked"]))
@@ -1770,14 +1935,24 @@ def apply_setup(
     }
     snapshot_paths.update(operation["affected_path"] for operation in mutation["navigation_references"])
     snapshot_paths.update(path for operation in mutation["formulas"] for path in (operation["destination"],))
+    snapshot_paths.update(str(operation["path"]) for operation in mutation["git_index"])
     snapshot_destinations = {path: _setup_repo_path(root, path) for path in snapshot_paths}
     snapshots = {
         path: destination.read_bytes() if destination.is_file() else None
         for path, destination in snapshot_destinations.items()
     }
-    interaction_was_tracked = tracked(root, ".beads/interactions.jsonl")
+    index_snapshots = {
+        str(operation["path"]): _setup_index_entries(root, str(operation["path"]))
+        for operation in mutation["git_index"]
+    }
     try:
         result = _execute_setup_plan(root, mutation)
+        for operation in mutation["git_index"]:
+            path = str(operation["path"])
+            if _setup_index_entries(root, path):
+                raise SetupError(f"setup Git-index postcondition failed: {path} remains tracked")
+            if snapshots[path] is not None and _setup_repo_path(root, path).read_bytes() != snapshots[path]:
+                raise SetupError(f"setup Git-index operation changed worktree bytes: {path}")
         if plan.get("documentation", {}).get("unresolved_outside_markdown"):
             result["status"] = "manual-action-required"
         validate_docs(root)
@@ -1799,15 +1974,14 @@ def apply_setup(
                 recovery_errors.append("internally created .beads directory removal failed")
             else:
                 recovery.append("removed internally created .beads directory")
-        if interaction_was_tracked:
-            result = run(
-                ["git", "add", "--force", "--", ".beads/interactions.jsonl"],
-                cwd=root,
-                check=False,
-            )
-            if result.returncode:
-                recovery_errors.append("interaction-log index restore failed")
-        graph_mutation = any(mutation[field] for field in ("beads_issues", "dependencies", "supersessions"))
+        try:
+            _restore_setup_index(root, index_snapshots)
+            recovery.append("restored setup-owned Git index")
+        except Exception as recovery_exc:
+            recovery_errors.append(f"setup-owned Git-index restore failed: {recovery_exc}")
+        graph_mutation = bool(mutation["template_deletions"]) or any(
+            mutation[field] for field in ("beads_issues", "dependencies", "supersessions")
+        )
         rollback_completed = not graph_mutation and not recovery_errors
         if force:
             recovery.append("inspect documented migration moves and Beads normalization before retry")
@@ -1886,15 +2060,7 @@ def _runtime_paths(root: Path) -> list[str]:
     tracked_paths = run(["git", "ls-files", ".beads"], cwd=root).stdout.splitlines()
     result: list[str] = []
     for path in tracked_paths:
-        if path in DSTACK_UNTRACKED_BEADS_FILES or any(
-            path.startswith(prefix) for prefix in BEADS_RUNTIME_DIR_PREFIXES
-        ):
-            result.append(path)
-            continue
-        relative = path.removeprefix(".beads/")
-        if "/" not in relative and any(
-            fnmatch.fnmatch(relative, pattern) for pattern in BEADS_RUNTIME_TOP_LEVEL_PATTERNS
-        ):
+        if _is_beads_runtime_path(path):
             result.append(path)
     return sorted(result)
 
@@ -2127,14 +2293,18 @@ def all_issue_inventory(client: BeadsClient) -> list[dict[str, Any]]:
     return as_items(parse_json(result.stdout, context="bd list repair inventory"))
 
 
-def legacy_template_artifacts(client: BeadsClient) -> list[dict[str, Any]]:
+def legacy_template_artifacts(
+    client: BeadsClient,
+    *,
+    inventory: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for summary in all_issue_inventory(client):
+    for summary in inventory if inventory is not None else all_issue_inventory(client):
         issue_id = str(summary.get("id") or "")
         if not any(issue_id == name or issue_id.startswith(f"{name}.") for name in FORMULA_NAMES):
             continue
         issue = client.show(issue_id)
-        if issue.get("is_template") is not True:
+        if issue.get("is_template") is not True and not has_label(issue, "template"):
             raise SetupError(f"reserved dstack template ID is used by non-template issue {issue_id}")
         result.append(issue)
     return result

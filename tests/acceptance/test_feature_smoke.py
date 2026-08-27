@@ -99,6 +99,29 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
         "--set-metadata",
         "dstack.base_branch=main",
     )
+    template_id = "dstack-feature.template"
+    run_json(
+        acceptance_repo,
+        "create",
+        "Legacy persisted formula template",
+        "--type",
+        "epic",
+        "--id",
+        template_id,
+        "--labels",
+        "template",
+        "--force",
+    )
+    interaction = acceptance_repo / ".beads/interactions.jsonl"
+    interaction.write_bytes(b"legacy audit baseline\n")
+    run_command(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=acceptance_repo)
+    run_command(["git", "rm", ".beads/.gitignore"], cwd=acceptance_repo)
+    run_command(["git", "commit", "-qm", "test: create legacy setup boundary"], cwd=acceptance_repo)
+    interaction.write_bytes(b"legacy staged audit\n")
+    run_command(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=acceptance_repo)
+    expected_interaction = b"legacy unstaged audit\n"
+    interaction.write_bytes(expected_interaction)
+
     planned = run_command(
         [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
         cwd=acceptance_repo,
@@ -108,6 +131,18 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
     mutation_ids = [mutation["issue_id"] for mutation in mutations]
     assert len(mutation_ids) == len(set(mutation_ids))
     assert {issue["id"], implementation["id"], task["id"]} <= set(mutation_ids)
+    assert payload["mutation_plan"]["template_deletions"] == [
+        {"action": "delete", "issue_id": template_id, "precondition": "is-template"}
+    ]
+    assert {tuple(sorted(item.items())) for item in payload["beads"]} >= {
+        tuple(sorted({"action": "delete-template", "target": template_id}.items()))
+    }
+    assert (
+        next(item for item in payload["mutation_plan"]["filesystem"] if item["destination"] == ".beads/.gitignore")[
+            "action"
+        ]
+        == "create"
+    )
     run_command(
         [
             str(DSTACK),
@@ -133,6 +168,23 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
         assert unrelated in observed["labels"]
     observed_implementation = items(run_json(acceptance_repo, "show", implementation["id"]))[0]
     assert "dstack.base_branch" not in observed_implementation.get("metadata", {})
+    assert interaction.read_bytes() == expected_interaction
+    assert (
+        run_command(
+            ["git", "ls-files", "--error-unmatch", ".beads/interactions.jsonl"],
+            cwd=acceptance_repo,
+            check=False,
+        ).returncode
+        != 0
+    )
+    assert run_command(["bd", "show", template_id, "--json"], cwd=acceptance_repo, check=False).returncode != 0
+    doctor = json.loads(
+        run_command(
+            [str(DSTACK), "setup", "doctor", "--root", str(acceptance_repo), "--delivery-mode", "merge"],
+            cwd=acceptance_repo,
+        ).stdout
+    )
+    assert doctor["status"] == "ok"
 
 
 def test_no_change_alignment_landing_derives_plan_baseline(

@@ -64,14 +64,19 @@ navigation shape reach the canonical layout before strict validation. The result
 creates missing core documentation but never relocates legacy content; normal feature execution never runs compatibility
 repair.
 
-Setup repair uses strict `dstack.setup-plan/v3` mutation records. The reviewed SHA-256 covers the complete canonical
-operation object, including controller-content state and exact Python, Beads, and mdBook outputs, rather than display
-summaries. Apply receives only that digest, recomputes one object, rejects controller/runtime drift or unmerged
-authority source, and executes it without a second discovery pass. Forced discovery reads one all-status Beads
-inventory, builds an invocation-local parent/children index, and emits at most one canonical mutation per issue.
-Recognized active legacy feature graphs are reported for `/adopt-feature` and excluded from current workflow
-normalization. Orphaned, cyclic, cross-kind, mismatched, or competing workflow identities fail before mutation with
-native-repair guidance; no graph or migration state is persisted. Initialization is an explicit reviewed operation, and
+Setup repair uses strict `dstack.setup-plan/v4` mutation records. The reviewed SHA-256 covers the complete canonical
+operation object, including controller-content state, exact Python, Beads, and mdBook outputs, verified template
+deletions, filesystem writes, and Git-index changes. Display summaries are derived from those records. Apply receives
+only that digest, recomputes one object, rejects controller/runtime drift or unmerged authority source, and executes it
+without a second discovery pass. Forced setup permits one narrow dirty bootstrap case: a tracked
+`.beads/interactions.jsonl` may be the sole staged or unstaged path, apart from known machine-local Beads runtime files
+that the missing policy itself will ignore. The repair accepts only an ordinary stage-zero regular-file index entry;
+symlinks, unmerged entries, and special index flags fail closed. Its worktree bytes and exact prior index state are
+preserved on failure; every unrelated or untracked path blocks before documentation or Beads discovery. Forced discovery
+reads one all-status Beads inventory, builds an invocation-local parent/children index, and emits at most one canonical
+mutation per issue. Recognized active legacy feature graphs are reported for `/adopt-feature` and excluded from current
+workflow normalization. Orphaned, cyclic, cross-kind, mismatched, or competing workflow identities fail before mutation
+with native-repair guidance; no graph or migration state is persisted. Initialization is an explicit reviewed operation, and
 filesystem/formula/navigation records carry their exact source, destination, content, conflict, and before/after hash
 predicates. Tool and isolated formula-bundle preflight completes before target mutation. Drift requires a new plan.
 

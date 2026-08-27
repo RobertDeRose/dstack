@@ -8,8 +8,9 @@ This section is the operator contract for installing and running dStack. The
 1. Install the pinned Python, Beads, mdBook, Git, and `uv` toolchain.
 2. Invoke `/setup-project`. Setup emits a read-only plan containing exact filesystem, Git-index, Beads, formula, and
    documentation changes.
-3. Review the plan, then let setup apply its digest. Apply recomputes the plan after a clean-worktree preflight and
-   refuses changed authority state.
+3. Review the plan, then let setup apply its digest. Apply recomputes the plan after a strict worktree preflight and
+   refuses changed authority state. Forced legacy repair may accept a tracked `.beads/interactions.jsonl` as the sole
+   dirty path; every unrelated change still blocks.
 4. Run setup doctor with an explicit delivery profile and resolve every reported diagnostic before feature work:
 
    ```text

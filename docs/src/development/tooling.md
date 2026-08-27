@@ -4,9 +4,11 @@
 
 Setup first emits a stateless plan with an authority-state digest. The digest binds target operations, the current
 controller-content identity/state, and exact Python, Beads, and mdBook outputs. Apply requires that reviewed digest,
-recomputes the plan after a clean-worktree preflight, rejects unmerged or changed controller authority, and completes
-locked-tool and isolated formula-bundle checks before target mutation. Formula writes use atomic replacement; failures
-compensate setup-owned resources where possible and report observed recovery for boundaries that require inspection.
+recomputes the plan after a strict preflight, rejects unmerged or changed controller authority, and completes
+locked-tool and isolated formula-bundle checks before target mutation. Forced repair accepts only a tracked
+`.beads/interactions.jsonl` as the sole dirty path, preserves its worktree bytes, and restores its exact index entry on
+failure. Formula writes use atomic replacement; failures compensate setup-owned resources where possible and report
+observed recovery for boundaries that require inspection.
 
 Doctor reports independent, actionable checks for pinned Beads and mdBook versions, formula bytes and validity,
 documentation, interaction-log policy, feature reconciliations, Git worktrees, tracked runtime paths, origin/GitHub
