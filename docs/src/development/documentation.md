@@ -98,7 +98,7 @@ mechanics without a second manifest, cache, or documentation state store.
 The repository pins the tested mdBook release through mise. Validate the current book with:
 
 ```bash
-python3 skills/dstack-beads-core/scripts/dstackctl.py docs validate
+bin/dstack ctl docs validate
 ```
 
 Validation requires the core foundation, canonical `[book].src = "src"`, local link targets, chapter navigation, and

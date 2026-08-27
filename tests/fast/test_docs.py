@@ -215,7 +215,7 @@ def test_initialize_requires_mdbook_before_documentation_mutation(
 ) -> None:
     monkeypatch.setattr(dstack_docs.shutil, "which", lambda name: None)
 
-    with pytest.raises(DstackError, match="mdbook executable"):
+    with pytest.raises(DstackError, match="locked mdbook is unavailable"):
         dstack_docs.initialize_docs(tmp_path)
 
     assert not (tmp_path / "docs").exists()

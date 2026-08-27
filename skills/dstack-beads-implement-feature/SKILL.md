@@ -13,8 +13,7 @@ For each task:
 1. Inspect and claim native ready work:
 
    ```bash
-   python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-     feature claim-next [feature] [--task <id>]
+   "{baseDir}/../../bin/dstack" ctl feature claim-next [feature] [--task <id>]
    ```
 
    This verifies the approved design digest and uses Beads' atomic ready claim.

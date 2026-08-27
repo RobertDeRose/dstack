@@ -10,26 +10,24 @@ Invoking this command authorizes Beads initialization in the current Git reposit
 Run the read-only plan, review its exact preconditions and changes, then apply from freshly recomputed authority state:
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
-  plan --root . --init
-python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
-  apply --root . --init --plan-digest "<plan_sha256>"
+"{baseDir}/../../bin/dstack" setup plan --root . --init
+"{baseDir}/../../bin/dstack" setup apply --root . --init --plan-digest "<plan_sha256>"
 ```
 
 Replace `<plan_sha256>` with the digest emitted by the reviewed plan. The plan contains one strict
-`dstack.setup-plan/v2` mutation object; review its initialization, Beads, filesystem, formula, Git-index, and
-navigation/reference records rather than relying on display summaries. Append `--force` to both commands only when the
-user explicitly supplied it. Apply recomputes the same object once and fails closed if its digest or any
-source/precondition changed. When `--force` was requested, apply first migrates mechanically identifiable legacy book
-content into `docs/src`, then completes the non-destructive documentation foundation/navigation, performs the remaining
-isolated compatibility repair, and finally runs strict documentation validation. Do not invoke repair a second time.
+`dstack.setup-plan/v3` mutation object; review its controller/runtime authority, initialization, Beads, filesystem,
+formula, Git-index, and navigation/reference records rather than relying on display summaries. Append `--force` to both
+commands only when the user explicitly supplied it. Apply recomputes the same object once and fails closed if its digest
+or any source/precondition changed. When `--force` was requested, apply first migrates mechanically identifiable legacy
+book content into `docs/src`, then completes the non-destructive documentation foundation/navigation, performs the
+remaining isolated compatibility repair, and finally runs strict documentation validation. Do not invoke repair a second
+time.
 
 Finally run the setup doctor once with the explicitly selected delivery profile (use `merge` for local/direct delivery
 or `pr` when GitHub PR delivery is intended):
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/setup.py" \
-  doctor --root . --delivery-mode merge
+"{baseDir}/../../bin/dstack" setup doctor --root . --delivery-mode merge
 ```
 
 The mode is required; never infer it from remotes. Merge mode does not require a remote, GitHub, or `gh`. PR mode

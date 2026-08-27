@@ -779,9 +779,148 @@ def test_adoption_rejects_multiple_current_slug_matches(tmp_path: Path, monkeypa
     beads.assert_exhausted()
 
 
+def setup_authority(**changes: str) -> dict[str, str]:
+    value = {
+        "controller_sha256": "f" * 64,
+        "controller_state": "clean",
+        "python_version": "Python 3.14.7",
+        "beads_version": "bd version 1.2.2 (6c124203e)",
+        "mdbook_version": "mdbook v0.5.3",
+    }
+    value.update(changes)
+    return value
+
+
+def test_controller_authority_reports_clean_and_dirty_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    package = tmp_path / "package"
+    scripts = package / "skills/dstack-beads-core/scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "setup.py").write_text("print('clean')\n")
+    (package / "bin").mkdir()
+    (package / "bin/dstack").write_text("#!/bin/sh\n")
+    (package / "formulas").mkdir()
+    formula = package / "formulas/dstack-feature.formula.toml"
+    formula.write_text("clean formula\n")
+    for name in ("mise.toml", "mise.lock", "pyproject.toml"):
+        (package / name).write_text(f"{name}\n")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=package, check=True)
+    subprocess.run(["git", "add", "."], cwd=package, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "initial",
+        ],
+        cwd=package,
+        check=True,
+    )
+    monkeypatch.setattr(setup, "package_root", lambda: package)
+
+    clean = setup._controller_authority()
+    assert clean["controller_state"] == "clean"
+
+    (scripts / "setup.py").write_text("print('dirty')\n")
+    dirty = setup._controller_authority()
+    assert dirty["controller_state"] == "dirty"
+    assert dirty["controller_sha256"] != clean["controller_sha256"]
+
+    formula.write_text("changed formula\n")
+    formula_drift = setup._controller_authority()
+    assert formula_drift["controller_sha256"] != dirty["controller_sha256"]
+
+
+def test_controller_authority_rejects_unmerged_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    package = tmp_path / "package"
+    scripts = package / "skills/dstack-beads-core/scripts"
+    scripts.mkdir(parents=True)
+    source = scripts / "setup.py"
+    source.write_text("base\n")
+    (package / "bin").mkdir()
+    (package / "bin/dstack").write_text("#!/bin/sh\n")
+    (package / "formulas").mkdir()
+    (package / "formulas/dstack-feature.formula.toml").write_text("formula\n")
+    for name in ("mise.toml", "mise.lock", "pyproject.toml"):
+        (package / name).write_text(f"{name}\n")
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=package, check=True)
+    subprocess.run(["git", "add", "."], cwd=package, check=True)
+    commit = ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm"]
+    subprocess.run([*commit, "base"], cwd=package, check=True)
+    subprocess.run(["git", "checkout", "-qb", "other"], cwd=package, check=True)
+    source.write_text("other\n")
+    subprocess.run(["git", "add", str(source.relative_to(package))], cwd=package, check=True)
+    subprocess.run([*commit, "other"], cwd=package, check=True)
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=package, check=True)
+    source.write_text("main\n")
+    subprocess.run(["git", "add", str(source.relative_to(package))], cwd=package, check=True)
+    subprocess.run([*commit, "main"], cwd=package, check=True)
+    merge = subprocess.run(
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "merge", "other"],
+        cwd=package,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert merge.returncode != 0
+    monkeypatch.setattr(setup, "package_root", lambda: package)
+
+    with pytest.raises(setup.SetupError, match="unmerged controller authority"):
+        setup._controller_authority()
+
+
+def test_runtime_authority_requires_exact_supported_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Client:
+        def check_version(self) -> str:
+            return "bd version 1.2.2 (6c124203e)"
+
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(setup, "require_mdbook", lambda: "mdbook")
+    monkeypatch.setattr(
+        setup,
+        "run",
+        lambda command, **kwargs: CommandResult(0, "mdbook v0.5.3\n", ""),
+    )
+
+    assert setup._runtime_authority(tmp_path) == {
+        "python_version": "Python 3.14.7",
+        "beads_version": "bd version 1.2.2 (6c124203e)",
+        "mdbook_version": "mdbook v0.5.3",
+    }
+
+    monkeypatch.setattr(
+        setup,
+        "run",
+        lambda command, **kwargs: CommandResult(0, "mdbook v0.5.4\n", ""),
+    )
+    with pytest.raises(setup.SetupError, match="unsupported mdBook version"):
+        setup._runtime_authority(tmp_path)
+    assert not (tmp_path / ".beads").exists()
+
+    monkeypatch.setattr(setup.platform, "python_version", lambda: "3.13.13")
+    with pytest.raises(setup.SetupError, match="unsupported Python version"):
+        setup._runtime_authority(tmp_path)
+    assert not (tmp_path / ".beads").exists()
+
+    monkeypatch.setattr(setup.platform, "python_version", lambda: "3.14.7")
+
+    class WrongClient:
+        def check_version(self) -> str:
+            raise DstackError("wrong Beads build")
+
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: WrongClient())
+    with pytest.raises(DstackError, match="wrong Beads build"):
+        setup._runtime_authority(tmp_path)
+    assert not (tmp_path / ".beads").exists()
+
+
 def _setup_mutation_fixture() -> dict[str, Any]:
     return {
         "schema": setup.SETUP_PLAN_SCHEMA,
+        "authority": setup_authority(),
         "initialization": [
             {
                 "action": "initialize-beads",
@@ -850,7 +989,7 @@ def _setup_mutation_fixture() -> dict[str, Any]:
     }
 
 
-def test_setup_plan_v2_canonical_bytes_are_order_and_unicode_stable() -> None:
+def test_setup_plan_v3_canonical_bytes_are_order_and_unicode_stable() -> None:
     value = _setup_mutation_fixture()
     canonical = setup.canonicalize_setup_plan(value)
     reordered = {key: value[key] for key in reversed(list(value))}
@@ -859,8 +998,12 @@ def test_setup_plan_v2_canonical_bytes_are_order_and_unicode_stable() -> None:
     assert setup.canonical_setup_plan_bytes(value) == setup.canonical_setup_plan_bytes(reordered)
     assert b"caf\xc3\xa9\\n" in setup.canonical_setup_plan_bytes(value)
     assert b"\\r" not in setup.canonical_setup_plan_bytes(value)
-    assert canonical["schema"] == "dstack.setup-plan/v2"
+    assert canonical["schema"] == "dstack.setup-plan/v3"
     assert setup.setup_plan_digest(value) == setup.setup_plan_digest(reordered)
+
+    changed = copy.deepcopy(value)
+    changed["authority"]["controller_sha256"] = "e" * 64
+    assert setup.setup_plan_digest(value) != setup.setup_plan_digest(changed)
 
 
 @pytest.mark.parametrize(
@@ -879,7 +1022,7 @@ def test_setup_plan_v2_canonical_bytes_are_order_and_unicode_stable() -> None:
         lambda value: value["filesystem"][0].update({"generated_content": 1.5}),
     ],
 )
-def test_setup_plan_v2_rejects_invalid_or_contradictory_operations(mutate) -> None:
+def test_setup_plan_v3_rejects_invalid_or_contradictory_operations(mutate) -> None:
     value = _setup_mutation_fixture()
     mutate(value)
     with pytest.raises(DstackError):
@@ -945,6 +1088,7 @@ class SetupPostconditionClient:
 def minimal_setup_mutation(**changes: Any) -> dict[str, Any]:
     value = {
         "schema": setup.SETUP_PLAN_SCHEMA,
+        "authority": setup_authority(),
         "initialization": [],
         "beads_issues": [],
         "dependencies": [],
@@ -969,6 +1113,7 @@ def execute_setup_mutation(
     (tmp_path / ".beads").mkdir(exist_ok=True)
     client = SetupPostconditionClient(tmp_path, issues, mode)
     monkeypatch.setattr(setup, "BeadsClient", lambda root: client)
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: mutation["authority"])
     monkeypatch.setattr(setup, "validate_bundle", lambda root: None)
     monkeypatch.setattr(setup, "validate_formula", lambda root, name: None)
     return setup._execute_setup_plan(tmp_path, mutation)
@@ -994,6 +1139,59 @@ def initial_issue() -> dict[str, Any]:
     }
 
 
+def test_setup_apply_rejects_authority_drift_before_initialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutation = minimal_setup_mutation(
+        initialization=[
+            {
+                "action": "initialize-beads",
+                "target": ".beads",
+                "precondition": "absent",
+                "options": {"skip_agents": True, "skip_hooks": True, "non_interactive": True},
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        setup,
+        "_current_setup_authority",
+        lambda root: setup_authority(controller_sha256="e" * 64),
+    )
+    monkeypatch.setattr(setup, "ensure_beads", lambda *args, **kwargs: pytest.fail("authority drift reached mutation"))
+
+    with pytest.raises(setup.SetupError, match="controller/runtime authority changed"):
+        setup._execute_setup_plan(tmp_path, mutation)
+
+    assert not (tmp_path / ".beads").exists()
+
+
+def test_setup_apply_validates_formula_bundle_before_initialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutation = minimal_setup_mutation(
+        initialization=[
+            {
+                "action": "initialize-beads",
+                "target": ".beads",
+                "precondition": "absent",
+                "options": {"skip_agents": True, "skip_hooks": True, "non_interactive": True},
+            }
+        ]
+    )
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: mutation["authority"])
+    monkeypatch.setattr(
+        setup,
+        "validate_bundle",
+        lambda root: (_ for _ in ()).throw(setup.SetupError("invalid formula bundle")),
+    )
+    monkeypatch.setattr(setup, "ensure_beads", lambda *args, **kwargs: pytest.fail("invalid bundle reached mutation"))
+
+    with pytest.raises(setup.SetupError, match="invalid formula bundle"):
+        setup._execute_setup_plan(tmp_path, mutation)
+
+    assert not (tmp_path / ".beads").exists()
+
+
 def test_setup_apply_rereads_exact_issue_postconditions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = execute_setup_mutation(
         tmp_path,
@@ -1002,6 +1200,14 @@ def test_setup_apply_rereads_exact_issue_postconditions(tmp_path: Path, monkeypa
         {"issue-1": initial_issue()},
         mode="normal",
     )
+    assert result["status"] == "ok"
+
+
+def test_setup_apply_accepts_stable_dirty_controller_authority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    mutation = minimal_setup_mutation(authority=setup_authority(controller_state="dirty"))
+
+    result = execute_setup_mutation(tmp_path, monkeypatch, mutation, {}, mode="normal")
+
     assert result["status"] == "ok"
 
 
@@ -1166,6 +1372,7 @@ def test_setup_without_authorization_refuses_to_initialize(tmp_path: Path) -> No
 def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: setup_authority())
     real_run = setup.run
     monkeypatch.setattr(
         setup,
@@ -1181,6 +1388,8 @@ def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: 
     assert first == second
     assert first["status"] == "ready"
     assert first["mutation_plan"]["schema"] == setup.SETUP_PLAN_SCHEMA
+    assert first["authority"] == setup_authority()
+    assert first["mutation_plan"]["authority"] == setup_authority()
     assert setup.setup_plan_digest(first["mutation_plan"]) == first["plan_sha256"]
     assert set(first["mutation_plan"]) == setup.SETUP_PLAN_FIELDS
     assert {item["action"] for item in first["filesystem"]} == {"create"}
@@ -1421,6 +1630,7 @@ def test_setup_apply_rejects_formula_destination_drift_before_mutation(
 
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "package_root", lambda: package)
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: setup_authority())
     monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
     monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [])
     monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
@@ -1488,6 +1698,7 @@ def test_setup_apply_refuses_changed_plan(tmp_path: Path, monkeypatch: pytest.Mo
             "status": "ready",
             "mutation_plan": {
                 "schema": setup.SETUP_PLAN_SCHEMA,
+                "authority": setup_authority(),
                 "initialization": [],
                 "beads_issues": [],
                 "dependencies": [],
@@ -1522,6 +1733,7 @@ def test_setup_apply_cleans_internally_created_beads_on_failure(
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     mutation = {
         "schema": setup.SETUP_PLAN_SCHEMA,
+        "authority": setup_authority(),
         "initialization": [],
         "beads_issues": [],
         "dependencies": [],
@@ -1662,6 +1874,7 @@ def test_doctor_reports_all_actionable_diagnostics(
 
 def test_setup_apply_is_retry_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    mutation = minimal_setup_mutation()
     package = tmp_path / "package"
     formulas = package / "formulas"
     formulas.mkdir(parents=True)
@@ -1675,30 +1888,8 @@ def test_setup_apply_is_retry_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         "setup_plan",
         lambda *args, **kwargs: {
             "status": "ready",
-            "mutation_plan": {
-                "schema": setup.SETUP_PLAN_SCHEMA,
-                "initialization": [],
-                "beads_issues": [],
-                "dependencies": [],
-                "supersessions": [],
-                "filesystem": [],
-                "git_index": [],
-                "formulas": [],
-                "navigation_references": [],
-            },
-            "plan_sha256": setup.setup_plan_digest(
-                {
-                    "schema": setup.SETUP_PLAN_SCHEMA,
-                    "initialization": [],
-                    "beads_issues": [],
-                    "dependencies": [],
-                    "supersessions": [],
-                    "filesystem": [],
-                    "git_index": [],
-                    "formulas": [],
-                    "navigation_references": [],
-                }
-            ),
+            "mutation_plan": mutation,
+            "plan_sha256": setup.setup_plan_digest(mutation),
             "preconditions": {"blocked": []},
             "filesystem": [],
         },
@@ -1725,19 +1916,7 @@ def test_setup_apply_is_retry_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         return {"status": "ok"}
 
     monkeypatch.setattr(setup, "_execute_setup_plan", fake_execute)
-    digest = setup.setup_plan_digest(
-        {
-            "schema": setup.SETUP_PLAN_SCHEMA,
-            "initialization": [],
-            "beads_issues": [],
-            "dependencies": [],
-            "supersessions": [],
-            "filesystem": [],
-            "git_index": [],
-            "formulas": [],
-            "navigation_references": [],
-        }
-    )
+    digest = setup.setup_plan_digest(mutation)
     assert setup.apply_setup(tmp_path, initialize=True, force=False, expected_plan_sha256=digest)["status"] == "ok"
     assert setup.apply_setup(tmp_path, initialize=True, force=False, expected_plan_sha256=digest)["status"] == "ok"
 

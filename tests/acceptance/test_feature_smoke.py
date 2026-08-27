@@ -6,9 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from conftest import ROOT, run_command, run_ctl, run_json
+from conftest import DSTACK, ROOT, run_command, run_ctl, run_json
 
-SETUP = ROOT / "skills/dstack-beads-core/scripts/setup.py"
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 from dstack_commands import RECORD_SUBJECTS  # noqa: E402
 
@@ -68,15 +67,14 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
         "branch=legacy",
     )
     planned = run_command(
-        ["python3", "-S", str(SETUP), "plan", "--root", str(acceptance_repo), "--force"],
+        [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
         cwd=acceptance_repo,
     )
     digest = json.loads(planned.stdout)["plan_sha256"]
     run_command(
         [
-            "python3",
-            "-S",
-            str(SETUP),
+            str(DSTACK),
+            "setup",
             "apply",
             "--root",
             str(acceptance_repo),

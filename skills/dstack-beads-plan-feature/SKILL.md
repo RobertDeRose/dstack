@@ -14,8 +14,7 @@ Treat input as an exact ID, slug, title, or new request. Inspect existing Beads 
 product docs, source, tests, and related work needed to understand the outcome. Resolve an existing candidate with:
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-  feature resolve "<selector>"
+"{baseDir}/../../bin/dstack" ctl feature resolve "<selector>"
 ```
 
 Update only one open planned feature labeled `dstack:feature-idea` and `feature:<slug>`. Replanning reuses that Beads ID

@@ -2,10 +2,11 @@
 
 ## Setup diagnostics
 
-Setup first emits a stateless plan with an authority-state digest. Apply requires that reviewed digest, recomputes the
-plan after a clean-worktree preflight, and refuses changed preconditions. Formula writes use atomic replacement;
-failures compensate setup-owned resources where possible and report observed recovery for boundaries that require
-inspection.
+Setup first emits a stateless plan with an authority-state digest. The digest binds target operations, the current
+controller-content identity/state, and exact Python, Beads, and mdBook outputs. Apply requires that reviewed digest,
+recomputes the plan after a clean-worktree preflight, rejects unmerged or changed controller authority, and completes
+locked-tool and isolated formula-bundle checks before target mutation. Formula writes use atomic replacement; failures
+compensate setup-owned resources where possible and report observed recovery for boundaries that require inspection.
 
 Doctor reports independent, actionable checks for pinned Beads and mdBook versions, formula bytes and validity,
 documentation, interaction-log policy, feature reconciliations, Git worktrees, tracked runtime paths, origin/GitHub
@@ -17,7 +18,7 @@ The tested mdBook release is pinned through mise. Validate required pages, chapt
 Markdown, and the build with:
 
 ```bash
-python3 skills/dstack-beads-core/scripts/dstackctl.py docs validate
+bin/dstack ctl docs validate
 ```
 
 The build uses temporary output and external URLs are not fetched.
@@ -57,10 +58,10 @@ and verifies the supported JSON envelope, both formula structures and pours, nat
 fan-in, supersession, and worktree primitives. The smoke scenario alone runs full dStack setup, then one minimal shipped
 feature through approval, one Git-backed task, closeout, and fast-forward delivery.
 
-GitHub Actions validates the mdBook, then runs the fast suite and each real-Beads scenario as separate jobs on pull
-requests, pushes to `main`, a weekly schedule, and manual dispatch. The acceptance matrix installs the exact supported
-Beads 1.2.2 release through mise. A different version requires an explicit compatibility change backed by the same
-real-boundary scenarios. Acceptance preflight fails immediately unless `bd` is on `PATH`.
+GitHub Actions runs with locked mise resolution, validates the mdBook, then runs the fast suite and each real-Beads
+scenario as separate jobs on pull requests and manual dispatch. The package selects Python 3.14.7, mdBook 0.5.3, and the
+exact supported Beads 1.2.2 release from `mise.lock`. A different version requires an explicit compatibility change
+backed by the same real-boundary scenarios. Acceptance preflight fails immediately unless the locked `bd` is available.
 
 ## Test ownership
 

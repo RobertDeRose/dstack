@@ -50,7 +50,8 @@ it to expected feature work.
 - Feature specification and alignment analysis use exact native-ready claiming.
 - Closed-feature audit recovers expected specification, implementation, and closeout footers from the target ref after
   normal branch/worktree cleanup, honors no-repository-change work, and ignores unrelated history.
-- Exact Beads build guidance names the tested literal version and the required mise/aqua-before-Homebrew PATH behavior.
+- Exact Beads build guidance names the tested literal version; package-relative locked mise resolution prevents an
+  ambient Homebrew build from replacing it.
 
 ### Intentional differences
 

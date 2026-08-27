@@ -1,11 +1,12 @@
 [tools]
 "aqua:gastownhall/beads" = "1.2.2"
 "aqua:owenlamont/ryl" = "latest"
-"aqua:rust-lang/mdBook" = "latest"
+"aqua:rust-lang/mdBook" = "0.5.3"
 actionlint = "latest"
 hk = "latest"
 jq = "latest"
 pkl = "latest"
+"python" = "3.14.7"
 ruff = "latest"
 rumdl = "latest"
 tombi = "latest"

@@ -144,6 +144,11 @@ def run(
             timeout=effective_timeout,
         )
     except FileNotFoundError as exc:
+        executable = Path(str(command[0])).name
+        if os.environ.get("DSTACK_LOCKED_RUNTIME") == "1" and executable in {"bd", "mdbook", "python"}:
+            raise DstackError(
+                f"locked {executable} is unavailable; run `mise --cd <dstack-package-root> install --locked`"
+            ) from exc
         raise DstackError(f"required executable not found: {command[0]}") from exc
     except subprocess.TimeoutExpired as exc:
         mutation = "may have changed state" if command_may_mutate(command) else "was read-only"
