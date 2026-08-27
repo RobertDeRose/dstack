@@ -21,6 +21,8 @@ def test_package_version_and_resources() -> None:
     assert package["version"] == "0.5.0"
     assert package["pi"]["skills"] == ["./skills"]
     assert package["pi"]["prompts"] == ["./prompts"]
+    launcher = ROOT / "bin/dstack"
+    assert launcher.is_file() and os.access(launcher, os.X_OK)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
     assert project["project"]["version"] == package["version"]
     lock = (ROOT / "uv.lock").read_text()
@@ -360,7 +362,7 @@ def test_public_help_is_mechanical_and_side_effect_free() -> None:
                 continue
             assert action.help and action.help != argparse.SUPPRESS
     result = subprocess.run(
-        [sys.executable, "-S", str(controller_path), "--help"],
+        [str(ROOT / "bin/dstack"), "ctl", "--help"],
         cwd=ROOT,
         text=True,
         capture_output=True,
@@ -377,6 +379,41 @@ def test_public_help_is_mechanical_and_side_effect_free() -> None:
     assert after == before
 
 
+def test_launcher_reports_portable_mise_recovery() -> None:
+    result = subprocess.run(
+        [str(ROOT / "bin/dstack"), "ctl", "--help"],
+        cwd=ROOT,
+        env={**os.environ, "PATH": "/usr/bin:/bin"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 127
+    assert "dstack requires mise" in result.stderr
+    assert "mise --cd <dstack-package-root> install --locked" in result.stderr
+    assert str(Path.home()) not in result.stderr
+
+
+def test_launcher_reports_missing_locked_runtime(tmp_path: Path) -> None:
+    fake_mise = tmp_path / "mise"
+    fake_mise.write_text("#!/bin/sh\nexit 1\n")
+    fake_mise.chmod(0o755)
+    result = subprocess.run(
+        [str(ROOT / "bin/dstack"), "ctl", "--help"],
+        cwd=ROOT,
+        env={**os.environ, "PATH": f"{tmp_path}:/usr/bin:/bin"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "dstack locked runtime is unavailable: python@3.14.7" in result.stderr
+    assert "mise --cd <dstack-package-root> install --locked" in result.stderr
+    assert str(Path.home()) not in result.stderr
+
+
 def test_delivery_policy_has_no_planned_features_ledger_special_case() -> None:
     source = (ROOT / "skills/dstack-beads-core/scripts/dstack_delivery.py").read_text()
     assert "planned-features.md" not in source
@@ -390,14 +427,36 @@ def test_formula_install_copies_match_canonical_sources() -> None:
         assert installed.read_bytes() == canonical.read_bytes()
 
 
-def test_documented_beads_support_matches_exact_tested_release() -> None:
+def test_documented_runtime_support_matches_locked_tools() -> None:
     readme = (ROOT / "README.md").read_text()
+    compatibility = (ROOT / "docs/src/reference/compatibility.md").read_text()
     tooling = (ROOT / "docs/src/development/tooling.md").read_text()
+    mise = tomllib.loads((ROOT / "mise.toml").read_text())
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+    launcher = (ROOT / "bin/dstack").read_text()
+
     assert "Beads 1.2.2 exactly" in readme
-    assert "mise/aqua" in readme
+    assert "Python 3.14" in readme
+    assert "package-relative locked runtime" in readme
+    assert "mise --cd <dstack-package-root> install --locked" in readme
     assert "Homebrew" in readme
-    assert "first on `PATH`" in readme
+    assert "first on `PATH`" not in readme
+    assert "Python: 3.14" in compatibility
+    assert "ambient `PATH`" in compatibility
     assert "exact supported Beads 1.2.2 release" in " ".join(tooling.split())
+    assert mise["tools"]["python"] == "3.14.7"
+    for tool in ("python", "aqua:gastownhall/beads", "aqua:rust-lang/mdBook"):
+        assert f"tool_version {tool}" in launcher
+    assert 'python@"$python_version"' in launcher
+    assert 'aqua:gastownhall/beads@"$beads_version"' in launcher
+    assert 'aqua:rust-lang/mdBook@"$mdbook_version"' in launcher
+    assert "where --locked" in launcher
+    assert "MISE_CONFIG_DIR=/dev/null" in launcher
+    assert "MISE_EXEC_AUTO_INSTALL=false" in launcher
+    assert "--no-config" not in launcher and "--locked" in launcher
+    assert project["project"]["requires-python"] == ">=3.14,<3.15"
+    assert 'MISE_LOCKED: "1"' in workflow
     assert "Later versions" not in readme
     assert "Beads 1.2.2+" not in readme
 

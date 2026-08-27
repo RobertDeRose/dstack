@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  MISE_LOCKED: "1"
 jobs:
   scripts:
     name: Scripts

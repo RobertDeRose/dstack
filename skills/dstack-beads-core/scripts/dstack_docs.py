@@ -404,7 +404,7 @@ def create_foundation(root: Path) -> list[str]:
 def require_mdbook() -> str:
     executable = shutil.which("mdbook")
     if not executable:
-        raise DstackError("mdbook executable is required on PATH")
+        raise DstackError("locked mdbook is unavailable; run `mise --cd <dstack-package-root> install --locked`")
     return executable
 
 

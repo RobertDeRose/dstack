@@ -8,6 +8,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import sys
@@ -36,6 +37,7 @@ from dstacklib import (
     FEATURE_STEPS,
     BeadsClient,
     DstackError,
+    SUPPORTED_BEADS_VERSION_OUTPUT,
     as_items,
     canonical_feature_design_path,
     dependency_records,
@@ -60,9 +62,11 @@ from dstack_commands import (
 
 FORMULA_NAMES = ("dstack-feature", "dstack-project-alignment")
 SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.3"
-SETUP_PLAN_SCHEMA = "dstack.setup-plan/v2"
+SUPPORTED_PYTHON_VERSION_OUTPUT = "Python 3.14.7"
+SETUP_PLAN_SCHEMA = "dstack.setup-plan/v3"
 SETUP_PLAN_FIELDS = {
     "schema",
+    "authority",
     "initialization",
     "beads_issues",
     "dependencies",
@@ -135,6 +139,42 @@ def _setup_metadata(value: Any, field: str) -> dict[str, str | None]:
             raise SetupError(f"setup plan metadata {name!r} must be string or null")
         result[name] = None if item is None else _setup_text(item, f"{field}.{name}", empty=True)
     return {key: result[key] for key in sorted(result)}
+
+
+def _setup_authority(value: Any) -> dict[str, str]:
+    item = _setup_fields(
+        value,
+        {
+            "controller_sha256",
+            "controller_state",
+            "python_version",
+            "beads_version",
+            "mdbook_version",
+        },
+        "authority",
+    )
+    result = {
+        key: _setup_text(item[key], f"authority.{key}")
+        for key in (
+            "controller_sha256",
+            "controller_state",
+            "python_version",
+            "beads_version",
+            "mdbook_version",
+        )
+    }
+    _setup_hash(result["controller_sha256"], "authority.controller_sha256")
+    if result["controller_state"] not in {"clean", "dirty", "unversioned"}:
+        raise SetupError("setup controller authority state is invalid")
+    expected = {
+        "python_version": SUPPORTED_PYTHON_VERSION_OUTPUT,
+        "beads_version": SUPPORTED_BEADS_VERSION_OUTPUT,
+        "mdbook_version": SUPPORTED_MDBOOK_VERSION_OUTPUT,
+    }
+    for key, supported in expected.items():
+        if result[key] != supported:
+            raise SetupError(f"setup authority {key} must be {supported}")
+    return result
 
 
 def _setup_initialization(value: Any) -> list[dict[str, Any]]:
@@ -484,6 +524,7 @@ def canonicalize_setup_plan(value: Any) -> dict[str, Any]:
         raise SetupError(f"setup plan schema must be {SETUP_PLAN_SCHEMA}")
     return {
         "schema": SETUP_PLAN_SCHEMA,
+        "authority": _setup_authority(value["authority"]),
         "initialization": _setup_initialization(value["initialization"]),
         "beads_issues": _setup_beads_issues(value["beads_issues"]),
         "dependencies": _setup_dependencies(value["dependencies"]),
@@ -557,6 +598,79 @@ def _validate_setup_tree(root: Path, relative: str) -> Path:
 
 def package_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _controller_authority() -> dict[str, str]:
+    root = package_root()
+    scripts = root / "skills/dstack-beads-core/scripts"
+    sources = sorted(scripts.glob("*.py"))
+    formulas = sorted((root / "formulas").glob("*.formula.toml"))
+    authority_paths = [root / name for name in ("bin/dstack", "mise.toml", "mise.lock", "pyproject.toml")]
+    authority_paths.extend([*sources, *formulas])
+    invalid = [path for path in authority_paths if path.is_symlink() or not path.is_file()]
+    if invalid:
+        raise SetupError(
+            "controller authority source is missing or invalid: " + ", ".join(str(path) for path in invalid)
+        )
+
+    digest = hashlib.sha256()
+    for path in authority_paths:
+        relative = path.relative_to(root).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+
+    repository = run(["git", "rev-parse", "--show-toplevel"], cwd=root, check=False)
+    if repository.returncode:
+        state = "unversioned"
+    else:
+        repository_root = Path(repository.stdout.strip()).resolve()
+        try:
+            package_relative = root.relative_to(repository_root)
+        except ValueError as exc:
+            raise SetupError("controller package is outside its reported Git repository") from exc
+        pathspecs = [
+            (package_relative / "skills/dstack-beads-core/scripts").as_posix(),
+            (package_relative / "formulas").as_posix(),
+            *(
+                (package_relative / name).as_posix()
+                for name in ("bin/dstack", "mise.toml", "mise.lock", "pyproject.toml")
+            ),
+        ]
+        if run(["git", "ls-files", "-u", "--", *pathspecs], cwd=repository_root).stdout.strip():
+            raise SetupError("unmerged controller authority source; resolve the package checkout before setup")
+        status = run(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all", "--", *pathspecs],
+            cwd=repository_root,
+        ).stdout.strip()
+        state = "dirty" if status else "clean"
+    return {"controller_sha256": digest.hexdigest(), "controller_state": state}
+
+
+def _runtime_authority(root: Path) -> dict[str, str]:
+    python_version = f"Python {platform.python_version()}"
+    if python_version != SUPPORTED_PYTHON_VERSION_OUTPUT:
+        raise SetupError(
+            f"unsupported Python version; expected {SUPPORTED_PYTHON_VERSION_OUTPUT}, found {python_version}; "
+            "run through `mise --cd <dstack-package-root> exec --locked`"
+        )
+    beads_version = BeadsClient(root).check_version()
+    mdbook = require_mdbook()
+    mdbook_version = run([mdbook, "--version"], cwd=root).stdout.strip()
+    if mdbook_version != SUPPORTED_MDBOOK_VERSION_OUTPUT:
+        raise SetupError(
+            f"unsupported mdBook version; expected {SUPPORTED_MDBOOK_VERSION_OUTPUT}, found {mdbook_version}"
+        )
+    return {
+        "python_version": python_version,
+        "beads_version": beads_version,
+        "mdbook_version": mdbook_version,
+    }
+
+
+def _current_setup_authority(root: Path) -> dict[str, str]:
+    return _setup_authority({**_controller_authority(), **_runtime_authority(root)})
 
 
 def ensure_beads(root: Path, *, initialize: bool) -> None:
@@ -872,19 +986,7 @@ def _setup_normalization_plan(client: BeadsClient) -> list[dict[str, Any]]:
             )
             if mutation:
                 result.append(mutation)
-    return canonicalize_setup_plan(
-        {
-            "schema": SETUP_PLAN_SCHEMA,
-            "initialization": [],
-            "beads_issues": result,
-            "dependencies": [],
-            "supersessions": [],
-            "filesystem": [],
-            "git_index": [],
-            "formulas": [],
-            "navigation_references": [],
-        }
-    )["beads_issues"]
+    return _setup_beads_issues(result)
 
 
 def _setup_feature_design_moves(client: BeadsClient) -> list[tuple[str, str]]:
@@ -1045,6 +1147,7 @@ def _setup_plan_object(
     *,
     initialize: bool,
     force: bool,
+    authority: Mapping[str, str],
     formula_actions: Mapping[str, str],
     git_index: list[dict[str, str]],
     client: BeadsClient | None,
@@ -1109,6 +1212,7 @@ def _setup_plan_object(
     return canonicalize_setup_plan(
         {
             "schema": SETUP_PLAN_SCHEMA,
+            "authority": dict(authority),
             "initialization": initialization,
             "beads_issues": _setup_normalization_plan(client) if client and force else [],
             "dependencies": [],
@@ -1123,6 +1227,7 @@ def _setup_plan_object(
 
 def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     root = git_root(root_arg)
+    authority = _current_setup_authority(root)
     beads = _setup_repo_path(root, ".beads")
     _setup_repo_path(root, ".beads/formulas")
     _validate_setup_tree(root, "docs")
@@ -1160,7 +1265,6 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
         git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
     else:
         client = BeadsClient(root)
-        client.check_version()
         if tracked(root, ".beads/interactions.jsonl"):
             git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
         ignore = root / ".beads/.gitignore"
@@ -1190,6 +1294,7 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
         root,
         initialize=initialize,
         force=force,
+        authority=authority,
         formula_actions=formulas,
         git_index=git_index,
         client=client,
@@ -1199,6 +1304,7 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
         "status": "blocked" if blocked else "ready",
         "root": str(root),
         "preconditions": {"clean_worktree": not status, "blocked": blocked},
+        "authority": authority,
         "mutation_plan": mutation_plan,
         "plan_sha256": setup_plan_digest(mutation_plan),
         "filesystem": sorted(display_filesystem, key=lambda item: (item["path"], item["action"])),
@@ -1413,8 +1519,16 @@ def _verify_setup_beads_postconditions(
 
 def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     mutation = plan
+    observed_authority = _current_setup_authority(root)
+    if observed_authority != mutation["authority"]:
+        raise SetupError("setup controller/runtime authority changed since plan; rerun setup plan and review it")
     _validate_setup_tree(package_root(), "formulas")
     _validate_setup_plan_paths(root, mutation)
+    for operation in mutation["formulas"]:
+        source = _setup_resolve_source(root, str(operation["source"]))
+        if _setup_sha256(source) != operation["source_sha256"]:
+            raise SetupError(f"setup formula source changed: {source}")
+    validate_bundle(package_root() / "formulas")
     initialization = mutation["initialization"]
     if initialization:
         record = initialization[0]
@@ -1428,7 +1542,7 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
         raise SetupError("Beads is not initialized and the reviewed plan omits initialization")
 
     client = BeadsClient(root)
-    version = client.check_version()
+    version = str(mutation["authority"]["beads_version"])
     expected_beads, beads_operations = _setup_expected_beads_states(client, mutation)
     for operation in mutation["beads_issues"]:
         arguments: list[str] = []
@@ -1463,8 +1577,6 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
 
     for operation in mutation["formulas"]:
         source = _setup_resolve_source(root, str(operation["source"]))
-        if _setup_sha256(source) != operation["source_sha256"]:
-            raise SetupError(f"setup formula source changed: {source}")
         destination = _setup_repo_path(root, str(operation["destination"]))
         if operation["action"] == "create" and destination.exists():
             raise SetupError(f"setup formula destination already exists: {destination}")
@@ -1507,7 +1619,6 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
             _setup_resolve_source(root, str(operation["source"]))
         ):
             raise SetupError(f"setup formula postcondition failed: {destination}")
-    validate_bundle(package_root() / "formulas")
     for name in FORMULA_NAMES:
         validate_formula(root, name)
     return {"status": "ok", "beads_version": version}

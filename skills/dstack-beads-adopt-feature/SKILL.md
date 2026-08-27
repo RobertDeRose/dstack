@@ -10,8 +10,7 @@ This authorizes Beads adoption mutations only—no source, Git-history, branch, 
 1. Inspect and classify obvious legacy nodes:
 
    ```bash
-   python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-     adopt inspect <legacy-feature>
+   "{baseDir}/../../bin/dstack" ctl adopt inspect <legacy-feature>
    ```
 
 2. Decide every open executable descendant, including bug/chore work, and write one temporary strict

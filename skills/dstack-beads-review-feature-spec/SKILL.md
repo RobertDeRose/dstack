@@ -14,12 +14,9 @@ worktree.
 Run the retained stateless mechanics:
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-  feature initialize "<selector>" --base-branch "<base>"
-python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-  feature claim-spec "<returned-root>"
-python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-  feature scaffold-design "<returned-root>"
+"{baseDir}/../../bin/dstack" ctl feature initialize "<selector>" --base-branch "<base>"
+"{baseDir}/../../bin/dstack" ctl feature claim-spec "<returned-root>"
+"{baseDir}/../../bin/dstack" ctl feature scaffold-design "<returned-root>"
 ```
 
 Initialization pours a planned feature or reuses an already initialized current molecule and conventional worktree. It
@@ -49,8 +46,7 @@ Resolve clear holes and collisions directly. Ask only for genuine product or arc
 Inspect the current graph before mutation:
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-  feature inspect "<returned-root>"
+"{baseDir}/../../bin/dstack" ctl feature inspect "<returned-root>"
 ```
 
 Reconcile the whole native graph: reuse/update valid tasks with native `bd update`; create missing outcomes;
@@ -59,8 +55,7 @@ native `bd dep remove`; and preserve context as nonblocking relations. Do not du
 graph. Create missing bounded outcomes through:
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-  feature add-task "<returned-root>" --title "<title>" \
+"{baseDir}/../../bin/dstack" ctl feature add-task "<returned-root>" --title "<title>" \
   --description-file "<temporary-description>" \
   --acceptance-file "<temporary-acceptance>" [--depends-on "<task-id>"]
 ```
@@ -70,8 +65,7 @@ file lists or implementation names. Do not create reviewer, coordinator, status,
 contents changed, commit the actual design/docs change with the specification Bead footer:
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-  git commit --bead "<spec-id>" --subject "<subject>"
+"{baseDir}/../../bin/dstack" ctl git commit --bead "<spec-id>" --subject "<subject>"
 ```
 
 Review the complete final design, task graph, dependencies, and candidate diff. Present material decisions, findings,
@@ -80,8 +74,7 @@ not authorization. Do not approve while a consequential decision or finding is u
 only the accepted content digest and native gate transition:
 
 ```bash
-python3 "{baseDir}/../dstack-beads-core/scripts/dstackctl.py" \
-  feature approve-spec "<returned-root>"
+"{baseDir}/../../bin/dstack" ctl feature approve-spec "<returned-root>"
 ```
 
 This stores no Git SHA. Return the authorized outcomes and `/implement-feature <returned-root>` as the next stage.

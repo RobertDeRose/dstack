@@ -35,8 +35,9 @@ command execution does not require loading every reference document.
 
 ## Command pattern
 
-Use the bundled controller at `{baseDir}/scripts/dstackctl.py`. References below to `dstackctl.py` mean that exact
-script; do not search for or install another executable.
+Invoke the bundled controller as `{baseDir}/../../bin/dstack ctl`; the package-relative locked mise launcher executes
+exactly `{baseDir}/scripts/dstackctl.py`. References below to `dstackctl.py` mean that script. If tools are missing,
+report the launcher's portable recovery command rather than choosing an ambient substitute.
 
 1. Run the relevant `dstackctl.py ... inspect/claim` command.
 2. Read only the Bead, design, source, tests, and docs needed for the decision.

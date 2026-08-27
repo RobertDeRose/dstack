@@ -9,8 +9,7 @@ from typing import Any
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SETUP = ROOT / "skills/dstack-beads-core/scripts/setup.py"
-CTL = ROOT / "skills/dstack-beads-core/scripts/dstackctl.py"
+DSTACK = ROOT / "bin/dstack"
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -40,7 +39,7 @@ def run_json(cwd: Path, *args: str) -> Any:
 
 
 def run_ctl(cwd: Path, *args: str, check: bool = True) -> Any:
-    result = run_command(["python3", "-S", str(CTL), "--root", str(cwd), *args], cwd=cwd, check=check)
+    result = run_command([str(DSTACK), "ctl", "--root", str(cwd), *args], cwd=cwd, check=check)
     if not result.returncode:
         try:
             return unwrap(json.loads(result.stdout))
@@ -84,15 +83,14 @@ def beads_repo(real_repo: Path) -> Path:
 @pytest.fixture
 def acceptance_repo(real_repo: Path) -> Path:
     planned = run_command(
-        ["python3", "-S", str(SETUP), "plan", "--root", str(real_repo), "--init"],
+        [str(DSTACK), "setup", "plan", "--root", str(real_repo), "--init"],
         cwd=real_repo,
     )
     digest = json.loads(planned.stdout)["plan_sha256"]
     run_command(
         [
-            "python3",
-            "-S",
-            str(SETUP),
+            str(DSTACK),
+            "setup",
             "apply",
             "--root",
             str(real_repo),

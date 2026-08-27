@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from conftest import ROOT, run_command, run_ctl, run_json
+from conftest import DSTACK, ROOT, run_command, run_ctl, run_json
 
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 from dstack_commands import claim_ready_work, reopen_authorization_boundary
@@ -31,6 +32,36 @@ def by_label(values, label: str) -> dict:
     matches = [item for item in values if label in item.get("labels", [])]
     assert len(matches) == 1, (label, matches)
     return matches[0]
+
+
+def test_unsupported_ambient_beads_is_rejected_without_initializing(real_repo: Path, tmp_path: Path) -> None:
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_bd = fake_bin / "bd"
+    fake_bd.write_text("#!/bin/sh\necho 'bd version 1.2.2 (homebrew)'\n")
+    fake_bd.chmod(0o755)
+    ambient_mise = tmp_path / "ambient-mise"
+    ambient_mise.mkdir()
+    (ambient_mise / "config.toml").write_text('[tools]\npython = "3.13"\n')
+    env = dict(os.environ)
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    env["MISE_CONFIG_DIR"] = str(ambient_mise)
+
+    result = subprocess.run(
+        [str(DSTACK), "setup", "plan", "--root", str(real_repo), "--init"],
+        cwd=real_repo,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    authority = json.loads(result.stdout)["authority"]
+    assert authority["beads_version"] == "bd version 1.2.2 (6c124203e)"
+    assert authority["python_version"] == "Python 3.14.7"
+    assert authority["mdbook_version"] == "mdbook v0.5.3"
+    assert not (real_repo / ".beads").exists()
 
 
 def test_native_claims_are_scoped_and_atomic_under_concurrency(beads_repo: Path) -> None:

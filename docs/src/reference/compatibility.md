@@ -7,15 +7,16 @@ dStack artifacts and adopt active legacy features.
 
 - Beads: `bd version 1.2.2 (6c124203e)` exactly.
 - mdBook: `mdbook v0.5.3` exactly.
-- Python: 3.13.
+- Python: 3.14 (the package lock currently selects 3.14.7).
 
 Setup doctor requires `--delivery-mode merge|pr`. Both profiles reject a pinned version mismatch. Merge mode checks only
 local/common requirements and does not require a remote, GitHub, or `gh`. PR mode additionally requires a usable
-GitHub-compatible target remote, authenticated `gh`, and native Beads `gh:pr` gate capability. Run dStack with the
-mise/aqua-installed acceptance binary first on `PATH`; a separately installed Homebrew 1.2.2 binary has different build
-output and is not covered by the exact contract. Upgrades require an explicit compatibility change, formula preflight,
-fast validation, and both isolated real-Beads acceptance scenarios; changing a version constraint without that evidence
-is unsupported.
+GitHub-compatible target remote, authenticated `gh`, and native Beads `gh:pr` gate capability. The bundled launcher runs
+Python entry points in the package-relative `mise.toml`/`mise.lock` environment, so an ambient `PATH` entry—including a
+separately installed Homebrew 1.2.2 binary—cannot replace the tested build. Prepare missing tools with
+`mise --cd <dstack-package-root> install --locked`. Upgrades require an explicit compatibility change, formula
+preflight, fast validation, and both isolated real-Beads acceptance scenarios; changing a version constraint without
+that evidence is unsupported.
 
 ## Pinned compatibility shims
 
@@ -59,10 +60,12 @@ navigation shape reach the canonical layout before strict validation. The result
 creates missing core documentation but never relocates legacy content; normal feature execution never runs compatibility
 repair.
 
-Setup repair uses strict `dstack.setup-plan/v2` mutation records. The reviewed SHA-256 covers the complete canonical
-operation object, not display summaries; apply receives only that digest, recomputes one object, and executes it without
-a second discovery pass. Initialization is an explicit reviewed operation, and filesystem/formula/navigation records
-carry their exact source, destination, content, conflict, and before/after hash predicates. Drift requires a new plan.
+Setup repair uses strict `dstack.setup-plan/v3` mutation records. The reviewed SHA-256 covers the complete canonical
+operation object, including controller-content state and exact Python, Beads, and mdBook outputs, rather than display
+summaries. Apply receives only that digest, recomputes one object, rejects controller/runtime drift or unmerged
+authority source, and executes it without a second discovery pass. Initialization is an explicit reviewed operation, and
+filesystem/formula/navigation records carry their exact source, destination, content, conflict, and before/after hash
+predicates. Tool and isolated formula-bundle preflight completes before target mutation. Drift requires a new plan.
 
 ## Active legacy feature adoption
 

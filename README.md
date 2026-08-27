@@ -97,14 +97,14 @@ A successful merge/PR finalizer changes Beads only and is forbidden from creatin
 ## Requirements
 
 - Git
-- Python 3.13+
 - Pi
-- mdBook on `PATH`
-- Beads 1.2.2 exactly. Real-Beads acceptance tests define the supported behavioral contract.
+- mise
+- Python 3.14, mdBook 0.5.3, and Beads 1.2.2 exactly, as pinned by this package.
 
-Use the mise/aqua-installed acceptance binary or otherwise ensure that exact binary is first on `PATH`. `bd --version`
-must print `bd version 1.2.2 (6c124203e)`. Do not rely on a separately installed Homebrew `bd`; its different build
-output is outside the tested compatibility boundary.
+The bundled launcher invokes every dStack Python entry point in a package-relative locked runtime selected from
+`mise.toml` and `mise.lock`. Prepare it once with `mise --cd <dstack-package-root> install --locked`. `bd --version`
+must print `bd version 1.2.2 (6c124203e)`. An ambient Homebrew `bd` is never selected and remains outside the tested
+compatibility boundary.
 
 ## Install
 
