@@ -35,14 +35,14 @@ command execution does not require loading every reference document.
 
 ## Command pattern
 
-Invoke the bundled controller as `{baseDir}/../../bin/dstack ctl`; the package-relative locked mise launcher executes
-exactly `{baseDir}/scripts/dstackctl.py`. References below to `dstackctl.py` mean that script. If tools are missing,
-report the launcher's portable recovery command rather than choosing an ambient substitute.
+Invoke the bundled controller as `"{baseDir}/../../bin/dstack" ctl`; the package-relative locked mise launcher is the
+only supported command entry point. If tools are missing, report the launcher's portable recovery command rather than
+choosing an ambient substitute.
 
-1. Run the relevant `dstackctl.py ... inspect/claim` command.
+1. Run the relevant `"{baseDir}/../../bin/dstack" ctl ... inspect/claim` command.
 2. Read only the Bead, design, source, tests, and docs needed for the decision.
 3. Perform engineering work and validation.
-4. Use `dstackctl git commit` for a real repository change.
+4. Use `"{baseDir}/../../bin/dstack" ctl git commit` for a real repository change.
 5. Use the relevant `finish-*` command for deterministic Beads transitions.
 
 Persist a Beads comment only for a product decision, material unresolved finding, accepted risk, deferred validation, or

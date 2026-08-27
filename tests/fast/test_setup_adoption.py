@@ -1578,6 +1578,35 @@ def test_forced_setup_rejects_interaction_state_it_cannot_restore_exactly(tmp_pa
     assert allowed is False
 
 
+@pytest.mark.parametrize("special_state", ["assume-unchanged", "skip-worktree", "symlink"])
+def test_setup_plan_rejects_clean_interaction_state_it_cannot_restore_exactly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, special_state: str
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    interaction = _commit_tracked_interaction(repo)
+    if special_state == "symlink":
+        interaction.unlink()
+        interaction.symlink_to(".gitignore")
+        subprocess.run(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "symlink"],
+            cwd=repo,
+            check=True,
+        )
+    else:
+        subprocess.run(["git", "update-index", f"--{special_state}", ".beads/interactions.jsonl"], cwd=repo, check=True)
+    monkeypatch.setattr(setup, "git_root", lambda root: repo)
+    monkeypatch.setattr(
+        setup,
+        "_current_setup_authority",
+        lambda root: pytest.fail("unsupported index state reached authority discovery"),
+    )
+
+    with pytest.raises(setup.SetupError, match="unsupported Git-index state"):
+        setup.setup_plan(repo, initialize=False, force=True)
+
+
 def test_forced_setup_allows_known_corrupt_backup_runtime(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -2273,6 +2302,11 @@ def test_setup_apply_is_retry_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 )
 def test_remote_host_parses_exact_authority(remote: str, host: str | None) -> None:
     assert setup._remote_host(remote) == host
+
+
+def test_setup_parser_exposes_no_direct_legacy_repair_mutator() -> None:
+    with pytest.raises(SystemExit):
+        setup.build_parser().parse_args(["repair-legacy", "--force"])
 
 
 def test_doctor_requires_explicit_delivery_mode(tmp_path: Path) -> None:

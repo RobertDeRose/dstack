@@ -10,7 +10,7 @@ Tier 1 is read-only for repository source.
 1. Initialize or inspect the audit:
 
    ```bash
-   dstackctl.py alignment initialize --title "<title>" \
+   "{baseDir}/../../bin/dstack" ctl alignment initialize --title "<title>" \
      --target-branch <branch> --scope "<scope>"
    ```
 
@@ -37,7 +37,7 @@ Tier 1 is read-only for repository source.
 6. Finish the canonical plan and stop with the human gate open:
 
    ```bash
-   dstackctl.py alignment finish-plan AUDIT --plan-file PLAN.json
+   "{baseDir}/../../bin/dstack" ctl alignment finish-plan AUDIT --plan-file PLAN.json
    ```
 
    The controller validates, canonicalizes, stores, rereads, and binds the plan and `baseline_commit` before any

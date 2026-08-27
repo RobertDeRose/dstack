@@ -104,7 +104,8 @@ A successful merge/PR finalizer changes Beads only and is forbidden from creatin
 The bundled launcher invokes every dStack Python entry point in a package-relative locked runtime selected from
 `mise.toml` and `mise.lock`. Prepare it once with `mise --cd <dstack-package-root> install --locked`. `bd --version`
 must print `bd version 1.2.2 (6c124203e)`. An ambient Homebrew `bd` is never selected and remains outside the tested
-compatibility boundary.
+compatibility boundary. Direct Python execution of controller entry points is rejected; invoke `bin/dstack` or the
+installed Pi commands.
 
 ## Install
 

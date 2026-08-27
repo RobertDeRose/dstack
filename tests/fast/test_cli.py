@@ -119,6 +119,7 @@ def test_ctl_reports_missing_input_files_as_json(monkeypatch, capsys, tmp_path: 
 
 
 def test_main_dispatches_in_process(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("DSTACK_LOCKED_RUNTIME", "1")
     seen = {}
 
     def fake(args):

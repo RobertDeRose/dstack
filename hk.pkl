@@ -8,7 +8,7 @@ local linters = new Mapping<String, Step> {
   ["actionlint"] = Builtins.actionlint
   ["docs"] = new Step {
     glob = List("docs/src/**/*.md", "docs/book.toml")
-    check = "uv run python skills/dstack-beads-core/scripts/dstackctl.py docs validate"
+    check = "bin/dstack ctl docs validate"
   }
   ["json"] = Builtins.jq
   ["pkl"] = Builtins.pkl

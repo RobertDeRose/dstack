@@ -13,9 +13,9 @@ mode is `ready` (default), `pr`, or `merge`.
 1. Close the implementation workstream when all required children are complete:
 
    ```bash
-   dstackctl.py feature finish-workstream [feature]
-   dstackctl.py feature claim-closeout [feature]
-   dstackctl.py feature scaffold-reconciliation [feature]
+   "{baseDir}/../../bin/dstack" ctl feature finish-workstream [feature]
+   "{baseDir}/../../bin/dstack" ctl feature claim-closeout [feature]
+   "{baseDir}/../../bin/dstack" ctl feature scaffold-reconciliation [feature]
    ```
 
 2. Compare accepted design, actual code/tests, durable docs, decisions, and required validation. Reconcile real behavior
@@ -32,13 +32,13 @@ mode is `ready` (default), `pr`, or `merge`.
 4. Validate the current mdBook and run the documentation policy guard against the target and candidate, then:
 
    ```bash
-   dstackctl.py docs validate
-   dstackctl.py feature finish-closeout [feature]
+   "{baseDir}/../../bin/dstack" ctl docs validate
+   "{baseDir}/../../bin/dstack" ctl feature finish-closeout [feature]
    ```
 
 ## Delivery
 
-- `ready`: run `dstackctl.py delivery inspect <feature>` and stop with the root open.
+- `ready`: run `"{baseDir}/../../bin/dstack" ctl delivery inspect <feature>` and stop with the root open.
 - `pr`: run `delivery pr-preflight`; draft title/body from the complete commit series and aggregate diff; obtain user
   approval; save the approved body and rerun preflight with `--title` and `--body-file`; only then push/create the PR
   and run `delivery register-pr --pr-number <n>`. On later invocation run `delivery finalize-pr`.

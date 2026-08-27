@@ -32,14 +32,14 @@ For each task:
 6. Stage only the intended task boundary and commit through:
 
    ```bash
-   dstackctl.py git commit --bead <task-id> --subject "<subject>"
+   "{baseDir}/../../bin/dstack" ctl git commit --bead <task-id> --subject "<subject>"
    ```
 
 7. Verify the committed footer and changed paths before completion:
 
    ```bash
-   dstackctl.py evidence commits --bead <task-id> --ref <base>..HEAD
-   dstackctl.py feature finish-task <feature> --task <task-id>
+   "{baseDir}/../../bin/dstack" ctl evidence commits --bead <task-id> --ref <base>..HEAD
+   "{baseDir}/../../bin/dstack" ctl feature finish-task <feature> --task <task-id>
    ```
 
 `--all` repeats only over native ready implementation tasks. When none remain, report completion and stop. Do not run

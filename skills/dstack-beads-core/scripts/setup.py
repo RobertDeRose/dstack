@@ -58,6 +58,7 @@ from dstacklib import (
     parse_json,
     root_metadata_value,
     run,
+    require_locked_runtime,
     worktree_records,
 )
 
@@ -1340,6 +1341,12 @@ def _supported_interaction_index(root: Path, path: str) -> bool:
     )
 
 
+def _require_supported_interaction_index(root: Path) -> None:
+    path = ".beads/interactions.jsonl"
+    if tracked(root, path) and not _supported_interaction_index(root, path):
+        raise SetupError(f"{path} has unsupported Git-index state; repair it with native Git before setup")
+
+
 def _setup_preflight(root: Path, *, force: bool) -> tuple[str, bool]:
     status, paths, unmerged = _setup_status(root)
     interaction = ".beads/interactions.jsonl"
@@ -1450,6 +1457,7 @@ def _setup_plan_object(
 
 def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
     root = git_root(root_arg)
+    _require_supported_interaction_index(root)
     status, allowed_interaction_change = _setup_preflight(root, force=force)
     authority = _current_setup_authority(root)
     if status and not allowed_interaction_change:
@@ -1915,6 +1923,7 @@ def apply_setup(
     if not expected_plan_sha256:
         raise SetupError("setup plan digest is required")
     root = git_root(root_arg)
+    _require_supported_interaction_index(root)
     if force:
         status, allowed_interaction_change = _setup_preflight(root, force=True)
         if status and not allowed_interaction_change:
@@ -2577,13 +2586,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="delivery profile to validate explicitly",
     )
 
-    repair_parser = sub.add_parser("repair-legacy")
-    repair_parser.add_argument("--root", type=Path, default=Path.cwd())
-    repair_parser.add_argument("--force", action="store_true")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        require_locked_runtime()
+    except DstackError as exc:
+        json.dump({"status": "error", "error": str(exc)}, sys.stderr)
+        sys.stderr.write("\n")
+        return 1
     args = build_parser().parse_args(argv)
     try:
         if args.command == "plan":
@@ -2595,10 +2607,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 force=args.force,
                 expected_plan_sha256=args.plan_digest,
             )
-        elif args.command == "doctor":
-            payload = doctor(args.root, delivery_mode=args.delivery_mode)
         else:
-            payload = repair_legacy(args.root, force=args.force)
+            payload = doctor(args.root, delivery_mode=args.delivery_mode)
     except DstackError as exc:
         json.dump({"status": "error", "error": str(exc)}, sys.stderr)
         sys.stderr.write("\n")

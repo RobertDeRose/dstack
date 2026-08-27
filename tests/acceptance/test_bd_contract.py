@@ -910,9 +910,8 @@ def test_setup_rejects_external_formula_parent_before_mutation(
 
     result = run_command(
         [
-            "python3",
-            "-S",
-            str(ROOT / "skills/dstack-beads-core/scripts/setup.py"),
+            str(DSTACK),
+            "setup",
             "plan",
             "--root",
             str(beads_repo),

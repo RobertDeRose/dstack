@@ -22,14 +22,14 @@ This authorizes Beads adoption mutations only—no source, Git-history, branch, 
 3. Validate the complete plan before allowing native mutation:
 
    ```bash
-   dstackctl.py adopt plan <legacy-feature> \
+   "{baseDir}/../../bin/dstack" ctl adopt plan <legacy-feature> \
      --classification-file CLASSIFICATION.json
    ```
 
 4. Apply the same classification file only after reviewing the emitted plan:
 
    ```bash
-   dstackctl.py adopt apply <legacy-feature> \
+   "{baseDir}/../../bin/dstack" ctl adopt apply <legacy-feature> \
      --classification-file CLASSIFICATION.json
    ```
 
