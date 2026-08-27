@@ -39,6 +39,7 @@ from dstack_alignment import (
     cmd_alignment_claim_landing,
     cmd_alignment_finish_landing,
 )
+from dstacklib import require_locked_runtime
 from dstack_delivery import (
     cmd_git_commit,
     cmd_git_amend,
@@ -383,6 +384,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        require_locked_runtime()
+    except DstackError as exc:
+        return fail(str(exc))
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

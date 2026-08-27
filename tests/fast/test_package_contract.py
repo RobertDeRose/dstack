@@ -29,12 +29,34 @@ def test_package_version_and_resources() -> None:
     assert f'name = "dstack"\nversion = "{package["version"]}"' in lock
 
 
+def test_direct_python_entrypoints_require_locked_launcher() -> None:
+    env = dict(os.environ)
+    env.pop("DSTACK_LOCKED_RUNTIME", None)
+    for relative in (
+        "skills/dstack-beads-core/scripts/dstack_cli.py",
+        "skills/dstack-beads-core/scripts/dstackctl.py",
+        "skills/dstack-beads-core/scripts/setup.py",
+    ):
+        result = subprocess.run(
+            [sys.executable, "-S", str(ROOT / relative), "--help"],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 1
+        assert "bin/dstack" in result.stderr
+
+
 def test_all_skill_and_prompt_frontmatter_parses() -> None:
     for path in [*ROOT.glob("skills/*/SKILL.md"), *ROOT.glob("prompts/*.md")]:
         text = path.read_text()
         assert text.startswith("---\n")
         frontmatter = text.split("---", 2)[1]
         assert isinstance(yaml.safe_load(frontmatter), dict)
+        if path.name == "SKILL.md":
+            assert "dstackctl.py" not in text
 
 
 def test_feature_planning_is_one_lossless_beads_only_methodology() -> None:

@@ -91,6 +91,7 @@ def test_register_pr_help_describes_pre_merge_registration() -> None:
 
 
 def test_main_dispatches_in_process(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("DSTACK_LOCKED_RUNTIME", "1")
     seen = {}
 
     def fake(args):

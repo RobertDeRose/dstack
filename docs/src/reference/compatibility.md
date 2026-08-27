@@ -13,10 +13,11 @@ Setup doctor requires `--delivery-mode merge|pr`. Both profiles reject a pinned 
 local/common requirements and does not require a remote, GitHub, or `gh`. PR mode additionally requires a usable
 GitHub-compatible target remote, authenticated `gh`, and native Beads `gh:pr` gate capability. The bundled launcher runs
 Python entry points in the package-relative `mise.toml`/`mise.lock` environment, so an ambient `PATH` entry—including a
-separately installed Homebrew 1.2.2 binary—cannot replace the tested build. Prepare missing tools with
-`mise --cd <dstack-package-root> install --locked`. Upgrades require an explicit compatibility change, formula
-preflight, fast validation, and both isolated real-Beads acceptance scenarios; changing a version constraint without
-that evidence is unsupported.
+separately installed Homebrew 1.2.2 binary—cannot replace the tested build. Direct Python execution of `setup.py`,
+`dstackctl.py`, or their shared CLI entry point is rejected before command dispatch; use `bin/dstack` or installed Pi
+commands. Prepare missing tools with `mise --cd <dstack-package-root> install --locked`. Upgrades require an explicit
+compatibility change, formula preflight, fast validation, and both isolated real-Beads acceptance scenarios; changing a
+version constraint without that evidence is unsupported.
 
 ## Pinned compatibility shims
 
@@ -57,12 +58,12 @@ cross-link into a `SUMMARY.md` hierarchy. Repository source/configuration files 
 documentation merely because a page links to them. Missing reconciliation records for older delivered features are
 reported for authorship rather than created as empty pages.
 
-Run repair only through `/setup-project --force` or the explicit setup repair command. Forced setup first normalizes
-mechanically safe legacy documentation, then completes missing core documentation/navigation, applies the remaining
-known compatibility repair, and finally performs strict mdBook validation. This order lets a repairable legacy source or
-navigation shape reach the canonical layout before strict validation. The resulting mdBook must validate. Normal setup
-creates missing core documentation but never relocates legacy content; normal feature execution never runs compatibility
-repair.
+Run repair only through `/setup-project --force` and its reviewed setup plan/apply pair; there is no direct legacy
+repair mutator. Forced setup first normalizes mechanically safe legacy documentation, then completes missing core
+documentation/navigation, applies the remaining known compatibility repair, and finally performs strict mdBook
+validation. This order lets a repairable legacy source or navigation shape reach the canonical layout before strict
+validation. The resulting mdBook must validate. Normal setup creates missing core documentation but never relocates
+legacy content; normal feature execution never runs compatibility repair.
 
 Setup repair uses strict `dstack.setup-plan/v4` mutation records. The reviewed SHA-256 covers the complete canonical
 operation object, including controller-content state, exact Python, Beads, and mdBook outputs, verified template
@@ -76,9 +77,9 @@ preserved on failure; every unrelated or untracked path blocks before documentat
 reads one all-status Beads inventory, builds an invocation-local parent/children index, and emits at most one canonical
 mutation per issue. Recognized active legacy feature graphs are reported for `/adopt-feature` and excluded from current
 workflow normalization. Orphaned, cyclic, cross-kind, mismatched, or competing workflow identities fail before mutation
-with native-repair guidance; no graph or migration state is persisted. Initialization is an explicit reviewed operation, and
-filesystem/formula/navigation records carry their exact source, destination, content, conflict, and before/after hash
-predicates. Tool and isolated formula-bundle preflight completes before target mutation. Drift requires a new plan.
+with native-repair guidance; no graph or migration state is persisted. Initialization is an explicit reviewed operation,
+and filesystem/formula/navigation records carry their exact source, destination, content, conflict, and before/after
+hash predicates. Tool and isolated formula-bundle preflight completes before target mutation. Drift requires a new plan.
 
 ## Active legacy feature adoption
 
