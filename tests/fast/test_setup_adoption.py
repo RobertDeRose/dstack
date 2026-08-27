@@ -950,6 +950,7 @@ def _setup_mutation_fixture() -> dict[str, Any]:
             }
         ],
         "supersessions": [{"source_id": "legacy-1", "destination_id": "feature-1"}],
+        "template_deletions": [],
         "filesystem": [
             {
                 "action": "create",
@@ -988,7 +989,7 @@ def _setup_mutation_fixture() -> dict[str, Any]:
     }
 
 
-def test_setup_plan_v3_canonical_bytes_are_order_and_unicode_stable() -> None:
+def test_setup_plan_v4_canonical_bytes_are_order_and_unicode_stable() -> None:
     value = _setup_mutation_fixture()
     canonical = setup.canonicalize_setup_plan(value)
     reordered = {key: value[key] for key in reversed(list(value))}
@@ -997,7 +998,7 @@ def test_setup_plan_v3_canonical_bytes_are_order_and_unicode_stable() -> None:
     assert setup.canonical_setup_plan_bytes(value) == setup.canonical_setup_plan_bytes(reordered)
     assert b"caf\xc3\xa9\\n" in setup.canonical_setup_plan_bytes(value)
     assert b"\\r" not in setup.canonical_setup_plan_bytes(value)
-    assert canonical["schema"] == "dstack.setup-plan/v3"
+    assert canonical["schema"] == "dstack.setup-plan/v4"
     assert setup.setup_plan_digest(value) == setup.setup_plan_digest(reordered)
 
     changed = copy.deepcopy(value)
@@ -1021,7 +1022,7 @@ def test_setup_plan_v3_canonical_bytes_are_order_and_unicode_stable() -> None:
         lambda value: value["filesystem"][0].update({"generated_content": 1.5}),
     ],
 )
-def test_setup_plan_v3_rejects_invalid_or_contradictory_operations(mutate) -> None:
+def test_setup_plan_v4_rejects_invalid_or_contradictory_operations(mutate) -> None:
     value = _setup_mutation_fixture()
     mutate(value)
     with pytest.raises(DstackError):
@@ -1092,6 +1093,7 @@ def minimal_setup_mutation(**changes: Any) -> dict[str, Any]:
         "beads_issues": [],
         "dependencies": [],
         "supersessions": [],
+        "template_deletions": [],
         "filesystem": [],
         "git_index": [],
         "formulas": [],
@@ -1208,6 +1210,97 @@ def test_setup_apply_accepts_stable_dirty_controller_authority(tmp_path: Path, m
     result = execute_setup_mutation(tmp_path, monkeypatch, mutation, {}, mode="normal")
 
     assert result["status"] == "ok"
+
+
+def test_setup_apply_deletes_and_rereads_reviewed_template_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".beads").mkdir()
+    issue_id = "dstack-feature.template"
+    present = {issue_id}
+
+    class Client(SetupPostconditionClient):
+        def show(self, selected: str) -> dict[str, Any]:
+            assert selected in present
+            return {"id": selected, "is_template": True}
+
+    client = Client(tmp_path, {})
+    mutation = minimal_setup_mutation(
+        template_deletions=[{"action": "delete", "issue_id": issue_id, "precondition": "is-template"}]
+    )
+    commands: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        commands.append(list(command))
+        if command[:2] == ["bd", "delete"] and "--force" in command:
+            present.clear()
+        if command[:2] == ["bd", "show"]:
+            return CommandResult(0 if command[2] in present else 1, "[]\n", "")
+        return CommandResult(0, "[]\n", "")
+
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: client)
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: mutation["authority"])
+    monkeypatch.setattr(setup, "validate_bundle", lambda root: None)
+    monkeypatch.setattr(setup, "validate_formula", lambda root, name: None)
+    monkeypatch.setattr(setup, "run", fake_run)
+    monkeypatch.setattr(
+        setup,
+        "all_issue_inventory",
+        lambda selected: [{"id": item, "is_template": True} for item in sorted(present)],
+    )
+
+    result = setup._execute_setup_plan(tmp_path, mutation)
+
+    assert result["status"] == "ok"
+    assert present == set()
+    assert [command for command in commands if command[:2] == ["bd", "delete"]] == [
+        ["bd", "delete", issue_id, "--dry-run", "--json"],
+        ["bd", "delete", issue_id, "--force", "--json"],
+    ]
+
+
+def test_setup_apply_fails_closed_when_template_reread_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ".beads").mkdir()
+    issue_id = "dstack-feature.template"
+
+    class Client(SetupPostconditionClient):
+        def show(self, selected: str) -> dict[str, Any]:
+            return {"id": selected, "labels": ["template"]}
+
+    mutation = minimal_setup_mutation(
+        template_deletions=[{"action": "delete", "issue_id": issue_id, "precondition": "is-template"}]
+    )
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client(tmp_path, {}))
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: mutation["authority"])
+    monkeypatch.setattr(setup, "validate_bundle", lambda root: None)
+    monkeypatch.setattr(setup, "validate_formula", lambda root, name: None)
+    monkeypatch.setattr(setup, "run", lambda *args, **kwargs: CommandResult(0, "[]\n", ""))
+    monkeypatch.setattr(
+        setup,
+        "all_issue_inventory",
+        lambda client: (_ for _ in ()).throw(setup.SetupError("template inventory unavailable")),
+    )
+
+    with pytest.raises(setup.SetupError, match="template inventory unavailable"):
+        setup._execute_setup_plan(tmp_path, mutation)
+
+
+def test_setup_plan_rejects_reserved_non_template_before_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    issue_id = "dstack-feature.template"
+
+    class Client:
+        root = tmp_path
+
+        def show(self, selected: str) -> dict[str, Any]:
+            assert selected == issue_id
+            return {"id": selected, "issue_type": "epic", "labels": []}
+
+    monkeypatch.setattr(setup, "all_issue_inventory", lambda client: [{"id": issue_id}])
+
+    with pytest.raises(setup.SetupError, match="reserved dstack template ID is used by non-template"):
+        setup.legacy_template_artifacts(Client())
 
 
 @pytest.mark.parametrize("mode", ["no-op", "concurrent-extra"])
@@ -1337,6 +1430,7 @@ def test_setup_apply_requires_digest_and_executes_verified_plan_once(
         "filesystem": [],
     }
     calls: list[dict[str, Any]] = []
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
     monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
@@ -1363,6 +1457,239 @@ def test_setup_apply_requires_digest_and_executes_verified_plan_once(
     assert calls == [mutation]
 
 
+def _commit_tracked_interaction(repo: Path) -> Path:
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    interaction = repo / ".beads/interactions.jsonl"
+    interaction.parent.mkdir()
+    interaction.write_bytes(b"baseline\n")
+    (repo / ".beads/.gitignore").write_text("interactions.jsonl\n")
+    subprocess.run(["git", "add", ".beads/.gitignore"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "initial",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    return interaction
+
+
+@pytest.mark.parametrize(
+    ("mode", "worktree_bytes"),
+    [
+        ("unstaged", b"worktree\n"),
+        ("staged", b"staged\n"),
+        ("mixed", b"worktree\n"),
+    ],
+)
+def test_forced_setup_apply_accepts_only_dirty_tracked_interaction_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    worktree_bytes: bytes,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    interaction = _commit_tracked_interaction(repo)
+    interaction.write_bytes(b"staged\n" if mode != "unstaged" else worktree_bytes)
+    if mode != "unstaged":
+        subprocess.run(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
+    if mode == "mixed":
+        interaction.write_bytes(worktree_bytes)
+
+    mutation = minimal_setup_mutation(git_index=[{"path": ".beads/interactions.jsonl", "action": "remove-cached"}])
+    digest = setup.setup_plan_digest(mutation)
+    monkeypatch.setattr(setup, "git_root", lambda root: repo)
+    monkeypatch.setattr(
+        setup,
+        "setup_plan",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "mutation_plan": mutation,
+            "plan_sha256": digest,
+            "preconditions": {"blocked": []},
+            "documentation": {},
+        },
+    )
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+
+    def execute(root: Path, plan: Mapping[str, Any]) -> dict[str, str]:
+        subprocess.run(
+            ["git", "rm", "--cached", "--force", "--", ".beads/interactions.jsonl"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
+        return {"status": "ok"}
+
+    monkeypatch.setattr(setup, "_execute_setup_plan", execute)
+    result = setup.apply_setup(
+        repo,
+        initialize=False,
+        force=True,
+        expected_plan_sha256=digest,
+    )
+
+    assert result["status"] == "ok"
+    assert interaction.read_bytes() == worktree_bytes
+    assert not setup.tracked(repo, ".beads/interactions.jsonl")
+    assert (
+        subprocess.run(
+            ["git", "check-ignore", ".beads/interactions.jsonl"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        == ".beads/interactions.jsonl"
+    )
+
+
+@pytest.mark.parametrize("special_state", ["intent-to-add", "skip-worktree", "symlink"])
+def test_forced_setup_rejects_interaction_state_it_cannot_restore_exactly(tmp_path: Path, special_state: str) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    interaction = _commit_tracked_interaction(repo)
+    if special_state in {"intent-to-add", "skip-worktree"}:
+        interaction.write_bytes(b"staged\n")
+        if special_state == "intent-to-add":
+            subprocess.run(["git", "rm", "--cached", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
+            subprocess.run(["git", "add", "-N", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
+        else:
+            subprocess.run(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "update-index", "--skip-worktree", ".beads/interactions.jsonl"], cwd=repo, check=True
+            )
+    else:
+        interaction.unlink()
+        interaction.symlink_to(".gitignore")
+
+    status, allowed = setup._setup_preflight(repo, force=True)
+
+    assert status
+    assert allowed is False
+
+
+def test_forced_setup_allows_known_corrupt_backup_runtime(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    backup = repo / ".beads/store.corrupt.backup/data"
+    backup.parent.mkdir(parents=True)
+    backup.write_text("runtime\n")
+
+    status, allowed = setup._setup_preflight(repo, force=True)
+
+    assert status
+    assert allowed is True
+
+
+def test_setup_failure_restores_exact_interaction_index_and_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    interaction = _commit_tracked_interaction(repo)
+    interaction.write_bytes(b"staged\n")
+    subprocess.run(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
+    interaction.write_bytes(b"worktree\n")
+    mutation = minimal_setup_mutation(git_index=[{"path": ".beads/interactions.jsonl", "action": "remove-cached"}])
+    digest = setup.setup_plan_digest(mutation)
+    monkeypatch.setattr(setup, "git_root", lambda root: repo)
+    monkeypatch.setattr(
+        setup,
+        "setup_plan",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "mutation_plan": mutation,
+            "plan_sha256": digest,
+            "preconditions": {"blocked": []},
+            "documentation": {},
+        },
+    )
+
+    def fail_after_index_mutation(root: Path, plan: Mapping[str, Any]) -> dict[str, str]:
+        subprocess.run(
+            ["git", "rm", "--cached", "--force", "--", ".beads/interactions.jsonl"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
+        raise setup.SetupError("injected failure")
+
+    monkeypatch.setattr(setup, "_execute_setup_plan", fail_after_index_mutation)
+    with pytest.raises(setup.SetupError, match=r"rollback_completed=true.*mutation_state_uncertain=false"):
+        setup.apply_setup(
+            repo,
+            initialize=False,
+            force=True,
+            expected_plan_sha256=digest,
+        )
+
+    staged = subprocess.run(
+        ["git", "show", ":.beads/interactions.jsonl"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert staged == b"staged\n"
+    assert interaction.read_bytes() == b"worktree\n"
+
+
+def test_setup_plan_rejects_unrelated_dirty_path_before_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / ".beads").mkdir()
+    (repo / "unrelated.txt").write_text("user work\n")
+    monkeypatch.setattr(setup, "git_root", lambda root: repo)
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: setup_authority())
+    monkeypatch.setattr(
+        setup,
+        "_setup_doc_filesystem_plan",
+        lambda *args, **kwargs: pytest.fail("dirty plan reached documentation discovery"),
+    )
+    monkeypatch.setattr(
+        setup,
+        "BeadsClient",
+        lambda root: pytest.fail("dirty plan reached Beads inventory"),
+    )
+
+    result = setup.setup_plan(repo, initialize=False, force=True)
+
+    assert result["status"] == "blocked"
+    assert result["preconditions"]["blocked"] == ["worktree has unrelated changes"]
+
+
+def test_setup_plan_creates_missing_existing_beads_gitignore(tmp_path: Path) -> None:
+    (tmp_path / ".beads").mkdir()
+    plan = setup._setup_plan_object(
+        tmp_path,
+        initialize=False,
+        force=False,
+        authority=setup_authority(),
+        formula_actions={},
+        git_index=[],
+        client=None,
+        inventory=[],
+        template_artifacts=[],
+    )
+
+    operation = next(item for item in plan["filesystem"] if item["destination"] == ".beads/.gitignore")
+    assert operation["action"] == "create"
+    assert operation["generated_content"].endswith("interactions.jsonl\n")
+
+
 def test_setup_without_authorization_refuses_to_initialize(tmp_path: Path) -> None:
     with pytest.raises(setup.SetupError, match="not initialized"):
         setup.ensure_beads(tmp_path, initialize=False)
@@ -1377,7 +1704,9 @@ def test_setup_plan_is_read_only_and_deterministic(tmp_path: Path, monkeypatch: 
         setup,
         "run",
         lambda command, **kwargs: (
-            CommandResult(0, "", "") if command[:3] == ["git", "status", "--porcelain"] else real_run(command, **kwargs)
+            CommandResult(0, "", "")
+            if command[:2] == ["git", "status"] and command[2].startswith("--porcelain")
+            else real_run(command, **kwargs)
         ),
     )
 
@@ -1634,7 +1963,8 @@ def test_setup_apply_rejects_formula_destination_drift_before_mutation(
     monkeypatch.setattr(setup, "package_root", lambda: package)
     monkeypatch.setattr(setup, "_current_setup_authority", lambda root: setup_authority())
     monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
-    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [])
+    monkeypatch.setattr(setup, "all_issue_inventory", lambda client: [])
+    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client, **kwargs: [])
     monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
     monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
     monkeypatch.setattr(setup, "tracked", lambda *args: False)
@@ -1645,7 +1975,9 @@ def test_setup_apply_rejects_formula_destination_drift_before_mutation(
         setup,
         "run",
         lambda command, **kwargs: (
-            CommandResult(0, "", "") if command[:3] == ["git", "status", "--porcelain"] else real_run(command, **kwargs)
+            CommandResult(0, "", "")
+            if command[:2] == ["git", "status"] and command[2].startswith("--porcelain")
+            else real_run(command, **kwargs)
         ),
     )
 
@@ -1705,6 +2037,7 @@ def test_setup_apply_refuses_changed_plan(tmp_path: Path, monkeypatch: pytest.Mo
                 "beads_issues": [],
                 "dependencies": [],
                 "supersessions": [],
+                "template_deletions": [],
                 "filesystem": [],
                 "git_index": [],
                 "formulas": [],
@@ -1740,6 +2073,7 @@ def test_setup_apply_cleans_internally_created_beads_on_failure(
         "beads_issues": [],
         "dependencies": [],
         "supersessions": [],
+        "template_deletions": [],
         "filesystem": [
             {
                 "action": "create",

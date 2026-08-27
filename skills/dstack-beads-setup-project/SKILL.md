@@ -15,13 +15,13 @@ Run the read-only plan, review its exact preconditions and changes, then apply f
 ```
 
 Replace `<plan_sha256>` with the digest emitted by the reviewed plan. The plan contains one strict
-`dstack.setup-plan/v3` mutation object; review its controller/runtime authority, initialization, Beads, filesystem,
-formula, Git-index, and navigation/reference records rather than relying on display summaries. Append `--force` to both
-commands only when the user explicitly supplied it. Apply recomputes the same object once and fails closed if its digest
-or any source/precondition changed. When `--force` was requested, apply first migrates mechanically identifiable legacy
-book content into `docs/src`, then completes the non-destructive documentation foundation/navigation, performs the
-remaining isolated compatibility repair, and finally runs strict documentation validation. Do not invoke repair a second
-time.
+`dstack.setup-plan/v4` mutation object; review its controller/runtime authority, initialization, Beads, verified
+template deletion, filesystem, formula, Git-index, and navigation/reference records rather than relying on display
+summaries. Append `--force` to both commands only when the user explicitly supplied it. Apply recomputes the same object
+once and fails closed if its digest or any source/precondition changed. When `--force` was requested, apply first
+migrates mechanically identifiable legacy book content into `docs/src`, then completes the non-destructive documentation
+foundation/navigation, performs the remaining isolated compatibility repair, and finally runs strict documentation
+validation. Do not invoke repair a second time.
 
 Finally run the setup doctor once with the explicitly selected delivery profile (use `merge` for local/direct delivery
 or `pr` when GitHub PR delivery is intended):

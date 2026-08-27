@@ -922,8 +922,9 @@ def test_setup_rejects_external_formula_parent_before_mutation(
         check=False,
     )
 
-    assert result.returncode == 1
-    assert ".beads/formulas" in result.stderr
-    assert "physically contained" in result.stderr
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "blocked"
+    assert payload["preconditions"]["blocked"] == ["worktree has unrelated changes"]
     assert formulas.is_symlink()
     assert {path.name: path.read_bytes() for path in outside.iterdir()} == before
