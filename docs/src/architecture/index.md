@@ -86,6 +86,18 @@ also binds the controller-source content/state and exact runtime outputs; apply 
 drift before target mutation. Full dashboard hydration (gates, ready work, progress, and delivery state) is reserved for
 inspection and delivery. Nested transitions reuse the invocation's Beads client; no cache or state survives the process.
 
+Workflow root identity shares three structural invariants: exactly one compatible canonical slug/audit identity,
+parentless Beads topology, and epic/molecule type; type alone is insufficient because stable workstreams are also epics.
+Current feature roots additionally require `workflow:feature` or `dstack:feature-idea`, and current alignment roots
+require `workflow:project-alignment`. Normal lifecycle, audit, and delivery resolution use those current-root
+classifiers. The explicit adoption boundary also accepts a supported historical feature root without a current root
+marker when the structural invariants hold and no alignment identity is present.
+
+Forced setup uses one invocation-local all-status inventory and parent/children index. It removes mechanically proven
+inherited current-root identity at any depth while preserving a recognized active legacy feature root and its
+descendants for explicit adoption. Doctor reports that boundary as active legacy work. Ambiguous, orphaned, cyclic,
+mismatched, competing, or cross-kind topology fails before mutation, and no graph state survives the invocation.
+
 Compatibility is an explicit boundary: legacy adoption is dispatched only by `adopt`, and repository repair is
 dispatched only by the explicit setup repair operation. Normal feature, alignment, evidence, and delivery operations do
 not run either path or rewrite historical workflow data. The isolated compatibility module can be retired once supported

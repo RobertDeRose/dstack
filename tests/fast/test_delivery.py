@@ -45,7 +45,11 @@ def payload(**overrides):
 
 
 def test_delivery_refuses_new_open_child_after_terminal_closed(monkeypatch, tmp_path: Path) -> None:
-    root = {"id": "feature-1", "labels": ["workflow:feature"]}
+    root = {
+        "id": "feature-1",
+        "issue_type": "molecule",
+        "labels": ["workflow:feature", "feature:feature"],
+    }
     view = {
         "root": root,
         "slug": "feature",
@@ -552,8 +556,9 @@ def test_delivery_inspection_switches_to_delivered_target_after_cleanup(
     candidate = commit_with_footer(candidate_worktree, "close.md", "closeout", "closeout-1")
     root = {
         "id": "feature-1",
+        "issue_type": "molecule",
         "status": "open",
-        "labels": ["workflow:feature"],
+        "labels": ["workflow:feature", "feature:audit"],
     }
     view = {
         "root": root,
@@ -675,8 +680,9 @@ def test_alignment_delivery_inspection_uses_target_after_delivery_and_cleanup(
     candidate = commit_with_footer(candidate_worktree, "landing.md", "landing", "landing-1")
     root = {
         "id": "alignment-1",
+        "issue_type": "molecule",
         "status": "open",
-        "labels": ["workflow:project-alignment"],
+        "labels": ["workflow:project-alignment", "audit:alignment-audit"],
     }
     view = alignment_evidence_view(root, baseline=baseline)
     monkeypatch.setattr(dstack_delivery, "alignment_delivery_context", lambda *args: view)
@@ -756,8 +762,9 @@ def test_alignment_without_landing_commit_uses_latest_correction_after_cleanup(
     candidate = commit_with_footer(worktree, "fix.py", "correction", "correction-1")
     root = {
         "id": "alignment-1",
+        "issue_type": "molecule",
         "status": "open",
-        "labels": ["workflow:project-alignment"],
+        "labels": ["workflow:project-alignment", "audit:alignment-audit"],
     }
     view = alignment_evidence_view(root, baseline=baseline)
     monkeypatch.setattr(dstack_delivery, "alignment_delivery_context", lambda *args: view)
@@ -824,8 +831,9 @@ def test_no_repository_change_alignment_uses_plan_baseline(monkeypatch: pytest.M
     )
     root = {
         "id": "alignment-1",
+        "issue_type": "molecule",
         "status": "open",
-        "labels": ["workflow:project-alignment"],
+        "labels": ["workflow:project-alignment", "audit:alignment-audit"],
     }
     view = alignment_evidence_view(
         root,

@@ -34,6 +34,8 @@ from dstacklib import (
     has_label,
     issue_parent,
     issue_type,
+    is_alignment_root,
+    is_feature_root,
     read_text_file,
     ref_exists,
     run,
@@ -617,13 +619,17 @@ def tracked_runtime_beads(root: Path) -> list[str]:
 
 def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
     exact = client.show_optional(selector)
-    if exact is not None and has_label(exact, "workflow:project-alignment"):
+    if exact is not None and is_alignment_root(exact):
         view = alignment_delivery_context(client, str(exact["id"]))
         kind = "alignment"
-    elif exact is not None and has_label(exact, "workflow:feature"):
+    elif exact is not None and is_feature_root(exact):
         view = feature_delivery_context(client, str(exact["id"]))
         kind = "feature"
     else:
+        if exact is not None and (
+            has_label(exact, "workflow:feature") or has_label(exact, "workflow:project-alignment")
+        ):
+            raise DstackError(f"Bead {selector} is not a workflow root")
         feature_error: DstackError | None = None
         try:
             view = feature_delivery_context(client, selector)
@@ -745,8 +751,11 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
 
 def _delivery_root(client: BeadsClient, selector: str) -> dict[str, Any]:
     exact = client.show_optional(selector)
-    if exact is not None and (has_label(exact, "workflow:feature") or has_label(exact, "workflow:project-alignment")):
-        return exact
+    if exact is not None:
+        if is_feature_root(exact) or is_alignment_root(exact):
+            return exact
+        if has_label(exact, "workflow:feature") or has_label(exact, "workflow:project-alignment"):
+            raise DstackError(f"Bead {selector} is not a workflow root")
     errors: list[str] = []
     for resolver in (feature_context, alignment_context):
         try:

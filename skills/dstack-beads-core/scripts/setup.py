@@ -39,15 +39,22 @@ from dstacklib import (
     DstackError,
     SUPPORTED_BEADS_VERSION_OUTPUT,
     as_items,
+    alignment_identity_values,
+    alignment_roots_from_inventory,
     canonical_feature_design_path,
     dependency_records,
     ensure_clean_worktree,
+    feature_identity_values,
+    feature_roots_from_inventory,
     feature_slug,
     git_root,
     has_label,
     issue_labels,
     issue_metadata,
     issue_parent,
+    is_alignment_root,
+    is_feature_root,
+    is_legacy_feature_root,
     parse_json,
     root_metadata_value,
     run,
@@ -902,96 +909,225 @@ def _setup_issue_mutation(
     return record
 
 
-def _setup_normalization_plan(client: BeadsClient) -> list[dict[str, Any]]:
+def _ambiguous_workflow(issue_id: str, reason: str) -> SetupError:
+    return SetupError(f"ambiguous workflow topology for {issue_id}: {reason}; repair native Beads parentage/identity")
+
+
+def _setup_normalization_plan(
+    client: BeadsClient,
+    *,
+    inventory: Sequence[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    issues = list(inventory) if inventory is not None else client.list(all_statuses=True)
+    by_id: dict[str, Mapping[str, Any]] = {}
+    children: dict[str, list[Mapping[str, Any]]] = {}
+    for issue in issues:
+        issue_id = str(issue.get("id") or "")
+        if not issue_id or issue_id in by_id:
+            raise SetupError(f"setup workflow inventory has invalid or duplicate issue ID: {issue_id or '<missing>'}")
+        by_id[issue_id] = issue
+        parent = issue_parent(issue)
+        if parent:
+            children.setdefault(parent, []).append(issue)
+
+    feature_roots = [root for root in feature_roots_from_inventory(issues) if has_label(root, "workflow:feature")]
+    alignment_roots = alignment_roots_from_inventory(issues)
+    legacy_feature_roots = [issue for issue in issues if is_legacy_feature_root(issue) and not is_feature_root(issue)]
+    roots = {str(root["id"]): ("feature", root) for root in feature_roots}
+    roots.update({str(root["id"]): ("alignment", root) for root in alignment_roots})
+
+    for issue in issues:
+        issue_id = str(issue["id"])
+        feature_workflow = has_label(issue, "workflow:feature")
+        alignment_workflow = has_label(issue, "workflow:project-alignment")
+        if feature_workflow and alignment_workflow:
+            raise _ambiguous_workflow(issue_id, "issue carries both workflow kinds")
+        if issue_parent(issue) is None and feature_workflow and not is_feature_root(issue):
+            raise _ambiguous_workflow(issue_id, "feature root lacks one compatible identity or root type")
+        if issue_parent(issue) is None and alignment_workflow and not is_alignment_root(issue):
+            raise _ambiguous_workflow(issue_id, "alignment root lacks one compatible identity or root type")
+
     result: list[dict[str, Any]] = []
-    for root in client.list(all_statuses=True, labels=["workflow:feature"]):
-        slug = feature_slug(root)
+    assigned: set[str] = set()
+    feature_descendant_metadata = {
+        "dstack_step",
+        "dstack.feature_slug",
+        "dstack.base_branch",
+        "dstack.design_path",
+        "dstack.pending_design_sha256",
+        "dstack.approved_design_sha256",
+        "feature_slug",
+        "base_branch",
+        "design_path",
+        "branch",
+        "worktree_path",
+        "adopted_from",
+    }
+    alignment_descendant_metadata = {
+        "dstack_step",
+        "dstack.audit_slug",
+        "dstack.target_branch",
+        "dstack.scope",
+        "dstack.pending_alignment_plan_sha256",
+        "dstack.approved_alignment_plan_sha256",
+        "audit_slug",
+        "target_branch",
+        "scope",
+        "branch",
+        "worktree_path",
+    }
+
+    for root_id, (kind, root) in sorted(roots.items()):
+        identity = feature_slug(root) if kind == "feature" else next(iter(alignment_identity_values(root)))
+        if identity is None:
+            raise _ambiguous_workflow(root_id, "workflow root identity is missing")
         metadata = issue_metadata(root)
         set_metadata: dict[str, str | None] = {}
-        base = root_metadata_value(root, "dstack.base_branch", "base_branch")
-        if base and not metadata.get("dstack.base_branch"):
-            set_metadata["dstack.base_branch"] = base
-        if slug:
-            canonical = canonical_feature_design_path(slug)
+        if kind == "feature":
+            base = root_metadata_value(root, "dstack.base_branch", "base_branch")
+            if base and not metadata.get("dstack.base_branch"):
+                set_metadata["dstack.base_branch"] = base
+            canonical = canonical_feature_design_path(identity)
             if metadata.get("dstack.design_path") != canonical:
                 set_metadata["dstack.design_path"] = canonical
-        unset = [
-            key for key in ("feature_slug", "base_branch", "branch", "worktree_path", "adopted_from") if key in metadata
-        ]
-        remove = [label for label in issue_labels(root) if label == "dstack:delivery-ready"]
-        mutation = _setup_issue_mutation(
-            root,
-            set_metadata=set_metadata,
-            unset_metadata=unset,
-            remove_labels=remove,
-        )
-        if mutation:
-            result.append(mutation)
-
-        children = client.children(str(root["id"]))
-        for child in children:
-            child_metadata = issue_metadata(child)
-            child_unset = [key for key in ("dstack_step", "base_branch", "design_path") if key in child_metadata]
-            child_remove = [
-                label
-                for label in issue_labels(child)
-                if label == "feature:{{feature_slug}}" or (slug and label == f"feature:{slug}")
+            unset = [
+                key
+                for key in ("feature_slug", "base_branch", "branch", "worktree_path", "adopted_from")
+                if key in metadata
             ]
-            mutation = _setup_issue_mutation(
-                child,
-                unset_metadata=child_unset,
-                remove_labels=child_remove,
-            )
-            if mutation:
-                result.append(mutation)
-
-            if has_label(child, FEATURE_STEPS["implementation"]):
-                for task in client.children(str(child["id"])):
-                    task_remove = [
-                        label
-                        for label in issue_labels(task)
-                        if label == "feature:{{feature_slug}}" or (slug and label == f"feature:{slug}")
-                    ]
-                    mutation = _setup_issue_mutation(task, remove_labels=task_remove)
-                    if mutation:
-                        result.append(mutation)
-
-    for root in client.list(all_statuses=True, labels=["workflow:project-alignment"]):
-        metadata = issue_metadata(root)
-        set_metadata = {}
-        target = root_metadata_value(root, "dstack.target_branch", "target_branch")
-        scope = root_metadata_value(root, "dstack.scope", "scope")
-        if target and not metadata.get("dstack.target_branch"):
-            set_metadata["dstack.target_branch"] = target
-        if scope and not metadata.get("dstack.scope"):
-            set_metadata["dstack.scope"] = scope
-        unset = [key for key in ("audit_slug", "target_branch", "branch", "worktree_path") if key in metadata]
-        remove = [label for label in issue_labels(root) if label == "dstack:delivery-ready"]
+        else:
+            target = root_metadata_value(root, "dstack.target_branch", "target_branch")
+            scope = root_metadata_value(root, "dstack.scope", "scope")
+            if target and not metadata.get("dstack.target_branch"):
+                set_metadata["dstack.target_branch"] = target
+            if scope and not metadata.get("dstack.scope"):
+                set_metadata["dstack.scope"] = scope
+            unset = [key for key in ("audit_slug", "target_branch", "branch", "worktree_path") if key in metadata]
         mutation = _setup_issue_mutation(
             root,
             set_metadata=set_metadata,
             unset_metadata=unset,
-            remove_labels=remove,
+            remove_labels=[label for label in issue_labels(root) if label == "dstack:delivery-ready"],
         )
         if mutation:
             result.append(mutation)
-        for child in client.children(str(root["id"])):
-            child_metadata = issue_metadata(child)
-            child_unset = [key for key in ("dstack_step", "target_branch", "scope") if key in child_metadata]
-            child_remove = [label for label in issue_labels(child) if label.startswith("audit:")]
-            mutation = _setup_issue_mutation(
-                child,
-                unset_metadata=child_unset,
-                remove_labels=child_remove,
-            )
+
+        stack = list(reversed(children.get(root_id, [])))
+        while stack:
+            issue = stack.pop()
+            issue_id = str(issue["id"])
+            if issue_id in assigned:
+                raise _ambiguous_workflow(issue_id, "issue is reachable from competing workflow roots")
+            assigned.add(issue_id)
+            stack.extend(reversed(children.get(issue_id, [])))
+            labels = issue_labels(issue)
+            feature_values = feature_identity_values(issue)
+            alignment_values = alignment_identity_values(issue)
+            if kind == "feature":
+                if has_label(issue, "workflow:project-alignment") or alignment_values:
+                    raise _ambiguous_workflow(issue_id, "feature descendant carries alignment identity")
+                concrete_values = feature_values - {"{{feature_slug}}"}
+                if concrete_values and concrete_values != {identity}:
+                    raise _ambiguous_workflow(issue_id, f"feature identity does not match {identity}")
+                if has_label(issue, "workflow:feature") and not (
+                    concrete_values == {identity} or (not concrete_values and "{{feature_slug}}" in feature_values)
+                ):
+                    raise _ambiguous_workflow(issue_id, "nested feature workflow identity is missing or mismatched")
+                remove = [
+                    label
+                    for label in labels
+                    if label
+                    in {"workflow:feature", "dstack:feature-idea", f"feature:{identity}", "feature:{{feature_slug}}"}
+                ]
+                unset = [key for key in feature_descendant_metadata if key in issue_metadata(issue)]
+            else:
+                if has_label(issue, "workflow:feature") or has_label(issue, "dstack:feature-idea") or feature_values:
+                    raise _ambiguous_workflow(issue_id, "alignment descendant carries feature identity")
+                concrete_values = alignment_values - {"{{audit_slug}}"}
+                if concrete_values and concrete_values != {identity}:
+                    raise _ambiguous_workflow(issue_id, f"alignment identity does not match {identity}")
+                if has_label(issue, "workflow:project-alignment") and not (
+                    concrete_values == {identity} or (not concrete_values and "{{audit_slug}}" in alignment_values)
+                ):
+                    raise _ambiguous_workflow(issue_id, "nested alignment workflow identity is missing or mismatched")
+                remove = [
+                    label
+                    for label in labels
+                    if label in {"workflow:project-alignment", f"audit:{identity}", "audit:{{audit_slug}}"}
+                ]
+                unset = [key for key in alignment_descendant_metadata if key in issue_metadata(issue)]
+            mutation = _setup_issue_mutation(issue, unset_metadata=unset, remove_labels=remove)
             if mutation:
                 result.append(mutation)
+
+    preserved_legacy: set[str] = {str(root["id"]) for root in legacy_feature_roots}
+    for root in legacy_feature_roots:
+        identity = feature_slug(root)
+        if identity is None:
+            raise _ambiguous_workflow(str(root["id"]), "legacy feature identity is missing")
+        stack = list(reversed(children.get(str(root["id"]), [])))
+        while stack:
+            issue = stack.pop()
+            issue_id = str(issue["id"])
+            if issue_id in assigned or issue_id in preserved_legacy:
+                raise _ambiguous_workflow(issue_id, "issue is reachable from competing workflow roots")
+            preserved_legacy.add(issue_id)
+            stack.extend(reversed(children.get(issue_id, [])))
+            if has_label(issue, "workflow:project-alignment") or alignment_identity_values(issue):
+                raise _ambiguous_workflow(issue_id, "legacy feature descendant carries alignment identity")
+            concrete_values = feature_identity_values(issue) - {"{{feature_slug}}"}
+            if concrete_values and concrete_values != {identity}:
+                raise _ambiguous_workflow(issue_id, f"legacy feature identity does not match {identity}")
+
+    for issue in issues:
+        issue_id = str(issue["id"])
+        if (
+            issue_id in roots
+            or issue_id in assigned
+            or issue_id in preserved_legacy
+            or is_feature_root(issue)
+            or is_alignment_root(issue)
+        ):
+            continue
+        if not (
+            has_label(issue, "workflow:feature")
+            or has_label(issue, "workflow:project-alignment")
+            or has_label(issue, "dstack:feature-idea")
+            or feature_identity_values(issue)
+            or alignment_identity_values(issue)
+        ):
+            continue
+        seen: set[str] = set()
+        cursor: Mapping[str, Any] = issue
+        reason = "no compatible parentless workflow root"
+        while True:
+            cursor_id = str(cursor["id"])
+            if cursor_id in seen:
+                reason = "parentage cycle detected"
+                break
+            seen.add(cursor_id)
+            parent = issue_parent(cursor)
+            if parent is None:
+                break
+            if parent not in by_id:
+                reason = f"parent {parent} is absent from the inventory"
+                break
+            cursor = by_id[parent]
+        raise _ambiguous_workflow(issue_id, reason)
+
     return _setup_beads_issues(result)
 
 
-def _setup_feature_design_moves(client: BeadsClient) -> list[tuple[str, str]]:
+def _setup_feature_design_moves(
+    client: BeadsClient,
+    *,
+    inventory: Sequence[Mapping[str, Any]] | None = None,
+) -> list[tuple[str, str]]:
     moves: list[tuple[str, str]] = []
-    for feature in client.list(all_statuses=True, labels=["workflow:feature"]):
+    issues = list(inventory) if inventory is not None else client.list(all_statuses=True)
+    for feature in feature_roots_from_inventory(issues):
+        if not has_label(feature, "workflow:feature"):
+            continue
         slug = feature_slug(feature)
         design = root_metadata_value(feature, "dstack.design_path", "design_path")
         canonical = canonical_feature_design_path(slug) if slug else ""
@@ -1162,7 +1298,8 @@ def _setup_plan_object(
                 "options": {"skip_agents": True, "skip_hooks": True, "non_interactive": True},
             }
         ]
-    design_moves = _setup_feature_design_moves(client) if client and force else []
+    inventory = client.list(all_statuses=True) if client and force else []
+    design_moves = _setup_feature_design_moves(client, inventory=inventory) if client and force else []
     filesystem, navigation = _setup_doc_filesystem_plan(root, force=force, design_moves=design_moves)
     policy = _setup_repo_path(root, ".beads/.gitignore")
     if initialization or policy.is_file():
@@ -1214,7 +1351,7 @@ def _setup_plan_object(
             "schema": SETUP_PLAN_SCHEMA,
             "authority": dict(authority),
             "initialization": initialization,
-            "beads_issues": _setup_normalization_plan(client) if client and force else [],
+            "beads_issues": (_setup_normalization_plan(client, inventory=inventory) if client and force else []),
             "dependencies": [],
             "supersessions": [],
             "filesystem": filesystem,
@@ -1273,12 +1410,7 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
             display_filesystem.append({"path": ".beads/.gitignore", "action": "update"})
         if force:
             templates = legacy_template_artifacts(client)
-            normalized = sorted(
-                set(normalize_current_features(client, force=False))
-                | set(normalize_current_alignments(client, force=False))
-            )
             beads.extend({"action": "delete-template", "target": str(item["id"])} for item in templates)
-            beads.extend({"action": "normalize", "target": issue_id} for issue_id in normalized)
 
     migration = (
         legacy_documentation_plan(root)
@@ -1299,6 +1431,7 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
         git_index=git_index,
         client=client,
     )
+    beads.extend({"action": "normalize", "target": mutation["issue_id"]} for mutation in mutation_plan["beads_issues"])
     payload = {
         "schema": SETUP_PLAN_SCHEMA,
         "status": "blocked" if blocked else "ready",
@@ -1545,19 +1678,7 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
     version = str(mutation["authority"]["beads_version"])
     expected_beads, beads_operations = _setup_expected_beads_states(client, mutation)
     for operation in mutation["beads_issues"]:
-        arguments: list[str] = []
-        for key, value in operation["set_metadata"].items():
-            if value is None:
-                arguments.extend(["--unset-metadata", key])
-            else:
-                arguments.extend(["--set-metadata", f"{key}={value}"])
-        for key in operation["unset_metadata"]:
-            arguments.extend(["--unset-metadata", key])
-        for label in operation["add_labels"]:
-            arguments.extend(["--add-label", label])
-        for label in operation["remove_labels"]:
-            arguments.extend(["--remove-label", label])
-        client.update(str(operation["issue_id"]), *arguments)
+        client.update(str(operation["issue_id"]), *_setup_mutation_arguments(operation))
 
     for operation in mutation["dependencies"]:
         if operation["action"] == "add":
@@ -1787,6 +1908,23 @@ def _remote_host(remote: str) -> str | None:
     return None
 
 
+def workflow_topology_diagnostics(client: BeadsClient) -> list[str]:
+    inventory = client.list(all_statuses=True)
+    mutations = _setup_normalization_plan(client, inventory=inventory)
+    polluted = [
+        mutation["issue_id"]
+        for mutation in mutations
+        if set(mutation["remove_labels"]) & {"workflow:feature", "workflow:project-alignment"}
+    ]
+    if polluted:
+        raise SetupError("legacy workflow root identity on descendants: " + ", ".join(polluted))
+    return [
+        f"active legacy feature: run /adopt-feature {issue['id']}"
+        for issue in sorted(inventory, key=lambda item: str(item["id"]))
+        if is_legacy_feature_root(issue) and not is_feature_root(issue) and issue.get("status") != "closed"
+    ]
+
+
 def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
     if delivery_mode not in {"merge", "pr"}:
         raise SetupError("delivery_mode must be explicitly merge or pr")
@@ -1865,6 +2003,17 @@ def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
         "interaction_policy",
         "run setup apply --force to restore the local interaction-log policy",
         interaction_policy,
+    )
+
+    def workflow_topology_check() -> list[str]:
+        if client is None:
+            raise SetupError("Beads is not initialized")
+        return workflow_topology_diagnostics(client)
+
+    check(
+        "workflow_topology",
+        "repair the reported native topology or run setup apply --force for mechanically proven pollution",
+        workflow_topology_check,
     )
 
     def reconciliation_check() -> list[str]:
@@ -2074,8 +2223,9 @@ def migrate_feature_design(
 
 def missing_feature_reconciliations(client: BeadsClient) -> list[str]:
     missing: list[str] = []
-    for feature in client.list(all_statuses=True, labels=["workflow:feature"]):
-        if feature.get("status") != "closed":
+    inventory = client.list(all_statuses=True)
+    for feature in feature_roots_from_inventory(inventory):
+        if not has_label(feature, "workflow:feature") or feature.get("status") != "closed":
             continue
         slug = feature_slug(feature)
         if not slug:
@@ -2084,121 +2234,88 @@ def missing_feature_reconciliations(client: BeadsClient) -> list[str]:
         reconciliation = design.with_name("index.md")
         if design.is_file() and not reconciliation.is_file():
             missing.append(reconciliation.relative_to(client.root).as_posix())
-    return sorted(missing)
+    return sorted(set(missing))
+
+
+def _setup_mutation_arguments(mutation: Mapping[str, Any]) -> list[str]:
+    arguments: list[str] = []
+    for key, value in mutation["set_metadata"].items():
+        if value is None:
+            arguments.extend(["--unset-metadata", key])
+        else:
+            arguments.extend(["--set-metadata", f"{key}={value}"])
+    for key in mutation["unset_metadata"]:
+        arguments.extend(["--unset-metadata", key])
+    for label in mutation["add_labels"]:
+        arguments.extend(["--add-label", label])
+    for label in mutation["remove_labels"]:
+        arguments.extend(["--remove-label", label])
+    return arguments
+
+
+def _workflow_descendant_ids(
+    inventory: Sequence[Mapping[str, Any]],
+    roots: Sequence[Mapping[str, Any]],
+) -> set[str]:
+    children: dict[str, list[str]] = {}
+    for issue in inventory:
+        parent = issue_parent(issue)
+        issue_id = str(issue.get("id") or "")
+        if parent and issue_id:
+            children.setdefault(parent, []).append(issue_id)
+    selected = {str(root["id"]) for root in roots}
+    stack = list(selected)
+    while stack:
+        issue_id = stack.pop()
+        for child_id in children.get(issue_id, []):
+            if child_id not in selected:
+                selected.add(child_id)
+                stack.append(child_id)
+    return selected
+
+
+def _normalize_current_workflows(
+    client: BeadsClient,
+    *,
+    force: bool,
+    kinds: set[str],
+) -> list[str]:
+    inventory = client.list(all_statuses=True)
+    feature_roots = [root for root in feature_roots_from_inventory(inventory) if has_label(root, "workflow:feature")]
+    alignment_roots = alignment_roots_from_inventory(inventory)
+    selected_roots = [
+        *(feature_roots if "feature" in kinds else []),
+        *(alignment_roots if "alignment" in kinds else []),
+    ]
+    selected_ids = _workflow_descendant_ids(inventory, selected_roots)
+    mutations = [
+        mutation
+        for mutation in _setup_normalization_plan(client, inventory=inventory)
+        if mutation["issue_id"] in selected_ids
+    ]
+    if force and "feature" in kinds:
+        for root in feature_roots:
+            slug = feature_slug(root)
+            if not slug:
+                continue
+            canonical = canonical_feature_design_path(slug)
+            design = root_metadata_value(root, "dstack.design_path", "design_path") or canonical
+            if design != canonical:
+                migrate_feature_design(client.root, root, slug=slug, design_path=design)
+            elif not (client.root / canonical).is_file():
+                raise SetupError("canonical feature design is missing")
+    if force:
+        for mutation in mutations:
+            client.update(str(mutation["issue_id"]), *_setup_mutation_arguments(mutation))
+    return sorted(str(mutation["issue_id"]) for mutation in mutations)
 
 
 def normalize_current_features(client: BeadsClient, *, force: bool) -> list[str]:
-    changed: list[str] = []
-    roots = client.list(all_statuses=True, labels=["workflow:feature"])
-    for root in roots:
-        root_id = str(root.get("id") or "")
-        if not root_id:
-            continue
-        slug = feature_slug(root)
-        base = root_metadata_value(root, "dstack.base_branch", "base_branch")
-        design = root_metadata_value(root, "dstack.design_path", "design_path")
-        root_args: list[str] = []
-        root_metadata = issue_metadata(root)
-        if base and not root_metadata.get("dstack.base_branch"):
-            root_args.extend(["--set-metadata", f"dstack.base_branch={base}"])
-        if slug:
-            canonical_design = canonical_feature_design_path(slug)
-            if design != canonical_design or not root_metadata.get("dstack.design_path"):
-                if force:
-                    migrate_feature_design(
-                        client.root,
-                        root,
-                        slug=slug,
-                        design_path=design or canonical_design,
-                    )
-                root_args.extend(["--set-metadata", f"dstack.design_path={canonical_design}"])
-            elif force and not (client.root / canonical_design).is_file():
-                raise SetupError("canonical feature design is missing")
-        for key in ("feature_slug", "base_branch", "branch", "worktree_path", "adopted_from"):
-            if key in issue_metadata(root):
-                root_args.extend(["--unset-metadata", key])
-        for label in issue_labels(root):
-            if label == "dstack:delivery-ready":
-                root_args.extend(["--remove-label", label])
-        if root_args:
-            if not force:
-                changed.append(root_id)
-            else:
-                client.update(root_id, *root_args)
-                changed.append(root_id)
-
-        children = client.children(root_id)
-        for child in children:
-            child_id = str(child.get("id") or "")
-            child_args: list[str] = []
-            metadata = issue_metadata(child)
-            for key in ("dstack_step", "base_branch", "design_path"):
-                if key in metadata:
-                    child_args.extend(["--unset-metadata", key])
-            for label in issue_labels(child):
-                if label == "feature:{{feature_slug}}" or (slug and label == f"feature:{slug}"):
-                    child_args.extend(["--remove-label", label])
-            if child_args:
-                if force:
-                    client.update(child_id, *child_args)
-                changed.append(child_id)
-
-        implementation = next(
-            (child for child in children if has_label(child, FEATURE_STEPS["implementation"])),
-            None,
-        )
-        if implementation:
-            for task in client.children(str(implementation["id"])):
-                task_args: list[str] = []
-                for label in issue_labels(task):
-                    if label == "feature:{{feature_slug}}" or (slug and label == f"feature:{slug}"):
-                        task_args.extend(["--remove-label", label])
-                if task_args:
-                    if force:
-                        client.update(str(task["id"]), *task_args)
-                    changed.append(str(task["id"]))
-    return sorted(set(changed))
+    return _normalize_current_workflows(client, force=force, kinds={"feature"})
 
 
 def normalize_current_alignments(client: BeadsClient, *, force: bool) -> list[str]:
-    changed: list[str] = []
-    roots = client.list(all_statuses=True, labels=["workflow:project-alignment"])
-    for root in roots:
-        root_id = str(root.get("id") or "")
-        if not root_id:
-            continue
-        root_args: list[str] = []
-        target = root_metadata_value(root, "dstack.target_branch", "target_branch")
-        scope = root_metadata_value(root, "dstack.scope", "scope")
-        root_metadata = issue_metadata(root)
-        if target and not root_metadata.get("dstack.target_branch"):
-            root_args.extend(["--set-metadata", f"dstack.target_branch={target}"])
-        if scope and not root_metadata.get("dstack.scope"):
-            root_args.extend(["--set-metadata", f"dstack.scope={scope}"])
-        for key in ("audit_slug", "target_branch", "branch", "worktree_path"):
-            if key in issue_metadata(root):
-                root_args.extend(["--unset-metadata", key])
-        for label in issue_labels(root):
-            if label == "dstack:delivery-ready":
-                root_args.extend(["--remove-label", label])
-        if root_args:
-            if force:
-                client.update(root_id, *root_args)
-            changed.append(root_id)
-
-        for child in client.children(root_id):
-            child_args: list[str] = []
-            for key in ("dstack_step", "target_branch", "scope"):
-                if key in issue_metadata(child):
-                    child_args.extend(["--unset-metadata", key])
-            for label in issue_labels(child):
-                if label.startswith("audit:"):
-                    child_args.extend(["--remove-label", label])
-            if child_args:
-                if force:
-                    client.update(str(child["id"]), *child_args)
-                changed.append(str(child["id"]))
-    return sorted(set(changed))
+    return _normalize_current_workflows(client, force=force, kinds={"alignment"})
 
 
 def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
@@ -2218,8 +2335,10 @@ def repair_legacy(root_arg: Path, *, force: bool) -> dict[str, Any]:
         documentation_migration = documentation_plan
         created_documentation = []
 
-    normalized = sorted(
-        set(normalize_current_features(client, force=force)) | set(normalize_current_alignments(client, force=force))
+    normalized = _normalize_current_workflows(
+        client,
+        force=force,
+        kinds={"feature", "alignment"},
     )
     missing_reconciliations = missing_feature_reconciliations(client)
     interaction_tracked = tracked(root, ".beads/interactions.jsonl")

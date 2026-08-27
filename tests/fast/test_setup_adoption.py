@@ -641,8 +641,8 @@ def test_adopt_apply_validates_plan_before_pouring_or_other_mutation(
     legacy = {"id": "legacy-1", "status": "open", "title": "Feature: Old"}
     beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
-    monkeypatch.setattr(dstack_compat, "resolve_feature", lambda *args: legacy)
-    monkeypatch.setattr(dstack_compat, "feature_context", lambda *args: {"current": False})
+    monkeypatch.setattr(dstack_compat, "resolve_legacy_feature", lambda *args: legacy)
+    monkeypatch.setattr(dstack_compat, "is_current_feature", lambda *args: False)
     invalid = tmp_path / "classification.json"
     invalid.write_text(
         '{"schema":"dstack.adoption-classification/v1","legacy_root_id":"legacy-1","entries":[],"unknown":true}'
@@ -756,7 +756,6 @@ def test_adoption_rejects_multiple_current_slug_matches(tmp_path: Path, monkeypa
         call(
             "list",
             all_statuses=True,
-            labels=["workflow:feature"],
             result=[
                 {
                     "id": "feature-1",
@@ -1628,6 +1627,9 @@ def test_setup_apply_rejects_formula_destination_drift_before_mutation(
         def check_version(self) -> str:
             return "bd version 1.2.2 (6c124203e)"
 
+        def list(self, **kwargs) -> list[dict]:
+            return []
+
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "package_root", lambda: package)
     monkeypatch.setattr(setup, "_current_setup_authority", lambda root: setup_authority())
@@ -1636,8 +1638,8 @@ def test_setup_apply_rejects_formula_destination_drift_before_mutation(
     monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
     monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
     monkeypatch.setattr(setup, "tracked", lambda *args: False)
-    monkeypatch.setattr(setup, "_setup_normalization_plan", lambda client: [])
-    monkeypatch.setattr(setup, "_setup_feature_design_moves", lambda client: [])
+    monkeypatch.setattr(setup, "_setup_normalization_plan", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "_setup_feature_design_moves", lambda *args, **kwargs: [])
     real_run = setup.run
     monkeypatch.setattr(
         setup,
@@ -1805,6 +1807,9 @@ def test_doctor_reports_all_actionable_diagnostics(
         def check_version(self):
             raise DstackError("wrong Beads build")
 
+        def list(self, **kwargs):
+            return []
+
     monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
     monkeypatch.setattr(
         setup,
@@ -1964,6 +1969,9 @@ def test_doctor_passes_healthy_merge_repository_without_remote_or_github(
         def check_version(self):
             return "bd version 1.2.2 (6c124203e)"
 
+        def list(self, **kwargs):
+            return []
+
     monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
     monkeypatch.setattr(setup, "validate_formula", lambda *args: None)
     monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
@@ -2020,6 +2028,9 @@ def test_doctor_pr_mode_reports_missing_native_gate_capability(tmp_path: Path, m
     class Client:
         def check_version(self):
             return "bd version 1.2.2 (6c124203e)"
+
+        def list(self, **kwargs):
+            return []
 
     monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
     monkeypatch.setattr(setup, "validate_formula", lambda *args: None)
@@ -2153,8 +2164,7 @@ def test_legacy_repair_reports_required_changes_before_mutation(
         "legacy_template_artifacts",
         lambda client: [{"id": "dstack-feature.template"}],
     )
-    monkeypatch.setattr(setup, "normalize_current_features", lambda client, force: ["feature-1"])
-    monkeypatch.setattr(setup, "normalize_current_alignments", lambda client, force: [])
+    monkeypatch.setattr(setup, "_normalize_current_workflows", lambda *args, **kwargs: ["feature-1"])
     monkeypatch.setattr(
         setup,
         "missing_feature_reconciliations",
@@ -2195,6 +2205,7 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
     feature_index.write_text("# Feature Records\n\n- [Feature](../../features/feature/design.md)\n")
     root = {
         "id": "feature-1",
+        "issue_type": "epic",
         "labels": ["workflow:feature", "feature:feature"],
         "metadata": {
             "dstack.base_branch": "main",
@@ -2203,12 +2214,7 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
     }
     beads = ScriptedClient(
         tmp_path,
-        call(
-            "list",
-            all_statuses=True,
-            labels=["workflow:feature"],
-            result=[root],
-        ),
+        call("list", all_statuses=True, result=[root]),
         call(
             "update",
             "feature-1",
@@ -2222,7 +2228,6 @@ def test_explicit_repair_migrates_feature_design_to_mdbook_path(tmp_path: Path) 
                 },
             },
         ),
-        call("children", "feature-1", result=[]),
     )
     assert setup.normalize_current_features(beads, force=True) == ["feature-1"]
     destination = tmp_path / "docs/src/features/feature/design.md"
@@ -2244,17 +2249,13 @@ def test_explicit_repair_recovers_move_completed_before_metadata_update(
     destination.write_text("moved design\n")
     root = {
         "id": "feature-1",
+        "issue_type": "epic",
         "labels": ["workflow:feature", "feature:feature"],
         "metadata": {"dstack.design_path": "docs/features/feature/design.md"},
     }
     beads = ScriptedClient(
         tmp_path,
-        call(
-            "list",
-            all_statuses=True,
-            labels=["workflow:feature"],
-            result=[root],
-        ),
+        call("list", all_statuses=True, result=[root]),
         call(
             "update",
             "feature-1",
@@ -2262,7 +2263,6 @@ def test_explicit_repair_recovers_move_completed_before_metadata_update(
             "dstack.design_path=docs/src/features/feature/design.md",
             result=root,
         ),
-        call("children", "feature-1", result=[]),
     )
 
     assert setup.normalize_current_features(beads, force=True) == ["feature-1"]
@@ -2276,17 +2276,13 @@ def test_explicit_repair_refuses_missing_legacy_design_before_metadata_update(
 ) -> None:
     root = {
         "id": "feature-1",
+        "issue_type": "epic",
         "labels": ["workflow:feature", "feature:feature"],
         "metadata": {"dstack.design_path": "docs/features/feature/design.md"},
     }
     beads = ScriptedClient(
         tmp_path,
-        call(
-            "list",
-            all_statuses=True,
-            labels=["workflow:feature"],
-            result=[root],
-        ),
+        call("list", all_statuses=True, result=[root]),
     )
 
     with pytest.raises(setup.SetupError, match="legacy feature design is missing"):
@@ -2312,17 +2308,13 @@ def test_explicit_repair_refuses_unsafe_or_ambiguous_design_migration(tmp_path: 
     design_path = "docs/other/feature/design.md" if failure == "unknown" else "docs/features/feature/design.md"
     root = {
         "id": "feature-1",
+        "issue_type": "epic",
         "labels": ["workflow:feature", "feature:feature"],
         "metadata": {"dstack.design_path": design_path},
     }
     beads = ScriptedClient(
         tmp_path,
-        call(
-            "list",
-            all_statuses=True,
-            labels=["workflow:feature"],
-            result=[root],
-        ),
+        call("list", all_statuses=True, result=[root]),
     )
 
     with pytest.raises(setup.SetupError):
@@ -2341,10 +2333,10 @@ def test_missing_historical_reconciliation_is_reported(tmp_path: Path) -> None:
         call(
             "list",
             all_statuses=True,
-            labels=["workflow:feature"],
             result=[
                 {
                     "id": "feature-1",
+                    "issue_type": "epic",
                     "status": "closed",
                     "labels": ["workflow:feature", "feature:feature"],
                 }
@@ -2380,8 +2372,7 @@ def test_forced_repair_marks_unresolved_documentation_for_manual_action(
     monkeypatch.setattr(setup, "legacy_documentation_plan", lambda root: migration)
     monkeypatch.setattr(setup, "migrate_legacy_documentation", lambda root: migration)
     monkeypatch.setattr(setup, "create_foundation", lambda root: [])
-    monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
-    monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "_normalize_current_workflows", lambda *args, **kwargs: [])
     monkeypatch.setattr(setup, "missing_feature_reconciliations", lambda client: [])
     monkeypatch.setattr(setup, "tracked", lambda *args: False)
     monkeypatch.setattr(setup, "ensure_interaction_log_policy", lambda root: {})
@@ -2402,8 +2393,7 @@ def test_forced_repair_validates_resulting_book(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
     monkeypatch.setattr(setup, "BeadsClient", lambda root: beads)
     monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client: [])
-    monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
-    monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
+    monkeypatch.setattr(setup, "_normalize_current_workflows", lambda *args, **kwargs: [])
     monkeypatch.setattr(setup, "missing_feature_reconciliations", lambda client: [])
     monkeypatch.setattr(setup, "tracked", lambda *args: False)
     monkeypatch.setattr(setup, "ensure_interaction_log_policy", lambda root: {})
@@ -2419,8 +2409,8 @@ def test_adopt_inspect_classifies_without_mutation(tmp_path: Path, monkeypatch: 
     legacy = {"id": "legacy-1", "status": "open", "title": "Feature: Old"}
     beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
-    monkeypatch.setattr(dstack_compat, "resolve_feature", lambda *args: legacy)
-    monkeypatch.setattr(dstack_compat, "feature_context", lambda *args: {"current": False})
+    monkeypatch.setattr(dstack_compat, "resolve_legacy_feature", lambda *args: legacy)
+    monkeypatch.setattr(dstack_compat, "is_current_feature", lambda *args: False)
     monkeypatch.setattr(
         dstack_compat,
         "descendants",
@@ -2437,8 +2427,8 @@ def test_adopt_apply_rejects_noncanonical_design_path(tmp_path: Path, monkeypatc
     legacy = {"id": "legacy-1", "status": "open", "title": "Feature: Old"}
     beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
-    monkeypatch.setattr(dstack_compat, "resolve_feature", lambda *args: legacy)
-    monkeypatch.setattr(dstack_compat, "feature_context", lambda *args: {"current": False})
+    monkeypatch.setattr(dstack_compat, "resolve_legacy_feature", lambda *args: legacy)
+    monkeypatch.setattr(dstack_compat, "is_current_feature", lambda *args: False)
     args = type(
         "Args",
         (),
@@ -2465,7 +2455,7 @@ def test_adopt_apply_is_idempotent_for_native_supersession(tmp_path: Path, monke
     }
     beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
-    monkeypatch.setattr(dstack_compat, "resolve_feature", lambda *args: legacy)
+    monkeypatch.setattr(dstack_compat, "resolve_legacy_feature", lambda *args: legacy)
     monkeypatch.setattr(
         dstack_compat,
         "feature_context",

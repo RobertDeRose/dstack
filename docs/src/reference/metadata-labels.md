@@ -22,12 +22,13 @@ input belongs only in the canonical plan description, never root metadata.
 
 ## Root and work labels
 
-- `dstack:feature-idea` marks planned intent before materialization.
-- `workflow:feature` and `feature:<slug>` identify a current feature root.
-- `workflow:project-alignment` identifies an alignment root.
+- `dstack:feature-idea` and one `feature:<slug>` label identify parentless planned intent before materialization.
+- `workflow:feature` and one compatible `feature:<slug>` identity label a parentless feature epic or molecule.
+- `workflow:project-alignment` and one compatible `audit:<slug>` identity label a parentless alignment molecule.
 - `dstack:work:implementation` marks bounded implementation tasks.
 - `dstack:work:correction` marks bounded alignment corrections.
 
 Stable formula step labels identify specification/analysis, approval, implementation/corrections, and closeout/landing
-roles. Formula validation owns the exact set; dynamic children do not duplicate root identity labels. Deprecated
+roles. Formula validation owns the exact set; dynamic children do not duplicate root identity labels or root metadata.
+Issue type alone never establishes a root because implementation and corrections workstreams are also epics. Deprecated
 compatibility aliases may be read only by explicit repair and must not be written by normal commands.

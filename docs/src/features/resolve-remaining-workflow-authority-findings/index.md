@@ -22,7 +22,9 @@ root state, original error, and mutation uncertainty without attempting rollback
 
 Native-ready claims now cover feature specification and alignment analysis. Unexpected or raced claims are restored to
 open and unassigned state and then reread for verification. A delivered feature remains auditable from the configured
-target ref after its branch and worktree are removed.
+target ref after its branch and worktree are removed. Workflow resolution requires parentless topology plus one
+compatible current-root identity; forced setup removes mechanically proven inherited current identity, preserves
+recognized active legacy feature graphs for explicit adoption, and rejects ambiguous graph shapes before mutation.
 
 ## Architecture integration
 
@@ -52,6 +54,10 @@ it to expected feature work.
   normal branch/worktree cleanup, honors no-repository-change work, and ignores unrelated history.
 - Exact Beads build guidance names the tested literal version; package-relative locked mise resolution prevents an
   ambient Homebrew build from replacing it.
+- Current feature, alignment, audit, and delivery resolution share strict topology-aware root identity. Explicit
+  adoption additionally accepts parentless epic/molecule historical roots with one canonical feature identity and no
+  alignment identity. Forced repair uses one ephemeral inventory, preserves those active legacy graphs, and emits one
+  canonical mutation per affected current issue.
 
 ### Intentional differences
 
@@ -87,8 +93,9 @@ target-history evidence derivation.
 ### Future auditor
 
 The design and this reconciliation preserve the rejected alternatives and remaining limitations. Fast tests cover
-injected approval, delivery, claim-release, and audit failures. Separate real-Beads scenarios retain evidence for pinned
-binary behavior and the complete feature lifecycle.
+injected approval, delivery, claim-release, audit, root-classification, ambiguity, and command-count failures. Separate
+real-Beads scenarios retain evidence for pinned binary behavior, polluted legacy repair, and the complete feature
+lifecycle.
 
 ## Validation and limitations
 

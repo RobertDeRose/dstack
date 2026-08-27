@@ -39,6 +39,10 @@ Explicit legacy repair may:
 
 - remove verified persisted formula-template artifacts;
 - remove obsolete duplicated metadata/labels from current molecules;
+- remove inherited workflow/root identity from descendants when one parentless current same-kind root and matching
+  identity prove the repair;
+- preserve a parentless active legacy feature root with one canonical historical identity, together with its
+  adoption-owned descendants, while formulas and repository policy are updated;
 - repair an older repository that still tracks `.beads/interactions.jsonl`;
 - canonicalize a safe non-`src` mdBook `[book].src` tree into `docs/src` while preserving its relative layout; and
 - move mechanically placed book content from elsewhere under `docs/` into `docs/src`, including chapters named by
@@ -63,20 +67,27 @@ repair.
 Setup repair uses strict `dstack.setup-plan/v3` mutation records. The reviewed SHA-256 covers the complete canonical
 operation object, including controller-content state and exact Python, Beads, and mdBook outputs, rather than display
 summaries. Apply receives only that digest, recomputes one object, rejects controller/runtime drift or unmerged
-authority source, and executes it without a second discovery pass. Initialization is an explicit reviewed operation, and
+authority source, and executes it without a second discovery pass. Forced discovery reads one all-status Beads
+inventory, builds an invocation-local parent/children index, and emits at most one canonical mutation per issue.
+Recognized active legacy feature graphs are reported for `/adopt-feature` and excluded from current workflow
+normalization. Orphaned, cyclic, cross-kind, mismatched, or competing workflow identities fail before mutation with
+native-repair guidance; no graph or migration state is persisted. Initialization is an explicit reviewed operation, and
 filesystem/formula/navigation records carry their exact source, destination, content, conflict, and before/after hash
 predicates. Tool and isolated formula-bundle preflight completes before target mutation. Drift requires a new plan.
 
 ## Active legacy feature adoption
 
-`/adopt-feature` is an explicit compatibility boundary. Planning consumes a strict temporary
-`dstack.adoption-classification/v1` JSON document with exactly `schema`, `legacy_root_id`, and sorted `entries`. Every
-open executable descendant appears exactly once under one of the supported classifications: completed history, remaining
-implementation, obsolete lifecycle ceremony, unresolved decision, or preserved unchanged. Completed history requires
-sorted Git-footer/source/test/documentation evidence and either verified evidence or an explicit accepted-risk reason.
-Remaining and preserved recreation entries carry exact replacement title, description, acceptance, and priority;
-unresolved decisions carry either an incorporated design section or a named native blocker. Unknown fields, IDs, paths,
-strategies, missing work, duplicate entries, and unsupported relationships fail before any Beads mutation.
+`/adopt-feature` is an explicit compatibility boundary. It accepts a parentless epic/molecule with exactly one canonical
+feature identity and no alignment identity even when historical metadata has no current feature-root marker. Current
+feature commands remain stricter and require `workflow:feature` or `dstack:feature-idea`. Planning consumes a strict
+temporary `dstack.adoption-classification/v1` JSON document with exactly `schema`, `legacy_root_id`, and sorted
+`entries`. Every open executable descendant appears exactly once under one of the supported classifications: completed
+history, remaining implementation, obsolete lifecycle ceremony, unresolved decision, or preserved unchanged. Completed
+history requires sorted Git-footer/source/test/documentation evidence and either verified evidence or an explicit
+accepted-risk reason. Remaining and preserved recreation entries carry exact replacement title, description, acceptance,
+and priority; unresolved decisions carry either an incorporated design section or a named native blocker. Unknown
+fields, IDs, paths, strategies, missing work, duplicate entries, and unsupported relationships fail before any Beads
+mutation.
 
 The pure planner inventories all descendants, closed history, outgoing external blockers, and incoming external
 dependents. Its in-memory plan records exact replacement parent/label/approval requirements,
