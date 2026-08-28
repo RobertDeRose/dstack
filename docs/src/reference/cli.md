@@ -14,7 +14,7 @@ mechanics and emits JSON.
 | `/project-alignment-review ...` | Current repository | Alignment analysis and correction plan | Human gate remains for explicit execution |
 | `/project-alignment-execute ...` | Native ready corrections | Exact claim and evidence-backed close | Requested correction closes or none is ready |
 | `/project-alignment-land ...` | Full correction candidate | Landing and optional delivery | Reviewed candidate or delivered root |
-| `dstackctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic facts include the immutable closeout candidate, source revisions, limitations, and reconciliation; delivered evidence survives cleanup |
+| `dstackctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic facts include current terminal evidence, source revisions, limitations, and reconciliation; delivered evidence survives cleanup |
 
 Adoption planning writes no durable state. Run `dstackctl adopt plan LEGACY --classification-file CLASSIFICATION.json`
 with a temporary strict `dstack.adoption-classification/v1` document; the command only reads Beads/Git and emits a
@@ -29,18 +29,19 @@ the legacy root reachable until an approved committed-design retry resolves it; 
 superseded. No migration map is stored.
 
 `delivery inspect` is lifecycle-aware. An open root with closed terminal work is inspected from the active
-target-to-candidate range and still requires the clean registered candidate at its derived immutable revision. A closed
-delivered root is inspected from the configured target and does not require the candidate branch or worktree. Feature
-derivation uses the closeout footer. Alignment derivation uses a landing footer, the latest linear correction footer
-when landing made no commit, or the canonical plan baseline when no landing footer exists and all corrections explicitly
-changed no repository content. The reported search ref, candidate revision, derivation, and evidence source remain
-stable after later target commits; delivered feature results match `audit feature`.
+target-to-candidate range and requires a clean registered candidate whose final terminal footer remains reachable. A
+closed delivered root is inspected from the configured target and does not require the candidate branch or worktree.
+Feature derivation uses the latest reachable closeout footer. Alignment derivation uses the latest reachable landing
+footer, the latest correction footer when landing made no repository commit, or no candidate revision when no repository
+change occurred. Sequential fixups and rebases are supported when footers remain reachable; the reported evidence source
+comes from current reachable Git history.
 
-Alignment review writes one temporary strict `dstack.alignment-plan/v1` JSON object and finalizes it with
-`alignment finish-plan AUDIT --plan-file PLAN.json`. The object includes the exact `baseline_commit`, correction content
-and graph, validation expectations, documentation impact, deferred findings, and accepted risks. Markdown scaffolds and
-`finish-plan --summary-file` are not alignment-plan interfaces; Markdown reconciliation remains a separate landing
-record.
+Alignment review writes one temporary strict `dstack.alignment-plan/v2` JSON object and finalizes it with
+`alignment finish-plan AUDIT --plan-file PLAN.json`. The object contains reviewed findings, correction content and graph,
+validation expectations, documentation impact, deferred findings, and accepted risks. It stores no Git revision or
+repository snapshot. Existing v1 Beads descriptions remain readable for historical inspection only; new plans use v2.
+Markdown scaffolds and `finish-plan --summary-file` are not alignment-plan interfaces; Markdown reconciliation remains a
+separate landing record.
 
 `setup.py doctor --delivery-mode merge|pr` requires an explicit delivery profile and reports the selected mode. Merge
 checks only common/local requirements; PR adds a usable GitHub target remote, authenticated `gh`, and native Beads
@@ -75,8 +76,10 @@ footer evidence or `--no-repository-change` with a specific reason and no footer
 
 Errors are JSON on standard error and do not imply rollback. Validation errors mean no intended terminal mutation
 occurred; conflict errors require fresh native state; timeout and partial-recovery errors require inspection before
-retry. Delivery validation derives one closeout-footer candidate and requires clean candidate HEAD equality. Direct
-fast-forward delivery and PR ancestry that preserves that candidate are supported; squash/rebase, duplicate or missing
-footers, and unsupported nonlinear history fail without fallback. Post-delivery finalization errors explicitly report
+retry. Delivery validation derives the current candidate tip, requires clean worktrees and target ancestry, and checks
+that the final terminal footer remains reachable; post-terminal commits must retain that footer. Direct fast-forward
+delivery and PR ancestry that preserves the candidate are supported, including linear squash/rebase and sequential
+fixups. Repeated footers in one commit, missing evidence, and unsupported nonlinear history fail without fallback.
+Post-delivery finalization errors explicitly report
 completed delivery, previous/delivered/observed target heads, root status, the finalization error, and mutation
 uncertainty. See [recovery](../operations/recovery.md).

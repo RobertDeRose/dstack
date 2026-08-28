@@ -38,9 +38,8 @@ Beads: <bead-id>
 ```
 
 Beads never stores task, implementation, delivery, evidence, or bookkeeping commit mappings. `dStack` audits current
-reachable history through these footers, so amend/rebase/cherry-pick operations need no Beads remapping. The sole narrow
-exception is an immutable Git revision that is itself explicit workflow input: the canonical project-alignment
-`baseline_commit`.
+reachable history through these footers, so amend/rebase/cherry-pick operations need no Beads remapping. Alignment plans
+store reviewed findings and corrections only; they contain no Git baseline.
 
 ## Commands
 
@@ -63,8 +62,8 @@ The four feature stages follow the decisions being made:
 - `/plan-feature` discovers what to build and why, then preserves complete planned intent in Beads without changing Git.
 - `/review-feature-spec` materializes that intent as the canonical design, reconciles it with the repository, builds the
   implementation graph, and asks for authorization.
-- `/implement-feature` implements only authorized outcomes.
-- `/close-feature` reconciles intent, implementation, tests, documentation, and delivery.
+- `/implement-feature` implements only authorized outcomes in code and tests; durable documentation waits for closeout.
+- `/close-feature` performs the one final reconciliation of intent, implementation, tests, documentation, and delivery.
 
 `/plan-features` is a deprecated thin alias to `/plan-feature`; it has no separate behavior.
 
@@ -90,8 +89,9 @@ Docs may say a feature is `planned`, `implemented`, or `deprecated`, and must ex
 must not contain `in-progress`, `delivery-ready`, Beads/gate IDs, branch names, commit hashes, agent ownership, or
 next-command bookkeeping.
 
-Accepted feature intent remains in `design.md`; closeout reconciles delivered reality in `index.md` and updates
-authoritative current-product documentation. Any durable planned-to-implemented update belongs in the feature candidate.
+Accepted feature intent remains in `design.md`; closeout performs the one final reconciliation in `index.md` and
+updates authoritative current-product documentation. Implementation tasks do not create documentation or reconciliation
+work. A candidate may be fixed up or rebased before delivery while retaining linear terminal evidence.
 A successful merge/PR finalizer changes Beads only and is forbidden from creating a Git commit.
 
 ## Requirements

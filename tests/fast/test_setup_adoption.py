@@ -146,6 +146,38 @@ def test_adoption_plan_includes_native_executable_kinds(tmp_path: Path, kind: st
     beads.assert_exhausted()
 
 
+def test_adoption_plan_rejects_documentation_replacements_before_mutation(tmp_path: Path) -> None:
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy-1",
+        "entries": [
+            {
+                "legacy_id": "task-1",
+                "classification": "remaining-implementation",
+                "reason": "work remains",
+                "replacement": {
+                    "title": "Reconcile documentation",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+    }
+    task = {"id": "task-1", "status": "open", "issue_type": "task"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "legacy-1", result={"id": "legacy-1", "status": "open"}),
+        call("children", "legacy-1", result=[task]),
+        call("children", "task-1", result=[]),
+        call("list", all_statuses=True, result=[]),
+        call("gates", all_statuses=True, result=[]),
+    )
+    with pytest.raises(DstackError, match="sole final reconciliation"):
+        dstack_adoption.plan_adoption(beads, "legacy-1", classification)
+    beads.assert_exhausted()
+
+
 def test_adoption_plan_fails_closed_missing_native_status_or_type(tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,

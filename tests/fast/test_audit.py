@@ -420,7 +420,7 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
     assert evidence["source"] == "delivered-target"
     assert evidence["search_ref"] == "main"
     assert evidence["candidate_revision"] == evidence["mapping"]["closeout-1"][0]["commit"]
-    assert evidence["derivation"] == "unique reachable closeout Beads footer"
+    assert evidence["derivation"] == "latest reachable closeout Beads footer"
     assert evidence["target_ref"] == "main"
     assert evidence["feature_branch_present"] is False
     assert set(evidence["mapping"]) == {

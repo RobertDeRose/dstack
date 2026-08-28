@@ -187,7 +187,7 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
     assert doctor["status"] == "ok"
 
 
-def test_no_change_alignment_landing_derives_plan_baseline(
+def test_no_change_alignment_landing_has_no_git_candidate(
     acceptance_repo: Path,
 ) -> None:
     alignment = run_ctl(
@@ -216,19 +216,11 @@ def test_no_change_alignment_landing_derives_plan_baseline(
         "--acceptance",
         "The correction closes without repository changes.",
     )["correction"]
-    baseline = subprocess.run(
-        ["git", "rev-parse", "main^{commit}"],
-        cwd=acceptance_repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
     plan_file = acceptance_repo.parent / "no-change-alignment-plan.json"
     plan_file.write_text(
         json.dumps(
             {
-                "schema": "dstack.alignment-plan/v1",
-                "baseline_commit": baseline,
+                "schema": "dstack.alignment-plan/v2",
                 "scope": "whole repository",
                 "findings": [],
                 "accepted_corrections": [
@@ -290,8 +282,8 @@ def test_no_change_alignment_landing_derives_plan_baseline(
     assert landed["landing"]["close_reason"] == "Alignment landing completed"
 
     inspected = run_ctl(acceptance_repo, "delivery", "inspect", root_id)
-    assert inspected["candidate_revision"] == baseline
-    assert inspected["evidence"]["derivation"] == ("canonical alignment plan baseline_commit")
+    assert inspected["candidate_revision"] == inspected["candidate_head"]
+    assert inspected["evidence"]["derivation"] == "no repository change"
 
 
 def test_feature_smoke_runs_shipped_lifecycle(acceptance_repo: Path) -> None:
@@ -594,6 +586,19 @@ External blocker B replaces blocker A.
         check=True,
     )
     run_ctl(acceptance_repo, "feature", "finish-closeout", root_id)
+    fixup = worktree / "smoke-fixup.py"
+    fixup.write_text("SMOKE_FIXUP = True\n")
+    subprocess.run(["git", "add", "smoke-fixup.py"], cwd=worktree, check=True)
+    subprocess.run(
+        [
+            "git",
+            "commit",
+            "-qm",
+            f"fixup: refine smoke behavior\n\nBeads: {claimed_closeout['closeout']['id']}",
+        ],
+        cwd=worktree,
+        check=True,
+    )
     ready_root = run_json(acceptance_repo, "show", root_id)
     assert ready_root[0]["status"] == "open"
 
@@ -675,19 +680,11 @@ External blocker B replaces blocker A.
             "Landing waits for every direct child.",
         )
     )[0]
-    baseline = subprocess.run(
-        ["git", "rev-parse", "main^{commit}"],
-        cwd=acceptance_repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
     alignment_plan = acceptance_repo.parent / "alignment-plan.json"
     alignment_plan.write_text(
         json.dumps(
             {
-                "schema": "dstack.alignment-plan/v1",
-                "baseline_commit": baseline,
+                "schema": "dstack.alignment-plan/v2",
                 "scope": "whole repository",
                 "findings": [],
                 "accepted_corrections": [
@@ -776,13 +773,6 @@ External blocker B replaces blocker A.
         cwd=alignment_worktree,
         check=True,
     )
-    correction_candidate = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=alignment_worktree,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
     finished_correction = run_ctl(
         acceptance_repo,
         "alignment",
@@ -828,6 +818,26 @@ External blocker B replaces blocker A.
     assert landed["landing"]["status"] == "closed"
     assert landed["evidence"]["status"] == "ok"
     assert landed["documentation"]["status"] == "ok"
+    alignment_fixup = alignment_worktree / "alignment-fixup.py"
+    alignment_fixup.write_text("ALIGNMENT_FIXUP = True\n")
+    subprocess.run(["git", "add", "alignment-fixup.py"], cwd=alignment_worktree, check=True)
+    subprocess.run(
+        [
+            "git",
+            "commit",
+            "-qm",
+            f"fixup: refine alignment behavior\n\nBeads: {landed['landing']['id']}",
+        ],
+        cwd=alignment_worktree,
+        check=True,
+    )
+    alignment_fixup_candidate = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=alignment_worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     ready_alignment = items(run_json(acceptance_repo, "show", alignment_root))[0]
     assert ready_alignment["status"] == "open"
 
@@ -857,5 +867,5 @@ External blocker B replaces blocker A.
     assert delivered_alignment_inspection["candidate_worktree"] is None
     assert delivered_alignment_inspection["evidence"]["source"] == "delivered-target"
     assert delivered_alignment_inspection["evidence"]["candidate_branch_present"] is False
-    assert delivered_alignment_inspection["evidence"]["candidate_revision"] == (correction_candidate)
-    assert delivered_alignment_inspection["evidence"]["derivation"] == ("latest reachable correction Beads footer")
+    assert delivered_alignment_inspection["evidence"]["candidate_revision"] == alignment_fixup_candidate
+    assert delivered_alignment_inspection["evidence"]["derivation"] == ("latest reachable landing Beads footer")

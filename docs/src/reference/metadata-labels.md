@@ -17,8 +17,8 @@ lifecycle roles, not transient execution state.
 | `dstack.approved_alignment_plan_sha256` | Canonical alignment-plan digest after approval |
 
 Never store task-to-commit, implementation, delivery/finalization, evidence, or bookkeeping commit mappings, worktree
-paths, claims, next commands, or delivery state in metadata. The narrow project-alignment `baseline_commit` workflow
-input belongs only in the canonical plan description, never root metadata.
+paths, claims, next commands, repository snapshots, or delivery state in metadata. Alignment plans contain reviewed
+intent only and never store a Git baseline.
 
 ## Root and work labels
 

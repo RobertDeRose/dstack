@@ -106,13 +106,10 @@ This is a one-way, rewrite-safe link. Rebases, cherry-picks, and amended commit 
 preserving the same Bead footer. Audit queries reconstruct the current relationship from reachable Git history; they do
 not persist a SHA mapping back into Beads.
 
-A Git revision may be stored only when it is explicit workflow input whose semantics require an immutable repository
-snapshot. The sole current exception is `baseline_commit` in the canonical project-alignment plan: it identifies the
-exact snapshot audited and is part of authorization. It does not permit task-to-commit, implementation,
-delivery/finalization, worktree/branch, or reconstructible audit-result mappings.
-
-A Bead may contain durable intent, acceptance criteria, decisions, validation still required, accepted risk, and this
-narrow immutable workflow input. It must not become a duplicate Git log.
+Alignment plans contain reviewed findings, accepted corrections, and user decisions. They do not store Git revisions or
+repository snapshots. Each execution and delivery boundary revalidates the current repository and reconstructs work
+evidence from reachable Git history. Beads may contain durable intent, acceptance criteria, decisions, validation still
+required, and accepted risk, but must not become a duplicate Git log.
 
 ## Documentation is not workflow state
 
@@ -132,9 +129,11 @@ Forbidden transient workflow content includes:
 - Beads IDs, gate IDs, branch names, or commit hashes;
 - agent ownership or the next dStack command.
 
-A planned-to-implemented documentation change belongs in the feature candidate before delivery. During normal delivery,
-dStack may change Beads state after the Git update but may not mutate Git or create a bookkeeping commit. Explicit
-user-authorized Git recovery after a failed or incorrect delivery is a separate operation, not another lifecycle state.
+The accepted design is prepared before implementation; current-product documentation and the delivered reconciliation
+belong to the final closeout or alignment landing. Implementation and correction tasks do not create documentation or
+reconciliation work. During normal delivery, dStack may change Beads state after the Git update but may not mutate Git
+or create a bookkeeping commit. Explicit user-authorized Git recovery after a failed or incorrect delivery is a separate
+operation, not another lifecycle state.
 
 ## Comments are for irreducible evidence
 

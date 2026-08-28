@@ -19,10 +19,11 @@ For each task:
    This verifies the approved design digest and uses Beads' atomic ready claim.
 2. Read the selected Bead, accepted design, relevant source/tests/docs, and only the context needed to decide the
    implementation.
-3. Implement the smallest correct solution. Update durable docs when behavior or design requires it. Run focused
-   validation and any additional check required by the accepted task. Tests should prove externally meaningful behavior,
-   invariants, failure handling, and regression boundaries rather than private structure. Keep the declared
-   Documentation impact surfaces consistent.
+3. Implement the smallest correct solution in code and tests. Defer durable documentation to closeout; do not create
+   per-task reconciliation or documentation work. Run focused validation and any additional check required by the
+   accepted task. Tests should prove externally meaningful behavior, invariants, failure handling, and regression
+   boundaries rather than private structure. Keep the declared Documentation impact surfaces ready for final
+   reconciliation.
 4. Treat validation as incomplete when a required check fails, times out, is interrupted, runs the wrong scope,
    unexpectedly skips required tests, or is replaced by weaker coverage. When incomplete, report the exact command,
    scope, and outcome, then stop before commit or task completion. Persist a Beads comment only when missing evidence

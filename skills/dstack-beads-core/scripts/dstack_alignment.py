@@ -45,7 +45,9 @@ from dstack_commands import (
     evidence_for_bead,
     keep_root_open_for_delivery,
     open_workstream_children,
+    reject_documentation_work,
     require_installed_formula,
+    require_no_documentation_changes,
     reopen_authorization_boundary,
     required_task_text,
     task_text,
@@ -55,7 +57,7 @@ from dstack_alignment_plan import (
     canonical_description,
     parse_plan_file,
     require_alignment_authorized,
-    require_baseline,
+    require_current_plan,
     root_plan_metadata,
     verify_correction_graph,
 )
@@ -170,6 +172,7 @@ def cmd_alignment_add_correction(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
     acceptance = required_task_text(args.acceptance_file, args.acceptance)
+    reject_documentation_work(args.title, stage="alignment correction")
     approval = client.show(str(view["steps"]["approval"]["id"]))
     corrections = client.show(str(view["steps"]["corrections"]["id"]))
     if approval.get("status") == "closed" or corrections.get("status") == "closed":
@@ -195,28 +198,35 @@ def _reauthorization_diagnostics(
     raw = analysis.get("description")
     if not isinstance(raw, str) or not raw.strip():
         plan_state = {"status": "absent"}
-        baseline_state = {"status": "unavailable", "reason": "canonical plan is absent"}
     else:
         try:
-            plan, _, digest = canonical_description(analysis)
+            _, _, digest = canonical_description(analysis)
         except DstackError as exc:
             plan_state = {"status": "invalid", "reason": str(exc)}
-            baseline_state = {"status": "unavailable", "reason": "canonical plan is invalid"}
         else:
             plan_state = {"status": "valid", "digest": digest}
-            try:
-                observed = require_baseline(client.root, str(view.get("target_branch") or ""), plan)
-            except DstackError as exc:
-                baseline_state = {"status": "mismatch", "reason": str(exc)}
-            else:
-                baseline_state = {"status": "match", "commit": observed}
     pending, approved = root_plan_metadata(client, str(view["root"]["id"]))
     return {
         "plan": plan_state,
-        "baseline": baseline_state,
         "pending_digest": pending,
         "approved_digest": approved,
     }
+
+
+def _reset_alignment_plan_after_reauthorization(
+    client: BeadsClient,
+    view: Mapping[str, Any],
+    analysis: Mapping[str, Any],
+) -> None:
+    raw = analysis.get("description")
+    if not isinstance(raw, str) or not raw.strip() or raw.lstrip().startswith("Analyze "):
+        return
+    scope = str(view.get("scope") or "project alignment")
+    placeholder = f"Analyze {scope}"
+    client.update(str(analysis["id"]), "--description", placeholder)
+    observed = client.show(str(analysis["id"]))
+    if observed.get("description") != placeholder:
+        raise DstackError("alignment plan reset did not converge")
 
 
 def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
@@ -244,6 +254,7 @@ def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
     )
 
     analysis = client.show(str(steps["analysis"]["id"]))
+    _reset_alignment_plan_after_reauthorization(client, view, analysis)
     approval = client.show(str(steps["approval"]["id"]))
     gate = human_gate_for_step(client, root_id=root_id, step=approval)
     corrections = client.show(str(steps["corrections"]["id"]))
@@ -278,7 +289,6 @@ def cmd_alignment_finish_plan(args: argparse.Namespace) -> int:
         raise DstackError("alignment plan requires --plan-file")
     plan, encoded_bytes, digest = parse_plan_file(args.plan_file)
     encoded = encoded_bytes.decode("utf-8")
-    require_baseline(client.root, str(view.get("target_branch") or ""), plan)
     analysis = client.show(str(view["steps"]["analysis"]["id"]))
     pending, approved = root_plan_metadata(client, str(view["root"]["id"]))
     raw_description = analysis.get("description")
@@ -354,9 +364,9 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
     root_id = str(view["root"]["id"])
     analysis = client.show(str(view["steps"]["analysis"]["id"]))
     plan, _, digest = canonical_description(analysis)
+    require_current_plan(plan)
     if analysis.get("status") != "closed":
         raise DstackError("alignment approval requires closed analysis")
-    require_baseline(client.root, str(view.get("target_branch") or ""), plan)
     pending, approved = root_plan_metadata(client, root_id)
     approval = client.show(str(view["steps"]["approval"]["id"]))
     gate = human_gate_for_step(client, root_id=root_id, step=approval)
@@ -488,6 +498,7 @@ def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
             raise DstackError("--no-repository-change conflicts with reachable commit evidence")
     elif not evidence:
         raise DstackError(f"no commit on {branch} references Bead {args.task}")
+    require_no_documentation_changes(evidence, stage="alignment correction")
     require_alignment_approval(client, alignment_context(client, args.selector))
     if args.summary_file:
         client.add_comment(args.task, read_text_file(args.summary_file))

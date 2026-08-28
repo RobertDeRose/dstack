@@ -21,12 +21,14 @@ command execution does not require loading every reference document.
 
 - Never store Git commit identities in Beads as implementation, delivery, task, evidence, or bookkeeping mappings. Use
   one `Beads: <id>` commit footer.
-- A Git revision may be stored only when it is explicit workflow input requiring an immutable repository snapshot. The
-  sole current exception is the canonical project-alignment `baseline_commit`; it is not a work/evidence mapping.
+- Do not store Git revisions in Beads. Alignment plans record reviewed intent only; each execution and delivery boundary
+  revalidates the current repository and reconstructs evidence from reachable Git history.
 - Never create dStack state files, packets, ledgers, schedulers, or review topology.
 - Do not calculate a ready frontier; query Beads. For terminal fan-in only, reject nonterminal direct children before
   and after native ready claim because Beads 1.2.2 can miss them in `children-of(...)`.
-- Do not put transient workflow state or IDs in repository docs.
+- Do not put transient workflow state or IDs in repository docs. Implementation tasks do not update durable
+  documentation or create reconciliation tasks; the feature closeout or alignment landing is the sole final
+  reconciliation boundary.
 - `planned`, `implemented`, and `deprecated` are durable product context.
 - During normal delivery, Beads finalization must not mutate the delivered Git state or create bookkeeping commits.
   Explicit user-authorized recovery after a failed or incorrect delivery is a separate native Git operation.

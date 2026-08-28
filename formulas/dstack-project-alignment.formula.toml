@@ -5,10 +5,11 @@ Persistent three-tier project-alignment workflow for dstack.
 Tier 1 analyzes and builds a corrective plan. A task-sized approval milestone
 carries the native human gate because Beads blocking dependencies must connect
 like kinds. Corrective tasks are created dynamically beneath the corrections
-epic and depend on that approved milestone. Tier 3 uses native dynamic fan-in
-and performs final reconciliation and delivery.
+epic and depend on that approved milestone. Corrections change code and tests only;
+the landing step is the single final reconciliation for durable documentation and
+delivery. Tier 3 uses native dynamic fan-in and performs final reconciliation and delivery.
 """
-version = 7
+version = 8
 type = "workflow"
 phase = "liquid"
 pour = true

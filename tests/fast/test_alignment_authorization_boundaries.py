@@ -16,13 +16,10 @@ import dstack_alignment_plan
 from dstack_commands import DstackError, reopen_authorization_boundary
 from dstack_alignment_plan import canonical_plan_bytes, plan_digest
 
-BASELINE = "a" * 40
-
 
 def plan() -> dict:
     return {
-        "schema": "dstack.alignment-plan/v1",
-        "baseline_commit": BASELINE,
+        "schema": "dstack.alignment-plan/v2",
         "scope": "repository",
         "findings": [],
         "accepted_corrections": [],
@@ -145,36 +142,33 @@ def patch_alignment(monkeypatch: pytest.MonkeyPatch, client: BoundaryClient) -> 
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda c, selector: _view(client))
     monkeypatch.setattr(dstack_alignment, "human_gate_for_step", lambda *args, **kwargs: client.show("gate-1"))
-    monkeypatch.setattr(dstack_alignment_plan, "target_commit", lambda root, ref: BASELINE)
     monkeypatch.setattr(dstack_alignment, "alignment_branch_context", lambda *args: ("audit/x", client.root, "main"))
     monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", lambda *args: None)
     monkeypatch.setattr(dstack_alignment, "emit", lambda value: None)
 
 
-@pytest.mark.parametrize("entry", ["claim", "finish", "workstream"])
-def test_baseline_drift_blocks_every_alignment_execution_entry(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, entry: str
+def test_legacy_alignment_plan_requires_re_review_before_execution(tmp_path: Path) -> None:
+    client = BoundaryClient(tmp_path, approved=True)
+    legacy = plan() | {"schema": "dstack.alignment-plan/v1", "baseline_commit": "a" * 40}
+    client.state["analysis-1"]["description"] = json.dumps(legacy, sort_keys=True, separators=(",", ":"))
+
+    with pytest.raises(DstackError, match="re-review"):
+        dstack_alignment_plan.require_alignment_authorized(client, _view(client))
+
+
+def test_alignment_authorization_has_no_git_revision_precondition(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     client = BoundaryClient(tmp_path, approved=True)
     patch_alignment(monkeypatch, client)
-    monkeypatch.setattr(dstack_alignment_plan, "target_commit", lambda root, ref: "b" * 40)
-    args = argparse.Namespace(
-        root=tmp_path,
-        selector="alignment-1",
-        task=None,
-        quiet=True,
-        reason=None,
-        summary_file=None,
-        no_repository_change=False,
+    monkeypatch.setattr(
+        dstack_alignment_plan,
+        "target_commit",
+        lambda *args: (_ for _ in ()).throw(AssertionError("alignment authorization read a Git revision")),
+        raising=False,
     )
-    command = {
-        "claim": dstack_alignment.cmd_alignment_claim_next,
-        "finish": dstack_alignment.cmd_alignment_finish_task,
-        "workstream": dstack_alignment.cmd_alignment_finish_workstream,
-    }[entry]
-    with pytest.raises(DstackError, match="baseline changed"):
-        command(args)
-    assert client.calls == []
+
+    assert dstack_alignment_plan.require_alignment_authorized(client, _view(client)) == plan()
 
 
 @pytest.mark.parametrize("status", ["claimed", "in_progress", "deferred", "closed", "hooked", "pinned", "unknown"])

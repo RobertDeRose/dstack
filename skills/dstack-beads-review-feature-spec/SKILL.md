@@ -61,7 +61,8 @@ graph. Create missing bounded outcomes through:
 ```
 
 Every task automatically depends on implementation approval. Add only real predecessors. Use observable outcomes, not
-file lists or implementation names. Do not create reviewer, coordinator, status, or speculative tasks. When repository
+file lists or implementation names. Do not create reviewer, coordinator, status, documentation, reconciliation, or
+speculative tasks; the closeout step is the sole final reconciliation. When repository
 contents changed, commit the actual design/docs change with the specification Bead footer:
 
 ```bash

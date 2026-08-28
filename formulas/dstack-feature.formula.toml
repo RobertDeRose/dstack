@@ -6,10 +6,11 @@ The poured molecule contains only the stable lifecycle skeleton. A task-sized
 approval milestone carries the human gate because Beads blocking dependencies
 must connect like kinds: tasks block tasks and epics block epics. Real
 implementation work is created dynamically beneath the implementation epic and
-depends on the approved milestone. Closeout uses native dynamic fan-in over the
-implementation children.
+depends on the approved milestone. Implementation work changes code and tests only;
+closeout is the single final reconciliation for durable documentation and delivery.
+Closeout uses native dynamic fan-in over the implementation children.
 """
-version = 7
+version = 8
 type = "workflow"
 phase = "liquid"
 pour = true

@@ -10,13 +10,13 @@
 ## Delivered capability
 
 The accepted hardening work is implemented across the workflow controller, native Beads transitions, Git delivery
-boundaries, setup, documentation migration, and operator references. The feature now binds authorization to exact
-content and native relationships, preserves recovery evidence, and keeps Beads, Git, and mdBook as separate authorities.
+boundaries, setup, documentation migration, and operator references. The feature binds authorization to exact content
+and native relationships, preserves recovery evidence, and keeps Beads, Git, and mdBook as separate authorities.
 
 ## User-visible behavior
 
-- Alignment approval and reauthorization fail closed when the reviewed plan, immutable audit input, terminal state, task
-  graph, or native ownership changes.
+- Alignment approval and reauthorization fail closed when the reviewed plan, terminal state, task graph, or native
+  ownership changes; current repository evidence is reread at execution and delivery.
 - Legacy adoption validates the complete descendant classification before mutation, translates supported native
   relationships in memory, and records replacement history through native supersession only.
 - Unqualified implementation claims accept the task selected by Beads' atomic operation, including a valid race winner;
@@ -40,16 +40,17 @@ authoritative for durable source, documentation, delivered revisions, worktrees,
 shadow graph, migration map, scheduler, or commit ledger. mdBook remains the documentation renderer and policy boundary.
 
 The implementation keeps the established four-stage lifecycle and formula skeleton. Content digests identify reviewed
-bytes across non-transactional native mutations; they are not alternate workflow state or Git identities.
+bytes across non-transactional native mutations; they are not alternate workflow state or Git identities. Alignment
+plans contain reviewed intent only and do not persist a repository baseline.
 
 ## Design reconciliation
 
 ### Delivered as designed
 
 The implementation covers the accepted alignment authorization and terminal safety predicates, closed-world adoption,
-atomic claiming, retained delivery recovery, immutable delivered-revision auditing, exact setup mutation planning,
-explicit delivery profiles, conservative documentation migration, and candidate-independent PR-gate cancellation. Each
-boundary has focused behavior coverage and the real native scenarios required by the design.
+atomic claiming, retained delivery recovery, reachable-delivery auditing, exact setup mutation planning, explicit
+delivery profiles, conservative documentation migration, and candidate-independent PR-gate cancellation. Each boundary
+has focused behavior coverage and the real native scenarios required by the design.
 
 The documentation impact surfaces are reconciled in the operator CLI, delivery/recovery, compatibility,
 development/tooling, architecture, lifecycle, and feature-record pages. The implementation preserves the supported Beads
@@ -84,7 +85,7 @@ cancellation, and retry boundaries without embedding transient workflow state.
 
 ### Developer and reviewer
 
-Architecture and lifecycle guidance explain authority ownership, immutable revision evidence, exact setup mutation
+Architecture and lifecycle guidance explain authority ownership, reachable footer evidence, exact setup mutation
 identity, native relationship handling, and conservative documentation migration. Tests exercise externally meaningful
 success, drift, race, rollback, cleanup, and recovery behavior.
 

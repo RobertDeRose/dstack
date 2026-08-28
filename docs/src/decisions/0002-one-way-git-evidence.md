@@ -7,8 +7,9 @@
 ## Context
 
 Persisting commit identities in Beads as task, implementation, delivery, evidence, or bookkeeping mappings couples
-workflow records to rewriteable Git object names and creates reconciliation work after rebases or amends. An immutable
-revision that is itself explicit workflow input is not such a mapping.
+workflow records to rewriteable Git object names and creates reconciliation work after rebases or amends. A project
+alignment must compare current code, docs, Beads intent, and Git history; it must not promote a historical repository
+snapshot into a second authority.
 
 ## Decision
 
@@ -16,14 +17,13 @@ Commits reference work through a `Beads: <id>` footer. dStack discovers current 
 Beads never stores task-to-commit, implementation, delivery/finalization, worktree/branch, or reconstructible
 audit-result mappings or a mirror of Git history.
 
-A Git revision may be stored only when its identity is explicit workflow input whose semantics require an immutable
-repository snapshot. The sole current exception is `baseline_commit` in the canonical project-alignment plan.
+No Git revision is stored in Beads. Alignment plans contain reviewed findings, accepted corrections, and user decisions;
+execution and delivery revalidate current repository evidence.
 
 ## Consequences
 
 Amend, rebase, and cherry-pick require no Beads remapping. Completion and delivery query the relevant reachable source
-and reject missing, unexpected, orphaned, malformed, or outside-candidate evidence. Multiple distinct reachable commits
-for one Bead are valid fixup history and remain visible informationally; repeating the same footer in one commit is
-malformed. Moving the configured alignment target invalidates authorization until the baseline is reviewed again; it
-never triggers commit remapping. A no-repository-change close is explicit, reasoned, clean, and has no reachable footer
-evidence.
+and reject missing, unexpected, orphaned, or malformed evidence. Multiple distinct reachable commits for one Bead are
+valid fixup history and remain visible informationally; repeating the same footer in one commit is malformed. The final
+closeout or landing footer must remain reachable through any pre-delivery fixups. A no-repository-change close is
+explicit, reasoned, clean, and has no candidate revision.

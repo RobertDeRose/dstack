@@ -15,10 +15,10 @@ and native issues, correct them with native operations, then plan again.
 - Dirty candidate or target: preserve the files, decide whether to commit, relocate, or discard them, then rerun
   preflight.
 - Changed target or candidate: fetch and inspect; rebase or supersede only with explicit authorization. Delivery
-  preflight also rejects any candidate whose clean HEAD is not the unique closeout-footer revision.
-- Missing, duplicate, or later-only closeout footer evidence: treat the immutable-candidate derivation as unresolved. Do
-  not substitute the current target tip, caller checkout, or uncommitted files; restore supported fast-forward/ancestor
-  history or record the limitation for manual recovery.
+  preflight permits a clean linear rebase or fixup before delivery when final terminal footer evidence remains reachable.
+- Missing, duplicate, or later-only closeout footer evidence: treat the candidate derivation as unresolved. Do not
+  substitute uncommitted files; restore supported fast-forward/ancestor history or record the limitation for manual
+  recovery.
 - Timed-out push, PR, merge, or Beads mutation: query the native system before retrying.
 - Active PR gate before direct merge: keep the target unchanged; either continue PR delivery or explicitly run
   `delivery cancel-pr-gate` with the reason for switching modes. Gate cancellation does not change the GitHub pull

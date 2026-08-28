@@ -10,7 +10,7 @@ from dstack_adoption import (
     _section,
     reconcile_adoption_graph,
 )
-from dstack_commands import descendants, superseded_target
+from dstack_commands import descendants, reject_documentation_work, superseded_target
 from dstacklib import (
     BeadsClient,
     DstackError,
@@ -316,11 +316,12 @@ def _replacement_for(
     old_kind = issue_type(old)
     if not old_kind:
         raise DstackError(f"adoption issue has no native type: {old_id}")
+    replacement = spec["replacement"]
+    reject_documentation_work(replacement["title"], stage="implementation")
     existing = _replacement_association(client, old, implementation_id=implementation_id)
     if existing:
         _validate_replacement(client, existing, spec, implementation_id=implementation_id, approval_id=approval_id)
         return existing
-    replacement = spec["replacement"]
     created = client.create(
         replacement["title"],
         issue_type_name=old_kind,

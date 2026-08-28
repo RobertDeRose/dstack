@@ -18,14 +18,16 @@ mode is `ready` (default), `pr`, or `merge`.
    "{baseDir}/../../bin/dstack" ctl feature scaffold-reconciliation [feature]
    ```
 
-2. Compare accepted design, actual code/tests, durable docs, decisions, and required validation. Reconcile real behavior
-   and documentation. Confirm tests prove externally meaningful behavior, invariants, failure handling, and regression
+2. Compare accepted design, actual code/tests, durable docs, decisions, and required validation. This is the sole final
+   reconciliation for the feature; implementation tasks do not create reconciliation or documentation tasks. Reconcile
+   real behavior and documentation here. Confirm tests prove externally meaningful behavior, invariants, failure handling, and regression
    boundaries. Reconcile every declared Documentation impact surface for end users/operators, developers/reviewers, and
    future agents/auditors. Allowed docs describe what is planned/implemented, why, and how; they must not contain
    transient workflow state or IDs. Complete every reconciliation scaffold section with substantive content or
    `Not applicable — <specific reason>`; placeholders, duplicate/missing headings, and unsupported local links fail
    before closeout mutation.
-3. Run the repository's full/release validation and review the complete candidate diff. If a required check fails, times
+3. Run the repository's full/release validation and review the complete candidate diff after any fixups or rebase. If a
+   required check fails, times
    out, is interrupted, runs the wrong scope, unexpectedly skips required tests, or substitutes weaker coverage, report
    the exact command, scope, and outcome and stop before `feature finish-closeout` or delivery. Correct material
    findings, rerun affected checks, and commit only real code/docs changes with the closeout Bead footer.
@@ -45,5 +47,7 @@ mode is `ready` (default), `pr`, or `merge`.
 - `merge`: run `delivery merge`.
 
 The controller requires linear ancestry, synchronized PR base state, clean worktrees, and no transient-doc violations.
+Rebases, amendments, and terminal fixup commits are allowed before delivery; the final terminal footer must remain
+reachable and post-closeout commits must carry that footer. Documentation belongs only in this final reconciliation.
 During normal delivery, Beads finalization must not mutate the delivered Git state or create bookkeeping commits.
 Explicit user-authorized recovery after a failed or incorrect delivery is a separate native Git operation.

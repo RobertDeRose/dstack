@@ -40,13 +40,14 @@ from dstacklib import (
     ref_exists,
     run,
     validate_git_branch,
+    validate_git_range,
     validate_git_revision,
     verify_worktree_identity,
     worktree_for_branch,
     worktree_records,
 )
 
-from dstack_alignment_plan import canonical_description
+from dstack_alignment_plan import canonical_description, require_current_plan
 from dstack_docs import validate_docs
 from dstack_commands import (
     BEADS_RUNTIME_DIR_PREFIXES,
@@ -242,7 +243,8 @@ def feature_delivery_context(client: BeadsClient, selector: str) -> dict[str, An
 def alignment_delivery_context(client: BeadsClient, selector: str) -> dict[str, Any]:
     view = alignment_context(client, selector)
     plan, _, _ = canonical_description(client.show(str(view["steps"]["analysis"]["id"])))
-    view["baseline_commit"] = str(plan["baseline_commit"])
+    if view["root"].get("status") != "closed":
+        require_current_plan(plan)
     view["corrections"] = [
         item
         for item in client.children(str(view["steps"]["corrections"]["id"]))
@@ -251,28 +253,157 @@ def alignment_delivery_context(client: BeadsClient, selector: str) -> dict[str, 
     return view
 
 
+def _commit_records(root: Path, ref_range: str) -> list[dict[str, Any]]:
+    validate_git_range(root, ref_range, name="evidence revision")
+    format_string = "%x1e%H%x00%s%x00%B%x00"
+    output = run(
+        ["git", "log", f"--format={format_string}", "--name-only", ref_range],
+        cwd=root,
+    ).stdout
+    records: list[dict[str, Any]] = []
+    for raw in output.split("\x1e"):
+        if not raw.strip():
+            continue
+        parts = raw.split("\x00", 3)
+        if len(parts) != 4:
+            continue
+        commit, subject, body, path_text = parts
+        commit = commit.strip()
+        if not commit:
+            continue
+        footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Beads:\s*([^\s]+)\s*$", body))
+        records.append(
+            {
+                "commit": commit,
+                "subject": subject.strip(),
+                "body": body,
+                "paths": [line for line in path_text.splitlines() if line.strip()],
+                "footer_ids": footer_ids,
+            }
+        )
+    return records
+
+
+def _latest_footer_commit(
+    root: Path,
+    records: Sequence[Mapping[str, Any]],
+    bead_ids: Sequence[str],
+    *,
+    name: str,
+) -> str | None:
+    wanted = set(bead_ids)
+    if any(
+        sum(item == bead_id for item in record.get("footer_ids", ())) > 1 for record in records for bead_id in wanted
+    ):
+        raise DstackError(f"{name} has a repeated footer in one commit")
+    matches = [
+        str(record["commit"])
+        for record in records
+        if wanted.intersection(str(item) for item in record.get("footer_ids", ()))
+    ]
+    distinct = set(matches)
+    if len(matches) != len(distinct):
+        raise DstackError(f"{name} has a repeated footer in one commit")
+    if not distinct:
+        return None
+    latest = [
+        commit for commit in distinct if all(ancestry(root, other, commit) for other in distinct if other != commit)
+    ]
+    if len(latest) != 1:
+        raise DstackError(f"{name} evidence is nonlinear or ambiguous")
+    return latest[0]
+
+
+def _require_terminal_tail(
+    root: Path,
+    candidate_ref: str,
+    candidate_head: str,
+    bead_ids: Sequence[str],
+    *,
+    base_ref: str | None = None,
+    name: str,
+) -> str:
+    search_ref = f"{base_ref}..{candidate_ref}" if base_ref else candidate_ref
+    records = _commit_records(root, search_ref)
+    latest = _latest_footer_commit(root, records, bead_ids, name=name)
+    if latest is None:
+        raise DstackError(f"{name} footer is not reachable from {candidate_ref}")
+    if not ancestry(root, latest, candidate_head):
+        raise DstackError(f"candidate HEAD does not contain the latest {name} footer")
+    for record in _commit_records(root, f"{latest}..{candidate_head}"):
+        footer_ids = set(str(item) for item in record.get("footer_ids", ()))
+        if not footer_ids or not footer_ids.issubset(set(bead_ids)):
+            raise DstackError(
+                f"candidate has a post-{name} commit without an allowed {name} footer: "
+                f"{record['commit']} ({record['subject']})"
+            )
+    return candidate_head
+
+
+def require_alignment_candidate_head(
+    root: Path,
+    candidate_ref: str,
+    target_ref: str,
+    candidate_head: str,
+    view: Mapping[str, Any],
+) -> str:
+    records = _commit_records(root, f"{target_ref}..{candidate_ref}")
+    landing_id = str(view["steps"]["landing"]["id"])
+    if _latest_footer_commit(root, records, [landing_id], name=f"landing {landing_id}") is not None:
+        return _require_terminal_tail(
+            root,
+            candidate_ref,
+            candidate_head,
+            [landing_id],
+            base_ref=target_ref,
+            name="landing",
+        )
+    changing = [
+        str(item["id"])
+        for item in view["corrections"]
+        if not str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
+    ]
+    if changing:
+        return _require_terminal_tail(
+            root,
+            candidate_ref,
+            candidate_head,
+            changing,
+            base_ref=target_ref,
+            name="alignment correction",
+        )
+    if current_head(root, target_ref) != candidate_head:
+        raise DstackError("no-repository-change alignment candidate must match the target")
+    return candidate_head
+
+
 def immutable_candidate_revision(root: Path, search_ref: str, closeout_id: str) -> str:
-    """Derive one closeout-footer commit without persisting a Git mapping."""
+    """Derive the latest closeout-footer commit without persisting a Git mapping."""
 
     validate_git_revision(root, search_ref, name="candidate search ref")
-    matches = commit_footer_ids(root, search_ref).get(closeout_id, [])
-    if len(matches) != 1:
-        count = len(matches)
-        raise DstackError(
-            f"immutable candidate revision is ambiguous for {closeout_id} on "
-            f"{search_ref}: expected exactly one closeout footer, found {count}"
-        )
-    return str(matches[0]["commit"])
-
-
-def require_candidate_head(root: Path, search_ref: str, closeout_id: str, candidate_head: str) -> str:
-    revision = immutable_candidate_revision(root, search_ref, closeout_id)
-    if revision != candidate_head:
-        raise DstackError(
-            "candidate HEAD is not the unique closeout-footer revision; "
-            f"candidate_head={candidate_head}, closeout_revision={revision}"
-        )
+    records = _commit_records(root, search_ref)
+    revision = _latest_footer_commit(root, records, [closeout_id], name="closeout")
+    if revision is None:
+        raise DstackError(f"immutable candidate revision is unavailable for {closeout_id} on {search_ref}: found 0")
     return revision
+
+
+def require_candidate_head(
+    root: Path,
+    search_ref: str,
+    closeout_id: str,
+    candidate_head: str,
+    *,
+    base_ref: str | None = None,
+) -> str:
+    return _require_terminal_tail(
+        root,
+        search_ref,
+        candidate_head,
+        [closeout_id],
+        base_ref=base_ref,
+        name="closeout",
+    )
 
 
 def delivered_candidate_revision(root: Path, target: str, closeout_id: str) -> tuple[str, str]:
@@ -282,14 +413,14 @@ def delivered_candidate_revision(root: Path, target: str, closeout_id: str) -> t
         refs.append(remote)
     found: list[tuple[str, str]] = []
     for ref in refs:
-        matches = commit_footer_ids(root, ref).get(closeout_id, [])
-        commits = {str(item["commit"]) for item in matches}
-        if len(commits) > 1:
-            raise DstackError(
-                f"immutable candidate revision is ambiguous for {closeout_id} on {ref}: found {len(commits)} commits"
-            )
-        if commits:
-            found.append((ref, commits.pop()))
+        revision = _latest_footer_commit(
+            root,
+            _commit_records(root, ref),
+            [closeout_id],
+            name=f"closeout {closeout_id}",
+        )
+        if revision is not None:
+            found.append((ref, revision))
     revisions = {revision for _, revision in found}
     if len(revisions) != 1:
         detail = ", ".join(f"{ref}={revision}" for ref, revision in found) or "none"
@@ -299,19 +430,6 @@ def delivered_candidate_revision(root: Path, target: str, closeout_id: str) -> t
     return search_ref, revision
 
 
-def _require_linear_alignment_candidate(root: Path, baseline: str, candidate: str) -> None:
-    if not ancestry(root, baseline, candidate):
-        raise DstackError(
-            f"alignment candidate is not descended from baseline_commit; baseline={baseline}, candidate={candidate}"
-        )
-    merges = run(
-        ["git", "rev-list", "--merges", f"{baseline}..{candidate}"],
-        cwd=root,
-    ).stdout.splitlines()
-    if merges:
-        raise DstackError("alignment candidate evidence is nonlinear: " + ", ".join(merges))
-
-
 def alignment_candidate_revision(
     root: Path,
     search_ref: str,
@@ -319,28 +437,19 @@ def alignment_candidate_revision(
     *,
     allow_unavailable: bool = False,
 ) -> tuple[str, str] | None:
-    """Derive an alignment candidate from reachable native Git evidence."""
+    """Derive an alignment candidate from current reachable Git evidence."""
 
     validate_git_revision(root, search_ref, name="alignment candidate search ref")
-    baseline = str(view.get("baseline_commit") or "")
-    validate_git_revision(root, baseline, name="alignment baseline_commit")
-    if not ancestry(root, baseline, search_ref):
-        raise DstackError(
-            "alignment baseline_commit is not reachable from the candidate search ref; "
-            f"baseline={baseline}, search_ref={search_ref}"
-        )
-
-    landing = view["steps"]["landing"]
-    landing_id = str(landing["id"])
-    mapping = commit_footer_ids(root, search_ref)
-    landing_records = mapping.get(landing_id, [])
-    landing_commits = {str(record["commit"]) for record in landing_records}
-    if len(landing_records) != len(landing_commits) or len(landing_commits) > 1:
-        raise DstackError(f"alignment candidate evidence is ambiguous for landing {landing_id} on {search_ref}")
-    if landing_commits:
-        candidate = landing_commits.pop()
-        _require_linear_alignment_candidate(root, baseline, candidate)
-        return candidate, "unique reachable landing Beads footer"
+    records = _commit_records(root, search_ref)
+    landing_id = str(view["steps"]["landing"]["id"])
+    landing = _latest_footer_commit(
+        root,
+        records,
+        [landing_id],
+        name=f"landing {landing_id}",
+    )
+    if landing is not None:
+        return landing, "latest reachable landing Beads footer"
 
     corrections = list(view["corrections"])
     open_ids = sorted(str(item["id"]) for item in corrections if item.get("status") != "closed")
@@ -349,33 +458,31 @@ def alignment_candidate_revision(
     changing = [
         item for item in corrections if not str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
     ]
-    missing = sorted(str(item["id"]) for item in changing if not mapping.get(str(item["id"])))
+    expected = [str(item["id"]) for item in changing]
+    mapping = commit_footer_ids(root, search_ref)
+    missing = sorted(item for item in expected if not mapping.get(item))
     if missing:
         if allow_unavailable:
             return None
         raise DstackError(
             "alignment candidate revision is unavailable; missing correction evidence: " + ", ".join(missing)
         )
-    if changing:
-        expected = {str(item["id"]) for item in changing}
-        _, malformed = footer_cardinality(mapping, expected)
-        if malformed:
-            raise DstackError("alignment correction evidence is ambiguous: " + ", ".join(malformed))
-        commits = {str(record["commit"]) for correction_id in expected for record in mapping[correction_id]}
-        outside_baseline = sorted(commit for commit in commits if not ancestry(root, baseline, commit))
-        if outside_baseline:
-            raise DstackError("alignment correction evidence predates baseline_commit: " + ", ".join(outside_baseline))
-        latest = [candidate for candidate in commits if all(ancestry(root, other, candidate) for other in commits)]
-        if len(latest) != 1:
-            raise DstackError("alignment correction evidence is nonlinear or ambiguous")
-        candidate = latest[0]
-        _require_linear_alignment_candidate(root, baseline, candidate)
-        return candidate, "latest reachable correction Beads footer"
-
-    return baseline, "canonical alignment plan baseline_commit"
+    if not expected:
+        return None
+    candidate = _latest_footer_commit(
+        root,
+        records,
+        expected,
+        name="alignment correction",
+    )
+    if candidate is None:
+        return None
+    return candidate, "latest reachable correction Beads footer"
 
 
-def delivered_alignment_candidate_revision(root: Path, target: str, view: Mapping[str, Any]) -> tuple[str, str, str]:
+def delivered_alignment_candidate_revision(
+    root: Path, target: str, view: Mapping[str, Any]
+) -> tuple[str, str, str] | None:
     refs = [target]
     remote = f"origin/{target}"
     if ref_exists(root, remote):
@@ -388,7 +495,13 @@ def delivered_alignment_candidate_revision(root: Path, target: str, view: Mappin
     revisions = {candidate for _, candidate, _ in found}
     if len(revisions) != 1:
         if not found:
-            alignment_candidate_revision(root, target, view)
+            if any(
+                not str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
+                for item in view["corrections"]
+                if item.get("status") == "closed"
+            ):
+                alignment_candidate_revision(root, target, view)
+            return None
         detail = ", ".join(f"{ref}={candidate}" for ref, candidate, _ in found)
         raise DstackError("alignment candidate revision is unavailable or inconsistent: " + detail)
     candidate = revisions.pop()
@@ -406,6 +519,7 @@ def feature_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict
             branch,
             str(steps["closeout"]["id"]),
             current_head(worktree),
+            base_ref=base,
         )
     audit = evidence_audit(
         client,
@@ -424,7 +538,7 @@ def feature_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict
             {
                 "search_ref": branch,
                 "candidate_revision": candidate_revision,
-                "derivation": "unique reachable closeout Beads footer",
+                "derivation": "candidate HEAD with reachable closeout Beads footer",
                 "candidate_head": candidate_revision,
                 "evidence_source": candidate_revision,
             }
@@ -459,13 +573,34 @@ def _delivered_evidence_audit(client: BeadsClient, view: Mapping[str, Any], *, k
     expected = {str(item["id"]) for item in closed if str(item["id"]) not in no_repository_change}
     if kind == "feature":
         search_ref, candidate = delivered_candidate_revision(client.root, target, terminal_id)
-        derivation = "unique reachable closeout Beads footer"
+        derivation = "latest reachable closeout Beads footer"
         expected.add(terminal_id)
         if initial:
             expected.add(str(steps[initial]["id"]))
     else:
-        search_ref, candidate, derivation = delivered_alignment_candidate_revision(client.root, target, view)
-        if derivation == "unique reachable landing Beads footer":
+        derived = delivered_alignment_candidate_revision(client.root, target, view)
+        if derived is None:
+            return {
+                kind: view["root"]["id"],
+                "status": "ok",
+                "source": "delivered-target",
+                "search_ref": target,
+                "target_ref": target,
+                "candidate_revision": None,
+                "derivation": "no repository change",
+                "candidate_branch": branch,
+                "candidate_branch_present": branch_exists(client.root, branch),
+                "worktree_present": worktree_for_branch(client.root, branch) is not None,
+                "evidence_source": None,
+                "missing": [],
+                "no_repository_change": no_repository_change,
+                "multiple_commits": {},
+                "malformed_footer_ids": [],
+                "wrong_source_footer_ids": [],
+                "mapping": {},
+            }
+        search_ref, candidate, derivation = derived
+        if derivation == "latest reachable landing Beads footer":
             expected.add(terminal_id)
         elif str(steps[terminal].get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX):
             no_repository_change.append(terminal_id)
@@ -535,23 +670,44 @@ def alignment_evidence_audit(client: BeadsClient, view: Mapping[str, Any]) -> di
     )
     result = {"alignment": view["root"]["id"], **audit}
     if steps["landing"].get("status") == "closed":
-        derived = alignment_candidate_revision(client.root, branch, view)
-        if derived is None:
-            raise DstackError("alignment candidate revision is unavailable")
-        candidate, derivation = derived
         head = current_head(worktree)
-        if candidate != head:
-            raise DstackError(
-                "alignment candidate HEAD does not match immutable evidence; "
-                f"candidate_head={head}, candidate_revision={candidate}"
+        landing_id = str(steps["landing"]["id"])
+        records = _commit_records(client.root, f"{base}..{branch}")
+        if _latest_footer_commit(client.root, records, [landing_id], name=f"landing {landing_id}") is not None:
+            require_candidate_head(
+                client.root,
+                branch,
+                landing_id,
+                head,
+                base_ref=base,
             )
+            derivation = "candidate HEAD with reachable landing Beads footer"
+        else:
+            changing = [
+                str(item["id"])
+                for item in view["corrections"]
+                if not str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
+            ]
+            if changing:
+                _require_terminal_tail(
+                    client.root,
+                    branch,
+                    head,
+                    changing,
+                    base_ref=base,
+                    name="alignment correction",
+                )
+                derivation = "candidate HEAD with reachable correction Beads footer"
+            else:
+                require_alignment_candidate_head(client.root, branch, base, head, view)
+                derivation = "no repository change"
         result.update(
             {
                 "search_ref": branch,
-                "candidate_revision": candidate,
+                "candidate_revision": head,
                 "derivation": derivation,
                 "candidate_head": head,
-                "evidence_source": candidate,
+                "evidence_source": head,
             }
         )
     return result
@@ -676,15 +832,10 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
     candidate = current_head(candidate_worktree)
     if kind == "feature":
         require_approved_design(view)
-        require_candidate_head(
-            client.root,
-            branch,
-            str(view["steps"]["closeout"]["id"]),
-            candidate,
-        )
         evidence = feature_evidence_audit(client, view)
     else:
         evidence = alignment_evidence_audit(client, view)
+        require_alignment_candidate_head(client.root, branch, target, candidate, view)
     if evidence["status"] != "ok":
         details = []
         for key in (
@@ -848,18 +999,12 @@ def ensure_clean_candidate(root: Path, payload: Mapping[str, Any]) -> str | None
             str(payload["candidate_branch"]),
             str(closeout_id),
             observed,
+            base_ref=str(payload.get("target_branch") or "") or None,
         )
     return observed
 
 
 def validate_delivery(payload: Mapping[str, Any], *, require_remote: bool) -> None:
-    candidate_revision = payload.get("candidate_revision")
-    candidate_head = payload.get("candidate_head")
-    if candidate_revision is not None and candidate_head != candidate_revision:
-        raise DstackError(
-            "candidate HEAD is not the unique closeout-footer revision; "
-            f"candidate_head={candidate_head}, closeout_revision={candidate_revision}"
-        )
     if require_remote:
         if payload.get("remote_target_head") is None:
             raise DstackError("origin target branch is unavailable")

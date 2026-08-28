@@ -20,14 +20,14 @@ architecture.
   use native operations, be idempotent, and persist no custom state.
 - Never store Git commit identities in Beads as implementation, delivery, task, evidence, or
   bookkeeping mappings. Commits reference work only through `Beads: <id>` footers.
-- A Git revision may be stored only when it is explicit workflow input whose semantics require an
-  immutable repository snapshot. The sole current exception is the canonical project-alignment
-  `baseline_commit`. It does not permit task-to-commit, implementation, delivery/finalization,
-  worktree/branch, or reconstructible audit-result mappings.
+- Do not store Git revisions or repository snapshots in Beads. Alignment plans store reviewed
+  intent only and revalidates the current repository evidence at execution and delivery boundaries.
 - Do not store branch/worktree paths or Git-history mirrors in Beads.
 - Do not duplicate feature identity on children when parentage/root labels already establish it.
 - Do not put transient lifecycle state, Beads IDs, branches, commits, gates, or next commands in
   user/developer documentation.
+- Implementation and correction tasks do not create documentation or reconciliation work; each
+  feature/alignment has one final closeout/landing reconciliation.
 - Durable `planned`, `implemented`, and `deprecated` product classification is allowed. It must be
   part of the candidate before delivery.
 - During normal delivery, Beads finalization must not mutate the delivered Git state or create a

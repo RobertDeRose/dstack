@@ -254,6 +254,7 @@ RECORD_SUBJECTS = {
 }
 
 NO_REPOSITORY_CHANGE_PREFIX = "no-repository-change: "
+_RECONCILIATION_TITLE = re.compile(r"(?i)\b(?:reconcil\w*|document\w*|docs?)\b")
 
 
 def emit(payload: Any) -> None:
@@ -671,6 +672,28 @@ def feature_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tupl
 
 def evidence_for_bead(root: Path, bead_id: str, ref_range: str) -> list[dict[str, Any]]:
     return commit_footer_ids(root, ref_range).get(bead_id, [])
+
+
+def reject_documentation_work(title: str, *, stage: str) -> None:
+    if _RECONCILIATION_TITLE.search(title):
+        raise DstackError(
+            f"{stage} tasks cannot own documentation or reconciliation; use the sole final reconciliation"
+        )
+
+
+def require_no_documentation_changes(evidence: Sequence[Mapping[str, Any]], *, stage: str) -> None:
+    paths = sorted(
+        {
+            str(path)
+            for record in evidence
+            for path in record.get("paths", [])
+            if str(path).startswith("docs/") or str(path).casefold().endswith((".md", ".mdx", ".rst"))
+        }
+    )
+    if paths:
+        raise DstackError(
+            f"{stage} work must defer documentation changes to the final reconciliation: " + ", ".join(paths)
+        )
 
 
 def completion_reason(args: argparse.Namespace, default: str) -> str:

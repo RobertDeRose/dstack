@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 
 from dstack_alignment_plan import (  # noqa: E402
+    LEGACY_SCHEMA,
     SCHEMA,
     canonical_plan_bytes,
     canonicalize_plan,
@@ -18,13 +19,12 @@ from dstack_alignment_plan import (  # noqa: E402
 from dstacklib import DstackError  # noqa: E402
 
 
-BASELINE = "a" * 40
+LEGACY_BASELINE = "a" * 40
 
 
 def plan(**overrides):
     value = {
         "schema": SCHEMA,
-        "baseline_commit": BASELINE,
         "scope": "repository",
         "findings": [{"title": "Finding", "evidence": "Evidence", "rationale": "Reason"}],
         "accepted_corrections": [
@@ -55,6 +55,14 @@ def test_canonical_plan_normalizes_order_unicode_and_line_endings():
     right = plan(scope="é\n", validation_expectations=["A", "B"])
     assert canonical_plan_bytes(left) == canonical_plan_bytes(right)
     assert plan_digest(left) == plan_digest(right)
+
+
+def test_legacy_plan_is_readable_only_for_existing_beads_records():
+    legacy = plan(schema=LEGACY_SCHEMA, baseline_commit=LEGACY_BASELINE)
+
+    with pytest.raises(DstackError, match="unknown baseline_commit"):
+        canonicalize_plan(legacy)
+    assert canonicalize_plan(legacy, allow_legacy=True)["baseline_commit"] == LEGACY_BASELINE
 
 
 def test_canonical_plan_rejects_unknown_fields_and_bad_graph():
@@ -140,12 +148,12 @@ def test_correction_graph_accepts_exact_parent_and_blockers():
     verify_correction_graph(client, view, value)
 
 
-def test_canonical_plan_rejects_cycles_and_non_full_baseline():
+def test_canonical_plan_rejects_cycles_and_legacy_baseline_field():
     corrections = [
         {"title": "A", "description": "D", "acceptance": "A", "priority": 1, "depends_on": ["B"]},
         {"title": "B", "description": "D", "acceptance": "A", "priority": 1, "depends_on": ["A"]},
     ]
     with pytest.raises(DstackError, match="cycle"):
         canonicalize_plan(plan(accepted_corrections=corrections))
-    with pytest.raises(DstackError, match="full Git"):
+    with pytest.raises(DstackError, match="unknown"):
         canonicalize_plan(plan(baseline_commit="abc"))

@@ -52,11 +52,12 @@ removed through Beads.
 The controller verifies the design digest and atomically claims the next native ready implementation task. With no task
 selector, Beads chooses the singleton candidate directly; dStack does not preselect a stale ready-list entry. An
 explicit `--task` remains exact: dStack verifies that requested task is currently ready, then rejects and
-verified-releases any different native claim. The agent implements, runs focused and task-required checks, reviews and
-corrects the complete candidate diff, commits through the Git helper, verifies the reachable Bead footer and changed
-paths, then closes only that task. If validation fails, times out, is interrupted, runs the wrong scope, unexpectedly
-skips required tests, or substitutes weaker coverage, the agent reports the exact check and stops before commit or
-completion.
+verified-releases any different native claim. The agent implements code and tests, defers durable documentation and
+reconciliation work, runs focused and task-required checks, reviews and corrects the complete task diff, commits through
+the Git helper, verifies the reachable Bead footer and changed paths, then closes only that task. Documentation changes
+in an implementation task are rejected; the single closeout task owns the final documentation review. If validation
+fails, times out, is interrupted, runs the wrong scope, unexpectedly skips required tests, or substitutes weaker
+coverage, the agent reports the exact check and stops before commit or completion.
 
 `--all` repeats only over native ready implementation tasks and stops when none remain. It never closes the
 implementation workstream, claims closeout, or starts delivery. If a task intentionally changes no repository content,
@@ -70,10 +71,10 @@ untracked files. Empty workstreams close only after their native approval milest
 
 ### `/close-feature [feature] [ready|pr|merge]`
 
-The controller closes implementation fan-in and claims closeout only under this explicit command. It scaffolds a missing
-`docs/src/features/<slug>/index.md` without overwriting authored content. The agent reconciles actual behavior, accepted
-design, tests, authoritative current-product documentation, and the durable feature record, then runs the complete
-repository's full/release validation.
+The controller closes implementation fan-in and claims the one final closeout reconciliation only under this explicit
+command. It scaffolds a missing `docs/src/features/<slug>/index.md` without overwriting authored content. The agent
+reconciles actual behavior, accepted design, tests, authoritative current-product documentation, and the durable feature
+record, then runs the complete repository's full/release validation after any fixups or rebase.
 
 Current mdBook validation requires the foundation, chapter navigation, local links, declared documentation surfaces,
 orphan checks, and build to succeed. A docs policy guard rejects namespaced dStack lifecycle fields and structured
@@ -97,12 +98,14 @@ check leaves closeout open and prevents delivery.
 The feature catalog links delivered capabilities to `index.md`, which links back to accepted `design.md`. `SUMMARY.md`
 keeps one top-level Feature Records section and nests both pages so native mdBook renders them.
 
-Normal delivery requires clean candidate and target worktrees, including untracked files. It snapshots full Git status
-around Beads finalization and never creates a post-delivery bookkeeping commit. If root closure fails or finalization
-changes HEAD or worktree status after delivery, the controller reports completed delivery, previous/delivered/observed
-target heads, root status, finalization error, and mutation uncertainty. It reopens the Beads root when safe and leaves
-delivered Git history untouched. Any rollback, reset, repair, correction, or history rewrite remains a separately
-authorized native Git operation rather than a dStack recovery lifecycle.
+Normal delivery requires clean candidate and target worktrees, including untracked files. Before delivery, the candidate
+may be amended, fixed up, or rebased; it must remain linear, retain the final terminal footer, and pass the final
+documentation/evidence checks. The controller snapshots full Git status around Beads finalization and never creates a
+post-delivery bookkeeping commit. If root closure fails or finalization changes HEAD or worktree status after delivery,
+the controller reports completed delivery, previous/delivered/observed target heads, root status, finalization error,
+and mutation uncertainty. It reopens the Beads root when safe and leaves delivered Git history untouched. Any rollback,
+reset, repair, correction, or history rewrite remains a separately authorized native Git operation rather than a dStack
+recovery lifecycle.
 
 ## Validation layers
 
@@ -135,25 +138,26 @@ postconditions converge may old work and the legacy root be superseded.
 ### `/project-alignment-review`
 
 Analyze the current target, decide bounded corrections, and create them beneath the correction workstream. Tier 1 is
-read-only for repository source. Finish the plan and leave the human gate open.
+read-only for repository source; the plan stores no Git baseline. Finish the plan and leave the human gate open.
 
 ### `/project-alignment-execute`
 
 Approved correction scope is immutable. `alignment reauthorize` reopens the native approval, gate, analysis, and
 corrections boundary before new corrections can be added; terminal or claimed work requires a superseding workflow
 instead. Explicit invocation approves the plan through a convergent native gate and milestone transition, then claims
-native ready corrections. Completing one correction never closes the correction workstream implicitly; after every
-required correction is closed or deferred, the explicit finish-workstream step closes the container. The agent uses the
-same commit-footer and review rules as feature work.
+native ready corrections. Corrections modify code and tests only; the one final landing reconciliation owns durable
+documentation. Completing one correction never closes the correction workstream implicitly; after every required
+correction is closed or deferred, the explicit finish-workstream step closes the container. The agent uses the same
+commit-footer and review rules as feature work, including fixups and rebases before delivery.
 
 ### `/project-alignment-land`
 
-Revalidate current repository reality, reconcile durable docs, and use the same delivery controller as features. Landing
-refuses a dirty worktree and mechanically requires the current mdBook, documentation policy, and reachable correction
-evidence audit to pass before the native ready landing step closes. The same pinned-version compatibility guard used by
-feature closeout keeps the root open until confirmed delivery. The canonical plan may store only the exact
-project-alignment `baseline_commit` used as immutable audit input; obsolete or already-corrected findings are updated or
-closed based on current evidence.
+Revalidate current repository reality, perform the one final documentation reconciliation, and use the same delivery
+controller as features. Landing refuses a dirty worktree and mechanically requires the current mdBook, documentation
+policy, and reachable correction evidence audit to pass before the native ready landing step closes. Fixups and rebases
+are allowed before delivery when the candidate remains linear and final landing evidence stays reachable. The same
+pinned-version compatibility guard used by feature closeout keeps the root open until confirmed delivery. Obsolete or
+already-corrected findings are updated or closed based on current evidence; no Git baseline is stored.
 
 ## Discovery
 

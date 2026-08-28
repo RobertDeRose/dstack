@@ -17,13 +17,12 @@ from dstacklib import (
     has_label,
     issue_parent,
     root_metadata_value,
-    run,
 )
 
-SCHEMA = "dstack.alignment-plan/v1"
+SCHEMA = "dstack.alignment-plan/v2"
+LEGACY_SCHEMA = "dstack.alignment-plan/v1"
 PLAN_FIELDS = {
     "schema",
-    "baseline_commit",
     "scope",
     "findings",
     "accepted_corrections",
@@ -33,6 +32,7 @@ PLAN_FIELDS = {
     "deferred_findings",
     "accepted_risks",
 }
+LEGACY_PLAN_FIELDS = PLAN_FIELDS | {"baseline_commit"}
 BASELINE_RE = re.compile(r"^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$")
 
 
@@ -66,23 +66,28 @@ def _title_objects(values: Any, field: str, keys: set[str]) -> list[dict[str, An
     return result
 
 
-def canonicalize_plan(value: Any) -> dict[str, Any]:
+def canonicalize_plan(value: Any, *, allow_legacy: bool = False) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise DstackError("alignment plan must be a JSON object")
-    if set(value) != PLAN_FIELDS:
-        missing = sorted(PLAN_FIELDS - set(value))
-        unknown = sorted(set(value) - PLAN_FIELDS)
+    schema = value.get("schema")
+    legacy = schema == LEGACY_SCHEMA
+    expected_fields = LEGACY_PLAN_FIELDS if legacy and allow_legacy else PLAN_FIELDS
+    if set(value) != expected_fields:
+        missing = sorted(expected_fields - set(value))
+        unknown = sorted(set(value) - expected_fields)
         detail = []
         if missing:
             detail.append(f"missing {', '.join(missing)}")
         if unknown:
             detail.append(f"unknown {', '.join(unknown)}")
         raise DstackError("invalid alignment plan fields: " + "; ".join(detail))
-    if value["schema"] != SCHEMA:
+    if schema != SCHEMA and not (legacy and allow_legacy):
         raise DstackError(f"alignment plan schema must be {SCHEMA}")
-    baseline = _text(value["baseline_commit"], "baseline_commit").lower()
-    if not BASELINE_RE.fullmatch(baseline):
-        raise DstackError("baseline_commit must be a full Git commit ID")
+    baseline = None
+    if legacy:
+        baseline = _text(value["baseline_commit"], "baseline_commit").lower()
+        if not BASELINE_RE.fullmatch(baseline):
+            raise DstackError("baseline_commit must be a full Git commit ID")
     scope = _text(value["scope"], "scope")
     findings = _title_objects(value["findings"], "findings", {"title", "evidence", "rationale"})
     for item in findings:
@@ -137,8 +142,7 @@ def canonicalize_plan(value: Any) -> dict[str, Any]:
         raise DstackError("documentation_impact must contain exactly the three audience fields")
     impact = {key: _strings(impact[key], f"documentation_impact.{key}") for key in impact}
     result = {
-        "schema": SCHEMA,
-        "baseline_commit": baseline,
+        "schema": schema,
         "scope": scope,
         "findings": sorted(findings, key=lambda item: item["title"]),
         "accepted_corrections": sorted(accepted, key=lambda item: item["title"]),
@@ -148,6 +152,8 @@ def canonicalize_plan(value: Any) -> dict[str, Any]:
         "deferred_findings": sorted(deferred, key=lambda item: item["title"]),
         "accepted_risks": sorted(risks, key=lambda item: item["title"]),
     }
+    if legacy:
+        result["baseline_commit"] = baseline
     return result
 
 
@@ -184,22 +190,6 @@ def parse_plan_file(path: Path) -> tuple[dict[str, Any], bytes, str]:
         "utf-8"
     )
     return canonical, encoded, hashlib.sha256(encoded).hexdigest()
-
-
-def target_commit(root: Path, target_ref: str) -> str:
-    result = run(["git", "rev-parse", "--verify", f"{target_ref}^{{commit}}"], cwd=root)
-    commit = result.stdout.strip().lower()
-    if not BASELINE_RE.fullmatch(commit):
-        raise DstackError("Git returned an invalid full target commit ID")
-    return commit
-
-
-def require_baseline(root: Path, target_ref: str, plan: Mapping[str, Any]) -> str:
-    observed = target_commit(root, target_ref)
-    expected = str(plan.get("baseline_commit") or "").lower()
-    if observed != expected:
-        raise DstackError(f"alignment baseline changed: expected {expected}, observed {observed}")
-    return observed
 
 
 def root_plan_metadata(client: BeadsClient, root_id: str) -> tuple[str | None, str | None]:
@@ -286,7 +276,7 @@ def canonical_description(analysis: Mapping[str, Any]) -> tuple[dict[str, Any], 
         value = json.loads(raw, object_pairs_hook=_object_pairs)
     except json.JSONDecodeError as exc:
         raise DstackError("alignment analysis description is not canonical JSON") from exc
-    canonical = canonicalize_plan(value)
+    canonical = canonicalize_plan(value, allow_legacy=True)
     encoded = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
         "utf-8"
     )
@@ -295,9 +285,15 @@ def canonical_description(analysis: Mapping[str, Any]) -> tuple[dict[str, Any], 
     return canonical, encoded.decode("utf-8"), hashlib.sha256(encoded).hexdigest()
 
 
+def require_current_plan(plan: Mapping[str, Any]) -> None:
+    if plan.get("schema") != SCHEMA:
+        raise DstackError("legacy alignment plan requires re-review before execution")
+
+
 def require_alignment_authorized(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
     analysis = client.show(str(view["steps"]["analysis"]["id"]))
     plan, _, digest = canonical_description(analysis)
+    require_current_plan(plan)
     pending, approved = root_plan_metadata(client, str(view["root"]["id"]))
     gate = view.get("human_gate")
     if not isinstance(gate, Mapping):
@@ -313,6 +309,5 @@ def require_alignment_authorized(client: BeadsClient, view: Mapping[str, Any]) -
         raise DstackError("alignment authorization is not closed")
     if pending or approved != digest:
         raise DstackError("alignment plan authorization identity does not match")
-    require_baseline(client.root, str(view.get("target_branch") or ""), plan)
     verify_correction_graph(client, view, plan)
     return plan

@@ -59,7 +59,9 @@ from dstack_commands import (
     open_workstream_children,
     preserve_external_blockers,
     require_approved_design,
+    reject_documentation_work,
     require_installed_formula,
+    require_no_documentation_changes,
     reopen_authorization_boundary,
     required_task_text,
     superseded_target,
@@ -450,6 +452,7 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
     if not view["current"]:
         raise DstackError("feature is not a current dstack molecule")
     acceptance = required_task_text(args.acceptance_file, args.acceptance)
+    reject_documentation_work(args.title, stage="implementation")
     implementation = view["steps"]["implementation"]
     approval = view["steps"]["approval"]
     root = client.show(str(view["root"]["id"]))
@@ -715,6 +718,7 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
             raise DstackError("--no-repository-change conflicts with reachable commit evidence")
     elif not evidence:
         raise DstackError(f"no reachable commit on {branch} has footer 'Beads: {args.task}'")
+    require_no_documentation_changes(evidence, stage="implementation")
     summary = read_text_file(args.summary_file)
     if summary:
         client.add_comment(args.task, summary)

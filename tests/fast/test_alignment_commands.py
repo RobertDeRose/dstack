@@ -21,8 +21,7 @@ from scripted import ScriptedClient, call
 def alignment_plan_json() -> str:
     return json.dumps(
         {
-            "schema": "dstack.alignment-plan/v1",
-            "baseline_commit": "a" * 40,
+            "schema": "dstack.alignment-plan/v2",
             "scope": "repository",
             "findings": [],
             "accepted_corrections": [],
@@ -90,7 +89,6 @@ def patch_command(monkeypatch, beads, current=None):
             plan_digest(json.loads(alignment_plan_json())),
         ),
     )
-    monkeypatch.setattr(dstack_alignment, "require_baseline", lambda *args: "a" * 40)
     monkeypatch.setattr(dstack_alignment, "verify_correction_graph", lambda *args: None)
     monkeypatch.setattr(dstack_alignment, "root_plan_metadata", lambda *args: ("0" * 64, "0" * 64))
     if current["steps"]["approval"].get("status") == "closed":
@@ -235,6 +233,27 @@ def test_add_correction_delegates_native_dependencies(monkeypatch, tmp_path: Pat
     beads.assert_exhausted()
 
 
+@pytest.mark.parametrize("title", ["Reconcile documentation", "Document the API"])
+def test_add_correction_rejects_documentation_or_reconciliation_work(monkeypatch, tmp_path: Path, title: str) -> None:
+    beads = ScriptedClient(tmp_path)
+    patch_command(monkeypatch, beads)
+    with pytest.raises(DstackError, match="sole final reconciliation"):
+        dstack_alignment.cmd_alignment_add_correction(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                title=title,
+                description="details",
+                description_file=None,
+                acceptance="observable",
+                acceptance_file=None,
+                priority=2,
+                depends_on=[],
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_add_correction_rejects_closed_authorization_without_creation(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
@@ -340,7 +359,6 @@ def test_finish_plan_rejects_changed_bytes_on_open_retry(monkeypatch, tmp_path: 
     client = Client()
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
-    monkeypatch.setattr(dstack_alignment, "require_baseline", lambda *args: "a" * 40)
     monkeypatch.setattr(
         dstack_alignment,
         "root_plan_metadata",
@@ -366,7 +384,6 @@ def test_approve_rejects_open_analysis_before_gate_mutation(monkeypatch, tmp_pat
     client = Client()
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
-    monkeypatch.setattr(dstack_alignment, "require_baseline", lambda *args: "a" * 40)
     monkeypatch.setattr(
         dstack_alignment,
         "root_plan_metadata",
@@ -499,7 +516,6 @@ def test_approve_rejects_inconsistent_identity_before_gate_mutation(
     client = Client()
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
-    monkeypatch.setattr(dstack_alignment, "require_baseline", lambda *args: "a" * 40)
     monkeypatch.setattr(
         dstack_alignment,
         "human_gate_for_step",
@@ -558,10 +574,8 @@ def test_alignment_reauthorize_reopens_native_boundary_before_scope_changes(monk
     assert output[0]["invalidation"]["plan"]["status"] == "absent"
 
 
-def test_reauthorize_reports_baseline_mismatch_as_explicit_invalidation(monkeypatch, tmp_path: Path) -> None:
-    value = json.loads(alignment_plan_json())
-    value["baseline_commit"] = "b" * 40
-    description = json.dumps(value, sort_keys=True, separators=(",", ":"))
+def test_reauthorize_reports_plan_without_git_baseline(monkeypatch, tmp_path: Path) -> None:
+    description = alignment_plan_json()
     state = {
         "analysis-1": {"id": "analysis-1", "status": "closed", "description": description},
         "approval-1": {"id": "approval-1", "status": "closed"},
@@ -579,15 +593,15 @@ def test_reauthorize_reports_baseline_mismatch_as_explicit_invalidation(monkeypa
         def ready_children(self, *args, **kwargs):
             return []
 
+        def update(self, issue_id, *args):
+            if "--description" in args:
+                state[issue_id]["description"] = args[args.index("--description") + 1]
+            return dict(state[issue_id])
+
     client = Client()
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
     monkeypatch.setattr(dstack_alignment, "root_plan_metadata", lambda *args: ("pending", "approved"))
-    monkeypatch.setattr(
-        dstack_alignment,
-        "require_baseline",
-        lambda *args: (_ for _ in ()).throw(DstackError("alignment baseline changed")),
-    )
     monkeypatch.setattr(dstack_alignment, "human_gate_for_step", lambda *args, **kwargs: dict(state["gate-1"]))
 
     def reopen(*args, **kwargs):
@@ -604,7 +618,8 @@ def test_reauthorize_reports_baseline_mismatch_as_explicit_invalidation(monkeypa
         == 0
     )
     assert output[0]["invalidation"]["plan"]["status"] == "valid"
-    assert output[0]["invalidation"]["baseline"]["status"] == "mismatch"
+    assert state["analysis-1"]["description"] == "Analyze repository"
+    assert "baseline" not in output[0]["invalidation"]
 
 
 def test_claim_next_delegates_readiness_and_claim(monkeypatch, tmp_path: Path) -> None:
@@ -734,6 +749,40 @@ def test_finish_task_reuses_client_for_workstream_fan_in(monkeypatch, tmp_path: 
     assert dstack_alignment.cmd_alignment_finish_task(args) == 0
     assert client_requests == [tmp_path]
     assert output[0]["workstream"]["open_items"] == []
+    beads.assert_exhausted()
+
+
+def test_finish_task_rejects_documentation_changes_before_landing(monkeypatch, tmp_path: Path) -> None:
+    task = {
+        "id": "correction-1",
+        "parent": "corrections-1",
+        "status": "in_progress",
+        "labels": ["dstack:work:correction"],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "correction-1", result=task),
+        call("update", "correction-1", "--claim", result=task),
+    )
+    patch_command(monkeypatch, beads, approved_alignment_view())
+    monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path)
+    monkeypatch.setattr(dstack_alignment, "ensure_clean_worktree", lambda *args: None)
+    monkeypatch.setattr(
+        dstack_alignment,
+        "evidence_for_bead",
+        lambda *args: [{"commit": "abc", "subject": "docs", "paths": ["docs/src/index.md"]}],
+    )
+    with pytest.raises(DstackError, match="final reconciliation"):
+        dstack_alignment.cmd_alignment_finish_task(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                task="correction-1",
+                reason=None,
+                summary_file=None,
+                no_repository_change=False,
+            )
+        )
     beads.assert_exhausted()
 
 

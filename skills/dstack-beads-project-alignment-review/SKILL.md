@@ -15,14 +15,14 @@ Tier 1 is read-only for repository source.
    ```
 
 2. Compare current specifications, durable docs, architecture patterns, code, tests, Beads work, and delivery evidence.
-   Resolve the configured target to the exact full Git revision audited; this is `baseline_commit`.
-3. Decide bounded corrective outcomes, acceptance criteria, priorities, and real dependencies. Create them with
-   `alignment add-correction`.
+   Treat the current repository and Beads records as the review inputs; do not persist a Git baseline.
+3. Decide bounded corrective outcomes, acceptance criteria, priorities, and real dependencies. Create code/test
+   corrections with `alignment add-correction`; do not create documentation or reconciliation tasks because landing is
+   the sole final reconciliation.
 4. Create temporary `PLAN.json`. Use a canonical JSON plan helper exposed by the current CLI when available; otherwise
    write the file directly. Markdown record scaffolds are not authoritative plan input.
-5. Populate exactly `dstack.alignment-plan/v1`:
-   - `schema`: `dstack.alignment-plan/v1`;
-   - `baseline_commit`: the exact audited revision;
+5. Populate exactly `dstack.alignment-plan/v2`:
+   - `schema`: `dstack.alignment-plan/v2`;
    - `scope`;
    - `findings`: `{title, evidence, rationale}` objects;
    - `accepted_corrections`: `{title, description, acceptance, priority, depends_on}` objects whose dependency values
@@ -40,7 +40,6 @@ Tier 1 is read-only for repository source.
    "{baseDir}/../../bin/dstack" ctl alignment finish-plan AUDIT --plan-file PLAN.json
    ```
 
-   The controller validates, canonicalizes, stores, rereads, and binds the plan and `baseline_commit` before any
-   authorization state closes.
+   The controller validates, canonicalizes, stores, rereads, and binds the plan before any authorization state closes.
 
 Return findings, correction graph, decisions required, and `/project-alignment-execute <audit>`.

@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
-from dstack_commands import descendants
+from dstack_commands import descendants, reject_documentation_work
 from dstacklib import (
     DstackError,
     FEATURE_STEPS,
@@ -663,6 +663,7 @@ def plan_adoption(
         replacement = entry.get("replacement")
         if replacement is None:
             continue
+        reject_documentation_work(replacement["title"], stage="implementation")
         parent_id = steps.get(FEATURE_STEPS["implementation"])
         approval_id = steps.get(FEATURE_STEPS["approval"])
         replacements.append(

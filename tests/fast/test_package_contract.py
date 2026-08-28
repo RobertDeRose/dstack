@@ -172,9 +172,10 @@ def test_core_principles_and_architecture_are_first_class_docs() -> None:
             "Never store Git commit identities in Beads as implementation, "
             "delivery, task, evidence, or bookkeeping mappings."
         ) in normalized
-        assert "explicit workflow input" in normalized
+        assert "revalidates the current repository" in normalized
     assert "stateless dstackctl" in architecture
-    assert "project-alignment audit baseline" in architecture
+    assert "project-alignment audit" in architecture
+    assert "baseline_commit" not in " ".join(architecture.split())
     assert "docs/src/development/index.md" in agents
     assert "post-merge bookkeeping commit" in agents
 
@@ -183,8 +184,8 @@ def test_alignment_review_skill_uses_canonical_json_plan() -> None:
     skill = (ROOT / "skills/dstack-beads-project-alignment-review/SKILL.md").read_text()
     documentation = (ROOT / "docs/src/development/documentation.md").read_text()
     for required in (
-        "dstack.alignment-plan/v1",
-        "baseline_commit",
+        "dstack.alignment-plan/v2",
+        "current repository",
         "accepted_corrections",
         "documentation_impact",
         "alignment finish-plan AUDIT --plan-file PLAN.json",
@@ -192,8 +193,9 @@ def test_alignment_review_skill_uses_canonical_json_plan() -> None:
         assert required in skill
     for obsolete in ("scaffold-record plan", "--summary-file", "Not applicable"):
         assert obsolete not in skill
-    assert "Alignment plans use strict `dstack.alignment-plan/v1` JSON" in documentation
+    assert "Alignment plans use strict `dstack.alignment-plan/v2` JSON" in documentation
     assert "alignment plan/reconciliation records" not in documentation
+    assert "documentation is deferred to the final closeout or landing" in " ".join(documentation.split())
 
 
 def test_active_instructions_preserve_explicit_delivery_recovery() -> None:
@@ -241,8 +243,10 @@ def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
         assert phrase in " ".join(review.split())
     for phrase in ("externally meaningful behavior", "failure handling", "Documentation impact"):
         assert phrase in " ".join(implement.split())
+    assert "Defer durable documentation to closeout" in " ".join(implement.split())
     for phrase in ("externally meaningful behavior", "failure handling", "Documentation impact"):
         assert phrase in " ".join(close.split())
+    assert "sole final reconciliation" in " ".join(close.split())
 
 
 def test_public_feature_lifecycle_has_no_start_methodology() -> None:

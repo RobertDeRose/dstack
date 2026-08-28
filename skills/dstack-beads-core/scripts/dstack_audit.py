@@ -263,7 +263,7 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
                 "reason": str(exc),
                 "search_ref": base,
                 "candidate_revision": None,
-                "derivation": "unique reachable closeout Beads footer",
+                "derivation": "latest reachable closeout Beads footer",
                 "evidence_source": None,
             }
 

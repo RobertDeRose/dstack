@@ -266,6 +266,27 @@ def test_add_task_delegates_acceptance_and_dependencies(monkeypatch, tmp_path: P
     beads.assert_exhausted()
 
 
+@pytest.mark.parametrize("title", ["Reconcile documentation", "Document the API"])
+def test_add_task_rejects_documentation_or_reconciliation_work(monkeypatch, tmp_path: Path, title: str) -> None:
+    beads = ScriptedClient(tmp_path)
+    patch_command(monkeypatch, dstack_feature, beads)
+    with pytest.raises(DstackError, match="sole final reconciliation"):
+        dstack_feature.cmd_feature_add_task(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="feature-1",
+                title=title,
+                description="details",
+                description_file=None,
+                acceptance="observable result",
+                acceptance_file=None,
+                priority=1,
+                depends_on=[],
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_add_task_rejects_approved_or_closed_graph_without_creation(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
@@ -1189,6 +1210,44 @@ def test_finish_task_leaves_workstream_and_closeout_open(monkeypatch, tmp_path: 
     assert output[0]["workstream"]["closed_now"] is False
     assert output[0]["workstream"]["workstream"]["status"] == "open"
     assert output[0]["workstream"]["closeout"]["status"] == "open"
+    beads.assert_exhausted()
+
+
+def test_finish_task_rejects_documentation_changes_before_closeout(monkeypatch, tmp_path: Path) -> None:
+    task = {
+        "id": "task-1",
+        "parent": "implementation-1",
+        "status": "in_progress",
+        "labels": ["dstack:work:implementation"],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "task-1", result=task),
+        call("update", "task-1", "--claim", result=task),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_branch_context",
+        lambda *args: ("feat/feature", tmp_path, "main"),
+    )
+    monkeypatch.setattr(dstack_feature, "ensure_clean_worktree", lambda *args: None)
+    monkeypatch.setattr(
+        dstack_feature,
+        "evidence_for_bead",
+        lambda *args: [{"commit": "abc", "paths": ["docs/src/features/feature/index.md"]}],
+    )
+    with pytest.raises(DstackError, match="final reconciliation"):
+        dstack_feature.cmd_feature_finish_task(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="feature-1",
+                task="task-1",
+                reason=None,
+                summary_file=None,
+                no_repository_change=False,
+            )
+        )
     beads.assert_exhausted()
 
 

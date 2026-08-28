@@ -185,10 +185,9 @@ graph, not duplicated in metadata.
 Never store Git commit identities in Beads as implementation, delivery, task, evidence, or bookkeeping mappings. Those
 relationships remain one-way `Beads: <id>` footers and are reconstructed from reachable Git history.
 
-A Git revision may be stored only when it is explicit workflow input whose semantics require an immutable repository
-snapshot. The sole current exception is the project-alignment audit baseline: canonical `baseline_commit` identifies the
-exact snapshot reviewed and participates directly in authorization. It does not permit task-to-commit, implementation,
-delivery/finalization, worktree/branch, or reconstructible audit-result mappings.
+The project-alignment audit records reviewed findings, accepted corrections, and user decisions only. It does not store
+a Git revision or other snapshot of repository state. Execution and delivery revalidate the current repository and
+reconstruct work evidence from reachable Git history.
 
 ## Design approval without Git coupling
 
@@ -204,8 +203,10 @@ affect approval.
 
 ## Delivery invariant
 
-Before delivery, all durable code/docs changes are already in the candidate. After delivery starts, Beads may be
-finalized but Git may not change.
+Before delivery, all durable code/docs changes are already in the candidate. The final closeout or landing is the
+sole reconciliation boundary; implementation and correction tasks do not update durable documentation. A candidate may
+be amended, fixed up, or rebased before delivery when its history remains linear and final terminal evidence stays
+reachable. After delivery starts, Beads may be finalized but Git may not change.
 
 `dstackctl delivery` requires clean candidate and target worktrees, snapshots the target HEAD and full status including
 untracked files, performs the native delivery/finalization operations, and reports any Git mutation caused by Beads
@@ -217,15 +218,14 @@ rewrite after a failed or incorrect delivery is a separate native Git operation,
 
 ### Immutable delivered-candidate audit
 
-A closed feature inspection searches the configured target ref for exactly one commit with the closeout `Beads:` footer.
-A project alignment uses its unique landing-footer commit when landing changed the repository, otherwise the latest
-linear correction-evidence commit, or the canonical plan `baseline_commit` when there is no landing footer and all
-corrections explicitly made no repository change. Delivery preflight requires the clean candidate HEAD to equal the
-revision derived by the same rule, so unreviewed candidate commits cannot silently change the boundary. Direct
-fast-forward delivery and pull requests that preserve the candidate as a target ancestor are supported; squash, rebase,
-ambiguous evidence, and unsupported nonlinear histories fail revision consistency.
+A closed feature inspection searches the configured target ref for the latest reachable closeout `Beads:` footer. A
+project alignment uses the latest reachable landing footer when landing changed the repository, otherwise the latest
+reachable correction footer. Sequential fixups and rebases are valid; repeated identical footers in one commit and
+nonlinear evidence remain errors. An alignment with no repository changes has no Git candidate revision. Before delivery,
+the clean candidate HEAD must contain the final terminal footer and any later commits must retain that terminal footer;
+this prevents unreviewed commits from silently extending the candidate while allowing fixups and rebases.
 
-Delivered evidence is read from the candidate revision. Feature audit documentation is also read directly from its
-blobs. Inspection reports the search ref, derivation rule, revision, branch/worktree presence, evidence source, and
-missing records. It never substitutes the current target tip or caller checkout and never stores a Git-to-Beads mapping
-in Beads.
+Delivered evidence is read from the current target's reachable footer history. Feature audit documentation is read
+from the derived candidate revision when one exists. Inspection reports the search ref, derivation rule, revision,
+branch/worktree presence, evidence source, and missing records. It never stores a Git-to-Beads mapping in Beads; a
+history rewrite that removes evidence is reported as unavailable rather than remapped.
