@@ -15,6 +15,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 import unicodedata
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -107,6 +108,7 @@ SETUP_PLAN_ENVELOPE_FIELDS = {
 }
 SETUP_RELATIONS = {"blocks", "parent-child", "relates-to", "supersedes", "superseded-by"}
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_BEADS_CLIENT_TYPE = BeadsClient
 
 
 def _setup_text(value: Any, field: str, *, empty: bool = False) -> str:
@@ -814,8 +816,32 @@ def _setup_beads_command(command: Sequence[str], database: Path | None) -> list[
     return result
 
 
-def _setup_client(root: Path, database: Path | None = None) -> BeadsClient:
-    return BeadsClient(root) if database is None else BeadsClient(root, database=database)
+def _setup_run(command: Sequence[str], *, cwd: Path, metrics: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+    if metrics is not None and command and Path(str(command[0])).name == "bd":
+        metrics["beads_command_count"] = int(metrics.get("beads_command_count", 0)) + 1
+    return run(command, cwd=cwd, **kwargs)
+
+
+def _setup_command_hook(metrics: dict[str, Any] | None) -> Any:
+    if metrics is None:
+        return None
+
+    def count(command: Sequence[str]) -> None:
+        if command and Path(str(command[0])).name == "bd":
+            metrics["beads_command_count"] = int(metrics.get("beads_command_count", 0)) + 1
+
+    return count
+
+
+def _setup_client(
+    root: Path,
+    database: Path | None = None,
+    *,
+    command_hook: Any = None,
+) -> BeadsClient:
+    if database is None and command_hook is None:
+        return BeadsClient(root)
+    return BeadsClient(root, database=database, command_hook=command_hook)
 
 
 def _setup_database_path(root: Path, *, initialize: bool = False) -> Path:
@@ -851,14 +877,19 @@ def _validate_setup_database(root: Path, database: Path, *, allow_absent: bool =
     return target
 
 
-def _runtime_authority(root: Path, *, database: Path | None = None) -> dict[str, str]:
+def _runtime_authority(
+    root: Path,
+    *,
+    database: Path | None = None,
+    command_hook: Any = None,
+) -> dict[str, str]:
     python_version = f"Python {platform.python_version()}"
     if python_version != SUPPORTED_PYTHON_VERSION_OUTPUT:
         raise SetupError(
             f"unsupported Python version; expected {SUPPORTED_PYTHON_VERSION_OUTPUT}, found {python_version}; "
             "run through `mise --cd <dstack-package-root> exec --locked`"
         )
-    beads_version = _setup_client(root, database).check_version()
+    beads_version = _setup_client(root, database, command_hook=command_hook).check_version()
     mdbook = require_mdbook()
     mdbook_version = run([mdbook, "--version"], cwd=root).stdout.strip()
     if mdbook_version != SUPPORTED_MDBOOK_VERSION_OUTPUT:
@@ -872,18 +903,34 @@ def _runtime_authority(root: Path, *, database: Path | None = None) -> dict[str,
     }
 
 
-def _current_setup_authority(root: Path, *, database: Path | None = None) -> dict[str, str]:
-    return _setup_authority({**_controller_authority(), **_runtime_authority(root, database=database)})
+def _current_setup_authority(
+    root: Path,
+    *,
+    database: Path | None = None,
+    command_hook: Any = None,
+) -> dict[str, str]:
+    return _setup_authority(
+        {
+            **_controller_authority(),
+            **_runtime_authority(root, database=database, command_hook=command_hook),
+        }
+    )
 
 
-def ensure_beads(root: Path, *, initialize: bool, database: Path | None = None) -> None:
+def ensure_beads(
+    root: Path,
+    *,
+    initialize: bool,
+    database: Path | None = None,
+    metrics: dict[str, Any] | None = None,
+) -> None:
     if database is None and (root / ".beads").is_dir():
         return
     if database is not None and database.is_dir():
         return
     if not initialize:
         raise SetupError("Beads is not initialized; rerun setup after authorization")
-    run(
+    _setup_run(
         _setup_beads_command(
             [
                 "bd",
@@ -897,6 +944,7 @@ def ensure_beads(root: Path, *, initialize: bool, database: Path | None = None) 
             database,
         ),
         cwd=root,
+        metrics=metrics,
     )
     if database is not None:
         if not database.is_dir():
@@ -994,23 +1042,34 @@ def validate_formula(
     env: Mapping[str, str] | None = None,
     database: Path | None = None,
     seed: bool = True,
+    metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    result = run(_setup_beads_command(["bd", "formula", "show", name, "--json"], database), cwd=root, env=env)
+    result = _setup_run(
+        _setup_beads_command(["bd", "formula", "show", name, "--json"], database),
+        cwd=root,
+        env=env,
+        metrics=metrics,
+    )
     payload = parse_json(result.stdout, context=f"bd formula show {name}")
     if not isinstance(payload, dict):
         raise SetupError(f"bd formula show returned a non-object for {name}")
     validate_formula_contract(name, payload)
     if seed:
-        run(_setup_beads_command(["bd", "mol", "seed", name, *formula_vars(name)], database), cwd=root, env=env)
+        _setup_run(
+            _setup_beads_command(["bd", "mol", "seed", name, *formula_vars(name)], database),
+            cwd=root,
+            env=env,
+            metrics=metrics,
+        )
     return payload
 
 
-def validate_bundle(source_dir: Path) -> None:
+def validate_bundle(source_dir: Path, *, metrics: dict[str, Any] | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="dstack-preflight-") as raw:
         scratch = Path(raw)
         run(["git", "init", "-q"], cwd=scratch)
         scratch_database = scratch / ".beads/embeddeddolt"
-        run(
+        _setup_run(
             _setup_beads_command(
                 [
                     "bd",
@@ -1023,6 +1082,7 @@ def validate_bundle(source_dir: Path) -> None:
                 scratch_database,
             ),
             cwd=scratch,
+            metrics=metrics,
         )
         formula_dir = scratch / ".beads" / "formulas"
         formula_dir.mkdir(parents=True, exist_ok=True)
@@ -1032,10 +1092,11 @@ def validate_bundle(source_dir: Path) -> None:
                 formula_dir / f"{name}.formula.toml",
             )
         for name in FORMULA_NAMES:
-            validate_formula(scratch, name, database=scratch_database)
-            result = run(
+            validate_formula(scratch, name, database=scratch_database, metrics=metrics)
+            result = _setup_run(
                 _setup_beads_command(["bd", "mol", "pour", name, *formula_vars(name), "--json"], scratch_database),
                 cwd=scratch,
+                metrics=metrics,
             )
             payload = parse_json(result.stdout, context=f"bd mol pour {name}")
             if not isinstance(payload, dict) or not (payload.get("root_id") or payload.get("new_epic_id")):
@@ -1221,18 +1282,90 @@ def _normalize_setup_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _normalized_beads_inventory(client: BeadsClient) -> list[Any]:
-    inventory = all_issue_inventory(client)
-    issues = []
-    for summary in inventory:
+def _setup_inventory_core_complete(issue: Mapping[str, Any]) -> bool:
+    issue_type_value = issue.get("issue_type") or issue.get("type")
+    return (
+        isinstance(issue.get("id"), str)
+        and bool(issue["id"])
+        and isinstance(issue.get("title"), str)
+        and isinstance(issue.get("status"), str)
+        and isinstance(issue.get("priority"), int)
+        and not isinstance(issue.get("priority"), bool)
+        and isinstance(issue_type_value, str)
+        and bool(issue_type_value)
+    )
+
+
+def _validate_setup_inventory_issue(issue: Any) -> Mapping[str, Any]:
+    if not isinstance(issue, Mapping) or not _setup_inventory_core_complete(issue):
+        issue_id = issue.get("id") if isinstance(issue, Mapping) else None
+        raise SetupError("Beads inventory omitted required semantic fields" + (f" for {issue_id}" if issue_id else ""))
+    for field in ("description", "acceptance_criteria", "owner"):
+        if field in issue and not isinstance(issue[field], str):
+            raise SetupError(f"Beads inventory has an invalid {field} field for {issue['id']}")
+    for field in ("labels", "dependencies"):
+        if field in issue and not isinstance(issue[field], list):
+            raise SetupError(f"Beads inventory has an invalid {field} field for {issue['id']}")
+    if "metadata" in issue and not isinstance(issue["metadata"], dict):
+        raise SetupError(f"Beads inventory has an invalid metadata field for {issue['id']}")
+    for field in ("parent", "parent_id"):
+        if field in issue and issue[field] is not None and not isinstance(issue[field], str):
+            raise SetupError(f"Beads inventory has an invalid {field} field for {issue['id']}")
+    return issue
+
+
+def _setup_exact_inventory(client: BeadsClient) -> list[Mapping[str, Any]] | None:
+    """Read the pinned list shape, focusing only issues missing core fields.
+
+    Beads omits optional empty fields from list output; the core identity and
+    comparison fields are always present. A different or incomplete client
+    shape gets one focused read and fails closed if that read is also incomplete.
+    """
+    list_method = getattr(client, "list", None)
+    if not callable(list_method):
+        return None
+    raw_inventory = all_issue_inventory(client)
+    if not isinstance(raw_inventory, list):
+        raise SetupError("Beads inventory is not a list")
+    result: list[Mapping[str, Any]] = []
+    seen: set[str] = set()
+    for summary in raw_inventory:
+        if not isinstance(summary, Mapping):
+            raise SetupError("Beads inventory contains a non-object")
         issue_id = summary.get("id")
         if not isinstance(issue_id, str) or not issue_id:
             raise SetupError("Beads inventory contains an issue without an ID")
-        issues.append(_normalize_setup_issue(client.show(issue_id)))
-    return sorted(issues, key=lambda item: str(item.get("id", "")))
+        issue: Any = summary
+        if not _setup_inventory_core_complete(summary):
+            show = getattr(client, "show", None)
+            if not callable(show):
+                raise SetupError(f"Beads inventory omitted required semantic fields for {issue_id}")
+            try:
+                issue = show(issue_id)
+            except Exception as exc:
+                raise SetupError(f"Beads focused read failed for {issue_id}: {exc}") from exc
+        _validate_setup_inventory_issue(issue)
+        normalized_id = str(issue["id"])
+        if normalized_id != issue_id:
+            raise SetupError(f"Beads focused read changed issue ID: {issue_id}")
+        if issue_id in seen:
+            raise SetupError(f"Beads inventory contains a duplicate issue ID: {issue_id}")
+        seen.add(issue_id)
+        result.append(issue)
+    return result
 
 
-def _native_backup_inventory(backup: Path) -> list[Any]:
+def _normalized_beads_inventory(client: BeadsClient) -> list[Any]:
+    inventory = _setup_exact_inventory(client)
+    if inventory is None:
+        raise SetupError("Beads client cannot provide an exact inventory")
+    return sorted(
+        [_normalize_setup_issue(issue) for issue in inventory],
+        key=lambda item: str(item.get("id", "")),
+    )
+
+
+def _native_backup_inventory(backup: Path, *, metrics: dict[str, Any] | None = None) -> list[Any]:
     if (
         not backup.is_dir()
         or backup.is_symlink()
@@ -1245,7 +1378,7 @@ def _native_backup_inventory(backup: Path) -> list[Any]:
         disposable_root.mkdir()
         run(["git", "init", "-q"], cwd=disposable_root)
         disposable_database = disposable_root / ".beads/embeddeddolt"
-        run(
+        _setup_run(
             _setup_beads_command(
                 [
                     "bd",
@@ -1258,22 +1391,32 @@ def _native_backup_inventory(backup: Path) -> list[Any]:
                 disposable_database,
             ),
             cwd=disposable_root,
+            metrics=metrics,
         )
-        run(
+        _setup_run(
             _setup_beads_command(
                 ["bd", "backup", "restore", str(backup), "--force", "--json"],
                 disposable_database,
             ),
             cwd=disposable_root,
+            metrics=metrics,
         )
-        return _normalized_beads_inventory(BeadsClient(disposable_root, database=disposable_database))
+        return _normalized_beads_inventory(
+            BeadsClient(
+                disposable_root,
+                database=disposable_database,
+                command_hook=_setup_command_hook(metrics),
+            )
+        )
 
 
 def _verify_native_setup_backup(
     backup: Path,
     before: Sequence[Any],
+    *,
+    metrics: dict[str, Any] | None = None,
 ) -> None:
-    if _native_backup_inventory(backup) != list(before):
+    if _native_backup_inventory(backup, metrics=metrics) != list(before):
         raise SetupError("native Beads backup verification inventory mismatch")
 
 
@@ -1281,23 +1424,29 @@ def _create_verified_setup_backup(
     source_root: Path,
     database: Path,
     artifacts: Path,
+    *,
+    metrics: dict[str, Any] | None = None,
 ) -> Path:
     backup = artifacts / "backup"
     if backup.exists() and (backup.is_symlink() or not backup.is_dir()):
         raise SetupError(f"native Beads backup path is not a directory: {backup}")
-    before = _normalized_beads_inventory(_setup_client(source_root, database))
+    before = _normalized_beads_inventory(
+        _setup_client(source_root, database, command_hook=_setup_command_hook(metrics))
+    )
     pointers = _backup_pointer_snapshots(database.parent)
     try:
         if not (backup / "manifest").is_file():
-            run(
+            _setup_run(
                 _setup_beads_command(["bd", "backup", "init", str(backup), "--json"], database),
                 cwd=source_root,
+                metrics=metrics,
             )
-            run(
+            _setup_run(
                 _setup_beads_command(["bd", "backup", "sync", "--json"], database),
                 cwd=source_root,
+                metrics=metrics,
             )
-        _verify_native_setup_backup(backup, before)
+        _verify_native_setup_backup(backup, before, metrics=metrics)
     finally:
         _restore_backup_pointers(database.parent, pointers)
     return backup
@@ -1936,15 +2085,24 @@ def setup_plan(
     initialize: bool,
     force: bool,
     database: Path | None = None,
+    metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = git_root(root_arg)
     if database is not None:
         database = _validate_setup_database(root, database, allow_absent=initialize)
     _require_supported_interaction_index(root)
     status, allowed_interaction_change = _setup_preflight(root, force=force)
-    authority = (
-        _current_setup_authority(root) if database is None else _current_setup_authority(root, database=database)
-    )
+    command_hook = _setup_command_hook(metrics)
+    if command_hook is None:
+        authority = (
+            _current_setup_authority(root) if database is None else _current_setup_authority(root, database=database)
+        )
+    else:
+        authority = (
+            _current_setup_authority(root, command_hook=command_hook)
+            if database is None
+            else _current_setup_authority(root, database=database, command_hook=command_hook)
+        )
     if status and not allowed_interaction_change:
         mutation_plan = canonicalize_setup_plan(
             {
@@ -2007,11 +2165,14 @@ def setup_plan(
     if not beads_exists:
         git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
     else:
-        client = _setup_client(root, database)
+        client = _setup_client(root, database, command_hook=command_hook)
         if tracked(root, ".beads/interactions.jsonl"):
             git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
         if force:
-            inventory = all_issue_inventory(client)
+            exact_inventory = _setup_exact_inventory(client)
+            inventory = list(exact_inventory) if exact_inventory is not None else all_issue_inventory(client)
+            if metrics is not None:
+                metrics["inventory_reads"] = int(metrics.get("inventory_reads", 0)) + 1
             template_artifacts = legacy_template_artifacts(client, inventory=inventory)
 
     migration = (
@@ -2256,10 +2417,18 @@ def _setup_expected_inventory(
     return expected
 
 
-def _verify_setup_beads_delta(database: Path, backup: Path | None, mutation: Mapping[str, Any]) -> None:
-    baseline = _native_backup_inventory(backup) if backup is not None else []
+def _verify_setup_beads_delta(
+    database: Path,
+    backup: Path | None,
+    mutation: Mapping[str, Any],
+    *,
+    metrics: dict[str, Any] | None = None,
+) -> None:
+    baseline = _native_backup_inventory(backup, metrics=metrics) if backup is not None else []
     expected = _setup_expected_inventory(baseline, mutation)
-    observed = _normalized_beads_inventory(_setup_client(database.parent.parent, database))
+    observed = _normalized_beads_inventory(
+        _setup_client(database.parent.parent, database, command_hook=_setup_command_hook(metrics))
+    )
     observed_by_id = {str(issue["id"]): issue for issue in observed}
     expected_ids = set(expected)
     observed_ids = set(observed_by_id)
@@ -2282,14 +2451,21 @@ def _setup_issue_state(issue: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _setup_expected_beads_states(
-    client: BeadsClient, mutation: Mapping[str, Any]
+    client: BeadsClient,
+    mutation: Mapping[str, Any],
+    *,
+    inventory: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
     issue_ids = (
         {str(operation["issue_id"]) for operation in mutation["beads_issues"]}
         | {str(operation["source_id"]) for operation in mutation["dependencies"]}
         | {str(operation["source_id"]) for operation in mutation["supersessions"]}
     )
-    expected = {issue_id: _setup_issue_state(client.show(issue_id)) for issue_id in sorted(issue_ids)}
+    by_id = {str(issue["id"]): issue for issue in inventory} if inventory is not None else {}
+    expected = {
+        issue_id: _setup_issue_state(by_id[issue_id] if issue_id in by_id else client.show(issue_id))
+        for issue_id in sorted(issue_ids)
+    }
     operations: dict[str, list[str]] = {issue_id: [] for issue_id in issue_ids}
     for operation in mutation["beads_issues"]:
         issue_id = str(operation["issue_id"])
@@ -2341,9 +2517,13 @@ def _verify_setup_beads_postconditions(
     client: BeadsClient,
     expected: Mapping[str, Mapping[str, Any]],
     operations: Mapping[str, Sequence[str]],
+    *,
+    inventory: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
+    by_id = {str(issue["id"]): issue for issue in inventory} if inventory is not None else {}
     for issue_id in sorted(expected):
-        observed = _setup_issue_state(client.show(issue_id))
+        observed_issue = by_id.get(issue_id) if inventory is not None else None
+        observed = _setup_issue_state(observed_issue if observed_issue is not None else client.show(issue_id))
         if observed == expected[issue_id]:
             continue
         expected_json = json.dumps(expected[issue_id], sort_keys=True, separators=(",", ":"))
@@ -2362,11 +2542,20 @@ def _execute_setup_plan(
     plan: Mapping[str, Any],
     *,
     database: Path | None = None,
+    metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     mutation = plan
-    observed_authority = (
-        _current_setup_authority(root) if database is None else _current_setup_authority(root, database=database)
-    )
+    command_hook = _setup_command_hook(metrics)
+    if command_hook is None:
+        observed_authority = (
+            _current_setup_authority(root) if database is None else _current_setup_authority(root, database=database)
+        )
+    else:
+        observed_authority = (
+            _current_setup_authority(root, command_hook=command_hook)
+            if database is None
+            else _current_setup_authority(root, database=database, command_hook=command_hook)
+        )
     if observed_authority != mutation["authority"]:
         raise SetupError("setup controller/runtime authority changed since plan; rerun setup plan and review it")
     _validate_setup_tree(package_root(), "formulas")
@@ -2375,7 +2564,10 @@ def _execute_setup_plan(
         source = _setup_resolve_source(root, str(operation["source"]))
         if _setup_sha256(source) != operation["source_sha256"]:
             raise SetupError(f"setup formula source changed: {source}")
-    validate_bundle(package_root() / "formulas")
+    if metrics is None:
+        validate_bundle(package_root() / "formulas")
+    else:
+        validate_bundle(package_root() / "formulas", metrics=metrics)
     initialization = mutation["initialization"]
     if initialization:
         record = initialization[0]
@@ -2383,7 +2575,7 @@ def _execute_setup_plan(
         if target.exists():
             raise SetupError("setup initialization precondition changed")
         database_created = database is not None and not database.is_dir()
-        ensure_beads(root, initialize=True, database=database)
+        ensure_beads(root, initialize=True, database=database, metrics=metrics)
         if database_created:
             _relocate_initialized_beads_files(root, database)
         if database is None:
@@ -2397,16 +2589,31 @@ def _execute_setup_plan(
     elif database is not None and not database.is_dir():
         raise SetupError("Beads database is not initialized and the reviewed plan omits initialization")
 
-    client = _setup_client(root, database)
+    client = _setup_client(root, database, command_hook=command_hook)
     version = str(mutation["authority"]["beads_version"])
+    inventory = _setup_exact_inventory(client)
+    if metrics is not None and inventory is not None:
+        metrics["inventory_reads"] = int(metrics.get("inventory_reads", 0)) + 1
+    inventory_by_id = {str(issue["id"]): issue for issue in inventory or []}
     for operation in mutation["template_deletions"]:
         issue_id = str(operation["issue_id"])
-        issue = client.show(issue_id)
-        if issue.get("is_template") is not True and not has_label(issue, "template"):
+        issue = inventory_by_id.get(issue_id) if inventory is not None else client.show(issue_id)
+        if issue is None or (issue.get("is_template") is not True and not has_label(issue, "template")):
             raise SetupError(f"reviewed setup template is no longer a template: {issue_id}")
-    expected_beads, beads_operations = _setup_expected_beads_states(client, mutation)
+    expected_beads, beads_operations = _setup_expected_beads_states(client, mutation, inventory=inventory)
+    groups: dict[tuple[str, ...], list[str]] = {}
     for operation in mutation["beads_issues"]:
-        client.update(str(operation["issue_id"]), *_setup_mutation_arguments(operation))
+        arguments = tuple(_setup_mutation_arguments(operation))
+        groups.setdefault(arguments, []).append(str(operation["issue_id"]))
+    if metrics is not None:
+        metrics["beads_update_batches"] = len(groups)
+        metrics["beads_updates"] = len(mutation["beads_issues"])
+    for arguments, issue_ids in sorted(groups.items(), key=lambda item: item[1][0]):
+        if len(issue_ids) > 1 and isinstance(client, _BEADS_CLIENT_TYPE):
+            client.update_many(issue_ids, *arguments)
+        else:
+            for issue_id in issue_ids:
+                client.update(issue_id, *arguments)
 
     for operation in mutation["dependencies"]:
         if operation["action"] == "add":
@@ -2420,13 +2627,15 @@ def _execute_setup_plan(
 
     template_ids = [str(operation["issue_id"]) for operation in mutation["template_deletions"]]
     if template_ids:
-        run(
+        _setup_run(
             _setup_beads_command(["bd", "delete", *template_ids, "--dry-run", "--json"], database),
             cwd=root,
+            metrics=metrics,
         )
-        run(
+        _setup_run(
             _setup_beads_command(["bd", "delete", *template_ids, "--force", "--json"], database),
             cwd=root,
+            metrics=metrics,
         )
 
     for operation in sorted(
@@ -2467,10 +2676,16 @@ def _execute_setup_plan(
 
     for operation in mutation["supersessions"]:
         client.supersede(str(operation["source_id"]), str(operation["destination_id"]))
-    _verify_setup_beads_postconditions(client, expected_beads, beads_operations)
-    observed_template_ids = (
-        {str(item.get("id") or "") for item in all_issue_inventory(client)} if template_ids else set()
+    post_inventory = _setup_exact_inventory(client)
+    if metrics is not None and post_inventory is not None:
+        metrics["inventory_reads"] = int(metrics.get("inventory_reads", 0)) + 1
+    _verify_setup_beads_postconditions(
+        client,
+        expected_beads,
+        beads_operations,
+        inventory=post_inventory,
     )
+    observed_template_ids = {str(item.get("id") or "") for item in post_inventory or []} if template_ids else set()
     remaining_templates = observed_template_ids.intersection(template_ids)
     if remaining_templates:
         raise SetupError(
@@ -2493,8 +2708,8 @@ def _execute_setup_plan(
         if database is None:
             validate_formula(root, name)
         else:
-            validate_formula(root, name, database=database)
-    return {"status": "ok", "beads_version": version}
+            validate_formula(root, name, database=database, metrics=metrics)
+    return {"status": "ok", "beads_version": version, "metrics": metrics if metrics is not None else {}}
 
 
 def _restore_setup_index(root: Path, snapshots: Mapping[str, str]) -> None:
@@ -2513,12 +2728,14 @@ def _fresh_setup_plan_for_migration(
     force: bool,
     database: Path,
     reviewed: Mapping[str, Any],
+    metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     fresh = setup_plan(
         root,
         initialize=initialize,
         force=force,
         database=database,
+        metrics=metrics,
     )
     if fresh["status"] != "ready":
         raise SetupError("setup migration preconditions changed: " + "; ".join(fresh["preconditions"]["blocked"]))
@@ -2862,20 +3079,34 @@ def _apply_forced_setup(
     )
     artifacts, _ = _setup_migration_paths(root, expected_plan_sha256)
     artifact_plan = _prepare_setup_artifacts(artifacts, plan_bytes)
+    metrics: dict[str, Any] = {"phase_seconds": {}}
+    phase_started = time.monotonic()
     backup = None
     if database.is_dir():
-        backup = _create_verified_setup_backup(root, database, artifacts)
+        backup = _create_verified_setup_backup(root, database, artifacts, metrics=metrics)
+    metrics["phase_seconds"]["backup"] = round(time.monotonic() - phase_started, 6)
+    phase_started = time.monotonic()
     worktree = _prepare_setup_worktree(root, expected_plan_sha256)
+    metrics["phase_seconds"]["worktree"] = round(time.monotonic() - phase_started, 6)
+    phase_started = time.monotonic()
     fresh = _fresh_setup_plan_for_migration(
         root,
         initialize=initialize,
         force=True,
         database=database,
         reviewed=reviewed,
+        metrics=metrics,
     )
+    metrics["phase_seconds"]["recheck"] = round(time.monotonic() - phase_started, 6)
+    phase_started = time.monotonic()
     try:
         with _setup_signal_boundary():
-            applied = _execute_setup_plan(worktree, reviewed["mutation_plan"], database=database)
+            applied = _execute_setup_plan(
+                worktree,
+                reviewed["mutation_plan"],
+                database=database,
+                metrics=metrics,
+            )
             if reviewed["mutation_plan"]["initialization"]:
                 _relocate_initialized_beads_files(worktree, database)
             validate_docs(worktree)
@@ -2884,7 +3115,13 @@ def _apply_forced_setup(
                 raise SetupError("setup migration postcondition failed for interaction-log policy")
             if reviewed["mutation_plan"]["initialization"]:
                 _relocate_initialized_beads_files(worktree, database)
-            _verify_setup_beads_delta(database, backup, reviewed["mutation_plan"])
+            _verify_setup_beads_delta(
+                database,
+                backup,
+                reviewed["mutation_plan"],
+                metrics=metrics,
+            )
+        metrics["phase_seconds"]["execute_verify"] = round(time.monotonic() - phase_started, 6)
     except (Exception, KeyboardInterrupt) as exc:
         try:
             rollback = _rollback_setup_migration(
@@ -2916,6 +3153,7 @@ def _apply_forced_setup(
         "backup": str(backup) if backup is not None else None,
         "plan": fresh,
         "applied": applied,
+        "metrics": metrics,
     }
 
 
@@ -3329,10 +3567,12 @@ def legacy_template_artifacts(
         issue_id = str(summary.get("id") or "")
         if not any(issue_id == name or issue_id.startswith(f"{name}.") for name in FORMULA_NAMES):
             continue
-        issue = client.show(issue_id)
+        issue = summary
+        if "is_template" not in summary and not has_label(summary, "template"):
+            issue = client.show(issue_id)
         if issue.get("is_template") is not True and not has_label(issue, "template"):
             raise SetupError(f"reserved dstack template ID is used by non-template issue {issue_id}")
-        result.append(issue)
+        result.append(dict(issue))
     return result
 
 

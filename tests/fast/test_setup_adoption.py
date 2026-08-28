@@ -1074,6 +1074,18 @@ class SetupPostconditionClient:
     def check_version(self) -> str:
         return "bd version 1.2.2 (6c124203e)"
 
+    def list(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return [
+            {
+                **copy.deepcopy(issue),
+                "title": issue.get("title", issue["id"]),
+                "priority": issue.get("priority", 2),
+                "issue_type": issue.get("issue_type", "task"),
+                "owner": issue.get("owner", ""),
+            }
+            for issue in self.issues.values()
+        ]
+
     def show(self, issue_id: str) -> dict[str, Any]:
         return copy.deepcopy(self.issues[issue_id])
 
@@ -1229,6 +1241,88 @@ def test_setup_apply_validates_formula_bundle_before_initialization(
     assert not (tmp_path / ".beads").exists()
 
 
+def test_setup_exact_inventory_focuses_missing_core_fields_and_rejects_unknown_shape() -> None:
+    focused = {
+        "id": "issue-1",
+        "title": "Issue",
+        "status": "open",
+        "priority": 2,
+        "issue_type": "task",
+        "labels": [],
+        "metadata": {},
+    }
+
+    class Client:
+        def __init__(self, result: dict[str, Any]) -> None:
+            self.result = result
+            self.calls: list[str] = []
+
+        def list(self, **kwargs: Any) -> list[dict[str, Any]]:
+            self.calls.append("list")
+            return [{"id": "issue-1"}]
+
+        def show(self, issue_id: str) -> dict[str, Any]:
+            self.calls.append("show")
+            return self.result
+
+    client = Client(focused)
+    assert setup._setup_exact_inventory(client) == [focused]
+    assert client.calls == ["list", "show"]
+
+    invalid = Client({**focused, "metadata": []})
+    with pytest.raises(setup.SetupError, match="invalid metadata field"):
+        setup._setup_exact_inventory(invalid)
+
+
+def test_forced_setup_groups_identical_issue_updates_sequentially(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BatchClient(SetupPostconditionClient):
+        batch_calls: list[tuple[list[str], tuple[str, ...]]] = []
+
+        def list(self, **kwargs) -> list[dict[str, Any]]:
+            return [
+                {
+                    **copy.deepcopy(issue),
+                    "title": issue.get("title", issue["id"]),
+                    "priority": issue.get("priority", 2),
+                    "issue_type": issue.get("issue_type", "task"),
+                    "owner": issue.get("owner", ""),
+                }
+                for issue in self.issues.values()
+            ]
+
+        def update_many(self, issue_ids: list[str], *arguments: str) -> list[dict[str, Any]]:
+            self.batch_calls.append((list(issue_ids), arguments))
+            return [self.update(issue_id, *arguments) for issue_id in issue_ids]
+
+    issues = {
+        "issue-1": initial_issue(),
+        "issue-2": {**initial_issue(), "id": "issue-2"},
+    }
+    client = BatchClient(tmp_path, issues)
+    mutation = minimal_setup_mutation(
+        beads_issues=[
+            issue_mutation(),
+            {**issue_mutation(), "issue_id": "issue-2"},
+        ]
+    )
+    (tmp_path / ".beads").mkdir()
+    monkeypatch.setattr(setup, "_BEADS_CLIENT_TYPE", BatchClient)
+    monkeypatch.setattr(setup, "_setup_client", lambda *args, **kwargs: client)
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root, **kwargs: mutation["authority"])
+    monkeypatch.setattr(setup, "validate_bundle", lambda root, **kwargs: None)
+    monkeypatch.setattr(setup, "validate_formula", lambda root, name: None)
+    metrics: dict[str, Any] = {}
+
+    result = setup._execute_setup_plan(tmp_path, mutation, metrics=metrics)
+
+    assert result["status"] == "ok"
+    assert metrics["beads_update_batches"] == 1
+    assert metrics["beads_updates"] == 2
+    assert client.batch_calls == [(["issue-1", "issue-2"], tuple(setup._setup_mutation_arguments(issue_mutation())))]
+
+
 def test_setup_apply_rereads_exact_issue_postconditions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = execute_setup_mutation(
         tmp_path,
@@ -1258,7 +1352,16 @@ def test_setup_apply_deletes_and_rereads_reviewed_template_artifact(
     class Client(SetupPostconditionClient):
         def show(self, selected: str) -> dict[str, Any]:
             assert selected in present
-            return {"id": selected, "is_template": True}
+            return {
+                "id": selected,
+                "title": selected,
+                "status": "open",
+                "priority": 2,
+                "issue_type": "task",
+                "owner": "",
+                "labels": ["template"],
+                "is_template": True,
+            }
 
     client = Client(tmp_path, {})
     mutation = minimal_setup_mutation(
@@ -1702,8 +1805,9 @@ def test_explicit_beads_client_appends_contained_database_argument(
     client = dstacklib.BeadsClient(repo, database=database)
     assert client.version() == "bd version 1.2.2 (6c124203e)"
     assert client.list() == []
+    assert client.update_many(["issue-a", "issue-b"], "--add-label", "grouped") == []
 
-    assert len(commands) == 2
+    assert len(commands) == 3
     assert all(command[-2:] == ["--db", str(database)] for command in commands)
 
 

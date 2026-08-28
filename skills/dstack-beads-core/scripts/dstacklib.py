@@ -368,14 +368,22 @@ def write_temp_text(text: str) -> TextIO:
 class BeadsClient:
     """Thin, stateless adapter around the supported Beads CLI."""
 
-    def __init__(self, root: Path, *, database: Path | None = None):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        database: Path | None = None,
+        command_hook: Callable[[Sequence[str]], None] | None = None,
+    ):
         self.root = git_root(root)
         self.database = None if database is None else database.resolve()
+        self.command_hook = command_hook
         self._read_cache: dict[tuple[Any, ...], Any] = {}
 
     def _command(self, command: Sequence[str]) -> list[str]:
         result = list(command)
-        if self.database is None or not result or Path(result[0]).name != "bd":
+        database = getattr(self, "database", None)
+        if database is None or not result or Path(result[0]).name != "bd":
             return result
         try:
             index = result.index("--db")
@@ -387,7 +395,11 @@ class BeadsClient:
         return result
 
     def _run(self, command: Sequence[str], **kwargs: Any) -> CommandResult:
-        return run(self._command(command), cwd=self.root, **kwargs)
+        selected = self._command(command)
+        command_hook = getattr(self, "command_hook", None)
+        if command_hook is not None:
+            command_hook(selected)
+        return run(selected, cwd=self.root, **kwargs)
 
     def _invalidate_reads(self) -> None:
         self._read_cache.clear()
@@ -485,6 +497,17 @@ class BeadsClient:
         try:
             payload = self.json(["bd", "update", issue_id, *arguments, "--json"])
             return first_item(payload, context=f"bd update {issue_id}")
+        finally:
+            self._invalidate_reads()
+
+    def update_many(self, issue_ids: Sequence[str], *arguments: str) -> list[dict[str, Any]]:
+        ids = list(issue_ids)
+        if not ids:
+            return []
+        self._invalidate_reads()
+        try:
+            payload = self.json(["bd", "update", *ids, *arguments, "--json"])
+            return as_items(payload)
         finally:
             self._invalidate_reads()
 

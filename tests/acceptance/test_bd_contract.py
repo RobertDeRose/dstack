@@ -279,6 +279,93 @@ def test_forced_setup_auto_rolls_back_a_real_beads_mutation(
     run_command(["git", "worktree", "remove", "--force", str(worktree)], cwd=acceptance_repo)
 
 
+def test_forced_setup_groups_large_inventory_updates(acceptance_repo: Path, tmp_path: Path) -> None:
+    root = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Bulk legacy feature",
+            "--type",
+            "epic",
+            "--labels",
+            "workflow:feature,feature:bulk-legacy",
+        )
+    )[0]
+    run_json(
+        acceptance_repo,
+        "update",
+        root["id"],
+        "--set-metadata",
+        "dstack.design_path=docs/src/features/bulk-legacy/design.md",
+    )
+    children = []
+    for index in range(24):
+        child = items(
+            run_json(
+                acceptance_repo,
+                "create",
+                f"Bulk legacy child {index}",
+                "--type",
+                "task",
+                "--parent",
+                root["id"],
+                "--labels",
+                "workflow:feature,feature:bulk-legacy",
+            )
+        )[0]
+        run_json(
+            acceptance_repo,
+            "update",
+            child["id"],
+            "--set-metadata",
+            "feature_slug=bulk-legacy",
+            "--set-metadata",
+            "branch=legacy",
+        )
+        children.append(child["id"])
+
+    planned = run_command(
+        [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
+        cwd=acceptance_repo,
+    )
+    payload = json.loads(planned.stdout)
+    plan_file = tmp_path / "reviewed-plan.json"
+    plan_file.write_bytes(planned.stdout.encode())
+    applied = json.loads(
+        run_command(
+            [
+                str(DSTACK),
+                "setup",
+                "apply",
+                "--root",
+                str(acceptance_repo),
+                "--force",
+                "--plan-file",
+                str(plan_file),
+                "--plan-digest",
+                payload["plan_sha256"],
+            ],
+            cwd=acceptance_repo,
+        ).stdout
+    )
+    metrics = applied["metrics"]
+    assert metrics["beads_updates"] == len(children)
+    assert metrics["beads_update_batches"] == 1
+    assert metrics["beads_update_batches"] < metrics["beads_updates"]
+    assert metrics["beads_command_count"] < len(children) * 2
+    assert set(metrics["phase_seconds"]) == {"backup", "worktree", "recheck", "execute_verify"}
+    assert all(isinstance(seconds, float) and seconds >= 0 for seconds in metrics["phase_seconds"].values())
+    assert sum(metrics["phase_seconds"].values()) < 300
+    for child_id in children:
+        child = items(run_json(acceptance_repo, "show", child_id))[0]
+        assert "workflow:feature" not in child.get("labels", [])
+        assert "feature:bulk-legacy" not in child.get("labels", [])
+        assert "feature_slug" not in child.get("metadata", {})
+        assert "branch" not in child.get("metadata", {})
+    worktree = Path(applied["worktree"])
+    run_command(["git", "worktree", "remove", "--force", str(worktree)], cwd=acceptance_repo)
+
+
 def test_forced_setup_explicit_rollback_restores_native_baseline(acceptance_repo: Path, tmp_path: Path) -> None:
     issue = items(
         run_json(
