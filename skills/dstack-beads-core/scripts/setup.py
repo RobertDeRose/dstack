@@ -1233,7 +1233,7 @@ def _setup_navigation_plan(
 
 
 def _setup_doc_filesystem_plan(
-    root: Path, *, force: bool, design_moves: Sequence[tuple[str, str]]
+    root: Path, *, force: bool, design_moves: Sequence[tuple[str, str]], validation_errors: list[str] | None = None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     docs = _validate_setup_tree(root, "docs")
     before = (
@@ -1251,6 +1251,11 @@ def _setup_doc_filesystem_plan(
             for source, destination in design_moves:
                 migrate_known_documentation_file(scratch, source, destination)
         create_foundation(scratch)
+        if force and validation_errors is not None:
+            try:
+                validate_docs(scratch)
+            except DstackError as exc:
+                validation_errors.append(str(exc))
         after = {
             path.relative_to(scratch).as_posix(): path.read_bytes()
             for path in (scratch / "docs").rglob("*")
@@ -1418,6 +1423,7 @@ def _setup_plan_object(
     client: BeadsClient | None,
     inventory: Sequence[Mapping[str, Any]],
     template_artifacts: Sequence[Mapping[str, Any]],
+    projected_validation_errors: list[str] | None = None,
 ) -> dict[str, Any]:
     initialization = []
     if not _setup_repo_path(root, ".beads").is_dir() and initialize:
@@ -1430,7 +1436,12 @@ def _setup_plan_object(
             }
         ]
     design_moves = _setup_feature_design_moves(client, inventory=inventory) if client and force else []
-    filesystem, navigation = _setup_doc_filesystem_plan(root, force=force, design_moves=design_moves)
+    filesystem, navigation = _setup_doc_filesystem_plan(
+        root,
+        force=force,
+        design_moves=design_moves,
+        validation_errors=projected_validation_errors,
+    )
     policy = _setup_repo_path(root, ".beads/.gitignore")
     if initialization or _setup_repo_path(root, ".beads").is_dir():
         desired = _setup_gitignore_content(policy)
@@ -1580,9 +1591,13 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
             "configured_source_moves": [],
             "referenced_content_moves": [],
             "unresolved_outside_markdown": [],
+            "non_reader_paths": [],
             "manual_actions": [],
         }
     )
+    for action in migration.get("manual_actions", []):
+        blocked.append(f"documentation requires manual disposition: {action['path']}; {action['action']}")
+    projected_validation_errors: list[str] = []
     mutation_plan = _setup_plan_object(
         root,
         initialize=initialize,
@@ -1593,7 +1608,9 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
         client=client,
         inventory=inventory,
         template_artifacts=template_artifacts,
+        projected_validation_errors=projected_validation_errors,
     )
+    blocked.extend(f"projected documentation validation failed: {error}" for error in projected_validation_errors)
     display_filesystem = [
         {
             "path": str(operation["destination"] or operation["source"]),
@@ -1628,7 +1645,10 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
         "git_index": git_index,
         "beads": beads,
         "formulas": formulas,
-        "documentation": migration,
+        "documentation": {
+            **migration,
+            "projected_validation_errors": projected_validation_errors,
+        },
     }
     return payload
 

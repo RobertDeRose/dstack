@@ -1732,6 +1732,102 @@ def test_setup_plan_rejects_unrelated_dirty_path_before_discovery(
     assert result["preconditions"]["blocked"] == ["worktree has unrelated changes"]
 
 
+def test_forced_setup_plan_blocks_non_reader_documentation_before_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    setup.create_foundation(repo)
+    for relative in ("docs/src/reference/tasks.md", "docs/src/features/_template/design.md"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("non-reader content\n")
+    (repo / ".beads").mkdir()
+
+    class Client:
+        root = repo
+
+    monkeypatch.setattr(setup, "git_root", lambda root: repo)
+    monkeypatch.setattr(setup, "_setup_preflight", lambda root, force: ("", False))
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: setup_authority())
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(setup, "all_issue_inventory", lambda client: [])
+    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client, **kwargs: [])
+    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
+
+    planned = setup.setup_plan(repo, initialize=False, force=True)
+
+    assert planned["status"] == "blocked"
+    assert planned["documentation"]["non_reader_paths"] == [
+        "docs/src/features/_template/design.md",
+        "docs/src/reference/tasks.md",
+    ]
+    assert all("do not add" in blocked for blocked in planned["preconditions"]["blocked"])
+
+    monkeypatch.setattr(
+        setup,
+        "_execute_setup_plan",
+        lambda *args: pytest.fail("blocked documentation reached Beads mutation"),
+    )
+    with pytest.raises(setup.SetupError, match="preconditions changed"):
+        setup.apply_setup(
+            repo,
+            initialize=False,
+            force=True,
+            expected_plan_sha256=planned["plan_sha256"],
+        )
+
+
+def test_forced_setup_plan_blocks_projected_documentation_validation_before_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    setup.create_foundation(repo)
+    (repo / ".beads").mkdir()
+
+    class Client:
+        root = repo
+
+    monkeypatch.setattr(setup, "git_root", lambda root: repo)
+    monkeypatch.setattr(setup, "_setup_preflight", lambda root, force: ("", False))
+    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: setup_authority())
+    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
+    monkeypatch.setattr(setup, "all_issue_inventory", lambda client: [])
+    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client, **kwargs: [])
+
+    def reject_projected_docs(root: Path) -> dict[str, str]:
+        assert root != repo
+        raise DstackError("documentation validation failed: orphan documentation is not in SUMMARY.md: orphan.md")
+
+    monkeypatch.setattr(setup, "validate_docs", reject_projected_docs)
+
+    planned = setup.setup_plan(repo, initialize=False, force=True)
+
+    assert planned["status"] == "blocked"
+    assert planned["documentation"]["projected_validation_errors"] == [
+        "documentation validation failed: orphan documentation is not in SUMMARY.md: orphan.md"
+    ]
+    assert any(
+        "projected documentation validation failed" in blocked for blocked in planned["preconditions"]["blocked"]
+    )
+
+    monkeypatch.setattr(
+        setup,
+        "_execute_setup_plan",
+        lambda *args: pytest.fail("invalid projected docs reached Beads mutation"),
+    )
+    with pytest.raises(setup.SetupError, match="preconditions changed"):
+        setup.apply_setup(
+            repo,
+            initialize=False,
+            force=True,
+            expected_plan_sha256=planned["plan_sha256"],
+        )
+
+
 def test_setup_plan_creates_missing_existing_beads_gitignore(tmp_path: Path) -> None:
     (tmp_path / ".beads").mkdir()
     plan = setup._setup_plan_object(
@@ -2583,6 +2679,7 @@ def test_legacy_repair_reports_required_changes_before_mutation(
             "configured_source_moves": [],
             "referenced_content_moves": [],
             "unresolved_outside_markdown": [],
+            "non_reader_paths": [],
             "manual_actions": [],
         },
     }

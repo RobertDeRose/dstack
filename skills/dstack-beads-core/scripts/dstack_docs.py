@@ -748,10 +748,30 @@ def _rewrite_external_references(root: Path, *, apply: bool) -> list[dict[str, s
 
 
 MANUAL_MIGRATION_ACTION = "choose a docs/src chapter, move the file, update SUMMARY.md, and rerun setup"
+NON_READER_MIGRATION_ACTION = (
+    "choose an explicit non-reader disposition outside docs/src, do not add it to SUMMARY.md, and rerun setup"
+)
 
 
-def _manual_actions(unresolved: list[str]) -> list[dict[str, str]]:
-    return [{"path": path, "action": MANUAL_MIGRATION_ACTION} for path in unresolved]
+def non_reader_documentation_paths(root: Path) -> list[str]:
+    source = root.resolve() / "docs/src"
+    if not source.is_dir():
+        return []
+    result: list[str] = []
+    for path in source.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(source)
+        parts = tuple(part.casefold() for part in relative.parts)
+        if path.name.casefold() == "tasks.md" or parts[:2] == ("features", "_template"):
+            result.append((Path("docs/src") / relative).as_posix())
+    return sorted(result)
+
+
+def _manual_actions(unresolved: list[str], non_reader: list[str] | None = None) -> list[dict[str, str]]:
+    actions = {path: MANUAL_MIGRATION_ACTION for path in unresolved}
+    actions.update({path: NON_READER_MIGRATION_ACTION for path in non_reader or []})
+    return [{"path": path, "action": actions[path]} for path in sorted(actions)]
 
 
 def _unresolved_outside_markdown(root: Path) -> list[str]:
@@ -791,11 +811,13 @@ def legacy_documentation_plan(root: Path) -> dict[str, object]:
             except ValueError:
                 unresolved.append(path.relative_to(root).as_posix())
         unresolved.sort()
+    non_reader = non_reader_documentation_paths(root)
     return {
         "configured_source_moves": configured,
         "referenced_content_moves": references,
         "unresolved_outside_markdown": unresolved,
-        "manual_actions": _manual_actions(unresolved),
+        "non_reader_paths": non_reader,
+        "manual_actions": _manual_actions(unresolved, non_reader),
     }
 
 
@@ -814,11 +836,13 @@ def migrate_legacy_documentation(root: Path) -> dict[str, object]:
     configured = _migrate_configured_source(root, apply=True)
     references = _rewrite_external_references(root, apply=True)
     unresolved = _unresolved_outside_markdown(root)
+    non_reader = non_reader_documentation_paths(root)
     return {
         "configured_source_moves": configured,
         "referenced_content_moves": references,
         "unresolved_outside_markdown": unresolved,
-        "manual_actions": _manual_actions(unresolved),
+        "non_reader_paths": non_reader,
+        "manual_actions": _manual_actions(unresolved, non_reader),
     }
 
 
@@ -900,6 +924,10 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
         )
 
     errors: list[str] = validate_decision_records(source)
+    non_reader = non_reader_documentation_paths(root)
+    if non_reader:
+        relative = [path.removeprefix("docs/src/") for path in non_reader]
+        errors.append("non-reader documentation requires disposition; do not add to SUMMARY.md: " + ", ".join(relative))
     summary = source / "SUMMARY.md"
     chapters: set[Path] = set()
     for raw in _links(summary):

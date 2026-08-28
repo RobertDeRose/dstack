@@ -301,6 +301,26 @@ def test_validation_reports_all_deterministic_failures(tmp_path: Path, monkeypat
     assert "hidden.md" in message
 
 
+@pytest.mark.parametrize(
+    "relative",
+    ["docs/src/reference/tasks.md", "docs/src/features/_template/design.md"],
+)
+def test_validation_rejects_non_reader_documentation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str
+) -> None:
+    dstack_docs.create_foundation(tmp_path)
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("non-reader content\n")
+    fake_mdbook(monkeypatch)
+
+    with pytest.raises(DstackError, match="non-reader documentation") as raised:
+        dstack_docs.validate_docs(tmp_path)
+
+    assert relative.removeprefix("docs/src/") in str(raised.value)
+    assert "do not add" in str(raised.value)
+
+
 def test_validation_rejects_symlink_escape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dstack_docs.create_foundation(tmp_path)
     outside = tmp_path / "outside.md"
