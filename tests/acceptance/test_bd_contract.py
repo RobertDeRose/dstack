@@ -18,6 +18,7 @@ from dstack_delivery import (
     replace_pr_gates,
 )
 from dstacklib import BeadsClient, DstackError, root_metadata_value
+import setup
 
 
 def items(payload):
@@ -172,9 +173,7 @@ def test_external_dependent_stays_blocked_through_add_before_remove(
     assert dependent["id"] in {item["id"] for item in ready}
 
 
-def test_forced_setup_uses_detached_worktree_and_verified_native_backup(
-    acceptance_repo: Path, tmp_path: Path
-) -> None:
+def test_forced_setup_uses_detached_worktree_and_verified_native_backup(acceptance_repo: Path, tmp_path: Path) -> None:
     database = acceptance_repo / ".beads/embeddeddolt"
     pointer = acceptance_repo / ".beads/dolt-backup.json"
     run_command(
@@ -183,9 +182,7 @@ def test_forced_setup_uses_detached_worktree_and_verified_native_backup(
     )
     pointer_before = pointer.read_bytes()
     head_before = run_command(["git", "rev-parse", "HEAD"], cwd=acceptance_repo).stdout.strip()
-    status_before = run_command(
-        ["git", "status", "--porcelain=v1", "--untracked-files=no"], cwd=acceptance_repo
-    ).stdout
+    status_before = run_command(["git", "status", "--porcelain=v1", "--untracked-files=no"], cwd=acceptance_repo).stdout
     planned = run_command(
         [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
         cwd=acceptance_repo,
@@ -217,18 +214,117 @@ def test_forced_setup_uses_detached_worktree_and_verified_native_backup(
         assert (artifact / "backup/manifest").is_file()
         assert run_command(["git", "rev-parse", "HEAD"], cwd=acceptance_repo).stdout.strip() == head_before
         assert (
-            run_command(
-                ["git", "status", "--porcelain=v1", "--untracked-files=no"], cwd=acceptance_repo
-            ).stdout
+            run_command(["git", "status", "--porcelain=v1", "--untracked-files=no"], cwd=acceptance_repo).stdout
             == status_before
         )
         assert pointer.read_bytes() == pointer_before
-        assert run_command(
-            ["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=worktree, check=False
-        ).returncode != 0
+        assert (
+            run_command(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=worktree, check=False).returncode
+            != 0
+        )
         assert run_command(["git", "rev-parse", "HEAD"], cwd=worktree).stdout.strip() == head_before
+        cleanup = run_command(
+            [str(DSTACK), "setup", "cleanup", "--root", str(acceptance_repo), "--migration-id", payload["plan_sha256"]],
+            cwd=acceptance_repo,
+            check=False,
+        )
+        assert cleanup.returncode != 0
+        assert "not integrated" in cleanup.stderr
     finally:
         run_command(["git", "worktree", "remove", "--force", str(worktree)], cwd=acceptance_repo)
+
+
+def test_forced_setup_auto_rolls_back_a_real_beads_mutation(
+    acceptance_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    issue = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Legacy setup state",
+            "--type",
+            "epic",
+            "--labels",
+            "workflow:feature,feature:rollback",
+        )
+    )[0]
+    before = items(run_json(acceptance_repo, "show", issue["id"]))[0]
+    planned = run_command(
+        [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
+        cwd=acceptance_repo,
+    )
+    plan_file = tmp_path / "reviewed-plan.json"
+    plan_file.write_bytes(planned.stdout.encode())
+    digest = json.loads(planned.stdout)["plan_sha256"]
+
+    def fail_after_beads_write(worktree: Path, mutation, *, database: Path):
+        BeadsClient(worktree, database=database).update(issue["id"], "--add-label", "injected")
+        raise setup.SetupError("injected failure")
+
+    monkeypatch.setattr(setup, "_execute_setup_plan", fail_after_beads_write)
+    with pytest.raises(setup.SetupError, match="rollback_verified=true"):
+        setup.apply_setup(
+            acceptance_repo,
+            initialize=False,
+            force=True,
+            plan_file=plan_file,
+            expected_plan_sha256=digest,
+        )
+
+    after = items(run_json(acceptance_repo, "show", issue["id"]))[0]
+    assert after.get("labels") == before.get("labels")
+    worktree = acceptance_repo.parent / f"{acceptance_repo.name}.dstack-setup-{digest}"
+    assert run_command(["git", "status", "--short", "--untracked-files=all"], cwd=worktree).stdout == ""
+    assert (acceptance_repo / ".git" / "dstack/setup" / digest / "backup/manifest").is_file()
+    run_command(["git", "worktree", "remove", "--force", str(worktree)], cwd=acceptance_repo)
+
+
+def test_forced_setup_explicit_rollback_restores_native_baseline(acceptance_repo: Path, tmp_path: Path) -> None:
+    issue = items(
+        run_json(
+            acceptance_repo,
+            "create",
+            "Legacy setup state",
+            "--type",
+            "epic",
+            "--labels",
+            "workflow:feature,feature:rollback-explicit",
+        )
+    )[0]
+    before = items(run_json(acceptance_repo, "show", issue["id"]))[0]
+    planned = run_command(
+        [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
+        cwd=acceptance_repo,
+    )
+    plan_file = tmp_path / "reviewed-plan.json"
+    plan_file.write_bytes(planned.stdout.encode())
+    digest = json.loads(planned.stdout)["plan_sha256"]
+    run_command(
+        [
+            str(DSTACK),
+            "setup",
+            "apply",
+            "--root",
+            str(acceptance_repo),
+            "--force",
+            "--plan-file",
+            str(plan_file),
+            "--plan-digest",
+            digest,
+        ],
+        cwd=acceptance_repo,
+    )
+    run_json(acceptance_repo, "update", issue["id"], "--add-label", "uncertain")
+    rollback = run_command(
+        [str(DSTACK), "setup", "rollback", "--root", str(acceptance_repo), "--migration-id", digest],
+        cwd=acceptance_repo,
+    )
+    assert json.loads(rollback.stdout)["status"] == "rollback_verified"
+    after = items(run_json(acceptance_repo, "show", issue["id"]))[0]
+    assert after.get("labels") == before.get("labels")
+    worktree = acceptance_repo.parent / f"{acceptance_repo.name}.dstack-setup-{digest}"
+    assert run_command(["git", "status", "--short", "--untracked-files=all"], cwd=worktree).stdout == ""
+    run_command(["git", "worktree", "remove", "--force", str(worktree)], cwd=acceptance_repo)
 
 
 def test_forced_setup_preserves_metadata_only_legacy_root_before_adoption(
@@ -297,6 +393,9 @@ def test_forced_setup_preserves_metadata_only_legacy_root_before_adoption(
     assert (migration_worktree / formula.relative_to(acceptance_repo)).read_bytes() == (
         ROOT / "formulas/dstack-feature.formula.toml"
     ).read_bytes()
+    formula.write_bytes((migration_worktree / formula.relative_to(acceptance_repo)).read_bytes())
+    run_command(["git", "add", str(formula.relative_to(acceptance_repo))], cwd=acceptance_repo)
+    run_command(["git", "commit", "-qm", "test: integrate setup migration"], cwd=acceptance_repo)
     run_command(["git", "worktree", "remove", "--force", str(migration_worktree)], cwd=acceptance_repo)
 
     after = {

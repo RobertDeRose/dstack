@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -1797,6 +1799,14 @@ def test_setup_migration_worktree_is_detached_and_starts_at_source_head(tmp_path
         )
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=repo, check=True)
+
+
+def test_setup_signal_boundary_converts_termination_into_recoverable_exception() -> None:
+    original = signal.getsignal(signal.SIGTERM)
+    with pytest.raises(setup.SetupSignal):
+        with setup._setup_signal_boundary():
+            os.kill(os.getpid(), signal.SIGTERM)
+    assert signal.getsignal(signal.SIGTERM) == original
 
 
 def test_backup_pointer_restore_preserves_bytes_and_removes_created_pointers(tmp_path: Path) -> None:

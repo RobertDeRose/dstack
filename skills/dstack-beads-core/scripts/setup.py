@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import fnmatch
 import hashlib
 import json
@@ -11,12 +12,14 @@ import os
 import platform
 import re
 import shutil
+import signal
 import sys
 import tempfile
 import unicodedata
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any, Mapping, Sequence, cast
+from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 from dstack_docs import (
@@ -701,6 +704,29 @@ class SetupError(DstackError):
     """Raised when setup or repair cannot proceed safely."""
 
 
+class SetupSignal(KeyboardInterrupt):
+    def __init__(self, signum: int):
+        super().__init__(f"setup interrupted by signal {signal.Signals(signum).name}")
+        self.signum = signum
+
+
+@contextmanager
+def _setup_signal_boundary():
+    previous = {}
+
+    def interrupt(signum: int, _frame: Any) -> None:
+        raise SetupSignal(signum)
+
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        previous[signum] = signal.getsignal(signum)
+        signal.signal(signum, interrupt)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
 def _setup_repo_path(root: Path, relative: str) -> Path:
     """Resolve one setup-managed path without leaving its repository root."""
 
@@ -967,13 +993,15 @@ def validate_formula(
     *,
     env: Mapping[str, str] | None = None,
     database: Path | None = None,
+    seed: bool = True,
 ) -> dict[str, Any]:
     result = run(_setup_beads_command(["bd", "formula", "show", name, "--json"], database), cwd=root, env=env)
     payload = parse_json(result.stdout, context=f"bd formula show {name}")
     if not isinstance(payload, dict):
         raise SetupError(f"bd formula show returned a non-object for {name}")
     validate_formula_contract(name, payload)
-    run(_setup_beads_command(["bd", "mol", "seed", name, *formula_vars(name)], database), cwd=root, env=env)
+    if seed:
+        run(_setup_beads_command(["bd", "mol", "seed", name, *formula_vars(name)], database), cwd=root, env=env)
     return payload
 
 
@@ -1058,6 +1086,19 @@ def _prepare_setup_artifacts(path: Path, plan_bytes: bytes) -> Path:
     return plan_path
 
 
+def _setup_migration_worktree_record(root_arg: Path, digest: str) -> tuple[Path, dict[str, str | bool] | None]:
+    root = git_root(root_arg)
+    _, worktree = _setup_migration_paths(root, digest)
+    records = [
+        record
+        for record in worktree_records(root)
+        if isinstance(record.get("worktree"), str) and Path(str(record["worktree"])).resolve() == worktree.resolve()
+    ]
+    if len(records) > 1:
+        raise SetupError(f"setup migration worktree registration is ambiguous: {worktree}")
+    return worktree, records[0] if records else None
+
+
 def _prepare_setup_worktree(root_arg: Path, digest: str) -> Path:
     root = git_root(root_arg)
     _, worktree = _setup_migration_paths(root, digest)
@@ -1070,6 +1111,8 @@ def _prepare_setup_worktree(root_arg: Path, digest: str) -> Path:
     ]
     if len(matching) > 1:
         raise SetupError(f"setup migration worktree registration is ambiguous: {worktree}")
+    if worktree.is_symlink():
+        raise SetupError(f"setup migration worktree path must not be a symlink: {worktree}")
     if matching:
         record = matching[0]
         if not record.get("detached") or record.get("branch") or record.get("HEAD") != head:
@@ -1160,6 +1203,24 @@ def _normalize_beads_value(value: Any) -> Any:
     return value
 
 
+def _normalize_setup_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = _normalize_beads_value(issue)
+    if not isinstance(normalized, dict):
+        raise SetupError("Beads issue did not normalize to an object")
+    normalized.pop("dependencies", None)
+    normalized.pop("dependency_count", None)
+    normalized.pop("dependent_count", None)
+    normalized["description"] = str(issue.get("description") or "")
+    normalized["acceptance_criteria"] = str(issue.get("acceptance_criteria") or "")
+    normalized["issue_type"] = issue_type(issue)
+    normalized["owner"] = str(issue.get("owner") or "")
+    normalized["labels"] = sorted(issue_labels(issue))
+    normalized["metadata"] = issue_metadata(issue)
+    normalized["parent"] = issue_parent(issue)
+    normalized["relationships"] = [list(item) for item in _setup_relationships(issue)]
+    return normalized
+
+
 def _normalized_beads_inventory(client: BeadsClient) -> list[Any]:
     inventory = all_issue_inventory(client)
     issues = []
@@ -1167,15 +1228,17 @@ def _normalized_beads_inventory(client: BeadsClient) -> list[Any]:
         issue_id = summary.get("id")
         if not isinstance(issue_id, str) or not issue_id:
             raise SetupError("Beads inventory contains an issue without an ID")
-        issues.append(_normalize_beads_value(client.show(issue_id)))
+        issues.append(_normalize_setup_issue(client.show(issue_id)))
     return sorted(issues, key=lambda item: str(item.get("id", "")))
 
 
-def _verify_native_setup_backup(
-    backup: Path,
-    before: Sequence[Any],
-) -> None:
-    if not backup.is_dir() or backup.is_symlink() or not (backup / "manifest").is_file():
+def _native_backup_inventory(backup: Path) -> list[Any]:
+    if (
+        not backup.is_dir()
+        or backup.is_symlink()
+        or (backup / "manifest").is_symlink()
+        or not (backup / "manifest").is_file()
+    ):
         raise SetupError(f"native Beads backup is incomplete: {backup}")
     with tempfile.TemporaryDirectory(prefix="dstack-setup-restore-") as raw:
         disposable_root = Path(raw) / "repo"
@@ -1203,9 +1266,15 @@ def _verify_native_setup_backup(
             ),
             cwd=disposable_root,
         )
-        restored = _normalized_beads_inventory(BeadsClient(disposable_root, database=disposable_database))
-        if restored != list(before):
-            raise SetupError("native Beads backup verification inventory mismatch")
+        return _normalized_beads_inventory(BeadsClient(disposable_root, database=disposable_database))
+
+
+def _verify_native_setup_backup(
+    backup: Path,
+    before: Sequence[Any],
+) -> None:
+    if _native_backup_inventory(backup) != list(before):
+        raise SetupError("native Beads backup verification inventory mismatch")
 
 
 def _create_verified_setup_backup(
@@ -2130,6 +2199,78 @@ def _setup_relationships(issue: Mapping[str, Any]) -> list[tuple[str, str]]:
     return sorted(result)
 
 
+def _setup_expected_inventory(
+    baseline: Sequence[Mapping[str, Any]],
+    mutation: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    expected = {str(issue["id"]): copy.deepcopy(dict(issue)) for issue in baseline}
+    for operation in mutation["beads_issues"]:
+        issue_id = str(operation["issue_id"])
+        if issue_id not in expected:
+            raise SetupError(f"reviewed setup issue is absent from the backup baseline: {issue_id}")
+        issue = expected[issue_id]
+        metadata = issue.setdefault("metadata", {})
+        for key, value in operation["set_metadata"].items():
+            if value is None:
+                metadata.pop(key, None)
+            else:
+                metadata[key] = value
+        for key in operation["unset_metadata"]:
+            metadata.pop(key, None)
+        labels = set(issue.get("labels", []))
+        labels.update(operation["add_labels"])
+        labels.difference_update(operation["remove_labels"])
+        issue["labels"] = sorted(labels)
+    for operation in mutation["dependencies"]:
+        source = str(operation["source_id"])
+        destination = str(operation["destination_id"])
+        if source not in expected or destination not in expected:
+            raise SetupError(
+                f"reviewed setup relationship is absent from the backup baseline: {source} -> {destination}"
+            )
+        relationships = [list(item) for item in expected[source].get("relationships", [])]
+        relationship = [str(operation["relationship_type"]), destination]
+        if operation["action"] == "add":
+            if relationship not in relationships:
+                relationships.append(relationship)
+        else:
+            relationships = [item for item in relationships if item != relationship]
+        expected[source]["relationships"] = sorted(relationships)
+        if operation["relationship_type"] == "parent-child":
+            expected[source]["parent"] = destination if operation["action"] == "add" else None
+    for operation in mutation["supersessions"]:
+        source = str(operation["source_id"])
+        destination = str(operation["destination_id"])
+        if source not in expected or destination not in expected:
+            raise SetupError(
+                f"reviewed setup supersession is absent from the backup baseline: {source} -> {destination}"
+            )
+        relationships = [list(item) for item in expected[source].get("relationships", [])]
+        relationship = ["superseded-by", destination]
+        if relationship not in relationships:
+            relationships.append(relationship)
+        expected[source]["relationships"] = sorted(relationships)
+        expected[source]["status"] = "closed"
+    for operation in mutation["template_deletions"]:
+        expected.pop(str(operation["issue_id"]), None)
+    return expected
+
+
+def _verify_setup_beads_delta(database: Path, backup: Path | None, mutation: Mapping[str, Any]) -> None:
+    baseline = _native_backup_inventory(backup) if backup is not None else []
+    expected = _setup_expected_inventory(baseline, mutation)
+    observed = _normalized_beads_inventory(_setup_client(database.parent.parent, database))
+    observed_by_id = {str(issue["id"]): issue for issue in observed}
+    expected_ids = set(expected)
+    observed_ids = set(observed_by_id)
+    differences = sorted(expected_ids ^ observed_ids)
+    for issue_id in sorted(expected_ids & observed_ids):
+        if expected[issue_id] != observed_by_id[issue_id]:
+            differences.append(issue_id)
+    if differences:
+        raise SetupError("setup Beads verification found unexpected changes: " + ", ".join(sorted(set(differences))))
+
+
 def _setup_issue_state(issue: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "metadata": issue_metadata(issue),
@@ -2389,6 +2530,321 @@ def _fresh_setup_plan_for_migration(
     return fresh
 
 
+_INITIALIZED_BEADS_FILES = (
+    ".beads/.gitignore",
+    ".beads/.local_version",
+    ".beads/config.yaml",
+    ".beads/README.md",
+    ".beads/metadata.json",
+    ".beads/interactions.jsonl",
+)
+
+
+def _setup_allowed_worktree_paths(mutation: Mapping[str, Any]) -> set[str]:
+    paths = {
+        str(relative)
+        for operation in mutation["filesystem"]
+        for relative in (operation["source"], operation["destination"])
+        if relative
+    }
+    paths.update(str(operation["affected_path"]) for operation in mutation["navigation_references"])
+    paths.update(str(operation["destination"]) for operation in mutation["formulas"])
+    paths.update(str(operation["path"]) for operation in mutation["git_index"])
+    if mutation["initialization"]:
+        paths.update(_INITIALIZED_BEADS_FILES)
+    return paths
+
+
+def _verify_setup_worktree_files(
+    source_root: Path,
+    worktree: Path,
+    mutation: Mapping[str, Any],
+    *,
+    require_source_head: bool = True,
+) -> None:
+    _, record = _setup_migration_worktree_record(source_root, setup_plan_digest(mutation))
+    if record is None or not record.get("detached") or record.get("branch"):
+        raise SetupError("setup migration worktree is not detached")
+    source_head = run(["git", "rev-parse", "HEAD"], cwd=source_root).stdout.strip()
+    worktree_head = run(["git", "rev-parse", "HEAD"], cwd=worktree).stdout.strip()
+    if record.get("HEAD") != worktree_head:
+        raise SetupError("setup migration worktree record does not match its HEAD")
+    if require_source_head and worktree_head != source_head:
+        raise SetupError("setup migration worktree no longer starts at the source HEAD")
+    _, paths, _ = _setup_status(worktree)
+    allowed = _setup_allowed_worktree_paths(mutation)
+    unexpected = sorted(paths - allowed)
+    if unexpected:
+        raise SetupError("setup migration worktree has unexpected changes: " + ", ".join(unexpected))
+    for operation in mutation["filesystem"]:
+        action = str(operation["action"])
+        source = operation["source"]
+        destination = operation["destination"]
+        source_path = _setup_repo_path(worktree, str(source)) if source else None
+        destination_path = _setup_repo_path(worktree, str(destination)) if destination else None
+        if action == "delete":
+            if source_path is not None and source_path.exists():
+                raise SetupError(f"setup migration delete did not converge: {source}")
+        elif action == "move":
+            if (
+                source_path is None
+                or destination_path is None
+                or source_path.exists()
+                or not destination_path.is_file()
+            ):
+                raise SetupError(f"setup migration move did not converge: {source} -> {destination}")
+            _setup_check_hash(destination_path, operation["expected_source_sha256"], "migration destination")
+        elif destination_path is None or not destination_path.is_file():
+            raise SetupError(f"setup migration write did not converge: {destination}")
+        elif operation["content_source"] == "generated":
+            expected = str(operation["generated_content"]).encode("utf-8")
+            if destination_path.read_bytes() != expected:
+                raise SetupError(f"setup migration generated content changed: {destination}")
+        else:
+            source_path = _setup_resolve_source(worktree, str(source))
+            if destination_path.read_bytes() != source_path.read_bytes():
+                raise SetupError(f"setup migration copied content changed: {destination}")
+    for operation in mutation["formulas"]:
+        destination = _setup_repo_path(worktree, str(operation["destination"]))
+        source = _setup_resolve_source(worktree, str(operation["source"]))
+        if not destination.is_file() or destination.read_bytes() != source.read_bytes():
+            raise SetupError(f"setup migration formula did not converge: {destination}")
+    for operation in mutation["navigation_references"]:
+        path = _setup_repo_path(worktree, str(operation["affected_path"]))
+        _setup_check_hash(path, operation["expected_after_sha256"], "migration navigation result")
+    for operation in mutation["git_index"]:
+        if _setup_index_entries(worktree, str(operation["path"])):
+            raise SetupError(f"setup migration Git-index operation did not converge: {operation['path']}")
+
+
+def _reset_setup_migration_worktree(root: Path, worktree: Path, mutation: Mapping[str, Any]) -> None:
+    _, record = _setup_migration_worktree_record(root, setup_plan_digest(mutation))
+    if record is None or not record.get("detached") or record.get("branch"):
+        raise SetupError("setup migration worktree registration is missing or attached to a branch")
+    source_head = run(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip()
+    if record.get("HEAD") != source_head:
+        raise SetupError("source already contains or replaced the setup migration result")
+    run(["git", "reset", "--hard", "HEAD"], cwd=worktree)
+    allowed = _setup_allowed_worktree_paths(mutation)
+    for _ in range(2):
+        _, paths, _ = _setup_status(worktree)
+        unexpected = sorted(paths - allowed)
+        if unexpected:
+            raise SetupError("cannot remove unexpected migration worktree changes: " + ", ".join(unexpected))
+        for relative in sorted(paths & allowed):
+            if tracked(worktree, relative):
+                continue
+            path = _setup_repo_path(worktree, relative)
+            if path.is_dir() and not path.is_symlink():
+                raise SetupError(f"setup rollback refuses to remove a directory path: {relative}")
+            path.unlink(missing_ok=True)
+        if not paths:
+            break
+    remaining = run(["git", "status", "--short", "--untracked-files=all"], cwd=worktree).stdout.strip()
+    if remaining:
+        raise SetupError(f"setup migration worktree rollback did not converge: {remaining}")
+
+
+def _restore_setup_database(
+    root: Path,
+    database: Path,
+    backup: Path | None,
+    mutation: Mapping[str, Any],
+) -> None:
+    if mutation["initialization"]:
+        if database.is_symlink():
+            raise SetupError(f"setup rollback database is a symlink: {database}")
+        if database.exists():
+            if not database.is_dir():
+                raise SetupError(f"setup rollback database is not a directory: {database}")
+            shutil.rmtree(database)
+        for relative in _INITIALIZED_BEADS_FILES:
+            path = _setup_repo_path(root, relative)
+            if path.exists() and not tracked(root, relative):
+                if path.is_dir() and not path.is_symlink():
+                    raise SetupError(f"setup rollback refuses to remove directory: {relative}")
+                path.unlink()
+        parent = database.parent
+        if parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+        return
+    if backup is None:
+        raise SetupError("setup rollback has no native Beads backup")
+    pointers = _backup_pointer_snapshots(database.parent) if database.parent.is_dir() else {}
+    try:
+        if not database.is_dir():
+            ensure_beads(root, initialize=True, database=database)
+        run(
+            _setup_beads_command(["bd", "backup", "restore", str(backup), "--force", "--json"], database),
+            cwd=root,
+        )
+    finally:
+        _restore_backup_pointers(database.parent, pointers)
+    expected = _native_backup_inventory(backup)
+    observed = _normalized_beads_inventory(_setup_client(root, database))
+    if observed != expected:
+        raise SetupError("setup rollback Beads inventory does not match the native backup")
+
+
+def _rollback_setup_migration(
+    root: Path,
+    database: Path,
+    backup: Path | None,
+    worktree: Path,
+    mutation: Mapping[str, Any],
+) -> dict[str, Any]:
+    errors: list[str] = []
+    try:
+        _restore_setup_database(root, database, backup, mutation)
+    except Exception as exc:
+        errors.append(f"Beads restore failed: {exc}")
+    try:
+        _reset_setup_migration_worktree(root, worktree, mutation)
+    except Exception as exc:
+        errors.append(f"migration worktree restore failed: {exc}")
+    if errors:
+        raise SetupError("; ".join(errors))
+    return {
+        "status": "rollback_verified",
+        "database": str(database),
+        "worktree": str(worktree),
+        "backup": str(backup) if backup is not None else None,
+    }
+
+
+def _setup_migration_context(root: Path, digest: str) -> tuple[dict[str, Any], Path, Path, Path | None]:
+    artifacts, expected_worktree = _setup_migration_paths(root, digest)
+    plan_path = artifacts / "plan.json"
+    if artifacts.is_symlink() or not artifacts.is_dir() or not plan_path.is_file() or plan_path.is_symlink():
+        raise SetupError(f"saved setup migration artifacts are missing: {artifacts}")
+    try:
+        raw = json.loads(plan_path.read_text(encoding="utf-8"))
+        request = raw.get("request") if isinstance(raw, dict) else None
+        initialize = request.get("initialize") if isinstance(request, dict) else False
+        if not isinstance(initialize, bool):
+            raise SetupError("saved setup migration request is invalid")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SetupError(f"saved setup migration plan cannot be read: {plan_path}") from exc
+    reviewed, _ = _read_reviewed_setup_plan(
+        plan_path,
+        root=root,
+        initialize=initialize,
+        force=True,
+        expected_digest=digest,
+    )
+    database = _setup_database_path(root, initialize=initialize)
+    worktree, record = _setup_migration_worktree_record(root, digest)
+    if record is None or not worktree.is_dir():
+        raise SetupError(f"saved setup migration worktree is missing or unregistered: {expected_worktree}")
+    backup = artifacts / "backup"
+    if backup.is_symlink():
+        raise SetupError(f"saved setup migration backup is a symlink: {backup}")
+    backup_path = backup if backup.is_dir() else None
+    if not reviewed["mutation_plan"]["initialization"] and backup_path is None:
+        raise SetupError(f"saved setup migration backup is missing: {backup}")
+    return reviewed, database, worktree, backup_path
+
+
+def verify_setup(root_arg: Path, *, migration_id: str, delivery_mode: str) -> dict[str, Any]:
+    root = git_root(root_arg)
+    if not SHA256_RE.fullmatch(migration_id):
+        raise SetupError("setup migration ID must be a SHA-256 digest")
+    reviewed, database, worktree, backup = _setup_migration_context(root, migration_id)
+    status, allowed_interaction_change = _setup_preflight(root, force=True)
+    if status and not allowed_interaction_change:
+        raise SetupError("source worktree has changes outside the forced interaction-log boundary")
+    mutation = reviewed["mutation_plan"]
+    _verify_setup_worktree_files(root, worktree, mutation)
+    _verify_setup_beads_delta(database, backup, mutation)
+    documentation = validate_docs(worktree)
+    doctor_result = doctor(worktree, delivery_mode=delivery_mode, database=database)
+    if doctor_result["status"] != "ok":
+        raise SetupError("setup migration doctor failed: " + ", ".join(doctor_result["failed"]))
+    return {
+        "status": "ok",
+        "verification": "passed",
+        "migration_id": migration_id.lower(),
+        "artifacts": str(_setup_migration_paths(root, migration_id)[0]),
+        "worktree": str(worktree),
+        "database": str(database),
+        "backup": str(backup) if backup is not None else None,
+        "documentation": documentation,
+        "doctor": doctor_result,
+    }
+
+
+def rollback_setup(root_arg: Path, *, migration_id: str) -> dict[str, Any]:
+    root = git_root(root_arg)
+    if not SHA256_RE.fullmatch(migration_id):
+        raise SetupError("setup migration ID must be a SHA-256 digest")
+    reviewed, database, worktree, backup = _setup_migration_context(root, migration_id)
+    status, allowed_interaction_change = _setup_preflight(root, force=True)
+    if status and not allowed_interaction_change:
+        raise SetupError("source worktree has changes outside the forced interaction-log boundary")
+    result = _rollback_setup_migration(root, database, backup, worktree, reviewed["mutation_plan"])
+    return {
+        **result,
+        "migration_id": migration_id.lower(),
+        "artifacts": str(_setup_migration_paths(root, migration_id)[0]),
+    }
+
+
+def _setup_worktree_start_head(worktree: Path) -> str:
+    entries = run(["git", "reflog", "--format=%H", "HEAD"], cwd=worktree).stdout.splitlines()
+    if entries:
+        return entries[-1].strip()
+    return run(["git", "rev-parse", "HEAD"], cwd=worktree).stdout.strip()
+
+
+def cleanup_setup(root_arg: Path, *, migration_id: str) -> dict[str, Any]:
+    root = git_root(root_arg)
+    if not SHA256_RE.fullmatch(migration_id):
+        raise SetupError("setup migration ID must be a SHA-256 digest")
+    reviewed, database, worktree, backup = _setup_migration_context(root, migration_id)
+    artifacts, expected_worktree = _setup_migration_paths(root, migration_id)
+    _, record = _setup_migration_worktree_record(root, migration_id)
+    if record is None or not expected_worktree.is_dir():
+        raise SetupError("setup migration worktree registration is missing or ambiguous")
+    source_head = run(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip()
+    worktree_head = run(["git", "rev-parse", "HEAD"], cwd=worktree).stdout.strip()
+    start_head = _setup_worktree_start_head(worktree)
+    if start_head == worktree_head:
+        raise SetupError("setup migration is not integrated; commit and integrate the detached worktree first")
+    if run(["git", "merge-base", "--is-ancestor", worktree_head, source_head], cwd=root, check=False).returncode:
+        raise SetupError("setup migration worktree result is not integrated into the source branch")
+    changed = set(
+        run(["git", "diff", "--name-only", f"{start_head}..{worktree_head}"], cwd=worktree).stdout.splitlines()
+    )
+    unexpected = sorted(changed - _setup_allowed_worktree_paths(reviewed["mutation_plan"]))
+    if unexpected:
+        raise SetupError("integrated setup migration contains unexpected paths: " + ", ".join(unexpected))
+    ensure_clean_worktree(worktree)
+    _verify_setup_worktree_files(
+        root,
+        worktree,
+        reviewed["mutation_plan"],
+        require_source_head=False,
+    )
+    _verify_setup_beads_delta(database, backup, reviewed["mutation_plan"])
+    removal = run(["git", "worktree", "remove", str(worktree)], cwd=root, check=False)
+    if removal.returncode:
+        raise SetupError(removal.stderr.strip() or removal.stdout.strip() or "setup migration worktree removal failed")
+    _, remaining = _setup_migration_worktree_record(root, migration_id)
+    if remaining is not None or worktree.exists():
+        raise SetupError("setup migration worktree removal could not be verified")
+    if artifacts.is_symlink() or not artifacts.is_dir():
+        raise SetupError(f"setup migration artifact directory is not removable: {artifacts}")
+    shutil.rmtree(artifacts)
+    if artifacts.exists():
+        raise SetupError("setup migration artifact cleanup could not be verified")
+    return {
+        "status": "cleaned",
+        "migration_id": migration_id.lower(),
+        "worktree": str(worktree),
+        "artifacts": str(artifacts),
+    }
+
+
 def _apply_forced_setup(
     root: Path,
     *,
@@ -2418,20 +2874,37 @@ def _apply_forced_setup(
         reviewed=reviewed,
     )
     try:
-        applied = _execute_setup_plan(worktree, reviewed["mutation_plan"], database=database)
-        if reviewed["mutation_plan"]["initialization"]:
-            _relocate_initialized_beads_files(worktree, database)
-        validate_docs(worktree)
-        policy = _setup_repo_path(worktree, ".beads/.gitignore")
-        if not policy.is_file() or "interactions.jsonl" not in policy.read_text().splitlines():
-            raise SetupError("setup migration postcondition failed for interaction-log policy")
-        if reviewed["mutation_plan"]["initialization"]:
-            _relocate_initialized_beads_files(worktree, database)
-    except Exception as exc:
+        with _setup_signal_boundary():
+            applied = _execute_setup_plan(worktree, reviewed["mutation_plan"], database=database)
+            if reviewed["mutation_plan"]["initialization"]:
+                _relocate_initialized_beads_files(worktree, database)
+            validate_docs(worktree)
+            policy = _setup_repo_path(worktree, ".beads/.gitignore")
+            if not policy.is_file() or "interactions.jsonl" not in policy.read_text().splitlines():
+                raise SetupError("setup migration postcondition failed for interaction-log policy")
+            if reviewed["mutation_plan"]["initialization"]:
+                _relocate_initialized_beads_files(worktree, database)
+            _verify_setup_beads_delta(database, backup, reviewed["mutation_plan"])
+    except (Exception, KeyboardInterrupt) as exc:
+        try:
+            rollback = _rollback_setup_migration(
+                root,
+                database,
+                backup,
+                worktree,
+                reviewed["mutation_plan"],
+            )
+        except Exception as rollback_exc:
+            raise SetupError(
+                f"setup migration failed: {exc}; rollback failed: {rollback_exc}; "
+                f"migration_id={expected_plan_sha256.lower()}; artifacts={artifacts}; "
+                f"worktree={worktree}; database={database}; recovery_required=true; "
+                "retain all migration artifacts and do not repair Beads manually"
+            ) from exc
         raise SetupError(
-            f"setup migration failed: {exc}; migration_id={expected_plan_sha256.lower()}; "
-            f"artifacts={artifacts}; worktree={worktree}; database={database}; "
-            "recovery_required=true; retain the migration worktree and native backup"
+            f"setup migration failed: {exc}; rollback_verified=true; recovery_required=false; "
+            f"migration_id={expected_plan_sha256.lower()}; artifacts={artifacts}; "
+            f"worktree={worktree}; database={database}; rollback={rollback}"
         ) from exc
     return {
         "status": applied.get("status", "ok"),
@@ -2645,7 +3118,12 @@ def workflow_topology_diagnostics(client: BeadsClient) -> list[str]:
     ]
 
 
-def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
+def doctor(
+    root_arg: Path,
+    *,
+    delivery_mode: str,
+    database: Path | None = None,
+) -> dict[str, Any]:
     if delivery_mode not in {"merge", "pr"}:
         raise SetupError("delivery_mode must be explicitly merge or pr")
     root = git_root(root_arg)
@@ -2669,8 +3147,8 @@ def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
         return value
 
     client: BeadsClient | None = None
-    if beads_path.is_dir():
-        client = BeadsClient(root)
+    if beads_path.is_dir() or database is not None:
+        client = _setup_client(root, database)
         check("beads_version", "install the pinned Beads 1.2.2 build", client.check_version)
     else:
         checks["beads_version"] = {
@@ -2697,7 +3175,10 @@ def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
                 raise SetupError(f"missing installed formula: {installed}")
             if installed.read_bytes() != source.read_bytes():
                 raise SetupError(f"installed formula differs from package: {installed}")
-            validate_formula(root, name)
+            if database is None:
+                validate_formula(root, name)
+            else:
+                validate_formula(root, name, database=database, seed=False)
             return "available"
 
         check(
@@ -3114,6 +3595,24 @@ def build_parser() -> argparse.ArgumentParser:
             setup_parser.add_argument("--plan-digest", required=True)
             setup_parser.add_argument("--plan-file", type=Path)
 
+    verify_parser = sub.add_parser("verify")
+    verify_parser.add_argument("--root", type=Path, default=Path.cwd())
+    verify_parser.add_argument("--migration-id", required=True)
+    verify_parser.add_argument(
+        "--delivery-mode",
+        choices=("merge", "pr"),
+        required=True,
+        help="delivery mode to validate explicitly",
+    )
+
+    rollback_parser = sub.add_parser("rollback")
+    rollback_parser.add_argument("--root", type=Path, default=Path.cwd())
+    rollback_parser.add_argument("--migration-id", required=True)
+
+    cleanup_parser = sub.add_parser("cleanup")
+    cleanup_parser.add_argument("--root", type=Path, default=Path.cwd())
+    cleanup_parser.add_argument("--migration-id", required=True)
+
     doctor_parser = sub.add_parser("doctor")
     doctor_parser.add_argument("--root", type=Path, default=Path.cwd())
     doctor_parser.add_argument(
@@ -3145,6 +3644,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 expected_plan_sha256=args.plan_digest,
                 plan_file=args.plan_file,
             )
+        elif args.command == "verify":
+            payload = verify_setup(args.root, migration_id=args.migration_id, delivery_mode=args.delivery_mode)
+        elif args.command == "rollback":
+            payload = rollback_setup(args.root, migration_id=args.migration_id)
+        elif args.command == "cleanup":
+            payload = cleanup_setup(args.root, migration_id=args.migration_id)
         else:
             payload = doctor(args.root, delivery_mode=args.delivery_mode)
     except DstackError as exc:
@@ -3153,7 +3658,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     json.dump(payload, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
-    return 0 if payload.get("status") in {"ok", "ready"} else 2
+    return 0 if payload.get("status") in {"ok", "ready", "rollback_verified", "cleaned"} else 2
 
 
 if __name__ == "__main__":

@@ -43,7 +43,7 @@ def resolved_id(repo: Path, selector: str) -> str:
     return run_ctl(repo, "feature", "resolve", selector)["root"]["id"]
 
 
-def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -> None:
+def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path, tmp_path: Path) -> None:
     issue = items(
         run_json(
             acceptance_repo,
@@ -142,19 +142,26 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
         ]
         == "create"
     )
-    run_command(
-        [
-            str(DSTACK),
-            "setup",
-            "apply",
-            "--root",
-            str(acceptance_repo),
-            "--force",
-            "--plan-digest",
-            payload["plan_sha256"],
-        ],
-        cwd=acceptance_repo,
+    plan_file = tmp_path / "reviewed-plan.json"
+    plan_file.write_text(json.dumps(payload))
+    applied = json.loads(
+        run_command(
+            [
+                str(DSTACK),
+                "setup",
+                "apply",
+                "--root",
+                str(acceptance_repo),
+                "--force",
+                "--plan-file",
+                str(plan_file),
+                "--plan-digest",
+                payload["plan_sha256"],
+            ],
+            cwd=acceptance_repo,
+        ).stdout
     )
+    migration_worktree = Path(applied["worktree"])
     observed = items(run_json(acceptance_repo, "show", issue["id"]))[0]
     assert observed["metadata"]["dstack.base_branch"] == "main"
     assert "base_branch" not in observed["metadata"]
@@ -175,16 +182,12 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
             cwd=acceptance_repo,
             check=False,
         ).returncode
-        != 0
+        == 0
     )
     assert run_command(["bd", "show", template_id, "--json"], cwd=acceptance_repo, check=False).returncode != 0
-    doctor = json.loads(
-        run_command(
-            [str(DSTACK), "setup", "doctor", "--root", str(acceptance_repo), "--delivery-mode", "merge"],
-            cwd=acceptance_repo,
-        ).stdout
-    )
-    assert doctor["status"] == "ok"
+    migration_interaction = migration_worktree / ".beads/interactions.jsonl"
+    assert migration_interaction.read_bytes() == b"legacy audit baseline\n"
+    run_command(["git", "worktree", "remove", "--force", str(migration_worktree)], cwd=acceptance_repo)
 
 
 def test_no_change_alignment_landing_has_no_git_candidate(
