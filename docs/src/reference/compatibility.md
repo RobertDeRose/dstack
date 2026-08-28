@@ -43,6 +43,8 @@ Explicit legacy repair may:
 - remove inherited workflow/root identity from descendants beneath one parentless current same-kind root when a matching
   identity, formula placeholder, or root-ineligible native issue type proves the repair; identity-free nested epics and
   molecules remain ambiguous;
+- remove one standalone feature or audit identity label from a parentless root-ineligible issue when no current workflow
+  marker or identity metadata is present;
 - preserve a parentless active legacy feature root with one canonical historical identity, together with its
   adoption-owned descendants, while formulas and repository policy are updated;
 - repair an older repository that still tracks `.beads/interactions.jsonl`;

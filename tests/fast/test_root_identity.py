@@ -198,6 +198,42 @@ def test_setup_repairs_identity_free_root_ineligible_descendants(
     beads.assert_exhausted()
 
 
+@pytest.mark.parametrize("identity", ["feature:legacy", "audit:drift"])
+def test_setup_repairs_standalone_identity_on_parentless_root_ineligible_issue(tmp_path: Path, identity: str) -> None:
+    finding = feature(
+        "finding",
+        issue_type="task",
+        status="closed",
+        labels=[identity, "keep:finding"],
+        metadata={"keep": "value"},
+    )
+    beads = ScriptedClient(tmp_path, call("list", all_statuses=True, result=[finding]))
+    assert setup._setup_normalization_plan(beads) == [
+        {
+            "issue_id": "finding",
+            "set_metadata": {},
+            "unset_metadata": [],
+            "add_labels": [],
+            "remove_labels": [identity],
+        }
+    ]
+    beads.assert_exhausted()
+
+
+def test_setup_repairs_multiple_atomixos_shaped_standalone_audit_identities(tmp_path: Path) -> None:
+    inventory = [
+        feature(issue_id, issue_type="task", status="closed", labels=["audit:drift"])
+        for issue_id in ("atomixos-cqi", "atomixos-jn9", "atomixos-2ye")
+    ]
+    beads = ScriptedClient(tmp_path, call("list", all_statuses=True, result=inventory))
+    assert [mutation["issue_id"] for mutation in setup._setup_normalization_plan(beads)] == [
+        "atomixos-2ye",
+        "atomixos-cqi",
+        "atomixos-jn9",
+    ]
+    beads.assert_exhausted()
+
+
 def test_setup_repairs_identity_free_descendant_under_planned_root(tmp_path: Path) -> None:
     planned = feature(
         "planned",
@@ -285,6 +321,11 @@ def test_setup_repairs_known_formula_placeholder_descendants(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     "inventory",
     [
+        [feature("marked-root-ineligible", issue_type="task")],
+        [feature("planned-root-ineligible", issue_type="task", labels=["dstack:feature-idea", "feature:demo"])],
+        [feature("mixed-root-ineligible", issue_type="task", labels=["feature:demo", "audit:drift"])],
+        [feature("audit-root-capable", labels=["audit:drift"])],
+        [feature("identity-metadata", issue_type="task", labels=["audit:drift"], metadata={"audit_slug": "drift"})],
         [feature("orphan", parent="missing")],
         [feature("identity-orphan", parent="missing", labels=["feature:demo"])],
         [feature("idea-orphan", parent="missing", labels=["dstack:feature-idea"])],
@@ -310,6 +351,11 @@ def test_setup_repairs_known_formula_placeholder_descendants(tmp_path: Path) -> 
         ],
     ],
     ids=[
+        "marked-root-ineligible",
+        "planned-root-ineligible",
+        "mixed-root-ineligible",
+        "audit-root-capable",
+        "identity-metadata",
         "orphan",
         "identity-only-orphan",
         "idea-marker-orphan",

@@ -1114,6 +1114,34 @@ def _setup_normalization_plan(
             or alignment_identity_values(issue)
         ):
             continue
+        labels = issue_labels(issue)
+        identity_metadata = root_metadata_value(
+            issue,
+            "dstack.feature_slug",
+            "feature_slug",
+            "dstack.audit_slug",
+            "audit_slug",
+        )
+        identity_labels = [
+            label
+            for label in labels
+            if (label.startswith("feature:") and label != "feature:")
+            or (label.startswith("audit:") and label != "audit:")
+        ]
+        if (
+            issue_parent(issue) is None
+            and issue_type(issue) not in {"epic", "molecule"}
+            and not identity_metadata
+            and len(identity_labels) == 1
+            and not any(
+                has_label(issue, marker)
+                for marker in ("workflow:feature", "workflow:project-alignment", "dstack:feature-idea")
+            )
+        ):
+            mutation = _setup_issue_mutation(issue, remove_labels=identity_labels)
+            if mutation:
+                result.append(mutation)
+                continue
         seen: set[str] = set()
         cursor: Mapping[str, Any] = issue
         reason = "no compatible parentless workflow root"

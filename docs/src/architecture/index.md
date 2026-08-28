@@ -94,11 +94,12 @@ classifiers. The explicit adoption boundary also accepts a supported historical 
 marker when the structural invariants hold and no alignment identity is present.
 
 Forced setup uses one invocation-local all-status inventory and parent/children index. It removes mechanically proven
-inherited current-root identity at any depth while preserving a recognized active legacy feature root and its
-descendants for explicit adoption. Proof is a compatible duplicated identity or formula placeholder, or an identity-free
-descendant whose native type cannot be a root, beneath exactly one current same-kind root. Identity-free nested epics
-and molecules remain ambiguous. Doctor reports active legacy work, and orphaned, cyclic, mismatched, competing, or
-cross-kind topology fails before mutation. No graph state survives the invocation.
+obsolete current-root identity while preserving a recognized active legacy feature root and its descendants for explicit
+adoption. Proof is a compatible duplicated identity or formula placeholder, or an identity-free descendant whose native
+type cannot be a root, beneath exactly one current same-kind root. One standalone feature or audit identity label is
+also repairable on a parentless root-ineligible issue when no current workflow marker or identity metadata is present.
+Identity-free nested epics and molecules remain ambiguous. Doctor reports active legacy work, and remaining orphaned,
+cyclic, mismatched, competing, or cross-kind topology fails before mutation. No graph state survives the invocation.
 
 Compatibility is an explicit boundary: legacy adoption is dispatched only by `adopt`, and repository repair is
 dispatched only by the explicit setup repair operation. Normal feature, alignment, evidence, and delivery operations do
