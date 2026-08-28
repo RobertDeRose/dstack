@@ -931,7 +931,7 @@ def _setup_normalization_plan(
         if parent:
             children.setdefault(parent, []).append(issue)
 
-    feature_roots = [root for root in feature_roots_from_inventory(issues) if has_label(root, "workflow:feature")]
+    feature_roots = feature_roots_from_inventory(issues)
     alignment_roots = alignment_roots_from_inventory(issues)
     legacy_feature_roots = [issue for issue in issues if is_legacy_feature_root(issue) and not is_feature_root(issue)]
     roots = {str(root["id"]): ("feature", root) for root in feature_roots}
@@ -984,7 +984,8 @@ def _setup_normalization_plan(
             raise _ambiguous_workflow(root_id, "workflow root identity is missing")
         metadata = issue_metadata(root)
         set_metadata: dict[str, str | None] = {}
-        if kind == "feature":
+        materialized_feature = kind == "feature" and has_label(root, "workflow:feature")
+        if materialized_feature:
             base = root_metadata_value(root, "dstack.base_branch", "base_branch")
             if base and not metadata.get("dstack.base_branch"):
                 set_metadata["dstack.base_branch"] = base
@@ -996,6 +997,8 @@ def _setup_normalization_plan(
                 for key in ("feature_slug", "base_branch", "branch", "worktree_path", "adopted_from")
                 if key in metadata
             ]
+        elif kind == "feature":
+            unset = []
         else:
             target = root_metadata_value(root, "dstack.target_branch", "target_branch")
             scope = root_metadata_value(root, "dstack.scope", "scope")
@@ -1008,7 +1011,11 @@ def _setup_normalization_plan(
             root,
             set_metadata=set_metadata,
             unset_metadata=unset,
-            remove_labels=[label for label in issue_labels(root) if label == "dstack:delivery-ready"],
+            remove_labels=(
+                [label for label in issue_labels(root) if label == "dstack:delivery-ready"]
+                if kind != "feature" or materialized_feature
+                else []
+            ),
         )
         if mutation:
             result.append(mutation)
@@ -1035,8 +1042,7 @@ def _setup_normalization_plan(
                     (has_label(issue, "workflow:feature") or has_label(issue, "dstack:feature-idea"))
                     and root_capable
                     and not (
-                        concrete_values == {identity}
-                        or (not concrete_values and "{{feature_slug}}" in feature_values)
+                        concrete_values == {identity} or (not concrete_values and "{{feature_slug}}" in feature_values)
                     )
                 ):
                     raise _ambiguous_workflow(issue_id, "nested feature workflow identity is missing or mismatched")
@@ -1057,8 +1063,7 @@ def _setup_normalization_plan(
                     has_label(issue, "workflow:project-alignment")
                     and root_capable
                     and not (
-                        concrete_values == {identity}
-                        or (not concrete_values and "{{audit_slug}}" in alignment_values)
+                        concrete_values == {identity} or (not concrete_values and "{{audit_slug}}" in alignment_values)
                     )
                 ):
                     raise _ambiguous_workflow(issue_id, "nested alignment workflow identity is missing or mismatched")

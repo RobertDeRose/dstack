@@ -198,6 +198,47 @@ def test_setup_repairs_identity_free_root_ineligible_descendants(
     beads.assert_exhausted()
 
 
+def test_setup_repairs_identity_free_descendant_under_planned_root(tmp_path: Path) -> None:
+    planned = feature(
+        "planned",
+        labels=["dstack:feature-idea", "feature:planned", "keep:root"],
+        metadata={"keep": "value"},
+    )
+    child = feature(
+        "planned-child",
+        parent="planned",
+        issue_type="task",
+        labels=["dstack:feature-idea", "keep:child"],
+    )
+    beads = ScriptedClient(tmp_path, call("list", all_statuses=True, result=[planned, child]))
+    assert setup._setup_normalization_plan(beads) == [
+        {
+            "issue_id": "planned-child",
+            "set_metadata": {},
+            "unset_metadata": [],
+            "add_labels": [],
+            "remove_labels": ["dstack:feature-idea"],
+        }
+    ]
+    beads.assert_exhausted()
+
+
+def test_setup_rejects_identity_free_root_capable_descendant_under_planned_root(tmp_path: Path) -> None:
+    inventory = [
+        feature("planned", labels=["dstack:feature-idea", "feature:planned"]),
+        feature(
+            "nested",
+            parent="planned",
+            issue_type="epic",
+            labels=["dstack:feature-idea"],
+        ),
+    ]
+    beads = ScriptedClient(tmp_path, call("list", all_statuses=True, result=inventory))
+    with pytest.raises(setup.SetupError, match="ambiguous workflow topology"):
+        setup._setup_normalization_plan(beads)
+    beads.assert_exhausted()
+
+
 @pytest.mark.parametrize("issue_type", ["epic", "molecule"])
 @pytest.mark.parametrize("feature_marker", ["workflow:feature", "dstack:feature-idea"])
 def test_setup_rejects_identity_free_root_capable_descendants(

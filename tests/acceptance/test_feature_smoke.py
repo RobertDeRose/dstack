@@ -81,9 +81,7 @@ def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path) -
             "workflow:feature,keep:task",
         )
     )[0]
-    task = items(
-        run_json(acceptance_repo, "close", task["id"], "--reason", "Historical fix delivered")
-    )[0]
+    task = items(run_json(acceptance_repo, "close", task["id"], "--reason", "Historical fix delivered"))[0]
     run_json(
         acceptance_repo,
         "update",
