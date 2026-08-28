@@ -65,6 +65,7 @@ BEADS_RUNTIME_TOP_LEVEL_PATTERNS = (
     "push-state.json",
     "export-state.json",
     "sync-state.json",
+    "dolt-backup*.json",
     "last-touched",
     "last_pull",
     ".local_version",

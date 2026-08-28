@@ -38,7 +38,6 @@ from dstacklib import (
     BeadsClient,
     DstackError,
     SUPPORTED_BEADS_VERSION_OUTPUT,
-    as_items,
     alignment_identity_values,
     alignment_roots_from_inventory,
     canonical_feature_design_path,
@@ -47,6 +46,7 @@ from dstacklib import (
     feature_identity_values,
     feature_roots_from_inventory,
     feature_slug,
+    git_common_dir,
     git_root,
     has_label,
     issue_labels,
@@ -86,6 +86,21 @@ SETUP_PLAN_FIELDS = {
     "git_index",
     "formulas",
     "navigation_references",
+}
+SETUP_PLAN_ENVELOPE_FIELDS = {
+    "schema",
+    "status",
+    "root",
+    "request",
+    "preconditions",
+    "authority",
+    "mutation_plan",
+    "plan_sha256",
+    "filesystem",
+    "git_index",
+    "beads",
+    "formulas",
+    "documentation",
 }
 SETUP_RELATIONS = {"blocks", "parent-child", "relates-to", "supersedes", "superseded-by"}
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -583,6 +598,91 @@ def setup_plan_digest(value: Any) -> str:
     return hashlib.sha256(canonical_setup_plan_bytes(value)).hexdigest()
 
 
+def _setup_migration_paths(root_arg: Path, digest: str) -> tuple[Path, Path]:
+    if not SHA256_RE.fullmatch(digest):
+        raise SetupError("setup migration ID must be a SHA-256 digest")
+    root = git_root(root_arg)
+    common = git_common_dir(root)
+    artifacts = common / "dstack" / "setup" / digest.lower()
+    worktree = root.parent / f"{root.name}.dstack-setup-{digest.lower()}"
+    try:
+        artifacts.resolve(strict=False).relative_to(common)
+        worktree.resolve(strict=False).relative_to(root.parent.resolve())
+    except ValueError as exc:
+        raise SetupError("setup migration paths are not repository-contained") from exc
+    return artifacts, worktree
+
+
+def _setup_plan_request(*, initialize: bool, force: bool) -> dict[str, bool]:
+    return {"initialize": initialize, "force": force}
+
+
+def _canonicalize_setup_plan_envelope(
+    value: Any,
+    *,
+    root: Path,
+    initialize: bool,
+    force: bool,
+    expected_digest: str,
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != SETUP_PLAN_ENVELOPE_FIELDS:
+        raise SetupError("saved setup plan has invalid fields")
+    if value["schema"] != SETUP_PLAN_SCHEMA:
+        raise SetupError(f"saved setup plan schema must be {SETUP_PLAN_SCHEMA}")
+    if value["status"] != "ready":
+        raise SetupError("saved setup plan is not ready")
+    request = value["request"]
+    if not isinstance(request, dict) or set(request) != {"initialize", "force"}:
+        raise SetupError("saved setup plan request is invalid")
+    if request != _setup_plan_request(initialize=initialize, force=force):
+        raise SetupError("saved setup plan requested mode differs from apply")
+    saved_root = value["root"]
+    if not isinstance(saved_root, str) or Path(saved_root).resolve() != root.resolve():
+        raise SetupError("saved setup plan root differs from apply")
+    preconditions = value["preconditions"]
+    if (
+        not isinstance(preconditions, dict)
+        or set(preconditions) != {"clean_worktree", "blocked"}
+        or preconditions["clean_worktree"] is not True
+        or preconditions["blocked"] != []
+    ):
+        raise SetupError("saved setup plan preconditions are not ready")
+    mutation = canonicalize_setup_plan(value["mutation_plan"])
+    if value["authority"] != mutation["authority"]:
+        raise SetupError("saved setup plan authority does not match its mutation")
+    digest = setup_plan_digest(mutation)
+    if digest != expected_digest.lower() or value["plan_sha256"] != digest:
+        raise SetupError("saved setup plan digest does not match the reviewed digest")
+    return {**value, "mutation_plan": mutation, "plan_sha256": digest}
+
+
+def _read_reviewed_setup_plan(
+    path: Path,
+    *,
+    root: Path,
+    initialize: bool,
+    force: bool,
+    expected_digest: str,
+) -> tuple[dict[str, Any], bytes]:
+    if path.is_symlink() or not path.is_file():
+        raise SetupError(f"saved setup plan is not a regular file: {path}")
+    try:
+        content = path.read_bytes()
+        value = json.loads(content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SetupError(f"saved setup plan cannot be read: {path}") from exc
+    return (
+        _canonicalize_setup_plan_envelope(
+            value,
+            root=root,
+            initialize=initialize,
+            force=force,
+            expected_digest=expected_digest,
+        ),
+        content,
+    )
+
+
 PREFLIGHT_VARS: dict[str, dict[str, str]] = {
     "dstack-feature": {
         "feature_title": "Dstack Formula Preflight",
@@ -681,14 +781,58 @@ def _controller_authority() -> dict[str, str]:
     return {"controller_sha256": digest.hexdigest(), "controller_state": state}
 
 
-def _runtime_authority(root: Path) -> dict[str, str]:
+def _setup_beads_command(command: Sequence[str], database: Path | None) -> list[str]:
+    result = list(command)
+    if database is not None:
+        result.extend(["--db", str(database)])
+    return result
+
+
+def _setup_client(root: Path, database: Path | None = None) -> BeadsClient:
+    return BeadsClient(root) if database is None else BeadsClient(root, database=database)
+
+
+def _setup_database_path(root: Path, *, initialize: bool = False) -> Path:
+    beads = _setup_repo_path(root, ".beads")
+    candidates: list[Path] = []
+    if beads.is_dir():
+        for name in ("embeddeddolt", "dolt", "proxieddb"):
+            candidate = beads / name
+            if candidate.is_symlink():
+                raise SetupError(f"Beads database runtime must not be a symlink: {candidate}")
+            if candidate.is_dir():
+                candidates.append(candidate)
+    if len(candidates) > 1:
+        raise SetupError("multiple contained Beads database runtimes found: " + ", ".join(map(str, candidates)))
+    if candidates:
+        return candidates[0].resolve()
+    if initialize:
+        return _setup_repo_path(root, ".beads/embeddeddolt")
+    raise SetupError(f"contained Beads database runtime is missing under {beads}")
+
+
+def _validate_setup_database(root: Path, database: Path, *, allow_absent: bool = False) -> Path:
+    beads = _setup_repo_path(root, ".beads").resolve()
+    target = database.resolve()
+    try:
+        target.relative_to(beads)
+    except ValueError as exc:
+        raise SetupError(f"Beads database must be contained under {beads}: {database}") from exc
+    if database.is_symlink():
+        raise SetupError(f"Beads database runtime must not be a symlink: {database}")
+    if not allow_absent and not target.is_dir():
+        raise SetupError(f"Beads database runtime is missing: {target}")
+    return target
+
+
+def _runtime_authority(root: Path, *, database: Path | None = None) -> dict[str, str]:
     python_version = f"Python {platform.python_version()}"
     if python_version != SUPPORTED_PYTHON_VERSION_OUTPUT:
         raise SetupError(
             f"unsupported Python version; expected {SUPPORTED_PYTHON_VERSION_OUTPUT}, found {python_version}; "
             "run through `mise --cd <dstack-package-root> exec --locked`"
         )
-    beads_version = BeadsClient(root).check_version()
+    beads_version = _setup_client(root, database).check_version()
     mdbook = require_mdbook()
     mdbook_version = run([mdbook, "--version"], cwd=root).stdout.strip()
     if mdbook_version != SUPPORTED_MDBOOK_VERSION_OUTPUT:
@@ -702,27 +846,36 @@ def _runtime_authority(root: Path) -> dict[str, str]:
     }
 
 
-def _current_setup_authority(root: Path) -> dict[str, str]:
-    return _setup_authority({**_controller_authority(), **_runtime_authority(root)})
+def _current_setup_authority(root: Path, *, database: Path | None = None) -> dict[str, str]:
+    return _setup_authority({**_controller_authority(), **_runtime_authority(root, database=database)})
 
 
-def ensure_beads(root: Path, *, initialize: bool) -> None:
-    if (root / ".beads").is_dir():
+def ensure_beads(root: Path, *, initialize: bool, database: Path | None = None) -> None:
+    if database is None and (root / ".beads").is_dir():
+        return
+    if database is not None and database.is_dir():
         return
     if not initialize:
         raise SetupError("Beads is not initialized; rerun setup after authorization")
     run(
-        [
-            "bd",
-            "init",
-            "--quiet",
-            "--skip-agents",
-            "--skip-hooks",
-            "--non-interactive",
-        ],
+        _setup_beads_command(
+            [
+                "bd",
+                "init",
+                "--quiet",
+                "--skip-agents",
+                "--skip-hooks",
+                "--non-interactive",
+                *(["--prefix", "beads"] if database is not None else []),
+            ],
+            database,
+        ),
         cwd=root,
     )
-    if not (root / ".beads").is_dir():
+    if database is not None:
+        if not database.is_dir():
+            raise SetupError("bd init completed without creating the selected Beads database")
+    elif not (root / ".beads").is_dir():
         raise SetupError("bd init completed without creating .beads")
 
 
@@ -813,13 +966,14 @@ def validate_formula(
     name: str,
     *,
     env: Mapping[str, str] | None = None,
+    database: Path | None = None,
 ) -> dict[str, Any]:
-    result = run(["bd", "formula", "show", name, "--json"], cwd=root, env=env)
+    result = run(_setup_beads_command(["bd", "formula", "show", name, "--json"], database), cwd=root, env=env)
     payload = parse_json(result.stdout, context=f"bd formula show {name}")
     if not isinstance(payload, dict):
         raise SetupError(f"bd formula show returned a non-object for {name}")
     validate_formula_contract(name, payload)
-    run(["bd", "mol", "seed", name, *formula_vars(name)], cwd=root, env=env)
+    run(_setup_beads_command(["bd", "mol", "seed", name, *formula_vars(name)], database), cwd=root, env=env)
     return payload
 
 
@@ -827,15 +981,19 @@ def validate_bundle(source_dir: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="dstack-preflight-") as raw:
         scratch = Path(raw)
         run(["git", "init", "-q"], cwd=scratch)
+        scratch_database = scratch / ".beads/embeddeddolt"
         run(
-            [
-                "bd",
-                "init",
-                "--quiet",
-                "--skip-agents",
-                "--skip-hooks",
-                "--non-interactive",
-            ],
+            _setup_beads_command(
+                [
+                    "bd",
+                    "init",
+                    "--quiet",
+                    "--skip-agents",
+                    "--skip-hooks",
+                    "--non-interactive",
+                ],
+                scratch_database,
+            ),
             cwd=scratch,
         )
         formula_dir = scratch / ".beads" / "formulas"
@@ -846,9 +1004,9 @@ def validate_bundle(source_dir: Path) -> None:
                 formula_dir / f"{name}.formula.toml",
             )
         for name in FORMULA_NAMES:
-            validate_formula(scratch, name)
+            validate_formula(scratch, name, database=scratch_database)
             result = run(
-                ["bd", "mol", "pour", name, *formula_vars(name), "--json"],
+                _setup_beads_command(["bd", "mol", "pour", name, *formula_vars(name), "--json"], scratch_database),
                 cwd=scratch,
             )
             payload = parse_json(result.stdout, context=f"bd mol pour {name}")
@@ -882,6 +1040,198 @@ def copy_formula(source: Path, destination: Path, *, force: bool) -> str:
         state = "installed"
     atomic_replace(destination, source.read_bytes())
     return state
+
+
+def _prepare_setup_artifacts(path: Path, plan_bytes: bytes) -> Path:
+    if path.exists() and (path.is_symlink() or not path.is_dir()):
+        raise SetupError(f"setup artifact path is not a directory: {path}")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.chmod(0o700)
+    plan_path = path / "plan.json"
+    if plan_path.exists() and (plan_path.is_symlink() or not plan_path.is_file()):
+        raise SetupError(f"saved setup plan artifact is not a regular file: {plan_path}")
+    if plan_path.exists() and plan_path.read_bytes() != plan_bytes:
+        raise SetupError(f"saved setup plan artifact differs from input: {plan_path}")
+    if not plan_path.exists():
+        atomic_replace(plan_path, plan_bytes)
+    plan_path.chmod(0o600)
+    return plan_path
+
+
+def _prepare_setup_worktree(root_arg: Path, digest: str) -> Path:
+    root = git_root(root_arg)
+    _, worktree = _setup_migration_paths(root, digest)
+    head = run(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip()
+    records = worktree_records(root)
+    matching = [
+        record
+        for record in records
+        if isinstance(record.get("worktree"), str) and Path(str(record["worktree"])).resolve() == worktree.resolve()
+    ]
+    if len(matching) > 1:
+        raise SetupError(f"setup migration worktree registration is ambiguous: {worktree}")
+    if matching:
+        record = matching[0]
+        if not record.get("detached") or record.get("branch") or record.get("HEAD") != head:
+            raise SetupError(f"setup migration worktree identity changed: {worktree}")
+        if not worktree.is_dir():
+            raise SetupError(f"setup migration worktree is missing: {worktree}")
+        ensure_clean_worktree(worktree)
+        return worktree.resolve()
+    if worktree.exists():
+        raise SetupError(f"setup migration worktree path exists but is not registered: {worktree}")
+    run(["git", "worktree", "add", "--detach", str(worktree), "HEAD"], cwd=root)
+    records = worktree_records(root)
+    matching = [
+        record
+        for record in records
+        if isinstance(record.get("worktree"), str) and Path(str(record["worktree"])).resolve() == worktree.resolve()
+    ]
+    if len(matching) != 1 or not matching[0].get("detached") or matching[0].get("branch"):
+        raise SetupError(f"created setup migration worktree is not detached: {worktree}")
+    if matching[0].get("HEAD") != head:
+        raise SetupError(f"created setup migration worktree has unexpected HEAD: {worktree}")
+    return worktree.resolve()
+
+
+def _relocate_initialized_beads_files(root: Path, database: Path) -> None:
+    source = database.parent
+    destination = _setup_repo_path(root, ".beads")
+    if source.resolve() == destination.resolve():
+        return
+    destination.mkdir(parents=True, exist_ok=True)
+    for path in source.iterdir():
+        if path.resolve() == database.resolve():
+            continue
+        target = destination / path.name
+        if target.exists():
+            if path.is_file() and target.is_file() and path.read_bytes() == target.read_bytes():
+                path.unlink()
+                continue
+            raise SetupError(f"initialized Beads file collides in migration worktree: {target}")
+        if path.is_symlink() or not path.is_file():
+            raise SetupError(f"initialized Beads file is not a regular file: {path}")
+        path.replace(target)
+
+
+def _backup_pointer_snapshots(beads: Path) -> dict[Path, bytes]:
+    if beads.is_symlink() or not beads.is_dir():
+        raise SetupError(f"Beads directory is not a contained directory: {beads}")
+    snapshots: dict[Path, bytes] = {}
+    for path in beads.glob("dolt-backup*.json"):
+        if path.is_symlink() or not path.is_file():
+            raise SetupError(f"Beads backup pointer is not a regular file: {path}")
+        snapshots[path] = path.read_bytes()
+    return snapshots
+
+
+def _restore_backup_pointers(beads: Path, snapshots: Mapping[Path, bytes]) -> None:
+    expected = set(snapshots)
+    for path in beads.glob("dolt-backup*.json"):
+        if path not in expected:
+            if path.is_dir() and not path.is_symlink():
+                raise SetupError(f"unexpected Beads backup pointer directory: {path}")
+            path.unlink(missing_ok=True)
+    for path, content in snapshots.items():
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise SetupError(f"Beads backup pointer cannot be restored safely: {path}")
+        atomic_replace(path, content)
+
+
+def _normalize_beads_value(value: Any) -> Any:
+    transient = {
+        "closed_at",
+        "comment_count",
+        "created_at",
+        "created_by",
+        "dependency_count",
+        "dependent_count",
+        "updated_at",
+    }
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_beads_value(item)
+            for key, item in sorted(value.items(), key=lambda item: str(item[0]))
+            if str(key) not in transient
+        }
+    if isinstance(value, list):
+        normalized = [_normalize_beads_value(item) for item in value]
+        return sorted(normalized, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+    return value
+
+
+def _normalized_beads_inventory(client: BeadsClient) -> list[Any]:
+    inventory = all_issue_inventory(client)
+    issues = []
+    for summary in inventory:
+        issue_id = summary.get("id")
+        if not isinstance(issue_id, str) or not issue_id:
+            raise SetupError("Beads inventory contains an issue without an ID")
+        issues.append(_normalize_beads_value(client.show(issue_id)))
+    return sorted(issues, key=lambda item: str(item.get("id", "")))
+
+
+def _verify_native_setup_backup(
+    backup: Path,
+    before: Sequence[Any],
+) -> None:
+    if not backup.is_dir() or backup.is_symlink() or not (backup / "manifest").is_file():
+        raise SetupError(f"native Beads backup is incomplete: {backup}")
+    with tempfile.TemporaryDirectory(prefix="dstack-setup-restore-") as raw:
+        disposable_root = Path(raw) / "repo"
+        disposable_root.mkdir()
+        run(["git", "init", "-q"], cwd=disposable_root)
+        disposable_database = disposable_root / ".beads/embeddeddolt"
+        run(
+            _setup_beads_command(
+                [
+                    "bd",
+                    "init",
+                    "--quiet",
+                    "--skip-agents",
+                    "--skip-hooks",
+                    "--non-interactive",
+                ],
+                disposable_database,
+            ),
+            cwd=disposable_root,
+        )
+        run(
+            _setup_beads_command(
+                ["bd", "backup", "restore", str(backup), "--force", "--json"],
+                disposable_database,
+            ),
+            cwd=disposable_root,
+        )
+        restored = _normalized_beads_inventory(BeadsClient(disposable_root, database=disposable_database))
+        if restored != list(before):
+            raise SetupError("native Beads backup verification inventory mismatch")
+
+
+def _create_verified_setup_backup(
+    source_root: Path,
+    database: Path,
+    artifacts: Path,
+) -> Path:
+    backup = artifacts / "backup"
+    if backup.exists() and (backup.is_symlink() or not backup.is_dir()):
+        raise SetupError(f"native Beads backup path is not a directory: {backup}")
+    before = _normalized_beads_inventory(_setup_client(source_root, database))
+    pointers = _backup_pointer_snapshots(database.parent)
+    try:
+        if not (backup / "manifest").is_file():
+            run(
+                _setup_beads_command(["bd", "backup", "init", str(backup), "--json"], database),
+                cwd=source_root,
+            )
+            run(
+                _setup_beads_command(["bd", "backup", "sync", "--json"], database),
+                cwd=source_root,
+            )
+        _verify_native_setup_backup(backup, before)
+    finally:
+        _restore_backup_pointers(database.parent, pointers)
+    return backup
 
 
 def _setup_sha256(path: Path) -> str:
@@ -1511,11 +1861,21 @@ def _setup_plan_object(
     )
 
 
-def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, Any]:
+def setup_plan(
+    root_arg: Path,
+    *,
+    initialize: bool,
+    force: bool,
+    database: Path | None = None,
+) -> dict[str, Any]:
     root = git_root(root_arg)
+    if database is not None:
+        database = _validate_setup_database(root, database, allow_absent=initialize)
     _require_supported_interaction_index(root)
     status, allowed_interaction_change = _setup_preflight(root, force=force)
-    authority = _current_setup_authority(root)
+    authority = (
+        _current_setup_authority(root) if database is None else _current_setup_authority(root, database=database)
+    )
     if status and not allowed_interaction_change:
         mutation_plan = canonicalize_setup_plan(
             {
@@ -1536,6 +1896,7 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
             "schema": SETUP_PLAN_SCHEMA,
             "status": "blocked",
             "root": str(root),
+            "request": _setup_plan_request(initialize=initialize, force=force),
             "preconditions": {"clean_worktree": False, "blocked": ["worktree has unrelated changes"]},
             "authority": authority,
             "mutation_plan": mutation_plan,
@@ -1577,7 +1938,7 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
     if not beads_exists:
         git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
     else:
-        client = BeadsClient(root)
+        client = _setup_client(root, database)
         if tracked(root, ".beads/interactions.jsonl"):
             git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
         if force:
@@ -1637,6 +1998,7 @@ def setup_plan(root_arg: Path, *, initialize: bool, force: bool) -> dict[str, An
         "schema": SETUP_PLAN_SCHEMA,
         "status": "blocked" if blocked else "ready",
         "root": str(root),
+        "request": _setup_plan_request(initialize=initialize, force=force),
         "preconditions": {"clean_worktree": not status or allowed_interaction_change, "blocked": blocked},
         "authority": authority,
         "mutation_plan": mutation_plan,
@@ -1854,9 +2216,16 @@ def _verify_setup_beads_postconditions(
         )
 
 
-def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
+def _execute_setup_plan(
+    root: Path,
+    plan: Mapping[str, Any],
+    *,
+    database: Path | None = None,
+) -> dict[str, Any]:
     mutation = plan
-    observed_authority = _current_setup_authority(root)
+    observed_authority = (
+        _current_setup_authority(root) if database is None else _current_setup_authority(root, database=database)
+    )
     if observed_authority != mutation["authority"]:
         raise SetupError("setup controller/runtime authority changed since plan; rerun setup plan and review it")
     _validate_setup_tree(package_root(), "formulas")
@@ -1872,13 +2241,22 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
         target = _setup_repo_path(root, str(record["target"]))
         if target.exists():
             raise SetupError("setup initialization precondition changed")
-        ensure_beads(root, initialize=True)
-        if not _setup_repo_path(root, str(record["target"])).is_dir():
+        database_created = database is not None and not database.is_dir()
+        ensure_beads(root, initialize=True, database=database)
+        if database_created:
+            _relocate_initialized_beads_files(root, database)
+        if database is None:
+            initialized = _setup_repo_path(root, str(record["target"])).is_dir()
+        else:
+            initialized = database.is_dir()
+        if not initialized:
             raise SetupError("setup initialization postcondition failed")
-    elif not _setup_repo_path(root, ".beads").is_dir():
+    elif database is None and not _setup_repo_path(root, ".beads").is_dir():
         raise SetupError("Beads is not initialized and the reviewed plan omits initialization")
+    elif database is not None and not database.is_dir():
+        raise SetupError("Beads database is not initialized and the reviewed plan omits initialization")
 
-    client = BeadsClient(root)
+    client = _setup_client(root, database)
     version = str(mutation["authority"]["beads_version"])
     for operation in mutation["template_deletions"]:
         issue_id = str(operation["issue_id"])
@@ -1901,8 +2279,14 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
 
     template_ids = [str(operation["issue_id"]) for operation in mutation["template_deletions"]]
     if template_ids:
-        run(["bd", "delete", *template_ids, "--dry-run", "--json"], cwd=root)
-        run(["bd", "delete", *template_ids, "--force", "--json"], cwd=root)
+        run(
+            _setup_beads_command(["bd", "delete", *template_ids, "--dry-run", "--json"], database),
+            cwd=root,
+        )
+        run(
+            _setup_beads_command(["bd", "delete", *template_ids, "--force", "--json"], database),
+            cwd=root,
+        )
 
     for operation in sorted(
         mutation["filesystem"],
@@ -1965,7 +2349,10 @@ def _execute_setup_plan(root: Path, plan: Mapping[str, Any]) -> dict[str, Any]:
         ):
             raise SetupError(f"setup formula postcondition failed: {destination}")
     for name in FORMULA_NAMES:
-        validate_formula(root, name)
+        if database is None:
+            validate_formula(root, name)
+        else:
+            validate_formula(root, name, database=database)
     return {"status": "ok", "beads_version": version}
 
 
@@ -1978,23 +2365,116 @@ def _restore_setup_index(root: Path, snapshots: Mapping[str, str]) -> None:
             raise SetupError(f"setup Git-index restore postcondition failed: {path}")
 
 
+def _fresh_setup_plan_for_migration(
+    root: Path,
+    *,
+    initialize: bool,
+    force: bool,
+    database: Path,
+    reviewed: Mapping[str, Any],
+) -> dict[str, Any]:
+    fresh = setup_plan(
+        root,
+        initialize=initialize,
+        force=force,
+        database=database,
+    )
+    if fresh["status"] != "ready":
+        raise SetupError("setup migration preconditions changed: " + "; ".join(fresh["preconditions"]["blocked"]))
+    fresh_mutation = canonicalize_setup_plan(fresh["mutation_plan"])
+    if fresh_mutation != reviewed["mutation_plan"] or fresh["authority"] != reviewed["authority"]:
+        raise SetupError("setup migration plan changed since review; rerun setup plan and review it")
+    if fresh["plan_sha256"] != reviewed["plan_sha256"]:
+        raise SetupError("setup migration digest changed since review; rerun setup plan and review it")
+    return fresh
+
+
+def _apply_forced_setup(
+    root: Path,
+    *,
+    initialize: bool,
+    plan_file: Path,
+    expected_plan_sha256: str,
+) -> dict[str, Any]:
+    database = _setup_database_path(root, initialize=initialize)
+    reviewed, plan_bytes = _read_reviewed_setup_plan(
+        plan_file,
+        root=root,
+        initialize=initialize,
+        force=True,
+        expected_digest=expected_plan_sha256,
+    )
+    artifacts, _ = _setup_migration_paths(root, expected_plan_sha256)
+    artifact_plan = _prepare_setup_artifacts(artifacts, plan_bytes)
+    backup = None
+    if database.is_dir():
+        backup = _create_verified_setup_backup(root, database, artifacts)
+    worktree = _prepare_setup_worktree(root, expected_plan_sha256)
+    fresh = _fresh_setup_plan_for_migration(
+        root,
+        initialize=initialize,
+        force=True,
+        database=database,
+        reviewed=reviewed,
+    )
+    try:
+        applied = _execute_setup_plan(worktree, reviewed["mutation_plan"], database=database)
+        if reviewed["mutation_plan"]["initialization"]:
+            _relocate_initialized_beads_files(worktree, database)
+        validate_docs(worktree)
+        policy = _setup_repo_path(worktree, ".beads/.gitignore")
+        if not policy.is_file() or "interactions.jsonl" not in policy.read_text().splitlines():
+            raise SetupError("setup migration postcondition failed for interaction-log policy")
+        if reviewed["mutation_plan"]["initialization"]:
+            _relocate_initialized_beads_files(worktree, database)
+    except Exception as exc:
+        raise SetupError(
+            f"setup migration failed: {exc}; migration_id={expected_plan_sha256.lower()}; "
+            f"artifacts={artifacts}; worktree={worktree}; database={database}; "
+            "recovery_required=true; retain the migration worktree and native backup"
+        ) from exc
+    return {
+        "status": applied.get("status", "ok"),
+        "migration_id": expected_plan_sha256.lower(),
+        "artifacts": str(artifacts),
+        "plan_file": str(artifact_plan),
+        "worktree": str(worktree),
+        "database": str(database),
+        "backup": str(backup) if backup is not None else None,
+        "plan": fresh,
+        "applied": applied,
+    }
+
+
 def apply_setup(
     root_arg: Path,
     *,
     initialize: bool,
     force: bool,
     expected_plan_sha256: str | None = None,
+    plan_file: Path | None = None,
 ) -> dict[str, Any]:
     if not expected_plan_sha256:
         raise SetupError("setup plan digest is required")
-    root = git_root(root_arg)
-    _require_supported_interaction_index(root)
     if force:
+        if plan_file is None:
+            raise SetupError("setup plan file is required for forced setup")
+        if not SHA256_RE.fullmatch(expected_plan_sha256):
+            raise SetupError("setup plan digest must be a SHA-256 digest")
+        root = git_root(root_arg)
+        _require_supported_interaction_index(root)
         status, allowed_interaction_change = _setup_preflight(root, force=True)
         if status and not allowed_interaction_change:
             raise SetupError("worktree changes are present outside the forced interaction-log repair boundary")
-    else:
-        ensure_clean_worktree(root)
+        return _apply_forced_setup(
+            root,
+            initialize=initialize,
+            plan_file=plan_file,
+            expected_plan_sha256=expected_plan_sha256,
+        )
+    root = git_root(root_arg)
+    _require_supported_interaction_index(root)
+    ensure_clean_worktree(root)
     plan = setup_plan(root, initialize=initialize, force=force)
     if plan["status"] != "ready":
         raise SetupError("setup apply preconditions changed: " + "; ".join(plan["preconditions"]["blocked"]))
@@ -2351,20 +2831,11 @@ def doctor(root_arg: Path, *, delivery_mode: str) -> dict[str, Any]:
 
 
 def all_issue_inventory(client: BeadsClient) -> list[dict[str, Any]]:
-    result = run(
-        [
-            "bd",
-            "list",
-            "--all",
-            "--include-templates",
-            "--include-gates",
-            "--limit",
-            "0",
-            "--json",
-        ],
-        cwd=client.root,
+    return client.list(
+        all_statuses=True,
+        include_templates=True,
+        include_gates=True,
     )
-    return as_items(parse_json(result.stdout, context="bd list repair inventory"))
 
 
 def legacy_template_artifacts(
@@ -2641,6 +3112,7 @@ def build_parser() -> argparse.ArgumentParser:
         setup_parser.add_argument("--force", action="store_true")
         if command == "apply":
             setup_parser.add_argument("--plan-digest", required=True)
+            setup_parser.add_argument("--plan-file", type=Path)
 
     doctor_parser = sub.add_parser("doctor")
     doctor_parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -2671,6 +3143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 initialize=args.init,
                 force=args.force,
                 expected_plan_sha256=args.plan_digest,
+                plan_file=args.plan_file,
             )
         else:
             payload = doctor(args.root, delivery_mode=args.delivery_mode)

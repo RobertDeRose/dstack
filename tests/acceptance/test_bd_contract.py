@@ -172,7 +172,68 @@ def test_external_dependent_stays_blocked_through_add_before_remove(
     assert dependent["id"] in {item["id"] for item in ready}
 
 
-def test_forced_setup_preserves_metadata_only_legacy_root_before_adoption(acceptance_repo: Path) -> None:
+def test_forced_setup_uses_detached_worktree_and_verified_native_backup(
+    acceptance_repo: Path, tmp_path: Path
+) -> None:
+    database = acceptance_repo / ".beads/embeddeddolt"
+    pointer = acceptance_repo / ".beads/dolt-backup.json"
+    run_command(
+        ["bd", "backup", "init", str(tmp_path / "previous-backup"), "--db", str(database), "--json"],
+        cwd=acceptance_repo,
+    )
+    pointer_before = pointer.read_bytes()
+    head_before = run_command(["git", "rev-parse", "HEAD"], cwd=acceptance_repo).stdout.strip()
+    status_before = run_command(
+        ["git", "status", "--porcelain=v1", "--untracked-files=no"], cwd=acceptance_repo
+    ).stdout
+    planned = run_command(
+        [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
+        cwd=acceptance_repo,
+    )
+    plan_file = tmp_path / "reviewed-plan.json"
+    plan_file.write_bytes(planned.stdout.encode())
+    payload = json.loads(planned.stdout)
+    result = run_command(
+        [
+            str(DSTACK),
+            "setup",
+            "apply",
+            "--root",
+            str(acceptance_repo),
+            "--force",
+            "--plan-file",
+            str(plan_file),
+            "--plan-digest",
+            payload["plan_sha256"],
+        ],
+        cwd=acceptance_repo,
+    )
+    applied = json.loads(result.stdout)
+    worktree = Path(applied["worktree"])
+    artifact = Path(applied["artifacts"])
+    try:
+        assert applied["status"] == "ok"
+        assert (artifact / "plan.json").read_bytes() == plan_file.read_bytes()
+        assert (artifact / "backup/manifest").is_file()
+        assert run_command(["git", "rev-parse", "HEAD"], cwd=acceptance_repo).stdout.strip() == head_before
+        assert (
+            run_command(
+                ["git", "status", "--porcelain=v1", "--untracked-files=no"], cwd=acceptance_repo
+            ).stdout
+            == status_before
+        )
+        assert pointer.read_bytes() == pointer_before
+        assert run_command(
+            ["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=worktree, check=False
+        ).returncode != 0
+        assert run_command(["git", "rev-parse", "HEAD"], cwd=worktree).stdout.strip() == head_before
+    finally:
+        run_command(["git", "worktree", "remove", "--force", str(worktree)], cwd=acceptance_repo)
+
+
+def test_forced_setup_preserves_metadata_only_legacy_root_before_adoption(
+    acceptance_repo: Path, tmp_path: Path
+) -> None:
     legacy = items(run_json(acceptance_repo, "create", "Legacy feature", "--type", "epic"))[0]
     run_json(
         acceptance_repo,
@@ -213,21 +274,31 @@ def test_forced_setup_preserves_metadata_only_legacy_root_before_adoption(accept
     assert planned["formulas"]["dstack-feature"] == "update"
     mutation_ids = {item["issue_id"] for item in planned["mutation_plan"]["beads_issues"]}
     assert {legacy["id"], child["id"]}.isdisjoint(mutation_ids)
-    run_command(
-        [
-            str(DSTACK),
-            "setup",
-            "apply",
-            "--root",
-            str(acceptance_repo),
-            "--force",
-            "--plan-digest",
-            planned["plan_sha256"],
-        ],
-        cwd=acceptance_repo,
+    plan_file = tmp_path / "reviewed-plan.json"
+    plan_file.write_text(json.dumps(planned))
+    applied = json.loads(
+        run_command(
+            [
+                str(DSTACK),
+                "setup",
+                "apply",
+                "--root",
+                str(acceptance_repo),
+                "--force",
+                "--plan-file",
+                str(plan_file),
+                "--plan-digest",
+                planned["plan_sha256"],
+            ],
+            cwd=acceptance_repo,
+        ).stdout
     )
+    migration_worktree = Path(applied["worktree"])
+    assert (migration_worktree / formula.relative_to(acceptance_repo)).read_bytes() == (
+        ROOT / "formulas/dstack-feature.formula.toml"
+    ).read_bytes()
+    run_command(["git", "worktree", "remove", "--force", str(migration_worktree)], cwd=acceptance_repo)
 
-    assert formula.read_bytes() == (ROOT / "formulas/dstack-feature.formula.toml").read_bytes()
     after = {
         issue_id: items(run_json(acceptance_repo, "show", issue_id))[0] for issue_id in (legacy["id"], child["id"])
     }

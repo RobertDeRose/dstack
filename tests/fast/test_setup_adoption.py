@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ import dstack_adoption
 import dstack_adoption_apply
 import dstack_commands
 import dstack_compat
+import dstacklib
 import setup
 from dstack_commands import DstackError
 from dstacklib import CommandResult, FEATURE_STEPS
@@ -1514,77 +1516,6 @@ def _commit_tracked_interaction(repo: Path) -> Path:
     return interaction
 
 
-@pytest.mark.parametrize(
-    ("mode", "worktree_bytes"),
-    [
-        ("unstaged", b"worktree\n"),
-        ("staged", b"staged\n"),
-        ("mixed", b"worktree\n"),
-    ],
-)
-def test_forced_setup_apply_accepts_only_dirty_tracked_interaction_log(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mode: str,
-    worktree_bytes: bytes,
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    interaction = _commit_tracked_interaction(repo)
-    interaction.write_bytes(b"staged\n" if mode != "unstaged" else worktree_bytes)
-    if mode != "unstaged":
-        subprocess.run(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
-    if mode == "mixed":
-        interaction.write_bytes(worktree_bytes)
-
-    mutation = minimal_setup_mutation(git_index=[{"path": ".beads/interactions.jsonl", "action": "remove-cached"}])
-    digest = setup.setup_plan_digest(mutation)
-    monkeypatch.setattr(setup, "git_root", lambda root: repo)
-    monkeypatch.setattr(
-        setup,
-        "setup_plan",
-        lambda *args, **kwargs: {
-            "status": "ready",
-            "mutation_plan": mutation,
-            "plan_sha256": digest,
-            "preconditions": {"blocked": []},
-            "documentation": {},
-        },
-    )
-    monkeypatch.setattr(setup, "validate_docs", lambda root: {"status": "ok"})
-
-    def execute(root: Path, plan: Mapping[str, Any]) -> dict[str, str]:
-        subprocess.run(
-            ["git", "rm", "--cached", "--force", "--", ".beads/interactions.jsonl"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-        )
-        return {"status": "ok"}
-
-    monkeypatch.setattr(setup, "_execute_setup_plan", execute)
-    result = setup.apply_setup(
-        repo,
-        initialize=False,
-        force=True,
-        expected_plan_sha256=digest,
-    )
-
-    assert result["status"] == "ok"
-    assert interaction.read_bytes() == worktree_bytes
-    assert not setup.tracked(repo, ".beads/interactions.jsonl")
-    assert (
-        subprocess.run(
-            ["git", "check-ignore", ".beads/interactions.jsonl"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        == ".beads/interactions.jsonl"
-    )
-
-
 @pytest.mark.parametrize("special_state", ["intent-to-add", "skip-worktree", "symlink"])
 def test_forced_setup_rejects_interaction_state_it_cannot_restore_exactly(tmp_path: Path, special_state: str) -> None:
     repo = tmp_path / "repo"
@@ -1653,58 +1584,6 @@ def test_forced_setup_allows_known_corrupt_backup_runtime(tmp_path: Path) -> Non
     assert allowed is True
 
 
-def test_setup_failure_restores_exact_interaction_index_and_worktree(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    interaction = _commit_tracked_interaction(repo)
-    interaction.write_bytes(b"staged\n")
-    subprocess.run(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=repo, check=True)
-    interaction.write_bytes(b"worktree\n")
-    mutation = minimal_setup_mutation(git_index=[{"path": ".beads/interactions.jsonl", "action": "remove-cached"}])
-    digest = setup.setup_plan_digest(mutation)
-    monkeypatch.setattr(setup, "git_root", lambda root: repo)
-    monkeypatch.setattr(
-        setup,
-        "setup_plan",
-        lambda *args, **kwargs: {
-            "status": "ready",
-            "mutation_plan": mutation,
-            "plan_sha256": digest,
-            "preconditions": {"blocked": []},
-            "documentation": {},
-        },
-    )
-
-    def fail_after_index_mutation(root: Path, plan: Mapping[str, Any]) -> dict[str, str]:
-        subprocess.run(
-            ["git", "rm", "--cached", "--force", "--", ".beads/interactions.jsonl"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-        )
-        raise setup.SetupError("injected failure")
-
-    monkeypatch.setattr(setup, "_execute_setup_plan", fail_after_index_mutation)
-    with pytest.raises(setup.SetupError, match=r"rollback_completed=true.*mutation_state_uncertain=false"):
-        setup.apply_setup(
-            repo,
-            initialize=False,
-            force=True,
-            expected_plan_sha256=digest,
-        )
-
-    staged = subprocess.run(
-        ["git", "show", ":.beads/interactions.jsonl"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    ).stdout
-    assert staged == b"staged\n"
-    assert interaction.read_bytes() == b"worktree\n"
-
-
 def test_setup_plan_rejects_unrelated_dirty_path_before_discovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1765,19 +1644,6 @@ def test_forced_setup_plan_blocks_non_reader_documentation_before_apply(
     ]
     assert all("do not add" in blocked for blocked in planned["preconditions"]["blocked"])
 
-    monkeypatch.setattr(
-        setup,
-        "_execute_setup_plan",
-        lambda *args: pytest.fail("blocked documentation reached Beads mutation"),
-    )
-    with pytest.raises(setup.SetupError, match="preconditions changed"):
-        setup.apply_setup(
-            repo,
-            initialize=False,
-            force=True,
-            expected_plan_sha256=planned["plan_sha256"],
-        )
-
 
 def test_forced_setup_plan_blocks_projected_documentation_validation_before_apply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1814,17 +1680,147 @@ def test_forced_setup_plan_blocks_projected_documentation_validation_before_appl
         "projected documentation validation failed" in blocked for blocked in planned["preconditions"]["blocked"]
     )
 
-    monkeypatch.setattr(
-        setup,
-        "_execute_setup_plan",
-        lambda *args: pytest.fail("invalid projected docs reached Beads mutation"),
+
+def test_explicit_beads_client_appends_contained_database_argument(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    database = repo / ".beads/embeddeddolt"
+    commands: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        commands.append(list(command))
+        if command[1] == "--version":
+            return CommandResult(0, "bd version 1.2.2 (6c124203e)\n", "")
+        return CommandResult(0, "[]\n", "")
+
+    monkeypatch.setattr(dstacklib, "git_root", lambda root: repo)
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    client = dstacklib.BeadsClient(repo, database=database)
+    assert client.version() == "bd version 1.2.2 (6c124203e)"
+    assert client.list() == []
+
+    assert len(commands) == 2
+    assert all(command[-2:] == ["--db", str(database)] for command in commands)
+
+
+def test_setup_migration_paths_are_digest_scoped_in_git_common_directory(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    digest = "a" * 64
+
+    artifacts, worktree = setup._setup_migration_paths(repo, digest)
+
+    assert artifacts == repo / ".git/dstack/setup" / digest
+    assert worktree == tmp_path / f"repo.dstack-setup-{digest}"
+
+
+def test_saved_setup_plan_is_strictly_scoped_to_root_mode_and_digest(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    mutation = minimal_setup_mutation()
+    digest = setup.setup_plan_digest(mutation)
+    envelope = {
+        "schema": setup.SETUP_PLAN_SCHEMA,
+        "status": "ready",
+        "root": str(repo),
+        "request": {"initialize": False, "force": True},
+        "preconditions": {"clean_worktree": True, "blocked": []},
+        "authority": mutation["authority"],
+        "mutation_plan": mutation,
+        "plan_sha256": digest,
+        "filesystem": [],
+        "git_index": [],
+        "beads": [],
+        "formulas": {},
+        "documentation": {},
+    }
+    path = tmp_path / "reviewed-plan.json"
+    path.write_text(json.dumps(envelope))
+
+    reviewed, content = setup._read_reviewed_setup_plan(
+        path,
+        root=repo,
+        initialize=False,
+        force=True,
+        expected_digest=digest,
     )
-    with pytest.raises(setup.SetupError, match="preconditions changed"):
-        setup.apply_setup(
-            repo,
+
+    assert reviewed["mutation_plan"] == mutation
+    assert content == path.read_bytes()
+    envelope["request"]["force"] = False
+    path.write_text(json.dumps(envelope))
+    with pytest.raises(setup.SetupError, match="requested mode"):
+        setup._read_reviewed_setup_plan(
+            path,
+            root=repo,
             initialize=False,
             force=True,
-            expected_plan_sha256=planned["plan_sha256"],
+            expected_digest=digest,
+        )
+
+
+def test_setup_migration_worktree_is_detached_and_starts_at_source_head(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "README.md").write_text("baseline\n")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "initial"],
+        cwd=repo,
+        check=True,
+    )
+    digest = "b" * 64
+
+    worktree = setup._prepare_setup_worktree(repo, digest)
+
+    try:
+        assert worktree == tmp_path / f"repo.dstack-setup-{digest}"
+        assert (
+            subprocess.run(
+                ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+                cwd=worktree,
+                capture_output=True,
+            ).returncode
+            != 0
+        )
+        assert (
+            subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=worktree, check=True, capture_output=True, text=True
+            ).stdout.strip()
+            == subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+            ).stdout.strip()
+        )
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=repo, check=True)
+
+
+def test_backup_pointer_restore_preserves_bytes_and_removes_created_pointers(tmp_path: Path) -> None:
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    pointer = beads / "dolt-backup.json"
+    pointer.write_bytes(b"before\n")
+    snapshots = {pointer: pointer.read_bytes()}
+    created = beads / "dolt-backup-state.json"
+    created.write_bytes(b"temporary\n")
+
+    setup._restore_backup_pointers(beads, snapshots)
+
+    assert pointer.read_bytes() == b"before\n"
+    assert not created.exists()
+
+
+def test_forced_apply_requires_saved_reviewed_plan_file(tmp_path: Path) -> None:
+    with pytest.raises(setup.SetupError, match="plan file is required"):
+        setup.apply_setup(
+            tmp_path,
+            initialize=False,
+            force=True,
+            expected_plan_sha256="a" * 64,
         )
 
 
@@ -2095,68 +2091,6 @@ def test_setup_filesystem_allows_nested_and_nonexistent_destinations(
     )
 
     assert (tmp_path / "docs/nested/new/page.md").read_text() == "managed\n"
-
-
-def test_setup_apply_rejects_formula_destination_drift_before_mutation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    package = tmp_path / "package"
-    (package / "formulas").mkdir(parents=True)
-    for name in setup.FORMULA_NAMES:
-        (package / "formulas" / f"{name}.formula.toml").write_text(f"{name}\n")
-    (tmp_path / ".beads/formulas").mkdir(parents=True)
-    for name in setup.FORMULA_NAMES:
-        (tmp_path / ".beads/formulas" / f"{name}.formula.toml").write_text("old\n")
-
-    class Client:
-        def check_version(self) -> str:
-            return "bd version 1.2.2 (6c124203e)"
-
-        def list(self, **kwargs) -> list[dict]:
-            return []
-
-    monkeypatch.setattr(setup, "git_root", lambda root: tmp_path)
-    monkeypatch.setattr(setup, "package_root", lambda: package)
-    monkeypatch.setattr(setup, "_current_setup_authority", lambda root: setup_authority())
-    monkeypatch.setattr(setup, "BeadsClient", lambda root: Client())
-    monkeypatch.setattr(setup, "all_issue_inventory", lambda client: [])
-    monkeypatch.setattr(setup, "legacy_template_artifacts", lambda client, **kwargs: [])
-    monkeypatch.setattr(setup, "normalize_current_features", lambda *args, **kwargs: [])
-    monkeypatch.setattr(setup, "normalize_current_alignments", lambda *args, **kwargs: [])
-    monkeypatch.setattr(setup, "tracked", lambda *args: False)
-    monkeypatch.setattr(setup, "_setup_normalization_plan", lambda *args, **kwargs: [])
-    monkeypatch.setattr(setup, "_setup_feature_design_moves", lambda *args, **kwargs: [])
-    real_run = setup.run
-    monkeypatch.setattr(
-        setup,
-        "run",
-        lambda command, **kwargs: (
-            CommandResult(0, "", "")
-            if command[:2] == ["git", "status"] and command[2].startswith("--porcelain")
-            else real_run(command, **kwargs)
-        ),
-    )
-
-    reviewed = setup.setup_plan(tmp_path, initialize=False, force=True)
-    reviewed_digest = reviewed["plan_sha256"]
-    destination = tmp_path / ".beads/formulas/dstack-feature.formula.toml"
-    destination.write_text("changed after review\n")
-    monkeypatch.setattr(
-        setup,
-        "_execute_setup_plan",
-        lambda *args: pytest.fail("formula drift reached mutation"),
-    )
-    monkeypatch.setattr(setup, "ensure_clean_worktree", lambda root: None)
-
-    with pytest.raises(setup.SetupError, match="authority state changed"):
-        setup.apply_setup(
-            tmp_path,
-            initialize=False,
-            force=True,
-            expected_plan_sha256=reviewed_digest,
-        )
-    assert destination.read_text() == "changed after review\n"
 
 
 def test_setup_apply_refuses_dirty_preconditions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -108,6 +108,7 @@ def command_may_mutate(command: Sequence[str]) -> bool:
             "supersede",
             "todo",
             "update",
+            "backup",
             "worktree",
         }
     return executable == "gh" and action == "pr"
@@ -222,13 +223,17 @@ def git_root(path: Path) -> Path:
     return Path(result.stdout.strip()).resolve()
 
 
-def git_common_root(path: Path) -> Path:
+def git_common_dir(path: Path) -> Path:
     root = git_root(path)
-    common = run(["git", "rev-parse", "--git-common-dir"], cwd=root).stdout.strip()
-    common_path = Path(common)
-    if not common_path.is_absolute():
-        common_path = (root / common_path).resolve()
-    return common_path.parent if common_path.name == ".git" else root
+    common = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=root).stdout.strip()
+    if not common:
+        raise DstackError("Git common directory is unavailable")
+    return Path(common).resolve()
+
+
+def git_common_root(path: Path) -> Path:
+    common_path = git_common_dir(path)
+    return common_path.parent if common_path.name == ".git" else common_path
 
 
 def issue_type(issue: Mapping[str, Any]) -> str:
@@ -363,9 +368,26 @@ def write_temp_text(text: str) -> TextIO:
 class BeadsClient:
     """Thin, stateless adapter around the supported Beads CLI."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, database: Path | None = None):
         self.root = git_root(root)
+        self.database = None if database is None else database.resolve()
         self._read_cache: dict[tuple[Any, ...], Any] = {}
+
+    def _command(self, command: Sequence[str]) -> list[str]:
+        result = list(command)
+        if self.database is None or not result or Path(result[0]).name != "bd":
+            return result
+        try:
+            index = result.index("--db")
+        except ValueError:
+            result.extend(["--db", str(self.database)])
+            return result
+        if index + 1 >= len(result) or Path(result[index + 1]).resolve() != self.database:
+            raise DstackError("Beads command database differs from the selected database")
+        return result
+
+    def _run(self, command: Sequence[str], **kwargs: Any) -> CommandResult:
+        return run(self._command(command), cwd=self.root, **kwargs)
 
     def _invalidate_reads(self) -> None:
         self._read_cache.clear()
@@ -376,13 +398,13 @@ class BeadsClient:
         return self._read_cache[key]
 
     def json(self, command: Sequence[str], *, check: bool = True) -> Any:
-        result = run(command, cwd=self.root, check=check)
+        result = self._run(command, check=check)
         if result.returncode != 0:
             return None
         return parse_json(result.stdout, context=" ".join(command))
 
     def version(self) -> str:
-        return run(["bd", "--version"], cwd=self.root).stdout.strip()
+        return self._run(["bd", "--version"]).stdout.strip()
 
     def check_version(self) -> str:
         raw = self.version()
@@ -394,7 +416,7 @@ class BeadsClient:
         key = ("show", issue_id)
         if key in self._read_cache:
             return self._read_cache[key]
-        result = run(["bd", "show", issue_id, "--json"], cwd=self.root, check=False)
+        result = self._run(["bd", "show", issue_id, "--json"], check=False)
         if result.returncode != 0:
             detail = f"{result.stdout}\n{result.stderr}".casefold()
             if "not found" in detail or "no issues found" in detail:
@@ -504,10 +526,7 @@ class BeadsClient:
             return current
         self._invalidate_reads()
         try:
-            run(
-                ["bd", "gate", "resolve", gate_id, "--reason", reason],
-                cwd=self.root,
-            )
+            self._run(["bd", "gate", "resolve", gate_id, "--reason", reason])
             resolved = self.show(gate_id)
             if resolved.get("status") != "closed":
                 raise DstackError(f"gate did not resolve: {gate_id}")
@@ -549,7 +568,7 @@ class BeadsClient:
         handle = write_temp_text(text.rstrip() + "\n")
         self._invalidate_reads()
         try:
-            run(["bd", "comments", "add", issue_id, "-f", handle.name], cwd=self.root)
+            self._run(["bd", "comments", "add", issue_id, "-f", handle.name])
         finally:
             self._invalidate_reads()
             Path(handle.name).unlink(missing_ok=True)
@@ -658,7 +677,7 @@ class BeadsClient:
     ) -> None:
         self._invalidate_reads()
         try:
-            run(
+            self._run(
                 [
                     "bd",
                     "dep",
@@ -667,8 +686,7 @@ class BeadsClient:
                     depends_on_id,
                     "--type",
                     relation_type,
-                ],
-                cwd=self.root,
+                ]
             )
         finally:
             self._invalidate_reads()
@@ -676,17 +694,14 @@ class BeadsClient:
     def remove_dependency(self, issue_id: str, depends_on_id: str) -> None:
         self._invalidate_reads()
         try:
-            run(
-                ["bd", "dep", "remove", issue_id, depends_on_id],
-                cwd=self.root,
-            )
+            self._run(["bd", "dep", "remove", issue_id, depends_on_id])
         finally:
             self._invalidate_reads()
 
     def relate(self, left_id: str, right_id: str) -> None:
         self._invalidate_reads()
         try:
-            run(["bd", "dep", "relate", left_id, right_id], cwd=self.root)
+            self._run(["bd", "dep", "relate", left_id, right_id])
         finally:
             self._invalidate_reads()
 
@@ -698,7 +713,7 @@ class BeadsClient:
             return
         self._invalidate_reads()
         try:
-            run(["bd", "supersede", old_id, "--with", new_id], cwd=self.root)
+            self._run(["bd", "supersede", old_id, "--with", new_id])
         finally:
             self._invalidate_reads()
         observed = self.show(old_id)
@@ -715,7 +730,7 @@ class BeadsClient:
 
         self._invalidate_reads()
         try:
-            run(["bd", "gate", "check"], cwd=self.root)
+            self._run(["bd", "gate", "check"])
             return self.gates(all_statuses=True)
         finally:
             self._invalidate_reads()
