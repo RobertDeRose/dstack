@@ -5,17 +5,24 @@ rollback when an external mutation is uncertain.
 
 ## Setup failures
 
-Rerun setup plan first. A changed digest means the repository authority state changed and the previous plan must not be
-applied. Apply restores setup-owned files and removes an internally created Beads directory when safe. For legacy moves
-or Beads normalization that cannot be compensated, the error identifies the observed boundary: inspect the listed files
-and native issues, correct them with native operations, then plan again.
+Setup planning is read-only. A changed digest means repository authority changed and the previous plan must not be
+applied. For forced setup, apply consumes the saved plan in a detached worktree, targets the contained Beads database
+explicitly, and preserves the native backup and worktree for inspection. Successful migrations retain those artifacts
+until explicit verification and cleanup.
+
+If forced setup times out, is interrupted, or reports uncertain mutation, stop. Preserve the plan, native backup, and
+registered worktree, then use the controller's verification or rollback boundary. Do not use ad-hoc commands such as
+`bd update` or `bd close`, label changes, manual Git repair, or documentation edits to reconstruct state. If native
+rollback cannot prove the original Beads and Git state, leave all artifacts intact and report recovery required. A
+pre-existing partial migration without a matching native backup is not automatically repairable.
 
 ## Delivery failures
 
 - Dirty candidate or target: preserve the files, decide whether to commit, relocate, or discard them, then rerun
   preflight.
 - Changed target or candidate: fetch and inspect; rebase or supersede only with explicit authorization. Delivery
-  preflight permits a clean linear rebase or fixup before delivery when final terminal footer evidence remains reachable.
+  preflight permits a clean linear rebase or fixup before delivery when final terminal footer evidence remains
+  reachable.
 - Missing, duplicate, or later-only closeout footer evidence: treat the candidate derivation as unresolved. Do not
   substitute uncommitted files; restore supported fast-forward/ancestor history or record the limitation for manual
   recovery.

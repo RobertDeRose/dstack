@@ -79,12 +79,16 @@ It may not:
 Every invocation derives truth from the current repository and Beads database. The bundled launcher runs public Python
 entry points in an isolated package-relative runtime selected from `mise.toml` and `mise.lock`; ambient tools cannot
 replace the supported Python, Beads, or mdBook binaries. Mutation commands load only stable identity, metadata, and
-lifecycle steps, then query the additional native state required for that operation. Setup snapshots the affected native
-issue state in memory, applies only the reviewed operations, and rereads exact metadata, labels, parentage,
-relationships, and supersession postconditions without performing another normalization discovery. Its canonical digest
-also binds the controller-source content/state and exact runtime outputs; apply rejects unmerged authority source or
-drift before target mutation. Full dashboard hydration (gates, ready work, progress, and delivery state) is reserved for
-inspection and delivery. Nested transitions reuse the invocation's Beads client; no cache or state survives the process.
+lifecycle steps, then query the additional native state required for that operation. Forced setup validates the
+projected repository and formula bundle before mutation, then uses a digest-scoped reviewed plan, a detached Git
+worktree, a native Dolt backup, and an explicitly selected Beads database. It reuses complete invocation-local
+inventories, groups only identical supported issue updates, keeps writes sequential, and retains native recovery
+artifacts until explicit cleanup. Incomplete semantic inventory fields fail closed or trigger a focused authoritative
+read; no migration state survives the process outside the reviewed plan and native Git/Beads artifacts. Its canonical
+digest also binds the controller-source content/state and exact runtime outputs; apply rejects unmerged authority source
+or drift before target mutation. Full dashboard hydration (gates, ready work, progress, and delivery state) is reserved
+for inspection and delivery. Nested transitions reuse the invocation's Beads client; no cache or state survives the
+process.
 
 Workflow root identity shares three structural invariants: exactly one compatible canonical slug/audit identity,
 parentless Beads topology, and epic/molecule type; type alone is insufficient because stable workstreams are also epics.
@@ -203,9 +207,9 @@ affect approval.
 
 ## Delivery invariant
 
-Before delivery, all durable code/docs changes are already in the candidate. The final closeout or landing is the
-sole reconciliation boundary; implementation and correction tasks do not update durable documentation. A candidate may
-be amended, fixed up, or rebased before delivery when its history remains linear and final terminal evidence stays
+Before delivery, all durable code/docs changes are already in the candidate. The final closeout or landing is the sole
+reconciliation boundary; implementation and correction tasks do not update durable documentation. A candidate may be
+amended, fixed up, or rebased before delivery when its history remains linear and final terminal evidence stays
 reachable. After delivery starts, Beads may be finalized but Git may not change.
 
 `dstackctl delivery` requires clean candidate and target worktrees, snapshots the target HEAD and full status including
@@ -221,11 +225,12 @@ rewrite after a failed or incorrect delivery is a separate native Git operation,
 A closed feature inspection searches the configured target ref for the latest reachable closeout `Beads:` footer. A
 project alignment uses the latest reachable landing footer when landing changed the repository, otherwise the latest
 reachable correction footer. Sequential fixups and rebases are valid; repeated identical footers in one commit and
-nonlinear evidence remain errors. An alignment with no repository changes has no Git candidate revision. Before delivery,
-the clean candidate HEAD must contain the final terminal footer and any later commits must retain that terminal footer;
-this prevents unreviewed commits from silently extending the candidate while allowing fixups and rebases.
+nonlinear evidence remain errors. An alignment with no repository changes has no Git candidate revision. Before
+delivery, the clean candidate HEAD must contain the final terminal footer and any later commits must retain that
+terminal footer; this prevents unreviewed commits from silently extending the candidate while allowing fixups and
+rebases.
 
-Delivered evidence is read from the current target's reachable footer history. Feature audit documentation is read
-from the derived candidate revision when one exists. Inspection reports the search ref, derivation rule, revision,
+Delivered evidence is read from the current target's reachable footer history. Feature audit documentation is read from
+the derived candidate revision when one exists. Inspection reports the search ref, derivation rule, revision,
 branch/worktree presence, evidence source, and missing records. It never stores a Git-to-Beads mapping in Beads; a
 history rewrite that removes evidence is reported as unavailable rather than remapped.

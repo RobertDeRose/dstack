@@ -37,9 +37,9 @@ change occurred. Sequential fixups and rebases are supported when footers remain
 comes from current reachable Git history.
 
 Alignment review writes one temporary strict `dstack.alignment-plan/v2` JSON object and finalizes it with
-`alignment finish-plan AUDIT --plan-file PLAN.json`. The object contains reviewed findings, correction content and graph,
-validation expectations, documentation impact, deferred findings, and accepted risks. It stores no Git revision or
-repository snapshot. Existing v1 Beads descriptions remain readable for historical inspection only; new plans use v2.
+`alignment finish-plan AUDIT --plan-file PLAN.json`. The object contains reviewed findings, correction content and
+graph, validation expectations, documentation impact, deferred findings, and accepted risks. It stores no Git revision
+or repository snapshot. Existing v1 Beads descriptions remain readable for historical inspection only; new plans use v2.
 Markdown scaffolds and `finish-plan --summary-file` are not alignment-plan interfaces; Markdown reconciliation remains a
 separate landing record.
 
@@ -53,11 +53,13 @@ issue/dependency/supersession and verified template deletion, filesystem, Git-in
 records; canonical bytes normalize Unicode/newlines, repository-relative POSIX paths, hashes, and collection order.
 `setup.py apply` requires that digest, recomputes the same object once, rejects authority drift and invalid
 deterministic prerequisites, and executes only the digest-matched operations. It does not rediscover broader
-normalization or compare unavailable original plan bytes. After native Beads mutation, apply rereads each affected issue
-and requires its complete metadata, labels, parentage, relationships, and supersession state to equal the reviewed
-post-state. Missing, extra, wrongly directed, or wrongly typed state fails closed with the operation, target, expected
-and observed state, rollback completion, and mutation uncertainty. Any changed source, precondition, destination,
-formula, or navigation result also fails closed.
+normalization or compare unavailable original plan bytes. After native Beads mutation, apply uses the complete inventory
+for affected-issue postconditions and falls back to a focused issue read only when the inventory omits required core
+fields; incomplete or malformed semantic fields fail closed. It requires metadata, labels, parentage, relationships, and
+supersession state to equal the reviewed post-state. Missing, extra, wrongly directed, or wrongly typed state fails
+closed with the operation, target, expected and observed state, rollback completion, and mutation uncertainty. Any
+changed source, precondition, destination, formula, or navigation result also fails closed. Successful forced apply
+reports invocation-local Beads command counts and phase durations without persisting them.
 
 Internal controller leaves include `feature reauthorize` and `alignment reauthorize` before approved graph changes,
 `delivery replace-pr` for an explicit conflicting-gate repair, and `delivery cancel-pr-gate` for an explicit switch from
@@ -80,6 +82,5 @@ retry. Delivery validation derives the current candidate tip, requires clean wor
 that the final terminal footer remains reachable; post-terminal commits must retain that footer. Direct fast-forward
 delivery and PR ancestry that preserves the candidate are supported, including linear squash/rebase and sequential
 fixups. Repeated footers in one commit, missing evidence, and unsupported nonlinear history fail without fallback.
-Post-delivery finalization errors explicitly report
-completed delivery, previous/delivered/observed target heads, root status, the finalization error, and mutation
-uncertainty. See [recovery](../operations/recovery.md).
+Post-delivery finalization errors explicitly report completed delivery, previous/delivered/observed target heads, root
+status, the finalization error, and mutation uncertainty. See [recovery](../operations/recovery.md).

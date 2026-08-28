@@ -380,7 +380,7 @@ class BeadsClient:
         self.command_hook = command_hook
         self._read_cache: dict[tuple[Any, ...], Any] = {}
 
-    def _command(self, command: Sequence[str]) -> list[str]:
+    def _command(self, command: Sequence[str]) -> builtins.list[str]:
         result = list(command)
         database = getattr(self, "database", None)
         if database is None or not result or Path(result[0]).name != "bd":
@@ -500,7 +500,7 @@ class BeadsClient:
         finally:
             self._invalidate_reads()
 
-    def update_many(self, issue_ids: Sequence[str], *arguments: str) -> list[dict[str, Any]]:
+    def update_many(self, issue_ids: Sequence[str], *arguments: str) -> builtins.list[dict[str, Any]]:
         ids = list(issue_ids)
         if not ids:
             return []

@@ -57,7 +57,8 @@ uv run pytest -q tests/acceptance/test_feature_smoke.py
 
 An unavailable or invalid `bd` is an acceptance failure, never a skip. The contract scenario initializes Beads directly
 and verifies the supported JSON envelope, both formula structures and pours, native gates/readiness/claims, child
-fan-in, supersession, and worktree primitives. The smoke scenario alone runs full dStack setup, then one minimal shipped
+fan-in, supersession, worktree primitives, and a representative forced-setup inventory with grouped writes and
+invocation-local command/timing metrics. The smoke scenario alone runs full dStack setup, then one minimal shipped
 feature through approval, one Git-backed task, closeout, and fast-forward delivery.
 
 GitHub Actions runs with locked mise resolution, validates the mdBook, then runs the fast suite and each real-Beads

@@ -40,4 +40,5 @@
     - [Design](features/resolve-remaining-workflow-authority-findings/design.md)
   - [Complete dStack workflow authority, adoption, and recovery hardening](features/complete-workflow-authority-adoption-recovery-hardening/index.md)
     - [Design](features/complete-workflow-authority-adoption-recovery-hardening/design.md)
-  - [Safe forced setup migration and recovery](features/safe-forced-setup-migration-recovery/design.md)
+  - [Safe forced setup migration and recovery](features/safe-forced-setup-migration-recovery/index.md)
+    - [Design](features/safe-forced-setup-migration-recovery/design.md)

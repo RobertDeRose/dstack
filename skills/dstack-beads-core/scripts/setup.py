@@ -2160,8 +2160,8 @@ def setup_plan(
 
     client: BeadsClient | None = None
     git_index: list[dict[str, str]] = []
-    inventory: list[dict[str, Any]] = []
-    template_artifacts: list[dict[str, Any]] = []
+    inventory: Sequence[Mapping[str, Any]] = []
+    template_artifacts: Sequence[Mapping[str, Any]] = []
     if not beads_exists:
         git_index.append({"path": ".beads/interactions.jsonl", "action": "remove-cached"})
     else:
@@ -2175,8 +2175,8 @@ def setup_plan(
                 metrics["inventory_reads"] = int(metrics.get("inventory_reads", 0)) + 1
             template_artifacts = legacy_template_artifacts(client, inventory=inventory)
 
-    migration = (
-        legacy_documentation_plan(root)
+    migration: dict[str, Any] = (
+        cast(dict[str, Any], legacy_documentation_plan(root))
         if force
         else {
             "configured_source_moves": [],
