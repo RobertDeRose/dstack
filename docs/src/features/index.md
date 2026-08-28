@@ -12,3 +12,5 @@ remains in the sections where readers look for that behavior.
 - [Harden workflow authority and auditability](harden-workflow-authority-auditability/index.md)
 - [Resolve remaining workflow authority findings](resolve-remaining-workflow-authority-findings/index.md)
 - [Complete dStack workflow authority, adoption, and recovery hardening](complete-workflow-authority-adoption-recovery-hardening/index.md)
+
+- [Safe forced setup migration and recovery](safe-forced-setup-migration-recovery/design.md)
