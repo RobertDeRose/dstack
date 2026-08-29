@@ -40,11 +40,11 @@ from dstacklib import (
     slugify,
 )
 
+from dstack_formula import FEATURE_FORMULA, pour_current_formula
 from dstack_commands import (
     client_for,
     descendants,
     emit,
-    require_installed_formula,
     superseded_target,
     update_root_identity,
 )
@@ -223,10 +223,10 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
 
     current = current_feature_for_slug(client, slug, exclude_id=str(legacy["id"]))
     if current is None:
-        require_installed_formula(client.root, "dstack-feature")
         reconcile_adoption_graph(client, planned_graph, str(legacy["id"]))
-        pour = client.pour(
-            "dstack-feature",
+        pour = pour_current_formula(
+            client,
+            FEATURE_FORMULA,
             {
                 "feature_title": title,
                 "feature_slug": slug,

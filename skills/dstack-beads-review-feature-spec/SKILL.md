@@ -1,17 +1,38 @@
 ---
 name: dstack-beads-review-feature-spec
-description: "Materialize planned intent, reconcile it with the repository, and obtain authorization without coupling Beads to Git history."
+description: "Review new feature intent or audit existing approved work against the current formula contract."
 ---
 
 # Review feature specification
 
-Pass the selected planned-feature or current-molecule ID, slug, or title explicitly. Default the base branch to `dev`
-when it exists, otherwise `main`, unless the user chose one. Omission is safe only inside the registered feature
-worktree.
+Pass the selected feature ID, slug, or title explicitly. Default the base branch to `dev` when it exists, otherwise
+`main`, unless the user chose one. Omission is safe only inside the registered feature worktree.
 
-## Materialize the review boundary
+## Internal compatibility audit
 
-Run the retained stateless mechanics:
+When `User input` says `Internal formula compatibility audit`, this is a controller-triggered read-only comparison of
+existing approved work with the current formula/review contract. Do **not** re-pour the molecule, normalize historical
+labels, or rebuild the graph to look like the current formula.
+
+1. Run `"{baseDir}/../../bin/dstack" ctl feature inspect "<feature>"` and read the accepted design plus existing
+   implementation tasks/dependencies.
+2. Compare their **semantic coverage** with the current requirements in this skill: outcome, failure/security/
+   compatibility behavior, behavior-first validation, and the three Documentation impact audiences. Different task
+   names/grouping are not findings when the existing plan covers the same outcomes.
+3. If there is no material gap, run:
+
+   ```bash
+   "{baseDir}/../../bin/dstack" ctl feature audit-complete "<feature>"
+   ```
+
+   Then retry the controller command that requested the audit. Do not ask the user for approval.
+4. If changes are required, present only the minimal design/task/dependency delta and why each change is required. Stop
+   for explicit user approval **before** any reauthorization or task mutation. After approval, use the normal
+   reauthorization/review mechanics below, changing only the approved delta.
+
+## Normal review and approved audit changes
+
+Materialize or reuse the review boundary. If the feature is already initialized, reuse its current molecule/worktree rather than creating another:
 
 ```bash
 "{baseDir}/../../bin/dstack" ctl feature initialize "<selector>" --base-branch "<base>"
@@ -19,63 +40,35 @@ Run the retained stateless mechanics:
 "{baseDir}/../../bin/dstack" ctl feature scaffold-design "<returned-root>"
 ```
 
-Initialization pours a planned feature or reuses an already initialized current molecule and conventional worktree. It
-preserves planned intent, priority, and external blockers. Treat the returned root and worktree as authoritative.
-Scaffolding creates the canonical design only when absent and never overwrites content. Complete every required section
-with substantive content or `Not applicable — <specific reason>`; placeholders, duplicate/missing headings, and
-unsupported local links fail before approval mutation.
+For an already-approved feature whose compatibility audit found changes, first run `feature reauthorize` **only after
+user approval**. Scaffolding creates missing canonical documentation without overwriting project content.
 
-## Reconcile intent with reality
+Read complete Beads intent and the canonical design, then inspect only relevant architecture, source, tests, durable
+documentation, dependencies, and other work. Reconcile `docs/src/features/<slug>/design.md` so it covers outcome,
+rationale, requirements, decisions, non-goals, existing patterns, interfaces/data flow, observable outcomes, happy path,
+invalid input, persistence/state behavior, failure recovery, security, compatibility, behavior-first validation/regression
+expectations, concrete local Markdown links for required documentation surfaces, and Documentation impact for end users/operators, developers/reviewers, and future auditors.
 
-In the returned worktree, read the complete Beads intent and canonical design, then inspect relevant architecture,
-source, tests, durable documentation, dependencies, and other work. Materialize or refine
-`docs/src/features/<slug>/design.md` so it covers:
-
-- outcome, rationale, requirements, decisions, alternatives, and non-goals;
-- existing patterns and why any new abstraction is necessary;
-- interfaces, data flow, happy path, and observable success behavior;
-- invalid input, persistence/state behavior, failure recovery, security, compatibility, and migration boundaries;
-- behavior-first validation and regression expectations; and
-- Documentation impact for all three audiences; use local Markdown links for every concrete affected surface and explain
-  each `N/A`.
-
-Resolve clear holes and collisions directly. Ask only for genuine product or architecture decisions.
-
-## Reconcile the implementation graph
-
-Inspect the current graph before mutation:
+Inspect the current graph with:
 
 ```bash
 "{baseDir}/../../bin/dstack" ctl feature inspect "<returned-root>"
 ```
 
-Reconcile the whole native graph: reuse/update valid tasks with native `bd update`; create missing outcomes;
-close/supersede obsolete tasks with a reason; add real blockers with native `bd dep add`; remove obsolete blockers with
-native `bd dep remove`; and preserve context as nonblocking relations. Do not duplicate tasks or maintain a shadow
-graph. Create missing bounded outcomes through:
+Reuse/update valid tasks with native `bd update`; create only missing outcomes; close/supersede obsolete tasks with a
+reason; add/remove only real blockers with native `bd dep add` / native `bd dep remove`. Do not create reviewer, coordinator, status, documentation, reconciliation, or
+speculative tasks. Create missing bounded outcomes through `feature add-task`; every task automatically depends on
+implementation approval.
 
-```bash
-"{baseDir}/../../bin/dstack" ctl feature add-task "<returned-root>" --title "<title>" \
-  --description-file "<temporary-description>" \
-  --acceptance-file "<temporary-acceptance>" [--depends-on "<task-id>"]
-```
+When repository content changed, commit the real design/docs change with the specification Bead footer. Review the final
+design, task delta/graph, dependencies, and candidate diff. For a normal review, ask for explicit human authorization; invocation itself is not authorization.
+For a compatibility audit, the earlier approval covers only the presented delta; do not expand it silently.
 
-Every task automatically depends on implementation approval. Add only real predecessors. Use observable outcomes, not
-file lists or implementation names. Do not create reviewer, coordinator, status, documentation, reconciliation, or
-speculative tasks; the closeout step is the sole final reconciliation. When repository
-contents changed, commit the actual design/docs change with the specification Bead footer:
-
-```bash
-"{baseDir}/../../bin/dstack" ctl git commit --bead "<spec-id>" --subject "<subject>"
-```
-
-Review the complete final design, task graph, dependencies, and candidate diff. Present material decisions, findings,
-validation expectations, and deferred risk, then ask for explicit human authorization. The command invocation itself is
-not authorization. Do not approve while a consequential decision or finding is unresolved. After authorization, record
-only the accepted content digest and native gate transition:
+After authorization, run:
 
 ```bash
 "{baseDir}/../../bin/dstack" ctl feature approve-spec "<returned-root>"
 ```
 
-This stores no Git SHA. Return the authorized outcomes and `/implement-feature <returned-root>` as the next stage.
+Approval records the accepted design digest and current formula contract version; it stores no Git SHA. Return the
+authorized outcomes and `/implement-feature <returned-root>` as the next stage.

@@ -40,7 +40,18 @@ from dstacklib import (
     validate_git_revision,
 )
 
-from dstack_docs import validate_docs, validate_record
+from dstack_docs import create_foundation, validate_docs, validate_record
+from dstack_formula import (
+    CREATED_FORMULA_VERSION_KEY,
+    FEATURE_FORMULA,
+    FORMULA_VERSION_KEY,
+    FormulaAuditRequired,
+    formula_contract_version,
+    metadata_formula_version,
+    stamp_created_formula_version,
+    stamp_formula_version,
+    pour_current_formula,
+)
 from dstack_commands import (
     DESIGN_SCAFFOLD,
     RECONCILIATION_SCAFFOLD,
@@ -60,7 +71,6 @@ from dstack_commands import (
     preserve_external_blockers,
     require_approved_design,
     reject_documentation_work,
-    require_installed_formula,
     require_no_documentation_changes,
     reopen_authorization_boundary,
     required_task_text,
@@ -70,11 +80,119 @@ from dstack_commands import (
 )
 
 
+def _feature_contract_issues(
+    client: BeadsClient,
+    view: Mapping[str, Any],
+    *,
+    root: Mapping[str, Any] | None = None,
+) -> list[Mapping[str, Any]]:
+    root_issue = root or client.show(str(view["root"]["id"]))
+    issues: list[Mapping[str, Any]] = [root_issue]
+    if not view.get("current"):
+        return issues
+    steps = view["steps"]
+    issues.extend(steps.values())
+    implementation_id = str(steps["implementation"]["id"])
+    issues.extend(item for item in client.children(implementation_id) if item.get("status") != "closed")
+    unique: dict[str, Mapping[str, Any]] = {}
+    for issue in issues:
+        issue_id = str(issue.get("id") or "")
+        if issue_id:
+            unique[issue_id] = issue
+    return list(unique.values())
+
+
+def feature_formula_contract_state(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
+    root = client.show(str(view["root"]["id"]))
+    current = formula_contract_version(FEATURE_FORMULA)
+    audited = metadata_formula_version(root)
+    created = metadata_formula_version(root, CREATED_FORMULA_VERSION_KEY)
+    approved = bool(root_metadata_value(root, "dstack.approved_design_sha256"))
+    stale_issue_ids: list[str] = []
+    if approved:
+        stale_issue_ids = [
+            str(issue["id"])
+            for issue in _feature_contract_issues(client, view, root=root)
+            if metadata_formula_version(issue) != current
+        ]
+    if not approved:
+        state = "pending-review"
+        audit_required = False
+    elif not stale_issue_ids:
+        state = "current"
+        audit_required = False
+    else:
+        state = "audit-required"
+        audit_required = True
+    return {
+        "formula": FEATURE_FORMULA,
+        "current_version": current,
+        "created_version": created,
+        "audited_version": audited,
+        "state": state,
+        "audit_required": audit_required,
+        "stale_issue_ids": stale_issue_ids,
+    }
+
+
+def _feature_contract_issue_ids(client: BeadsClient, view: Mapping[str, Any]) -> list[str]:
+    return [str(issue["id"]) for issue in _feature_contract_issues(client, view)]
+
+
+def stamp_feature_formula_contract(client: BeadsClient, view: Mapping[str, Any]) -> int:
+    return stamp_formula_version(
+        client,
+        _feature_contract_issue_ids(client, view),
+        formula_name=FEATURE_FORMULA,
+    )
+
+
+def require_feature_formula_current(client: BeadsClient, view: Mapping[str, Any]) -> None:
+    state = feature_formula_contract_state(client, view)
+    if not state["audit_required"]:
+        return
+    previous = state["audited_version"]
+    previous_text = f"v{previous}" if previous is not None else "an unversioned contract"
+    current = state["current_version"]
+    feature_id = str(view["root"]["id"])
+    stale = state["stale_issue_ids"]
+    if previous == current:
+        reason = f"active workflow records are missing the current v{current} audit stamp"
+    else:
+        reason = f"the feature was last reviewed against {previous_text}; the current contract is v{current}"
+    raise FormulaAuditRequired(
+        {
+            "status": "audit_required",
+            "feature": feature_id,
+            "formula": FEATURE_FORMULA,
+            "from_version": previous,
+            "to_version": current,
+            "skill": "dstack-beads-review-feature-spec",
+            "stale_issue_ids": stale,
+            "audit_complete": f"dstack ctl feature audit-complete {feature_id}",
+            "message": f"feature {feature_id} requires a formula compatibility audit: {reason}",
+            "user_input": (
+                "Internal formula compatibility audit. "
+                f"Feature {feature_id} requires review because {reason}. "
+                f"The installed {FEATURE_FORMULA} contract is v{current}. "
+                "Review the existing approved design and execution tasks semantically against the current "
+                "review skill and formula expectations. Do not regenerate or normalize the historical graph. "
+                "If no material changes are needed, run `dstack ctl feature audit-complete "
+                f"{feature_id}` and retry the controller command that requested this audit. "
+                "If changes are needed, present only the minimal design/task/dependency delta and ask the user "
+                "for approval before reauthorization or any task mutation."
+            ),
+            "resume": "retry the controller command that returned audit_required",
+        }
+    )
+
+
 def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     context = feature_context(client, selector)
     context.update(feature_design_state(client, context))
     context.update(feature_authorization_state(client, context))
     require_approved_design(context)
+    require_feature_formula_current(client, context)
     return context
 
 
@@ -94,7 +212,26 @@ def cmd_feature_resolve(args: argparse.Namespace) -> int:
 
 def cmd_feature_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    emit({"status": "ok", **feature_view(client, args.selector)})
+    view = feature_view(client, args.selector)
+    view["formula_contract"] = feature_formula_contract_state(client, view)
+    emit({"status": "ok", **view})
+    return 0
+
+
+def cmd_feature_audit_complete(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    view = feature_context(client, args.selector)
+    if not view.get("current"):
+        raise DstackError("formula compatibility audit requires a current dStack feature molecule")
+    authorization = feature_authorization_state(client, view)
+    view.update(feature_design_state(client, view))
+    view.update(authorization)
+    require_approved_design(view)
+    version = stamp_feature_formula_contract(client, view)
+    observed = feature_formula_contract_state(client, view)
+    if observed["audited_version"] != version or observed["audit_required"]:
+        raise DstackError("feature formula compatibility audit stamp did not converge")
+    emit({"status": "ok", "feature": view["root"]["id"], "formula_contract": observed})
     return 0
 
 
@@ -183,9 +320,9 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     design_path = default_design_path(client.root, slug)
     if args.design_path and args.design_path != design_path:
         raise DstackError(f"feature design path must be {design_path} for the mdBook layout")
-    require_installed_formula(client.root, "dstack-feature")
-    pour = client.pour(
-        "dstack-feature",
+    pour = pour_current_formula(
+        client,
+        FEATURE_FORMULA,
         {
             "feature_title": title,
             "feature_slug": slug,
@@ -220,6 +357,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
             acceptance=source_acceptance or None,
             priority=source_priority,
         )
+        stamp_created_formula_version(client, root_id, formula_name=FEATURE_FORMULA)
         branch, worktree, created_branch, created_worktree = ensure_feature_worktree(client, slug, base_branch)
         if planned_source is not None:
             preserved_blockers = preserve_external_blockers(client, planned_source, root_id)
@@ -375,6 +513,7 @@ def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
         raise DstackError("feature root has no dstack.design_path metadata")
 
     _, worktree, _ = feature_branch_context(client, view)
+    create_foundation(worktree)
     design_file, relative = safe_design_file(worktree, design_path)
     created = False
     if design_file.exists():
@@ -474,6 +613,8 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
         acceptance=acceptance,
         priority=args.priority,
     )
+    stamp_formula_version(client, [str(item["id"])], formula_name=FEATURE_FORMULA)
+    item = client.show(str(item["id"]))
     emit({"status": "ok", "task": item})
     return 0
 
@@ -666,11 +807,14 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         raise DstackError(
             f"specification approval did not converge: approved={approved!r}, pending={pending!r}, states={states}"
         )
+    refreshed_view = feature_context(client, root_id)
+    formula_version = stamp_feature_formula_contract(client, refreshed_view)
     emit(
         {
             "status": "ok",
             "feature": root_id,
             "approved_design_sha256": digest,
+            "formula_version": formula_version,
             "specification": specification,
             "human_gate": gate,
             "approval": approval,

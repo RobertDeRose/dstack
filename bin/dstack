@@ -2,15 +2,15 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+caller=$(pwd -P)
 entry=${1-}
 if [ "$#" -gt 0 ]; then
   shift
 fi
 case "$entry" in
   ctl) script="$root/skills/dstack-beads-core/scripts/dstackctl.py" ;;
-  setup) script="$root/skills/dstack-beads-core/scripts/setup.py" ;;
   *)
-    echo "usage: dstack {ctl|setup} [arguments...]" >&2
+    echo "usage: dstack ctl [arguments...]" >&2
     exit 2
     ;;
 esac
@@ -46,4 +46,4 @@ exec mise --cd "$root" exec --locked \
   python@"$python_version" \
   aqua:gastownhall/beads@"$beads_version" \
   aqua:rust-lang/mdBook@"$mdbook_version" \
-  -- python -S "$script" "$@"
+  -- sh -c 'cd "$1" && shift && exec "$@"' sh "$caller" python -S "$script" "$@"

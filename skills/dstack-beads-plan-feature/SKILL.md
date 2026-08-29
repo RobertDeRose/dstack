@@ -5,6 +5,8 @@ description: "Discover and preserve sufficiently lossless planned feature intent
 
 # Plan feature
 
+Before native Beads planning, run `"{baseDir}/../../bin/dstack" ctl infra check`. This initializes Beads when needed and confirms the packaged formula contracts used for new work; no historical workflow migration occurs.
+
 Decide what should be built and why. Planning owns product discovery and writes only durable Beads intent; repository
 specification and authorization belong to `/review-feature-spec`.
 

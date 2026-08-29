@@ -117,7 +117,7 @@ def command_may_mutate(command: Sequence[str]) -> bool:
 def require_locked_runtime() -> None:
     if os.environ.get("DSTACK_LOCKED_RUNTIME") != "1":
         raise DstackError(
-            "direct dStack Python entry points are unsupported; use <dstack-package-root>/bin/dstack {ctl|setup}"
+            "direct dStack Python entry points are unsupported; use <dstack-package-root>/bin/dstack ctl"
         )
 
 

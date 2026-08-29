@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from pathlib import Path
 from typing import Sequence
 
 from dstack_audit import cmd_audit_feature
-from dstack_commands import DstackError, fail
+from dstack_commands import DstackError, cmd_infra_check, fail
 from dstack_docs import cmd_docs_validate
 from dstack_feature import (
     cmd_feature_resolve,
     cmd_feature_inspect,
+    cmd_feature_audit_complete,
     cmd_feature_initialize,
     cmd_feature_scaffold_design,
     cmd_feature_scaffold_reconciliation,
@@ -40,6 +43,7 @@ from dstack_alignment import (
     cmd_alignment_finish_landing,
 )
 from dstacklib import require_locked_runtime
+from dstack_formula import FormulaAuditRequired
 from dstack_delivery import (
     cmd_git_commit,
     cmd_git_amend,
@@ -128,6 +132,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_root(parser)
     top = parser.add_subparsers(dest="area", required=True)
 
+    infra = mechanical_parser(top, "infra", "initialize Beads and synchronize dStack-owned formulas")
+    infra_sub = infra.add_subparsers(dest="command", required=True)
+    infra_check = mechanical_parser(infra_sub, "check", "ensure the local dStack infrastructure is current")
+    infra_check.set_defaults(func=cmd_infra_check)
+
     feature = mechanical_parser(top, "feature", "feature lifecycle commands")
     feature_sub = feature.add_subparsers(dest="command", required=True)
     resolve = mechanical_parser(feature_sub, "resolve", "resolve a feature selector")
@@ -136,6 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = mechanical_parser(feature_sub, "inspect", "inspect feature state and ready work")
     inspect.add_argument("selector", nargs="?")
     inspect.set_defaults(func=cmd_feature_inspect)
+    audit_complete = mechanical_parser(
+        feature_sub, "audit-complete", "record that existing approved work satisfies the current formula contract"
+    )
+    audit_complete.add_argument("selector")
+    audit_complete.set_defaults(func=cmd_feature_audit_complete)
     initialize = mechanical_parser(feature_sub, "initialize", "create or reuse a feature branch and worktree")
     initialize.add_argument("selector", nargs="?")
     initialize.add_argument("--title")
@@ -392,6 +406,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.func(args))
+    except FormulaAuditRequired as exc:
+        json.dump(exc.payload, sys.stderr, indent=2, sort_keys=True)
+        sys.stderr.write("\n")
+        return 3
     except DstackError as exc:
         return fail(str(exc))
 

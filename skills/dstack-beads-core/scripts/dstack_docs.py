@@ -1,4 +1,4 @@
-"""Canonical mdBook foundation, migration, and stateless validation."""
+"""Canonical mdBook foundation and stateless validation."""
 
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ def markdown_values(text: str, pattern: re.Pattern[str]) -> list[str]:
     return [match.group(1) for match in matches]
 
 
-# Keep the internal spelling available to the existing migration helpers.
+# Keep the internal spelling for local documentation helpers.
 _markdown_values = markdown_values
 
 
@@ -310,27 +310,6 @@ def configured_source(root: Path) -> tuple[str, Path]:
     return raw, source
 
 
-def _rewrite_book_src(book: Path) -> None:
-    text = book.read_text(encoding="utf-8")
-    lines = text.splitlines(keepends=True)
-    in_book = False
-    replaced = False
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_book = stripped == "[book]"
-            continue
-        if in_book and re.match(r"^\s*src\s*=", line):
-            ending = "\n" if line.endswith("\n") else ""
-            indent = line[: len(line) - len(line.lstrip())]
-            lines[index] = f'{indent}src = "src"{ending}'
-            replaced = True
-            break
-    if not replaced:
-        # Missing src already means mdBook's default "src"; no rewrite needed.
-        return
-    book.write_text("".join(lines), encoding="utf-8")
-
 
 def _summary_link_target(raw: str) -> str | None:
     target = urlsplit(_raw_target(raw))
@@ -415,435 +394,23 @@ def _raw_target(value: str) -> str:
     return value.split(maxsplit=1)[0]
 
 
-def _target_parts(value: str) -> tuple[str, str, bool]:
-    stripped = value.strip()
-    if stripped.startswith("<") and ">" in stripped:
-        end = stripped.index(">")
-        return stripped[1:end], stripped[end + 1 :], True
-    parts = stripped.split(maxsplit=1)
-    return parts[0], (" " + parts[1] if len(parts) == 2 else ""), False
 
 
-def _rewritten_target(value: str, new_path: str) -> str:
-    old_target, tail, angle = _target_parts(value)
-    split = urlsplit(old_target)
-    rebuilt = new_path
-    if split.query:
-        rebuilt += f"?{split.query}"
-    if split.fragment:
-        rebuilt += f"#{split.fragment}"
-    return (f"<{rebuilt}>" if angle else rebuilt) + tail
 
 
-def _local_candidate(source: Path, raw: str) -> Path | None:
-    target = urlsplit(_raw_target(raw))
-    if target.scheme or target.netloc:
-        return None
-    path_text = unquote(target.path)
-    if not path_text:
-        return source.resolve()
-    relative = Path(path_text)
-    if relative.is_absolute():
-        return None
-    return (source.parent / relative).resolve()
 
 
-def _move_file(source: Path, destination: Path) -> None:
-    if source.is_symlink() or not source.is_file():
-        raise DstackError(f"legacy documentation target is not a safe regular file: {source}")
-    if destination.exists():
-        if destination.is_symlink() or not destination.is_file():
-            raise DstackError(f"canonical documentation target is not a regular file: {destination}")
-        if source.read_bytes() != destination.read_bytes():
-            raise DstackError(f"legacy and canonical documentation targets conflict: {source} -> {destination}")
-        source.unlink()
-        return
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    source.replace(destination)
 
 
-def _safe_docs_path(root: Path, relative: str, message: str) -> Path:
-    candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts:
-        raise DstackError(message)
-    lexical = root.joinpath(candidate)
-    docs = root / "docs"
-    try:
-        lexical.relative_to(docs)
-    except ValueError as exc:
-        raise DstackError(message) from exc
-    current = root
-    for part in candidate.parts:
-        current = current / part
-        if current.is_symlink():
-            raise DstackError(f"documentation migration path traverses a symlink: {relative}")
-    return lexical.resolve()
 
 
-def migrate_known_documentation_file(root: Path, source_relative: str, destination_relative: str) -> None:
-    """Move one explicitly identified documentation file through the shared engine."""
-
-    root = root.resolve()
-    docs = (root / "docs").resolve()
-    source = _safe_docs_path(root, source_relative, "legacy documentation path escapes docs")
-    destination = _safe_docs_path(root, destination_relative, "canonical documentation path escapes docs")
-    if source == destination:
-        if not destination.is_file() or destination.is_symlink():
-            raise DstackError("canonical documentation target is missing or unsafe")
-        return
-    if source.exists():
-        source_root = root / "docs/src"
-        if source_root.is_dir():
-            markdown_files = list(source_root.rglob("*.md"))
-            symlinks = [path for path in markdown_files if path.is_symlink()]
-            if symlinks:
-                raise DstackError("documentation migration source contains a symlink: " + str(symlinks[0]))
-            for markdown in markdown_files:
-                original = markdown.read_text(encoding="utf-8")
-
-                def rewrite(raw: str) -> str:
-                    candidate = _local_candidate(markdown, raw)
-                    if candidate != source:
-                        return raw
-                    target = os.path.relpath(destination, markdown.parent).replace(os.sep, "/")
-                    return _rewritten_target(raw, target)
-
-                updated = _rewrite_markdown_values(original, LINK_PATTERN, rewrite)
-                updated = _rewrite_markdown_values(
-                    updated,
-                    INCLUDE_PATTERN,
-                    lambda raw: rewrite(_include_path(raw)[0]) + _include_path(raw)[1],
-                )
-                if updated != original:
-                    markdown.write_text(updated, encoding="utf-8")
-        _move_file(source, destination)
-        _prune_empty_directories(source.parent, docs)
-    elif not destination.is_file() or destination.is_symlink():
-        raise DstackError("legacy documentation source and canonical target are missing")
 
 
-def _prune_empty_directories(start: Path, stop: Path) -> None:
-    stop = stop.resolve()
-    if not start.exists():
-        return
-    root = start if start.is_dir() else start.parent
-    directories = [path for path in root.rglob("*") if path.is_dir()]
-    directories.append(root)
-    for directory in sorted(directories, key=lambda item: len(item.parts), reverse=True):
-        if directory.resolve() == stop:
-            continue
-        try:
-            directory.rmdir()
-        except OSError:
-            pass
 
 
-def _migrate_configured_source(root: Path, *, apply: bool) -> list[dict[str, str]]:
-    docs = root / "docs"
-    book = docs / "book.toml"
-    if not book.is_file() or book.is_symlink():
-        return []
-    raw, configured = configured_source(root)
-    canonical = (docs / "src").resolve()
-    if configured == canonical:
-        return []
-    if configured == docs.resolve():
-        raise DstackError(
-            'mdBook src = "." cannot be migrated automatically; '
-            "move book content under docs/src and rerun /setup-project --force"
-        )
-    if configured.is_symlink() or not configured.is_dir():
-        raise DstackError(f"configured mdBook source does not exist safely: docs/{raw}")
-
-    moves: list[dict[str, str]] = []
-    entries = sorted(configured.rglob("*"))
-    symlinks = [path for path in entries if path.is_symlink()]
-    if symlinks:
-        raise DstackError("configured mdBook source contains a symlink: " + str(symlinks[0]))
-    files = [path for path in entries if path.is_file()]
-    for source in files:
-        relative = source.relative_to(configured)
-        destination = canonical / relative
-        if destination.exists() and (
-            destination.is_symlink() or not destination.is_file() or source.read_bytes() != destination.read_bytes()
-        ):
-            raise DstackError("configured mdBook source conflicts with docs/src at " + relative.as_posix())
-        moves.append(
-            {
-                "source": source.relative_to(root).as_posix(),
-                "destination": destination.relative_to(root).as_posix(),
-            }
-        )
-
-    if apply:
-        for move in moves:
-            source = root / move["source"]
-            destination = root / move["destination"]
-            _move_file(source, destination)
-        _prune_empty_directories(configured, docs)
-        _rewrite_book_src(book)
-    return moves
 
 
-def _include_path(raw: str) -> tuple[str, str]:
-    path, separator, suffix = raw.partition(":")
-    return path, separator + suffix if separator else ""
 
-
-def _referenced_content_state(
-    root: Path,
-) -> tuple[dict[Path, Path], dict[Path, str], list[str]]:
-    docs = (root / "docs").resolve()
-    source_root = (docs / "src").resolve()
-    if not source_root.is_dir():
-        return {}, {}, []
-
-    summary = source_root / "SUMMARY.md"
-    moves: dict[Path, Path] = {}
-    unresolved: set[str] = set()
-
-    def canonical_destination(candidate: Path) -> Path | None:
-        try:
-            candidate.relative_to(source_root)
-            return candidate
-        except ValueError:
-            pass
-        try:
-            return source_root / candidate.relative_to(docs)
-        except ValueError:
-            return None
-
-    # A SUMMARY entry gives deterministic chapter placement, so any local file
-    # it names under docs/ can be moved while preserving that navigation.
-    if summary.is_file():
-        for raw in _markdown_values(summary.read_text(encoding="utf-8"), LINK_PATTERN):
-            candidate = _local_candidate(summary, raw)
-            if candidate is None:
-                continue
-            destination = canonical_destination(candidate)
-            if destination is None or destination == candidate:
-                continue
-            if candidate.exists() or destination.exists():
-                moves[candidate] = destination
-
-    queue = list(sorted(source_root.rglob("*.md")))
-    queue.extend(source for source in moves if source.suffix.casefold() == ".md" and source.exists())
-    scanned: set[Path] = set()
-    while queue:
-        queued = queue.pop(0)
-        if queued.is_symlink():
-            raise DstackError("documentation migration source contains a symlink: " + str(queued))
-        path = queued.resolve()
-        if path in scanned or not path.is_file():
-            continue
-        scanned.add(path)
-        text = path.read_text(encoding="utf-8")
-
-        for raw in _markdown_values(text, INCLUDE_PATTERN):
-            target_raw, _ = _include_path(raw)
-            candidate = _local_candidate(path, target_raw)
-            if candidate is None:
-                continue
-            destination = canonical_destination(candidate)
-            if destination is None or destination == candidate:
-                continue
-            if candidate.exists() or destination.exists():
-                moves[candidate] = destination
-                if candidate.suffix.casefold() == ".md" and candidate.exists():
-                    queue.append(candidate)
-
-        for raw in _markdown_values(text, LINK_PATTERN):
-            candidate = _local_candidate(path, raw)
-            if candidate is None:
-                continue
-            destination = canonical_destination(candidate)
-            if destination is None or destination == candidate:
-                continue
-            if candidate.suffix.casefold() == ".md" and candidate not in moves:
-                if candidate.exists():
-                    unresolved.add(candidate.relative_to(root).as_posix())
-                continue
-            if candidate.exists() or destination.exists():
-                moves[candidate] = destination
-
-    rewrites: dict[Path, str] = {}
-    for path in scanned:
-        original = path.read_text(encoding="utf-8")
-        eventual_source = moves.get(path, path)
-
-        def replacement(raw: str, *, include: bool = False) -> str:
-            target_raw, include_suffix = _include_path(raw) if include else (raw, "")
-            candidate = _local_candidate(path, target_raw)
-            if candidate is None:
-                return raw
-            eventual_target = moves.get(candidate)
-            if eventual_target is None:
-                try:
-                    candidate.relative_to(source_root)
-                    eventual_target = candidate
-                except ValueError:
-                    return raw
-            new_path = os.path.relpath(eventual_target, eventual_source.parent).replace(os.sep, "/")
-            return _rewritten_target(target_raw, new_path) + include_suffix
-
-        text = _rewrite_markdown_values(
-            original,
-            LINK_PATTERN,
-            replacement,
-        )
-        text = _rewrite_markdown_values(
-            text,
-            INCLUDE_PATTERN,
-            lambda raw: replacement(raw, include=True),
-        )
-        if text != original:
-            rewrites[path] = text
-
-    # Markdown under docs/ but outside the canonical source is still visible
-    # legacy documentation even when nothing currently links to it. Its
-    # destination in the book hierarchy is not mechanically knowable, so
-    # report it rather than silently ignoring or guessing placement.
-    for candidate in docs.rglob("*.md"):
-        resolved = candidate.resolve()
-        try:
-            resolved.relative_to(source_root)
-            continue
-        except ValueError:
-            pass
-        if resolved in moves:
-            continue
-        unresolved.add(candidate.relative_to(root).as_posix())
-
-    return moves, rewrites, sorted(unresolved)
-
-
-def _rewrite_external_references(root: Path, *, apply: bool) -> list[dict[str, str]]:
-    moves, rewrites, _ = _referenced_content_state(root)
-    existing_moves = {source: destination for source, destination in moves.items() if source.exists()}
-    for source, destination in existing_moves.items():
-        if source.is_symlink() or not source.is_file():
-            raise DstackError(f"legacy documentation target is not a safe regular file: {source}")
-        if destination.exists() and (
-            destination.is_symlink() or not destination.is_file() or source.read_bytes() != destination.read_bytes()
-        ):
-            raise DstackError(f"legacy and canonical documentation targets conflict: {source} -> {destination}")
-
-    result = [
-        {
-            "source": source.relative_to(root).as_posix(),
-            "destination": destination.relative_to(root).as_posix(),
-        }
-        for source, destination in sorted(existing_moves.items(), key=lambda item: item[0].as_posix())
-    ]
-    if not apply:
-        return result
-
-    for path, text in rewrites.items():
-        path.write_text(text, encoding="utf-8")
-    for source, destination in sorted(existing_moves.items(), key=lambda item: len(item[0].parts), reverse=True):
-        parent = source.parent
-        _move_file(source, destination)
-        _prune_empty_directories(parent, root / "docs")
-    return result
-
-
-MANUAL_MIGRATION_ACTION = "choose a docs/src chapter, move the file, update SUMMARY.md, and rerun setup"
-NON_READER_MIGRATION_ACTION = (
-    "choose an explicit non-reader disposition outside docs/src, do not add it to SUMMARY.md, and rerun setup"
-)
-
-
-def non_reader_documentation_paths(root: Path) -> list[str]:
-    source = root.resolve() / "docs/src"
-    if not source.is_dir():
-        return []
-    result: list[str] = []
-    for path in source.rglob("*"):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(source)
-        parts = tuple(part.casefold() for part in relative.parts)
-        if path.name.casefold() == "tasks.md" or parts[:2] == ("features", "_template"):
-            result.append((Path("docs/src") / relative).as_posix())
-    return sorted(result)
-
-
-def _manual_actions(unresolved: list[str], non_reader: list[str] | None = None) -> list[dict[str, str]]:
-    actions = {path: MANUAL_MIGRATION_ACTION for path in unresolved}
-    actions.update({path: NON_READER_MIGRATION_ACTION for path in non_reader or []})
-    return [{"path": path, "action": actions[path]} for path in sorted(actions)]
-
-
-def _unresolved_outside_markdown(root: Path) -> list[str]:
-    _, _, unresolved = _referenced_content_state(root)
-    return unresolved
-
-
-def _reject_documentation_symlinks(root: Path) -> None:
-    docs = root / "docs"
-    if not docs.is_dir():
-        return
-    symlinks = [path for path in docs.rglob("*") if path.is_symlink()]
-    if symlinks:
-        raise DstackError("documentation migration source contains a symlink: " + str(symlinks[0]))
-
-
-def legacy_documentation_plan(root: Path) -> dict[str, object]:
-    root = root.resolve()
-    _reject_documentation_symlinks(root)
-    configured = _migrate_configured_source(root, apply=False)
-    references: list[dict[str, str]] = []
-    # Reference migration can only be inspected against the canonical source.
-    if not configured:
-        references = _rewrite_external_references(root, apply=False)
-        unresolved = _unresolved_outside_markdown(root)
-    else:
-        _, configured_path = configured_source(root)
-        configured_path = configured_path.resolve()
-        source_root = (root / "docs/src").resolve()
-        unresolved = []
-        for path in (root / "docs").rglob("*.md"):
-            resolved = path.resolve()
-            if resolved == configured_path or configured_path in resolved.parents:
-                continue
-            try:
-                resolved.relative_to(source_root)
-            except ValueError:
-                unresolved.append(path.relative_to(root).as_posix())
-        unresolved.sort()
-    non_reader = non_reader_documentation_paths(root)
-    return {
-        "configured_source_moves": configured,
-        "referenced_content_moves": references,
-        "unresolved_outside_markdown": unresolved,
-        "non_reader_paths": non_reader,
-        "manual_actions": _manual_actions(unresolved, non_reader),
-    }
-
-
-def migrate_legacy_documentation(root: Path) -> dict[str, object]:
-    """Move only mechanically identifiable book content into ``docs/src``.
-
-    A non-canonical configured mdBook source is moved wholesale because mdBook
-    itself identifies every file under that source as book content. With the
-    canonical source already in use, only local files explicitly referenced by
-    book Markdown are moved. Unreferenced files outside ``docs/src`` are left
-    for semantic judgment rather than guessed into navigation.
-    """
-
-    root = root.resolve()
-    _reject_documentation_symlinks(root)
-    configured = _migrate_configured_source(root, apply=True)
-    references = _rewrite_external_references(root, apply=True)
-    unresolved = _unresolved_outside_markdown(root)
-    non_reader = non_reader_documentation_paths(root)
-    return {
-        "configured_source_moves": configured,
-        "referenced_content_moves": references,
-        "unresolved_outside_markdown": unresolved,
-        "non_reader_paths": non_reader,
-        "manual_actions": _manual_actions(unresolved, non_reader),
-    }
 
 
 def _local_target(source: Path, raw: str, source_root: Path) -> Path | None:
@@ -920,14 +487,10 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
     if configured != source:
         raise DstackError(
             "mdBook [book].src must resolve to docs/src; "
-            f"configured source is {raw_source!r}; run /setup-project --force to migrate it"
+            f"configured source is {raw_source!r}"
         )
 
     errors: list[str] = validate_decision_records(source)
-    non_reader = non_reader_documentation_paths(root)
-    if non_reader:
-        relative = [path.removeprefix("docs/src/") for path in non_reader]
-        errors.append("non-reader documentation requires disposition; do not add to SUMMARY.md: " + ", ".join(relative))
     summary = source / "SUMMARY.md"
     chapters: set[Path] = set()
     for raw in _links(summary):

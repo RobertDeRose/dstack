@@ -103,18 +103,11 @@ def is_forbidden_tracked_beads_path(path: str) -> bool:
 
 
 def reject_runtime_beads(paths: Sequence[str]) -> None:
-    # Feature/audit commits may contain dStack formula source but no other
-    # .beads content. Repository setup/configuration is committed separately.
-    invalid = [
-        path
-        for path in paths
-        if is_forbidden_tracked_beads_path(path)
-        or (path.startswith(".beads/") and not path.startswith(".beads/formulas/"))
-    ]
+    invalid = [path for path in paths if path.startswith(".beads/") or is_forbidden_tracked_beads_path(path)]
     if invalid:
         raise DstackError(
-            "workflow commits may not include Beads setup/runtime paths; "
-            "commit stable setup configuration separately with native Git: " + ", ".join(invalid)
+            "workflow commits may not include Beads repository/runtime paths; "
+            "change stable Beads configuration separately when intentionally required: " + ", ".join(invalid)
         )
 
 
@@ -1014,12 +1007,12 @@ def validate_delivery(payload: Mapping[str, Any], *, require_remote: bool) -> No
         raise DstackError(
             "tracked Beads runtime state prevents safe delivery: "
             + ", ".join(str(item) for item in payload["tracked_runtime_beads"])
-            + "; run /setup-project --force"
+            + "; remove runtime state from Git before delivery"
         )
     feature_paths = [
         str(path)
         for path in payload.get("paths", [])
-        if str(path).startswith(".beads/") and not str(path).startswith(".beads/formulas/")
+        if str(path).startswith(".beads/")
     ]
     if feature_paths:
         raise DstackError("candidate includes Beads runtime state: " + ", ".join(feature_paths))

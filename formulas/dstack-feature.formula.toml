@@ -10,7 +10,7 @@ depends on the approved milestone. Implementation work changes code and tests on
 closeout is the single final reconciliation for durable documentation and delivery.
 Closeout uses native dynamic fan-in over the implementation children.
 """
-version = 8
+version = 9
 type = "workflow"
 phase = "liquid"
 pour = true

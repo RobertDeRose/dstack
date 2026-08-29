@@ -46,13 +46,18 @@ from dstack_commands import (
     keep_root_open_for_delivery,
     open_workstream_children,
     reject_documentation_work,
-    require_installed_formula,
     require_no_documentation_changes,
     reopen_authorization_boundary,
     required_task_text,
     task_text,
 )
 from dstack_docs import validate_docs, validate_record
+from dstack_formula import (
+    ALIGNMENT_FORMULA,
+    stamp_created_formula_version,
+    stamp_formula_version,
+    pour_current_formula,
+)
 from dstack_alignment_plan import (
     canonical_description,
     parse_plan_file,
@@ -110,9 +115,9 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
             return 0
         raise DstackError(f"project alignment is already closed: {existing['root']['id']}")
 
-    require_installed_formula(client.root, "dstack-project-alignment")
-    pour = client.pour(
-        "dstack-project-alignment",
+    pour = pour_current_formula(
+        client,
+        ALIGNMENT_FORMULA,
         {
             "audit_title": args.title,
             "audit_slug": slug,
@@ -138,6 +143,8 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
             "--set-metadata",
             f"dstack.scope={args.scope}",
         )
+        stamp_created_formula_version(client, root_id, formula_name=ALIGNMENT_FORMULA)
+        stamp_formula_version(client, [root_id], formula_name=ALIGNMENT_FORMULA)
         _, worktree, created_branch, created_worktree = ensure_branch_worktree(client, branch, args.target_branch)
     except Exception:
         if created_worktree:

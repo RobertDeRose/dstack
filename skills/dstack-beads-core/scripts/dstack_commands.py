@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from dstack_formula import ensure_infrastructure
 from dstacklib import (
     BeadsClient,
     DstackError,
@@ -269,26 +270,27 @@ def fail(message: str) -> int:
     return 1
 
 
-def package_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
 def client_for(root: Path) -> BeadsClient:
-    client = BeadsClient(root)
+    infrastructure = ensure_infrastructure(root)
+    client = BeadsClient(Path(infrastructure["root"]))
     client.check_version()
     return client
 
 
-def require_installed_formula(root: Path, name: str) -> None:
-    source = package_root() / "formulas" / f"{name}.formula.toml"
-    installed = root / ".beads" / "formulas" / f"{name}.formula.toml"
-    if not installed.is_file():
-        raise DstackError(f"dStack formula is not installed: {name}; run /setup-project")
-    if installed.read_bytes() != source.read_bytes():
-        raise DstackError(
-            f"installed formula {name} differs from this dStack package; "
-            "run /setup-project --force before pouring new work"
-        )
+def cmd_infra_check(args: argparse.Namespace) -> int:
+    infrastructure = ensure_infrastructure(args.root)
+    client = BeadsClient(Path(infrastructure["root"]))
+    beads_version = client.check_version()
+    emit(
+        {
+            "status": "ok",
+            "root": str(infrastructure["root"]),
+            "initialized": infrastructure["initialized"],
+            "formula_versions": infrastructure["formula_versions"],
+            "beads_version": beads_version,
+        }
+    )
+    return 0
 
 
 def update_root_identity(

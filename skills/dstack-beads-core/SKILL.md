@@ -1,6 +1,6 @@
 ---
 name: dstack-beads-core
-description: "Shared dStack authority, state, documentation, review, and deterministic-controller rules."
+description: "Shared dStack authority, formula-contract, and deterministic-controller rules."
 ---
 
 # dStack core
@@ -14,8 +14,24 @@ Apply these rules to every dStack command.
 - `dstackctl` owns repeatable stateless mechanics.
 - The agent owns engineering decisions and user interaction.
 
-Read `docs/src/development/index.md` and `docs/src/architecture/index.md` when changing the workflow itself. Ordinary
-command execution does not require loading every reference document.
+## Central compatibility rule
+
+**Formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to.**
+Historical feature graphs remain valid execution records. dStack uses its packaged formulas as authority before
+controller operations. Native pours expose the packaged formula only for that operation; any historical tracked formula
+copy is restored unchanged and no persistent formula cache is a dStack authority. Formula `version` is the semantic planning/review contract version, not the dStack package
+version.
+
+When a controller returns `status: audit_required`, immediately follow the named skill with the exact returned
+`user_input`; this is an internal compatibility audit, not a new user command. Compare the existing approved design and
+tasks semantically with the current contract. Do not regenerate, normalize, or relabel historical work merely to match
+the current formula shape.
+
+- If no material change is needed, run the returned `feature audit-complete` action and retry the original controller
+  command. Do not ask the user for permission.
+- If material changes are needed, present only the minimal design/task/dependency delta. Ask for permission before
+  reauthorization or task mutation. After the approved delta is reauthorized, `feature approve-spec` records the
+  current contract version.
 
 ## Hard rules
 
@@ -23,29 +39,21 @@ command execution does not require loading every reference document.
   one `Beads: <id>` commit footer.
 - Do not store Git revisions in Beads. Alignment plans record reviewed intent only; each execution and delivery boundary
   revalidates the current repository and reconstructs evidence from reachable Git history.
-- Never create dStack state files, packets, ledgers, schedulers, or review topology.
-- Do not calculate a ready frontier; query Beads. For terminal fan-in only, reject nonterminal direct children before
-  and after native ready claim because Beads 1.2.2 can miss them in `children-of(...)`.
+- Never create dStack state files, packets, ledgers, schedulers, migration state, or shadow workflow graphs.
+- Do not calculate a ready frontier; query Beads.
+- Do not rewrite closed historical Beads because labels, metadata, or task grouping differ from the current formula.
 - Do not put transient workflow state or IDs in repository docs. Implementation tasks do not update durable
-  documentation or create reconciliation tasks; the feature closeout or alignment landing is the sole final
-  reconciliation boundary.
-- `planned`, `implemented`, and `deprecated` are durable product context.
-- During normal delivery, Beads finalization must not mutate the delivered Git state or create bookkeeping commits.
-  Explicit user-authorized recovery after a failed or incorrect delivery is a separate native Git operation.
-- Use “independent review” only for a separate agent/session.
-- Another review is always allowed when the user authorizes it.
+  documentation; feature closeout or alignment landing is the sole final reconciliation boundary.
+- During normal delivery, Beads finalization must not mutate delivered Git state or create bookkeeping commits.
+  Explicit user-authorized recovery is a separate native Git operation.
+- Use “independent review” only for a separate agent/session. Another review is always allowed when the user authorizes
+  it.
 
 ## Command pattern
 
-Invoke the bundled controller as `"{baseDir}/../../bin/dstack" ctl`; the package-relative locked mise launcher is the
-only supported command entry point. If tools are missing, report the launcher's portable recovery command rather than
-choosing an ambient substitute.
+Invoke the bundled controller as `"{baseDir}/../../bin/dstack" ctl`. The controller uses the package-relative locked
+runtime while preserving the caller repository as its working directory. Controller commands initialize Beads when needed and use packaged dStack formulas as authority without migrating
+historical tracked formula copies or creating persistent formula state.
 
-1. Run the relevant `"{baseDir}/../../bin/dstack" ctl ... inspect/claim` command.
-2. Read only the Bead, design, source, tests, and docs needed for the decision.
-3. Perform engineering work and validation.
-4. Use `"{baseDir}/../../bin/dstack" ctl git commit` for a real repository change.
-5. Use the relevant `finish-*` command for deterministic Beads transitions.
-
-Persist a Beads comment only for a product decision, material unresolved finding, accepted risk, deferred validation, or
-a meaningful final review outcome.
+Read only the Beads, design, source, tests, and docs needed for the current decision. Persist a Beads comment only for a
+product decision, material unresolved finding, accepted risk, deferred validation, or meaningful final review outcome.
