@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-DSTACK = ROOT / "bin/dstack"
+DSTACK = "dstack"
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
@@ -39,7 +39,7 @@ def run_json(cwd: Path, *args: str) -> Any:
 
 
 def run_ctl(cwd: Path, *args: str, check: bool = True) -> Any:
-    result = run_command([str(DSTACK), "ctl", "--root", str(cwd), *args], cwd=cwd, check=check)
+    result = run_command([DSTACK, "ctl", "--root", str(cwd), *args], cwd=cwd, check=check)
     if not result.returncode:
         try:
             return unwrap(json.loads(result.stdout))
@@ -75,7 +75,7 @@ def beads_repo(real_repo: Path) -> Path:
     )
     formula_dir = real_repo / ".beads/formulas"
     formula_dir.mkdir(parents=True, exist_ok=True)
-    for source in (ROOT / "formulas").glob("*.formula.toml"):
+    for source in (ROOT / "dstack/assets/formulas").glob("*.formula.toml"):
         shutil.copyfile(source, formula_dir / source.name)
     return real_repo
 

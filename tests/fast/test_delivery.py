@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import argparse
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstack_delivery
-from dstack_commands import DstackError
-from dstack_delivery import (
+from dstack import delivery as dstack_delivery
+from dstack.commands import DstackError
+from dstack.delivery import (
+    commit_with_message,
     delivered_alignment_evidence_audit,
     delivered_feature_evidence_audit,
     docs_check,
@@ -23,7 +22,7 @@ from dstack_delivery import (
     validate_delivery,
     validate_pr_copy,
 )
-from dstacklib import CommandResult, current_head
+from dstack.core import CommandResult, current_head
 
 from scripted import ScriptedClient, call
 

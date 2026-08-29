@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstack_docs
-from dstack_commands import (
+from dstack import docs as dstack_docs
+from dstack.commands import (
     ALIGNMENT_RECONCILIATION_SCAFFOLD,
     DESIGN_SCAFFOLD,
     RECORD_SUBJECTS,
@@ -214,7 +212,7 @@ def test_initialize_requires_mdbook_before_documentation_mutation(
 ) -> None:
     monkeypatch.setattr(dstack_docs.shutil, "which", lambda name: None)
 
-    with pytest.raises(DstackError, match="locked mdbook is unavailable"):
+    with pytest.raises(DstackError, match="mdbook is unavailable on PATH"):
         dstack_docs.initialize_docs(tmp_path)
 
     assert not (tmp_path / "docs").exists()

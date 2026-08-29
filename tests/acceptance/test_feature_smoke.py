@@ -6,8 +6,7 @@ from pathlib import Path
 
 from conftest import run_command, run_ctl, run_json
 
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-from dstack_commands import RECORD_SUBJECTS  # noqa: E402
+from dstack.commands import RECORD_SUBJECTS  # noqa: E402
 
 
 def semantic_record(kind: str) -> str:

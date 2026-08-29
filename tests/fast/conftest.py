@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = ROOT / "skills/dstack-beads-core/scripts"
 
 
 def make_git_repo(path: Path, *, branch: str = "main") -> Path:

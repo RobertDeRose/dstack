@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstack_compat
-import dstack_delivery
-import dstacklib
-from dstacklib import DstackError
+from dstack import compat as dstack_compat
+from dstack import delivery as dstack_delivery
+from dstack import core as dstacklib
+from dstack.core import DstackError
 
 from scripted import ScriptedClient, call
 

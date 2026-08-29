@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 
-from dstack_alignment_plan import (  # noqa: E402
+from dstack.alignment_plan import (  # noqa: E402
     LEGACY_SCHEMA,
     SCHEMA,
     canonical_plan_bytes,
@@ -16,7 +14,7 @@ from dstack_alignment_plan import (  # noqa: E402
     plan_digest,
     verify_correction_graph,
 )
-from dstacklib import DstackError  # noqa: E402
+from dstack.core import DstackError  # noqa: E402
 
 
 LEGACY_BASELINE = "a" * 40

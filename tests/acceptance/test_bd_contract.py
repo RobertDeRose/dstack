@@ -9,15 +9,14 @@ import pytest
 
 from conftest import DSTACK, ROOT, run_command, run_ctl, run_json
 
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-from dstack_commands import claim_ready_work, reopen_authorization_boundary
-from dstack_delivery import (
+from dstack.commands import claim_ready_work, reopen_authorization_boundary
+from dstack.delivery import (
     cancel_pr_gate,
     pr_gate_state,
     register_pr_gate,
     replace_pr_gates,
 )
-from dstacklib import BeadsClient, DstackError, root_metadata_value
+from dstack.core import BeadsClient, DstackError, root_metadata_value
 
 
 def items(payload):
@@ -94,8 +93,8 @@ import json
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-from dstack_commands import claim_ready_work
-from dstacklib import BeadsClient
+from dstack.commands import claim_ready_work
+from dstack.core import BeadsClient
 claimed = claim_ready_work(
     BeadsClient(Path.cwd()),
     parent_id=sys.argv[2],
@@ -110,7 +109,7 @@ print(json.dumps(claimed))
                 "-S",
                 "-c",
                 script,
-                str(ROOT / "skills/dstack-beads-core/scripts"),
+                str(ROOT),
                 parent["id"],
             ],
             cwd=beads_repo,

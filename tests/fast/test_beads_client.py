@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = ROOT / "skills/dstack-beads-core/scripts"
-sys.path.insert(0, str(SCRIPTS))
 
-import dstacklib
+from dstack import core as dstacklib
 
 
 def test_beads_read_cache_is_request_local_and_write_invalidated(

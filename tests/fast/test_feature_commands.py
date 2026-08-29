@@ -3,15 +3,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstack_feature
-from dstack_commands import DstackError, RECORD_SUBJECTS, release_claim
+from dstack import feature as dstack_feature
+from dstack.commands import DstackError, RECORD_SUBJECTS, release_claim
 
 from scripted import ScriptedClient, call
 
@@ -1463,7 +1461,7 @@ def test_claim_closeout_uses_native_atomic_ready_claim(monkeypatch, tmp_path: Pa
 
 
 def test_closeout_validation_rejects_missing_documentation_impact_target(monkeypatch, tmp_path: Path) -> None:
-    import dstack_docs
+    from dstack import docs as dstack_docs
 
     worktree = tmp_path / "worktree"
     dstack_docs.create_foundation(worktree)
@@ -1616,8 +1614,8 @@ def test_safe_design_file_rejects_escape(tmp_path: Path) -> None:
 
 
 def test_closeout_validation_rejects_untouched_reconciliation_scaffold(monkeypatch, tmp_path: Path) -> None:
-    import dstack_docs
-    from dstack_commands import RECONCILIATION_SCAFFOLD
+    from dstack import docs as dstack_docs
+    from dstack.commands import RECONCILIATION_SCAFFOLD
 
     worktree = tmp_path / "worktree"
     dstack_docs.create_foundation(worktree)

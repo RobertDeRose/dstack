@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 
-import dstack_feature  # noqa: E402
-from dstack_formula import FormulaAuditRequired  # noqa: E402
+from dstack import feature as dstack_feature  # noqa: E402
+from dstack.formula import FormulaAuditRequired  # noqa: E402
 
 from scripted import ScriptedClient, call  # noqa: E402
 

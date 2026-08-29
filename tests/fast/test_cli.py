@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import sys
+import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstack_cli
-from dstack_formula import FormulaAuditRequired
+from dstack import cli as dstack_cli
+from dstack.commands import task_text
+from dstack.formula import FormulaAuditRequired
 
 
 def leaves(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()):
@@ -25,7 +25,7 @@ def leaves(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()):
 
 
 def test_every_public_leaf_has_dispatch_handler() -> None:
-    found = dict(leaves(dstack_cli.build_parser()))
+    found = dict(leaves(dstack_cli.build_ctl_parser()))
     expected = (
         {
             ("feature", command)
@@ -88,7 +88,7 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
 
 
 def test_register_pr_help_describes_pre_merge_registration() -> None:
-    parser = dict(leaves(dstack_cli.build_parser()))[("delivery", "register-pr")]
+    parser = dict(leaves(dstack_cli.build_ctl_parser()))[("delivery", "register-pr")]
     help_text = parser.format_help()
     assert "open, unmerged" in help_text
     assert "pre-merge gate" in help_text
@@ -122,7 +122,6 @@ def test_ctl_reports_missing_input_files_as_json(monkeypatch, capsys, tmp_path: 
 
 
 def test_main_dispatches_in_process(monkeypatch, capsys) -> None:
-    monkeypatch.setenv("DSTACK_LOCKED_RUNTIME", "1")
     seen = {}
 
     def fake(args):
@@ -131,13 +130,12 @@ def test_main_dispatches_in_process(monkeypatch, capsys) -> None:
         return 0
 
     monkeypatch.setattr(dstack_cli, "cmd_feature_resolve", fake)
-    assert dstack_cli.main(["feature", "resolve", "feature-1"]) == 0
+    assert dstack_cli.ctl_main(["feature", "resolve", "feature-1"]) == 0
     assert seen["args"].selector == "feature-1"
     assert capsys.readouterr().out == '{"status":"ok"}\n'
 
 
 def test_formula_audit_required_is_machine_readable_exit_three(monkeypatch, capsys) -> None:
-    monkeypatch.setenv("DSTACK_LOCKED_RUNTIME", "1")
 
     def fake(args):
         raise FormulaAuditRequired(
@@ -153,7 +151,7 @@ def test_formula_audit_required_is_machine_readable_exit_three(monkeypatch, caps
         )
 
     monkeypatch.setattr(dstack_cli, "cmd_feature_claim_next", fake)
-    assert dstack_cli.main(["feature", "claim-next", "feature-1"]) == 3
+    assert dstack_cli.ctl_main(["feature", "claim-next", "feature-1"]) == 3
     error = capsys.readouterr().err
     assert '"status": "audit_required"' in error
     assert '"skill": "dstack-beads-review-feature-spec"' in error

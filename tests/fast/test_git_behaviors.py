@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstack_commands
-from dstack_commands import DstackError
-import dstacklib
-from dstacklib import (
+from dstack import commands as dstack_commands
+from dstack.commands import DstackError
+from dstack import core as dstacklib
+from dstack.core import (
     CommandResult,
     commit_footer_ids,
     conventional_worktree,

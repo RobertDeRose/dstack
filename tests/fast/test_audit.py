@@ -4,18 +4,16 @@ import argparse
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 
-import dstack_audit
-from dstack_commands import RECORD_SUBJECTS
-from dstack_delivery import delivered_candidate_revision, immutable_candidate_revision
-from dstacklib import ancestry, current_head
+from dstack import audit as dstack_audit
+from dstack.commands import RECORD_SUBJECTS
+from dstack.delivery import delivered_candidate_revision, immutable_candidate_revision
+from dstack.core import ancestry, current_head
 from scripted import ScriptedClient, call
 
 

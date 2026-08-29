@@ -3,18 +3,16 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 
-import dstack_alignment
-import dstack_alignment_plan
-from dstack_commands import DstackError, reopen_authorization_boundary
-from dstack_alignment_plan import canonical_plan_bytes, plan_digest
+from dstack import alignment as dstack_alignment
+from dstack import alignment_plan as dstack_alignment_plan
+from dstack.commands import DstackError, reopen_authorization_boundary
+from dstack.alignment_plan import canonical_plan_bytes, plan_digest
 
 
 def plan() -> dict:

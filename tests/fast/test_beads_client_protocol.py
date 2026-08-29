@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstacklib
+from dstack import core as dstacklib
 
 
 def client(tmp_path: Path) -> dstacklib.BeadsClient:

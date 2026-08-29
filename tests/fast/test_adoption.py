@@ -1,26 +1,17 @@
 from __future__ import annotations
 
-import copy
-import hashlib
-import json
-import os
-import signal
-import subprocess
-import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstack_adoption
-import dstack_adoption_apply
-import dstack_commands
-import dstack_compat
-import dstacklib
-from dstack_commands import DstackError
-from dstacklib import CommandResult, FEATURE_STEPS
+from dstack import adoption as dstack_adoption
+from dstack import adoption_apply as dstack_adoption_apply
+from dstack import commands as dstack_commands
+from dstack import compat as dstack_compat
+from dstack.commands import DstackError
+from dstack.core import FEATURE_STEPS
 
 from scripted import ScriptedClient, call
 

@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-import sys
+import threading
 import tomllib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
 
-from dstack_formula import (  # noqa: E402
+from dstack import formula as dstack_formula  # noqa: E402
+from dstack.formula import (  # noqa: E402
     FEATURE_FORMULA,
     formula_contract_version,
     pour_current_formula,
     validate_formula_contract,
 )
-from dstacklib import DstackError  # noqa: E402
+from dstack.core import DstackError  # noqa: E402
 
 
 def load(name: str) -> dict:
-    return tomllib.loads((ROOT / "formulas" / f"{name}.formula.toml").read_text())
+    return tomllib.loads((ROOT / "dstack/assets/formulas" / f"{name}.formula.toml").read_text())
 
 
 def test_feature_formula_is_minimal_and_uses_native_fan_in() -> None:
@@ -134,7 +134,9 @@ def test_formula_pour_uses_package_bytes_without_persistent_cache(git_repo: Path
 
         def pour(self, name, variables):
             assert name == "dstack-feature"
-            assert destination.read_bytes() == (ROOT / "formulas/dstack-feature.formula.toml").read_bytes()
+            assert (
+                destination.read_bytes() == (ROOT / "dstack/assets/formulas/dstack-feature.formula.toml").read_bytes()
+            )
             return {"root_id": "feature-1"}
 
     assert pour_current_formula(Client(), "dstack-feature", {"feature_title": "Demo"}) == {"root_id": "feature-1"}
@@ -155,7 +157,9 @@ def test_tracked_legacy_formula_is_not_migrated_and_pour_uses_package_bytes(tmp_
 
         def pour(self, name, variables):
             assert name == "dstack-feature"
-            assert destination.read_bytes() == (ROOT / "formulas/dstack-feature.formula.toml").read_bytes()
+            assert (
+                destination.read_bytes() == (ROOT / "dstack/assets/formulas/dstack-feature.formula.toml").read_bytes()
+            )
             return {"root_id": "feature-1"}
 
     assert destination.read_text() == "legacy tracked formula\n"

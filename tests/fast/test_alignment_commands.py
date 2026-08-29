@@ -2,18 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstack_alignment
-import dstack_delivery
-from dstack_commands import DstackError, RECORD_SUBJECTS
-from dstack_alignment_plan import plan_digest
-from dstacklib import CommandResult
+from dstack import alignment as dstack_alignment
+from dstack import delivery as dstack_delivery
+from dstack.commands import DstackError, RECORD_SUBJECTS
+from dstack.alignment_plan import plan_digest
+from dstack.core import CommandResult
 
 from scripted import ScriptedClient, call
 

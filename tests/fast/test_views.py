@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "skills/dstack-beads-core/scripts"))
-import dstacklib
-from dstacklib import ALIGNMENT_STEPS, FEATURE_STEPS
+from dstack import core as dstacklib
+from dstack.core import ALIGNMENT_STEPS, FEATURE_STEPS
 
 from scripted import ScriptedClient, call
 

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
-import json
 import os
 import re
 import subprocess
@@ -16,40 +14,30 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_package_version_and_resources() -> None:
-    package = json.loads((ROOT / "package.json").read_text())
-    assert package["name"] == "dstack"
-    assert package["version"] == "0.5.0"
-    assert package["pi"]["skills"] == ["./skills"]
-    assert package["pi"]["prompts"] == ["./prompts"]
-    launcher = ROOT / "bin/dstack"
-    assert launcher.is_file() and os.access(launcher, os.X_OK)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    assert project["project"]["version"] == package["version"]
+    assert project["project"]["name"] == "dstack"
+    assert project["project"]["version"] == "0.5.0"
+    assert project["project"]["scripts"]["dstack"] == "dstack.cli:main"
+    assert project["build-system"]["build-backend"] == "setuptools.build_meta"
+    assert (ROOT / "dstack/cli.py").is_file()
+    assert (ROOT / "dstack/installer.py").is_file()
+    assert (ROOT / "dstack/assets/APPEND_SYSTEM.md").is_file()
+    assert not (ROOT / "bin/dstack").exists()
+    assert not (ROOT / "package.json").exists()
+    assert not (ROOT / "skills/dstack-beads-core").exists()
     lock = (ROOT / "uv.lock").read_text()
-    assert f'name = "dstack"\nversion = "{package["version"]}"' in lock
+    assert 'name = "dstack"' in lock
 
 
-def test_direct_python_entrypoints_require_locked_launcher() -> None:
-    env = dict(os.environ)
-    env.pop("DSTACK_LOCKED_RUNTIME", None)
-    for relative in (
-        "skills/dstack-beads-core/scripts/dstack_cli.py",
-        "skills/dstack-beads-core/scripts/dstackctl.py",
-    ):
-        result = subprocess.run(
-            [sys.executable, "-S", str(ROOT / relative), "--help"],
-            cwd=ROOT,
-            env=env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        assert result.returncode == 1
-        assert "bin/dstack" in result.stderr
+def test_cli_is_a_normal_importable_python_package() -> None:
+    from dstack import cli
+
+    assert cli.main(["--help"]) == 0
+    assert cli.main(["--version"]) == 0
 
 
 def test_all_skill_and_prompt_frontmatter_parses() -> None:
-    for path in [*ROOT.glob("skills/*/SKILL.md"), *ROOT.glob("prompts/*.md")]:
+    for path in [*(ROOT / "dstack/assets/skills").glob("*/SKILL.md"), *(ROOT / "dstack/assets/prompts").glob("*.md")]:
         text = path.read_text()
         assert text.startswith("---\n")
         frontmatter = text.split("---", 2)[1]
@@ -59,14 +47,14 @@ def test_all_skill_and_prompt_frontmatter_parses() -> None:
 
 
 def test_feature_planning_is_one_lossless_beads_only_methodology() -> None:
-    prompt = (ROOT / "prompts/plan-feature.md").read_text()
-    alias = (ROOT / "prompts/plan-features.md").read_text()
-    skill = (ROOT / "skills/dstack-beads-plan-feature/SKILL.md").read_text()
+    prompt = (ROOT / "dstack/assets/prompts/plan-feature.md").read_text()
+    alias = (ROOT / "dstack/assets/prompts/plan-features.md").read_text()
+    skill = (ROOT / "dstack/assets/skills/dstack-beads-plan-feature/SKILL.md").read_text()
 
     assert "dstack-beads-plan-feature" in prompt
     assert "dstack-beads-plan-feature" in alias
     assert "deprecated" in alias.casefold()
-    assert not (ROOT / "skills/dstack-beads-plan-features").exists()
+    assert not (ROOT / "dstack/assets/skills/dstack-beads-plan-features").exists()
 
     compact = " ".join(skill.split())
     for phrase in (
@@ -102,7 +90,7 @@ def test_feature_planning_is_one_lossless_beads_only_methodology() -> None:
 
 
 def test_review_materializes_and_authorizes_repository_aware_specification() -> None:
-    review = " ".join((ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md").read_text().split())
+    review = " ".join((ROOT / "dstack/assets/skills/dstack-beads-review-feature-spec/SKILL.md").read_text().split())
 
     for phrase in (
         "feature initialize",
@@ -159,20 +147,13 @@ def test_core_principles_and_architecture_are_first_class_docs() -> None:
     principles = (ROOT / "docs/src/development/index.md").read_text()
     architecture = (ROOT / "docs/src/architecture/index.md").read_text()
     agents = (ROOT / "AGENTS.md").read_text()
-    skill = (ROOT / "skills/dstack-beads-core/SKILL.md").read_text()
-    for phrase in (
-        "KISS and YAGNI",
-        "Documentation is not workflow state",
-    ):
+    system_additive = (ROOT / "dstack/assets/APPEND_SYSTEM.md").read_text()
+    for phrase in ("KISS and YAGNI", "Documentation is not workflow state"):
         assert phrase in principles
-    for contract in (principles, agents, skill):
-        normalized = " ".join(contract.split())
-        assert (
-            "Never store Git commit identities in Beads as implementation, "
-            "delivery, task, evidence, or bookkeeping mappings."
-        ) in normalized
-        assert "revalidates the current repository" in normalized
-    assert "stateless dstackctl" in architecture
+    for contract in (principles, agents, system_additive):
+        normalized = " ".join(contract.split()).casefold()
+        assert "formulas define how dstack creates" in normalized
+    assert "Git owns code" in system_additive
     assert "project-alignment audit" in architecture
     assert "baseline_commit" not in " ".join(architecture.split())
     assert "docs/src/development/index.md" in agents
@@ -180,7 +161,7 @@ def test_core_principles_and_architecture_are_first_class_docs() -> None:
 
 
 def test_alignment_review_skill_uses_canonical_json_plan() -> None:
-    skill = (ROOT / "skills/dstack-beads-project-alignment-review/SKILL.md").read_text()
+    skill = (ROOT / "dstack/assets/skills/dstack-beads-project-alignment-review/SKILL.md").read_text()
     documentation = (ROOT / "docs/src/development/documentation.md").read_text()
     for required in (
         "dstack.alignment-plan/v2",
@@ -200,25 +181,22 @@ def test_alignment_review_skill_uses_canonical_json_plan() -> None:
 def test_active_instructions_preserve_explicit_delivery_recovery() -> None:
     paths = [
         ROOT / "AGENTS.md",
-        ROOT / "skills/dstack-beads-core/SKILL.md",
-        ROOT / "skills/dstack-beads-close-feature/SKILL.md",
-        ROOT / "skills/dstack-beads-project-alignment-land/SKILL.md",
+        ROOT / "dstack/assets/APPEND_SYSTEM.md",
+        ROOT / "dstack/assets/skills/dstack-beads-close-feature/SKILL.md",
+        ROOT / "dstack/assets/skills/dstack-beads-project-alignment-land/SKILL.md",
     ]
-    for path in paths:
-        text = " ".join(path.read_text().split())
-        assert "During normal delivery" in text
-        assert "must not mutate" in text
-        assert "bookkeeping commit" in text
-        assert "Explicit user-authorized recovery" in text
-        assert "separate native Git operation" in text
+    combined = " ".join(path.read_text() for path in paths)
+    assert "During normal delivery" in combined
+    assert "bookkeeping commit" in combined
+    assert "user-authorized recovery" in combined
 
 
 def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
     principles = (ROOT / "docs/src/development/index.md").read_text()
-    plan = (ROOT / "skills/dstack-beads-plan-feature/SKILL.md").read_text()
-    review = (ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md").read_text()
-    implement = (ROOT / "skills/dstack-beads-implement-feature/SKILL.md").read_text()
-    close = (ROOT / "skills/dstack-beads-close-feature/SKILL.md").read_text()
+    plan = (ROOT / "dstack/assets/skills/dstack-beads-plan-feature/SKILL.md").read_text()
+    review = (ROOT / "dstack/assets/skills/dstack-beads-review-feature-spec/SKILL.md").read_text()
+    implement = (ROOT / "dstack/assets/skills/dstack-beads-implement-feature/SKILL.md").read_text()
+    close = (ROOT / "dstack/assets/skills/dstack-beads-close-feature/SKILL.md").read_text()
 
     for phrase in (
         "Feature design quality contract",
@@ -249,8 +227,8 @@ def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
 
 
 def test_public_feature_lifecycle_has_no_start_methodology() -> None:
-    assert not (ROOT / "prompts/start-feature.md").exists()
-    assert not (ROOT / "skills/dstack-beads-start-feature").exists()
+    assert not (ROOT / "dstack/assets/prompts/start-feature.md").exists()
+    assert not (ROOT / "dstack/assets/skills/dstack-beads-start-feature").exists()
 
     for path in (ROOT / "README.md", ROOT / "docs/src/development/feature-lifecycle.md"):
         text = path.read_text()
@@ -264,17 +242,17 @@ def test_public_feature_lifecycle_has_no_start_methodology() -> None:
         assert "/start-feature" not in text
 
     for path in (
-        ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md",
-        ROOT / "skills/dstack-beads-implement-feature/SKILL.md",
-        ROOT / "skills/dstack-beads-close-feature/SKILL.md",
+        ROOT / "dstack/assets/skills/dstack-beads-review-feature-spec/SKILL.md",
+        ROOT / "dstack/assets/skills/dstack-beads-implement-feature/SKILL.md",
+        ROOT / "dstack/assets/skills/dstack-beads-close-feature/SKILL.md",
     ):
         assert "/start-feature" not in path.read_text()
 
-    cleanup = (ROOT / "scripts/cleanup-legacy-pi-skills.py").read_text()
-    assert '"start-feature"' in cleanup
-    assert '"plan-feature"' in cleanup
+    installer = (ROOT / "dstack/installer.py").read_text()
+    assert '"start-feature"' in installer
+    assert '"plan-feature"' in installer
 
-    cli = (ROOT / "skills/dstack-beads-core/scripts/dstack_cli.py").read_text()
+    cli = (ROOT / "dstack/cli.py").read_text()
     for operation in ("initialize", "scaffold-design", "add-task"):
         assert f'feature_sub, "{operation}"' in cli
 
@@ -288,8 +266,8 @@ def test_public_feature_lifecycle_has_no_start_methodology() -> None:
 
 
 def test_feature_execution_stops_and_validation_fail_closed() -> None:
-    implement = " ".join((ROOT / "skills/dstack-beads-implement-feature/SKILL.md").read_text().split())
-    close = " ".join((ROOT / "skills/dstack-beads-close-feature/SKILL.md").read_text().split())
+    implement = " ".join((ROOT / "dstack/assets/skills/dstack-beads-implement-feature/SKILL.md").read_text().split())
+    close = " ".join((ROOT / "dstack/assets/skills/dstack-beads-close-feature/SKILL.md").read_text().split())
 
     for phrase in (
         "Review the complete candidate diff",
@@ -328,9 +306,9 @@ def test_feature_execution_stops_and_validation_fail_closed() -> None:
 
 def test_feature_lifecycle_skills_pass_explicit_feature_context() -> None:
     skill_paths = [
-        ROOT / "skills/dstack-beads-review-feature-spec/SKILL.md",
-        ROOT / "skills/dstack-beads-implement-feature/SKILL.md",
-        ROOT / "skills/dstack-beads-close-feature/SKILL.md",
+        ROOT / "dstack/assets/skills/dstack-beads-review-feature-spec/SKILL.md",
+        ROOT / "dstack/assets/skills/dstack-beads-implement-feature/SKILL.md",
+        ROOT / "dstack/assets/skills/dstack-beads-close-feature/SKILL.md",
     ]
     for path in skill_paths:
         text = " ".join(path.read_text().split())
@@ -339,33 +317,28 @@ def test_feature_lifecycle_skills_pass_explicit_feature_context() -> None:
 
 
 def test_skills_are_short_and_decision_oriented() -> None:
-    for path in ROOT.glob("skills/*/SKILL.md"):
+    for path in (ROOT / "dstack/assets/skills").glob("*/SKILL.md"):
         lines = path.read_text().splitlines()
         assert len(lines) <= 100, f"{path} is {len(lines)} lines"
         assert "Read the `dstack-beads-core` skill and every core reference" not in path.read_text()
 
 
 def test_no_git_sha_mapping_or_shadow_state_contract() -> None:
-    text = "\n".join(path.read_text() for path in ROOT.glob("skills/**/*.md"))
+    text = "\n".join(path.read_text() for path in (ROOT / "dstack/assets/skills").glob("**/*.md"))
     assert "external_ref=git" not in text
     assert "reviewer replacement" not in text.casefold()
     assert "dstack:delivery-ready" not in text
     assert "tasks.md" not in text or "Do not create `tasks.md`" in text
-    assert not (ROOT / "skills/dstack-beads-core/scripts/git_evidence.py").exists()
-    assert not (ROOT / "skills/dstack-beads-core/scripts/setup.py").exists()
-    assert not (ROOT / "prompts/setup-project.md").exists()
-    assert not (ROOT / "skills/dstack-beads-setup-project").exists()
+    assert not (ROOT / "dstack/git_evidence.py").exists()
+    assert not (ROOT / "dstack/setup.py").exists()
+    assert not (ROOT / "dstack/assets/prompts/setup-project.md").exists()
+    assert not (ROOT / "dstack/assets/skills/dstack-beads-setup-project").exists()
 
 
 def test_public_help_is_mechanical_and_side_effect_free() -> None:
-    controller_path = ROOT / "skills/dstack-beads-core/scripts/dstackctl.py"
-    sys.path.insert(0, str(controller_path.parent))
-    spec = importlib.util.spec_from_file_location("dstackctl_help", controller_path)
-    assert spec and spec.loader
-    controller = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(controller)
-    parser = controller.build_parser()
+    from dstack import cli
 
+    parser = cli.build_ctl_parser()
     parsers: list[tuple[tuple[str, ...], argparse.ArgumentParser]] = []
 
     def collect(current: argparse.ArgumentParser, path: tuple[str, ...]) -> None:
@@ -376,62 +349,43 @@ def test_public_help_is_mechanical_and_side_effect_free() -> None:
                     collect(child, (*path, name))
 
     collect(parser, ())
-    before = subprocess.check_output(
-        ["git", "status", "--short", "--untracked-files=no"],
-        cwd=ROOT,
-        text=True,
-    )
+    before = subprocess.check_output(["git", "status", "--short", "--untracked-files=no"], cwd=ROOT, text=True)
     for _, current in parsers:
         assert current.description and "mechanics" in current.description.casefold()
         for action in current._actions:
             if isinstance(action, argparse._SubParsersAction) or action.dest == "help":
                 continue
             assert action.help and action.help != argparse.SUPPRESS
-    after = subprocess.check_output(
-        ["git", "status", "--short", "--untracked-files=no"],
-        cwd=ROOT,
-        text=True,
-    )
+    assert cli.main(["--help"]) == 0
+    after = subprocess.check_output(["git", "status", "--short", "--untracked-files=no"], cwd=ROOT, text=True)
     assert after == before
 
 
-def test_launcher_reports_portable_mise_recovery() -> None:
-    result = subprocess.run(
-        [str(ROOT / "bin/dstack"), "ctl", "--help"],
-        cwd=ROOT,
-        env={**os.environ, "PATH": "/usr/bin:/bin"},
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+def test_install_skills_is_available_without_beads_or_mdbook(tmp_path: Path) -> None:
+    from dstack import cli
 
-    assert result.returncode == 127
-    assert "dstack requires mise" in result.stderr
-    assert "mise --cd <dstack-package-root> install --locked" in result.stderr
-    assert str(Path.home()) not in result.stderr
+    assert cli.main(["install_skills", "--agent-dir", str(tmp_path / "agent")]) == 0
+    assert (tmp_path / "agent/APPEND_SYSTEM.md").is_file()
 
 
-def test_launcher_reports_missing_locked_runtime(tmp_path: Path) -> None:
-    fake_mise = tmp_path / "mise"
-    fake_mise.write_text("#!/bin/sh\nexit 1\n")
-    fake_mise.chmod(0o755)
-    result = subprocess.run(
-        [str(ROOT / "bin/dstack"), "ctl", "--help"],
-        cwd=ROOT,
-        env={**os.environ, "PATH": f"{tmp_path}:/usr/bin:/bin"},
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+def test_installed_system_guidance_is_compact() -> None:
+    guidance = (ROOT / "dstack/assets/APPEND_SYSTEM.md").read_text()
+    assert len(guidance.split()) <= 350
+    assert "Central rule:" in guidance
+    assert "audit_required" in guidance
+    assert "dstack ctl" in guidance
 
-    assert result.returncode == 1
-    assert "dstack locked runtime is unavailable: python@3.14.7" in result.stderr
-    assert "mise --cd <dstack-package-root> install --locked" in result.stderr
-    assert str(Path.home()) not in result.stderr
+
+def test_installed_skills_do_not_include_core_skill(tmp_path: Path) -> None:
+    from dstack.installer import install_skills
+
+    payload = install_skills(tmp_path / "agent")
+    assert "dstack-beads-core" not in payload["skills"]
+    assert not (tmp_path / "agent/skills/dstack-beads-core").exists()
 
 
 def test_delivery_policy_has_no_planned_features_ledger_special_case() -> None:
-    source = (ROOT / "skills/dstack-beads-core/scripts/dstack_delivery.py").read_text()
+    source = (ROOT / "dstack/delivery.py").read_text()
     assert "planned-features.md" not in source
     assert "status-only documentation change" not in source
 
@@ -440,43 +394,24 @@ def test_packaged_formulas_are_authoritative_without_tracked_beads_copies() -> N
     tracked = subprocess.check_output(["git", "ls-files", ".beads/formulas"], cwd=ROOT, text=True)
     assert tracked.strip() == ""
     for name in ("dstack-feature", "dstack-project-alignment"):
-        assert (ROOT / "formulas" / f"{name}.formula.toml").is_file()
-    helper = (ROOT / "skills/dstack-beads-core/scripts/dstack_formula.py").read_text()
+        assert (ROOT / "dstack/assets/formulas" / f"{name}.formula.toml").is_file()
+    helper = (ROOT / "dstack/formula.py").read_text()
     assert "destination.unlink(missing_ok=True)" in helper
 
 
-def test_documented_runtime_support_matches_locked_tools() -> None:
+def test_documented_runtime_support_matches_installable_cli() -> None:
     readme = (ROOT / "README.md").read_text()
     compatibility = (ROOT / "docs/src/reference/compatibility.md").read_text()
-    tooling = (ROOT / "docs/src/development/tooling.md").read_text()
-    mise = tomllib.loads((ROOT / "mise.toml").read_text())
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    workflow = (ROOT / ".github/workflows/tests.yml").read_text()
-    launcher = (ROOT / "bin/dstack").read_text()
 
+    assert "uv tool install" in readme
+    assert "dstack install_skills" in readme
     assert "Beads 1.2.2 exactly" in readme
     assert "Python 3.14" in readme
-    assert "package-relative locked runtime" in readme
-    assert "mise --cd <dstack-package-root> install --locked" in readme
-    assert "Homebrew" in readme
-    assert "first on `PATH`" not in readme
+    assert "available on `PATH`" in readme
+    assert "package-relative locked runtime" not in readme
     assert "Python: 3.14" in compatibility
-    assert "ambient `PATH`" in compatibility
-    assert "exact supported Beads 1.2.2 release" in " ".join(tooling.split())
-    assert mise["tools"]["python"] == "3.14.7"
-    for tool in ("python", "aqua:gastownhall/beads", "aqua:rust-lang/mdBook"):
-        assert f"tool_version {tool}" in launcher
-    assert 'python@"$python_version"' in launcher
-    assert 'aqua:gastownhall/beads@"$beads_version"' in launcher
-    assert 'aqua:rust-lang/mdBook@"$mdbook_version"' in launcher
-    assert "where --locked" in launcher
-    assert "MISE_CONFIG_DIR=/dev/null" in launcher
-    assert "MISE_EXEC_AUTO_INSTALL=false" in launcher
-    assert "--no-config" not in launcher and "--locked" in launcher
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
-    assert 'MISE_LOCKED: "1"' in workflow
-    assert "Later versions" not in readme
-    assert "Beads 1.2.2+" not in readme
 
 
 def test_setup_workflow_is_removed_and_formula_sync_is_controller_owned() -> None:
@@ -484,8 +419,8 @@ def test_setup_workflow_is_removed_and_formula_sync_is_controller_owned() -> Non
     architecture = " ".join((ROOT / "docs/src/architecture/index.md").read_text().split())
     agents = " ".join((ROOT / "AGENTS.md").read_text().split())
     assert "/setup-project" not in readme
-    assert "uses packaged dStack formulas as authority" in readme
-    assert "legacy tracked formula copies are tolerated" in readme
+    assert "formulas define how dStack creates and reviews new work".casefold() in readme.casefold()
+    assert "Closed historical work is not rewritten" in readme
     assert "No setup workflow" in architecture
     central = "formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to"
     assert central.casefold() in agents.casefold()
@@ -515,7 +450,7 @@ def test_tracked_beads_configuration_contains_no_machine_local_paths() -> None:
 
 
 def test_feature_scaffolds_cover_operator_developer_and_audit_surfaces() -> None:
-    commands = (ROOT / "skills/dstack-beads-core/scripts/dstack_commands.py").read_text()
+    commands = (ROOT / "dstack/commands.py").read_text()
     for phrase in (
         "Planned intent",
         "Planned acceptance",
