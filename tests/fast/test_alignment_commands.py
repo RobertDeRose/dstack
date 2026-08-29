@@ -18,6 +18,12 @@ from dstacklib import CommandResult
 from scripted import ScriptedClient, call
 
 
+@pytest.fixture(autouse=True)
+def _ignore_formula_version_stamps(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dstack_alignment, "stamp_created_formula_version", lambda *args, **kwargs: 8)
+    monkeypatch.setattr(dstack_alignment, "stamp_formula_version", lambda *args, **kwargs: 8)
+
+
 def alignment_plan_json() -> str:
     return json.dumps(
         {
@@ -178,7 +184,6 @@ def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_p
         return value
 
     monkeypatch.setattr(dstack_alignment, "alignment_context", observed)
-    monkeypatch.setattr(dstack_alignment, "require_installed_formula", lambda *args: None)
     monkeypatch.setattr(dstack_alignment, "branch_exists", lambda *args: True)
     monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path / "worktree")
     output = []
@@ -1052,7 +1057,6 @@ def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
         "alignment_context",
         lambda *args: (_ for _ in ()).throw(DstackError("alignment selector resolved to 0 roots")),
     )
-    monkeypatch.setattr(dstack_alignment, "require_installed_formula", lambda *args: None)
     monkeypatch.setattr(
         dstack_alignment,
         "ensure_branch_worktree",

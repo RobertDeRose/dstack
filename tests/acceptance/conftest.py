@@ -70,7 +70,7 @@ def real_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 def beads_repo(real_repo: Path) -> Path:
     run_command(
-        ["bd", "init", "--quiet", "--skip-agents", "--skip-hooks", "--non-interactive"],
+        ["bd", "init", "--quiet", "--stealth", "--skip-agents", "--skip-hooks", "--non-interactive"],
         cwd=real_repo,
     )
     formula_dir = real_repo / ".beads/formulas"
@@ -82,24 +82,12 @@ def beads_repo(real_repo: Path) -> Path:
 
 @pytest.fixture
 def acceptance_repo(real_repo: Path) -> Path:
-    planned = run_command(
-        [str(DSTACK), "setup", "plan", "--root", str(real_repo), "--init"],
-        cwd=real_repo,
-    )
-    digest = json.loads(planned.stdout)["plan_sha256"]
-    run_command(
-        [
-            str(DSTACK),
-            "setup",
-            "apply",
-            "--root",
-            str(real_repo),
-            "--init",
-            "--plan-digest",
-            digest,
-        ],
-        cwd=real_repo,
-    )
-    run_command(["git", "add", "-A"], cwd=real_repo)
-    run_command(["git", "commit", "-qm", "chore: initialize dstack"], cwd=real_repo)
+    result = run_command([str(DSTACK), "ctl", "infra", "check"], cwd=real_repo)
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert Path(payload["root"]) == real_repo.resolve()
+    assert payload["formula_versions"]["dstack-feature"] == 9
+    assert payload["formula_versions"]["dstack-project-alignment"] == 8
+    # Automatic infrastructure must not create a repository setup boundary.
+    assert run_command(["git", "status", "--porcelain=v1"], cwd=real_repo).stdout == ""
     return real_repo

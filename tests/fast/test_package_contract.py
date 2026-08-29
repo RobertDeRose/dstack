@@ -35,7 +35,6 @@ def test_direct_python_entrypoints_require_locked_launcher() -> None:
     for relative in (
         "skills/dstack-beads-core/scripts/dstack_cli.py",
         "skills/dstack-beads-core/scripts/dstackctl.py",
-        "skills/dstack-beads-core/scripts/setup.py",
     ):
         result = subprocess.run(
             [sys.executable, "-S", str(ROOT / relative), "--help"],
@@ -125,8 +124,8 @@ def test_review_materializes_and_authorizes_repository_aware_specification() -> 
         assert phrase in review
     assert review.index("feature initialize") < review.index("feature claim-spec")
     assert review.index("feature claim-spec") < review.index("feature scaffold-design")
-    assert review.index("feature scaffold-design") < review.index("feature inspect")
-    assert review.index("feature inspect") < review.index("explicit human authorization")
+    assert review.index("feature scaffold-design") < review.rindex("feature inspect")
+    assert review.rindex("feature inspect") < review.index("explicit human authorization")
     assert review.index("explicit human authorization") < review.index("feature approve-spec")
 
 
@@ -353,8 +352,9 @@ def test_no_git_sha_mapping_or_shadow_state_contract() -> None:
     assert "dstack:delivery-ready" not in text
     assert "tasks.md" not in text or "Do not create `tasks.md`" in text
     assert not (ROOT / "skills/dstack-beads-core/scripts/git_evidence.py").exists()
-    setup = (ROOT / "skills/dstack-beads-core/scripts/setup.py").read_text()
-    assert "DSTACK_FAKE_BD_STATE" not in setup
+    assert not (ROOT / "skills/dstack-beads-core/scripts/setup.py").exists()
+    assert not (ROOT / "prompts/setup-project.md").exists()
+    assert not (ROOT / "skills/dstack-beads-setup-project").exists()
 
 
 def test_public_help_is_mechanical_and_side_effect_free() -> None:
@@ -387,16 +387,6 @@ def test_public_help_is_mechanical_and_side_effect_free() -> None:
             if isinstance(action, argparse._SubParsersAction) or action.dest == "help":
                 continue
             assert action.help and action.help != argparse.SUPPRESS
-    result = subprocess.run(
-        [str(ROOT / "bin/dstack"), "ctl", "--help"],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "usage:" in result.stdout
-    assert "mechanics" in result.stdout.casefold()
     after = subprocess.check_output(
         ["git", "status", "--short", "--untracked-files=no"],
         cwd=ROOT,
@@ -446,11 +436,13 @@ def test_delivery_policy_has_no_planned_features_ledger_special_case() -> None:
     assert "status-only documentation change" not in source
 
 
-def test_formula_install_copies_match_canonical_sources() -> None:
+def test_packaged_formulas_are_authoritative_without_tracked_beads_copies() -> None:
+    tracked = subprocess.check_output(["git", "ls-files", ".beads/formulas"], cwd=ROOT, text=True)
+    assert tracked.strip() == ""
     for name in ("dstack-feature", "dstack-project-alignment"):
-        canonical = ROOT / "formulas" / f"{name}.formula.toml"
-        installed = ROOT / ".beads/formulas" / f"{name}.formula.toml"
-        assert installed.read_bytes() == canonical.read_bytes()
+        assert (ROOT / "formulas" / f"{name}.formula.toml").is_file()
+    helper = (ROOT / "skills/dstack-beads-core/scripts/dstack_formula.py").read_text()
+    assert "destination.unlink(missing_ok=True)" in helper
 
 
 def test_documented_runtime_support_matches_locked_tools() -> None:
@@ -487,11 +479,16 @@ def test_documented_runtime_support_matches_locked_tools() -> None:
     assert "Beads 1.2.2+" not in readme
 
 
-def test_workflow_commit_boundary_excludes_setup_configuration() -> None:
-    readme = (ROOT / "README.md").read_text()
-    architecture = (ROOT / "docs/src/architecture/index.md").read_text()
-    assert "commit the stable setup boundary separately with native Git" in " ".join(readme.split())
-    assert "separate native Git setup boundary" in " ".join(architecture.split())
+def test_setup_workflow_is_removed_and_formula_sync_is_controller_owned() -> None:
+    readme = " ".join((ROOT / "README.md").read_text().split())
+    architecture = " ".join((ROOT / "docs/src/architecture/index.md").read_text().split())
+    agents = " ".join((ROOT / "AGENTS.md").read_text().split())
+    assert "/setup-project" not in readme
+    assert "uses packaged dStack formulas as authority" in readme
+    assert "legacy tracked formula copies are tolerated" in readme
+    assert "No setup workflow" in architecture
+    central = "formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to"
+    assert central.casefold() in agents.casefold()
 
 
 def test_acceptance_preflight_fails_without_bd(tmp_path: Path) -> None:

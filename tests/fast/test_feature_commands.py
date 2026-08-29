@@ -16,6 +16,25 @@ from dstack_commands import DstackError, RECORD_SUBJECTS, release_claim
 from scripted import ScriptedClient, call
 
 
+@pytest.fixture(autouse=True)
+def _stable_formula_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dstack_feature, "stamp_created_formula_version", lambda *args, **kwargs: 9)
+    monkeypatch.setattr(dstack_feature, "stamp_formula_version", lambda *args, **kwargs: 9)
+    monkeypatch.setattr(dstack_feature, "stamp_feature_formula_contract", lambda *args, **kwargs: 9)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_formula_contract_state",
+        lambda *args, **kwargs: {
+            "state": "current",
+            "audit_required": False,
+            "formula": "dstack-feature",
+            "created_version": 9,
+            "audited_version": 9,
+            "current_version": 9,
+        },
+    )
+
+
 def semantic_record(kind: str) -> str:
     lines = ["# Record", ""]
     for subject in RECORD_SUBJECTS[kind]:
@@ -203,7 +222,6 @@ def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, 
         "resolve_feature",
         lambda client, selector: (_ for _ in ()).throw(DstackError("no feature matches selector")),
     )
-    monkeypatch.setattr(dstack_feature, "require_installed_formula", lambda *args: None)
     monkeypatch.setattr(
         dstack_feature,
         "ensure_feature_worktree",
@@ -248,6 +266,7 @@ def test_add_task_delegates_acceptance_and_dependencies(monkeypatch, tmp_path: P
             priority=1,
             result={"id": "task-1"},
         ),
+        call("show", "task-1", result={"id": "task-1"}),
     )
     output = patch_command(monkeypatch, dstack_feature, beads)
     args = argparse.Namespace(

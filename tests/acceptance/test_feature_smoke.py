@@ -43,153 +43,6 @@ def resolved_id(repo: Path, selector: str) -> str:
     return run_ctl(repo, "feature", "resolve", selector)["root"]["id"]
 
 
-def test_setup_apply_verifies_real_beads_postconditions(acceptance_repo: Path, tmp_path: Path) -> None:
-    issue = items(
-        run_json(
-            acceptance_repo,
-            "create",
-            "Legacy setup state",
-            "--type",
-            "epic",
-            "--labels",
-            "workflow:feature,feature:setup-postconditions,dstack:delivery-ready",
-        )
-    )[0]
-    implementation = items(
-        run_json(
-            acceptance_repo,
-            "create",
-            "Legacy implementation coordinator",
-            "--type",
-            "epic",
-            "--parent",
-            issue["id"],
-            "--labels",
-            "workflow:feature,feature:setup-postconditions,dstack:step:implementation,keep:child",
-        )
-    )[0]
-    task = items(
-        run_json(
-            acceptance_repo,
-            "create",
-            "Legacy identity-free implementation bug",
-            "--type",
-            "bug",
-            "--parent",
-            implementation["id"],
-            "--labels",
-            "workflow:feature,keep:task",
-        )
-    )[0]
-    task = items(run_json(acceptance_repo, "close", task["id"], "--reason", "Historical fix delivered"))[0]
-    run_json(
-        acceptance_repo,
-        "update",
-        issue["id"],
-        "--set-metadata",
-        "base_branch=main",
-        "--set-metadata",
-        "branch=legacy",
-    )
-    run_json(
-        acceptance_repo,
-        "update",
-        implementation["id"],
-        "--set-metadata",
-        "dstack.base_branch=main",
-    )
-    template_id = "dstack-feature.template"
-    run_json(
-        acceptance_repo,
-        "create",
-        "Legacy persisted formula template",
-        "--type",
-        "epic",
-        "--id",
-        template_id,
-        "--labels",
-        "template",
-        "--force",
-    )
-    interaction = acceptance_repo / ".beads/interactions.jsonl"
-    interaction.write_bytes(b"legacy audit baseline\n")
-    run_command(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=acceptance_repo)
-    run_command(["git", "rm", ".beads/.gitignore"], cwd=acceptance_repo)
-    run_command(["git", "commit", "-qm", "test: create legacy setup boundary"], cwd=acceptance_repo)
-    interaction.write_bytes(b"legacy staged audit\n")
-    run_command(["git", "add", "--force", ".beads/interactions.jsonl"], cwd=acceptance_repo)
-    expected_interaction = b"legacy unstaged audit\n"
-    interaction.write_bytes(expected_interaction)
-
-    planned = run_command(
-        [str(DSTACK), "setup", "plan", "--root", str(acceptance_repo), "--force"],
-        cwd=acceptance_repo,
-    )
-    payload = json.loads(planned.stdout)
-    mutations = payload["mutation_plan"]["beads_issues"]
-    mutation_ids = [mutation["issue_id"] for mutation in mutations]
-    assert len(mutation_ids) == len(set(mutation_ids))
-    assert {issue["id"], implementation["id"], task["id"]} <= set(mutation_ids)
-    assert payload["mutation_plan"]["template_deletions"] == [
-        {"action": "delete", "issue_id": template_id, "precondition": "is-template"}
-    ]
-    assert {tuple(sorted(item.items())) for item in payload["beads"]} >= {
-        tuple(sorted({"action": "delete-template", "target": template_id}.items()))
-    }
-    assert (
-        next(item for item in payload["mutation_plan"]["filesystem"] if item["destination"] == ".beads/.gitignore")[
-            "action"
-        ]
-        == "create"
-    )
-    plan_file = tmp_path / "reviewed-plan.json"
-    plan_file.write_text(json.dumps(payload))
-    applied = json.loads(
-        run_command(
-            [
-                str(DSTACK),
-                "setup",
-                "apply",
-                "--root",
-                str(acceptance_repo),
-                "--force",
-                "--plan-file",
-                str(plan_file),
-                "--plan-digest",
-                payload["plan_sha256"],
-            ],
-            cwd=acceptance_repo,
-        ).stdout
-    )
-    migration_worktree = Path(applied["worktree"])
-    observed = items(run_json(acceptance_repo, "show", issue["id"]))[0]
-    assert observed["metadata"]["dstack.base_branch"] == "main"
-    assert "base_branch" not in observed["metadata"]
-    assert "branch" not in observed["metadata"]
-    assert "dstack:delivery-ready" not in observed["labels"]
-    for descendant, unrelated in ((implementation, "keep:child"), (task, "keep:task")):
-        observed = items(run_json(acceptance_repo, "show", descendant["id"]))[0]
-        assert observed["status"] == descendant["status"]
-        assert "workflow:feature" not in observed["labels"]
-        assert "feature:setup-postconditions" not in observed["labels"]
-        assert unrelated in observed["labels"]
-    observed_implementation = items(run_json(acceptance_repo, "show", implementation["id"]))[0]
-    assert "dstack.base_branch" not in observed_implementation.get("metadata", {})
-    assert interaction.read_bytes() == expected_interaction
-    assert (
-        run_command(
-            ["git", "ls-files", "--error-unmatch", ".beads/interactions.jsonl"],
-            cwd=acceptance_repo,
-            check=False,
-        ).returncode
-        == 0
-    )
-    assert run_command(["bd", "show", template_id, "--json"], cwd=acceptance_repo, check=False).returncode != 0
-    migration_interaction = migration_worktree / ".beads/interactions.jsonl"
-    assert migration_interaction.read_bytes() == b"legacy audit baseline\n"
-    run_command(["git", "worktree", "remove", "--force", str(migration_worktree)], cwd=acceptance_repo)
-
-
 def test_no_change_alignment_landing_has_no_git_candidate(
     acceptance_repo: Path,
 ) -> None:
@@ -520,6 +373,29 @@ External blocker B replaces blocker A.
     assert approved["approved_design_sha256"] == hashlib.sha256(head_design).hexdigest()
     approved_root = items(run_json(acceptance_repo, "show", root_id))[0]
     assert "dstack.pending_design_sha256" not in approved_root.get("metadata", {})
+    assert int(approved_root["metadata"]["dstack.created_formula_version"]) == 9
+    assert int(approved_root["metadata"]["dstack.formula_version"]) == 9
+
+    # Formula contract drift is an internal semantic audit boundary, not a migration.
+    run_json(
+        acceptance_repo,
+        "update",
+        root_id,
+        "--set-metadata",
+        "dstack.formula_version=8",
+    )
+    stale = run_ctl(acceptance_repo, "feature", "claim-next", root_id, check=False)
+    assert stale.returncode == 3
+    stale_payload = json.loads(stale.stderr)
+    assert stale_payload["status"] == "audit_required"
+    assert stale_payload["from_version"] == 8
+    assert stale_payload["to_version"] == 9
+    assert stale_payload["skill"] == "dstack-beads-review-feature-spec"
+    run_ctl(acceptance_repo, "feature", "audit-complete", root_id)
+    audited_root = items(run_json(acceptance_repo, "show", root_id))[0]
+    assert int(audited_root["metadata"]["dstack.formula_version"]) == 9
+    audited_task = items(run_json(acceptance_repo, "show", task["id"]))[0]
+    assert int(audited_task["metadata"]["dstack.formula_version"]) == 9
     late_refused = run_ctl(
         acceptance_repo,
         "feature",
