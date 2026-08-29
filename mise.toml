@@ -22,3 +22,7 @@ run = "mdbook build docs"
 description = "Serve the documentation site locally"
 usage = 'arg "[port]" help="Port to serve on" default="3000"'
 run = 'mdbook serve docs --port "${usage_port:-3000}"'
+
+[tasks."release-check"]
+description = "Build and verify release artifacts from a clean clone"
+run = "./scripts/release-check.sh"
