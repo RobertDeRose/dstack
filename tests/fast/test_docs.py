@@ -332,11 +332,6 @@ def test_validation_rejects_noncanonical_book_source(tmp_path: Path, monkeypatch
         dstack_docs.validate_docs(tmp_path)
 
 
-
-
-
-
-
 REPRESENTATIVE_MIGRATIONS = {
     "distributed": {
         "summary": (
