@@ -12,7 +12,9 @@ from dstack.commands import DstackError
 from dstack import core as dstacklib
 from dstack.core import (
     CommandResult,
+    canonical_positive_integer,
     commit_footer_ids,
+    commits_for_bead,
     conventional_worktree,
     ensure_clean_tracked,
     validate_git_branch,
@@ -20,6 +22,23 @@ from dstack.core import (
     verify_worktree_identity,
     worktree_records,
 )
+
+
+def test_read_only_client_does_not_initialize_beads(git_repo: Path) -> None:
+    assert not (git_repo / ".beads").exists()
+    with pytest.raises(DstackError, match="Beads is not initialized"):
+        dstack_commands.client_for(git_repo, initialize=False)
+    assert not (git_repo / ".beads").exists()
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "+1", "01", " 1", "1 "])
+def test_positive_integer_parser_rejects_noncanonical_values(value: str) -> None:
+    with pytest.raises(DstackError, match="positive canonical integer"):
+        canonical_positive_integer(value, field="PR number")
+
+
+def test_positive_integer_parser_accepts_canonical_value() -> None:
+    assert canonical_positive_integer("42", field="PR number") == 42
 
 
 def test_commit_footer_audit_handles_multiple_footers(git_repo: Path) -> None:
@@ -34,6 +53,31 @@ def test_commit_footer_audit_handles_multiple_footers(git_repo: Path) -> None:
     result = commit_footer_ids(git_repo, "HEAD~1..HEAD")
     assert set(result) == {"task-1", "task-2"}
     assert result["task-1"][0]["paths"] == ["change.py"]
+
+
+def test_targeted_commit_evidence_uses_fixed_footer_query(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[tuple[str, ...]] = []
+    output = (
+        "\x1eabc123\x00exact\x00exact\n\nBeads: task-1\n\x00\nfile.py\n"
+        "\x1edef456\x00prefix\x00prefix\n\nBeads: task-10\n\x00\nother.py\n"
+    )
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        del cwd, check, kwargs
+        calls.append(tuple(command))
+        if command[:2] == ["git", "rev-parse"]:
+            return CommandResult(0, "resolved\n", "")
+        if command[:2] == ["git", "log"]:
+            assert "--fixed-strings" in command
+            assert "--grep=Beads: task-1" in command
+            return CommandResult(0, output, "")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    assert commits_for_bead(tmp_path, "main..feature", "task-1") == [
+        {"commit": "abc123", "subject": "exact", "paths": ["file.py"]}
+    ]
+    assert sum(call[:2] == ("git", "log") for call in calls) == 1
 
 
 def test_clean_tracked_ignores_untracked_but_rejects_tracked(git_repo: Path) -> None:
@@ -177,3 +221,48 @@ def test_created_worktree_verification_failure_cleans_without_hiding_primary(
     if not cleanup_fails:
         assert not worktree.exists()
         assert "feat/topic" not in branches
+
+
+def test_failed_creator_does_not_remove_concurrent_worker_worktree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    worktree = conventional_worktree(root, "feat/topic")
+    registered = False
+    branches = {"main"}
+    calls: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(dstack_commands, "validate_git_branch", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(dstack_commands, "validate_git_revision", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(dstack_commands, "ancestry", lambda *args: True)
+    monkeypatch.setattr(dstack_commands, "branch_exists", lambda root, branch: branch in branches)
+
+    def worktree_for_branch(root: Path, branch: str) -> Path | None:
+        del root, branch
+        return worktree if registered else None
+
+    monkeypatch.setattr(dstack_commands, "worktree_for_branch", worktree_for_branch)
+
+    def fake_run(command, **kwargs):
+        nonlocal registered
+        del kwargs
+        calls.append(tuple(command))
+        if command[:3] == ["git", "branch", "--"]:
+            branches.add(command[3])
+            return CommandResult(0, "", "")
+        if command[:3] == ["bd", "worktree", "create"]:
+            worktree.mkdir(parents=True)
+            registered = True
+            raise DstackError("another worker created the worktree")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstack_commands, "run", fake_run)
+    with pytest.raises(DstackError, match="another worker"):
+        dstack_commands.ensure_feature_worktree(SimpleNamespace(root=root), "topic", "main")
+
+    assert worktree.exists()
+    assert "feat/topic" in branches
+    assert not any(call[:3] == ("bd", "worktree", "remove") for call in calls)
+    assert not any(call[:3] == ("git", "branch", "-D") for call in calls)

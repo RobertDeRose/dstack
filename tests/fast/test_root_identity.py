@@ -99,8 +99,20 @@ def test_adoption_accepts_parentless_metadata_only_legacy_root(tmp_path: Path, m
         call("show_optional", "legacy", result=legacy),
         call("children", "legacy", result=[]),
     )
-    monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
-    monkeypatch.setattr(dstack_compat, "descendants", lambda *args: [])
+    monkeypatch.setattr(dstack_compat, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(
+        dstack_compat,
+        "adoption_graph_snapshot",
+        lambda *args: {
+            "legacy_root_id": "legacy",
+            "legacy_ids": ["legacy"],
+            "legacy_records": [legacy],
+            "native_records": [legacy],
+            "internal": [],
+            "outgoing_external": [],
+            "incoming_external": [],
+        },
+    )
     output = []
     monkeypatch.setattr(dstack_compat, "emit", output.append)
 

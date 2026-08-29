@@ -458,15 +458,12 @@ def test_active_legacy_alignment_delivery_requires_re_review(monkeypatch, tmp_pa
         "root": {"id": "alignment-1", "status": "open"},
         "steps": {"analysis": {"id": "analysis-1"}, "corrections": {"id": "corrections-1"}},
     }
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "analysis-1", result={"id": "analysis-1"}),
-    )
+    beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context)
     monkeypatch.setattr(
         dstack_delivery,
-        "canonical_description",
-        lambda analysis: ({"schema": "dstack.alignment-plan/v1"}, "", ""),
+        "require_alignment_authorized",
+        lambda *args: (_ for _ in ()).throw(DstackError("alignment requires re-review")),
     )
 
     with pytest.raises(DstackError, match="re-review"):
@@ -476,7 +473,7 @@ def test_active_legacy_alignment_delivery_requires_re_review(monkeypatch, tmp_pa
 
 def test_alignment_delivery_context_excludes_structural_children(monkeypatch, tmp_path: Path) -> None:
     context = {
-        "root": {"id": "alignment-1"},
+        "root": {"id": "alignment-1", "status": "closed"},
         "steps": {
             "analysis": {"id": "analysis-1"},
             "corrections": {"id": "corrections-1"},
@@ -503,7 +500,7 @@ def test_alignment_delivery_context_excludes_structural_children(monkeypatch, tm
     monkeypatch.setattr(
         dstack_delivery,
         "canonical_description",
-        lambda analysis: ({"schema": "dstack.alignment-plan/v2"}, "", ""),
+        lambda *args: ({"schema": "dstack.alignment-review/v1"}, "", ""),
     )
     observed = dstack_delivery.alignment_delivery_context(beads, "alignment-1")
     assert "baseline_commit" not in observed
@@ -520,21 +517,13 @@ def test_alignment_delivery_context_revalidates_authorization(monkeypatch, tmp_p
             "corrections": {"id": "corrections-1"},
             "landing": {"id": "landing-1", "status": "closed"},
         },
-        "approved_alignment_plan_sha256": "approved",
-        "pending_alignment_plan_sha256": None,
     }
     beads = ScriptedClient(
         tmp_path,
-        call("show", "analysis-1", result={"id": "analysis-1"}),
         call("children", "corrections-1", result=[]),
     )
     authorized: list[dict] = []
     monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context.copy())
-    monkeypatch.setattr(
-        dstack_delivery,
-        "canonical_description",
-        lambda analysis: ({"schema": "dstack.alignment-plan/v2"}, "", ""),
-    )
     monkeypatch.setattr(
         dstack_delivery,
         "require_alignment_authorized",
@@ -550,7 +539,7 @@ def test_alignment_delivery_context_revalidates_authorization(monkeypatch, tmp_p
 
 def test_evidence_audit_command_returns_controller_owned_result(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(
         dstack_delivery,
         "feature_delivery_context",
@@ -1002,7 +991,7 @@ def test_delivery_inspect_and_preflight_validate_observed_candidate(monkeypatch,
         candidate_head="candidate",
         remote_candidate_head="candidate",
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
     monkeypatch.setattr(dstack_delivery, "delivery_inspection", lambda *args: candidate)
     commands = []
@@ -1032,6 +1021,48 @@ def test_delivery_inspect_and_preflight_validate_observed_candidate(monkeypatch,
     assert outputs[-1]["candidate_head"] == "candidate"
 
 
+def test_delivery_inspect_fetches_before_one_inspection(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(tmp_path)
+    events: list[str] = []
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
+
+    def fake_run(command, **kwargs):
+        del kwargs
+        if command[:3] == ["git", "remote", "get-url"]:
+            events.append("remote")
+            return CommandResult(0, "origin\n", "")
+        if command[:2] == ["git", "fetch"]:
+            events.append("fetch")
+            return CommandResult(0, "", "")
+        raise AssertionError(command)
+
+    def inspect(*args):
+        events.append("inspect")
+        return {"root": {"id": "feature-1"}}
+
+    monkeypatch.setattr(dstack_delivery, "run", fake_run)
+    monkeypatch.setattr(dstack_delivery, "delivery_inspection", inspect)
+    monkeypatch.setattr(dstack_delivery, "emit", lambda payload: None)
+
+    assert (
+        dstack_delivery.cmd_delivery_inspect(argparse.Namespace(root=tmp_path, selector="feature-1", fetch=True)) == 0
+    )
+    assert events == ["remote", "fetch", "inspect"]
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "+1", "01"])
+def test_pr_gate_functions_reject_noncanonical_numbers(value: str) -> None:
+    with pytest.raises(DstackError, match="positive canonical integer"):
+        dstack_delivery.register_pr_gate(object(), "feature-1", value)  # type: ignore[arg-type]
+    with pytest.raises(DstackError, match="positive canonical integer"):
+        dstack_delivery.replace_pr_gates(
+            object(),  # type: ignore[arg-type]
+            "feature-1",
+            value,
+            "replace invalid gate",
+        )
+
+
 def test_register_pr_creates_native_gate_only_for_pushed_candidate(monkeypatch, tmp_path: Path) -> None:
     gate = {"id": "gate-1", "await_type": "gh:pr"}
     beads = ScriptedClient(
@@ -1052,7 +1083,7 @@ def test_register_pr_creates_native_gate_only_for_pushed_candidate(monkeypatch, 
         candidate_head="candidate",
         remote_candidate_head="candidate",
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1095,7 +1126,7 @@ def test_register_pr_returns_the_same_unique_gate(monkeypatch, tmp_path: Path) -
         candidate_head="candidate",
         remote_candidate_head="candidate",
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1164,7 +1195,7 @@ def test_register_pr_rejects_conflicting_or_duplicate_gates_without_mutation(
         candidate_head="candidate",
         remote_candidate_head="candidate",
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1226,7 +1257,7 @@ def test_replace_pr_gate_repairs_conflicting_closed_gate(monkeypatch, tmp_path: 
         candidate_head="candidate",
         remote_candidate_head="candidate",
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1284,7 +1315,7 @@ def test_cancel_pr_gate_replaces_blocker_with_native_relation(monkeypatch, tmp_p
         call("show", "gate-1", result=closed_gate),
         call("show", "feature-1", result=related_root),
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "_delivery_root", lambda *args: blocking_root)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1469,7 +1500,7 @@ def test_delivery_merge_rejects_incomplete_gate_cancellation(monkeypatch, tmp_pa
     root = {"id": "feature-1", "dependencies": []}
     beads = ScriptedClient(tmp_path, call("show", "feature-1", result=root))
     candidate = payload(root=root, candidate_worktree=str(tmp_path / "candidate"))
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1494,7 +1525,7 @@ def test_delivery_merge_refuses_active_pr_gate_before_git_mutation(monkeypatch, 
         root={"id": "feature-1"},
         candidate_worktree=str(tmp_path / "candidate"),
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: candidate)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1524,7 +1555,7 @@ def test_delivery_merge_rechecks_candidate_after_target_preparation(monkeypatch,
         candidate_branch="feat/feature",
         candidate_head="closeout-head",
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1568,7 +1599,7 @@ def test_delivery_merge_checks_post_delivery_git_invariant(monkeypatch, tmp_path
         candidate_branch="feat/feature",
         candidate_head="candidate-head",
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1623,7 +1654,7 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
         candidate_branch="feat/feature",
         candidate_head="candidate-head",
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     monkeypatch.setattr(
         dstack_delivery,
@@ -1687,7 +1718,7 @@ def test_finalization_close_failure_reports_partial_delivery(monkeypatch, tmp_pa
 
 def test_finalize_pr_validates_candidate_before_gate_check(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(
         dstack_delivery,
         "delivery_view",
@@ -1728,7 +1759,7 @@ def test_finalize_pr_rechecks_candidate_after_fetch_and_target_preparation(monke
         candidate_head="closeout-head",
         candidate_worktree=str(candidate),
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     monkeypatch.setattr(dstack_delivery, "worktree_for_branch", lambda *args: target)
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda *args: None)
@@ -1766,7 +1797,7 @@ def test_finalize_pr_waits_without_closing_root(monkeypatch, tmp_path: Path) -> 
         candidate_head="candidate",
         remote_matches_local=False,
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     outputs = []
     monkeypatch.setattr(dstack_delivery, "emit", outputs.append)
@@ -1799,7 +1830,7 @@ def test_finalize_pr_refuses_dirty_worktree_before_closing_root(monkeypatch, tmp
         candidate_head="candidate-head",
         candidate_worktree=str(candidate),
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
     monkeypatch.setattr(
@@ -1867,7 +1898,7 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
         candidate_head="candidate-head",
         candidate_worktree=str(candidate),
     )
-    monkeypatch.setattr(dstack_delivery, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
     monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda *args: None)

@@ -66,6 +66,13 @@ def test_formula_contract_rejects_extra_stable_step() -> None:
         validate_formula_contract("dstack-feature", formula)
 
 
+def test_formula_contract_rejects_duplicate_step_ids() -> None:
+    formula = load("dstack-feature")
+    formula["steps"].append(dict(formula["steps"][0]))
+    with pytest.raises(DstackError, match="duplicate step ID"):
+        validate_formula_contract("dstack-feature", formula)
+
+
 def test_infrastructure_checks_beads_before_initializing(monkeypatch, tmp_path: Path) -> None:
     events: list[str] = []
 

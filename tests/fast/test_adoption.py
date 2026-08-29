@@ -16,6 +16,23 @@ from dstack.core import FEATURE_STEPS
 from scripted import ScriptedClient, call
 
 
+def adoption_snapshot(
+    root: dict[str, Any],
+    *descendants: dict[str, Any],
+    native_records: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    records = [root, *descendants]
+    return {
+        "legacy_root_id": str(root["id"]),
+        "legacy_ids": sorted(str(item["id"]) for item in records),
+        "legacy_records": sorted(records, key=lambda item: str(item["id"])),
+        "native_records": sorted(native_records or records, key=lambda item: str(item["id"])),
+        "internal": [],
+        "outgoing_external": [],
+        "incoming_external": [],
+    }
+
+
 def test_compatibility_shims_have_reproducers_and_retirement_conditions() -> None:
     assert {shim["name"] for shim in dstack_compat.COMPATIBILITY_SHIMS} == {
         "like-kind-approval-milestone",
@@ -116,13 +133,11 @@ def test_adoption_plan_includes_native_executable_kinds(tmp_path: Path, kind: st
             }
         ],
     }
-    task = {"id": "task-1", "status": "open", "issue_type": kind}
+    root = {"id": "legacy-1", "status": "open", "issue_type": "epic"}
+    task = {"id": "task-1", "status": "open", "issue_type": kind, "parent": "legacy-1"}
     beads = ScriptedClient(
         tmp_path,
-        call("show", "legacy-1", result={"id": "legacy-1", "status": "open"}),
-        call("children", "legacy-1", result=[task]),
-        call("children", "task-1", result=[]),
-        call("list", all_statuses=True, result=[]),
+        call("list", all_statuses=True, result=[root, task]),
         call("gates", all_statuses=True, result=[]),
     )
     plan = dstack_adoption.plan_adoption(beads, "legacy-1", classification)
@@ -148,13 +163,11 @@ def test_adoption_plan_rejects_documentation_replacements_before_mutation(tmp_pa
             }
         ],
     }
-    task = {"id": "task-1", "status": "open", "issue_type": "task"}
+    root = {"id": "legacy-1", "status": "open", "issue_type": "epic"}
+    task = {"id": "task-1", "status": "open", "issue_type": "task", "parent": "legacy-1"}
     beads = ScriptedClient(
         tmp_path,
-        call("show", "legacy-1", result={"id": "legacy-1", "status": "open"}),
-        call("children", "legacy-1", result=[task]),
-        call("children", "task-1", result=[]),
-        call("list", all_statuses=True, result=[]),
+        call("list", all_statuses=True, result=[root, task]),
         call("gates", all_statuses=True, result=[]),
     )
     with pytest.raises(DstackError, match="sole final reconciliation"):
@@ -163,17 +176,17 @@ def test_adoption_plan_rejects_documentation_replacements_before_mutation(tmp_pa
 
 
 def test_adoption_plan_fails_closed_missing_native_status_or_type(tmp_path: Path) -> None:
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "legacy-1", result={"id": "legacy-1", "status": "open"}),
-        call("children", "legacy-1", result=[{"id": "task-1", "issue_type": "task"}]),
-        call("children", "task-1", result=[]),
+    beads = ScriptedClient(tmp_path)
+    snapshot = adoption_snapshot(
+        {"id": "legacy-1", "status": "open", "issue_type": "epic"},
+        {"id": "task-1", "issue_type": "task"},
     )
     with pytest.raises(DstackError, match="lacks native status/type"):
         dstack_adoption.plan_adoption(
             beads,
             "legacy-1",
             {"schema": dstack_adoption.SCHEMA, "legacy_root_id": "legacy-1", "entries": []},
+            snapshot=snapshot,
         )
     beads.assert_exhausted()
 
@@ -202,13 +215,10 @@ def test_adoption_plan_translates_root_blocker_to_approval_step(tmp_path: Path) 
         "issue_type": "epic",
         "dependencies": [{"depends_on_id": "blocker", "type": "blocks"}],
     }
-    task = {"id": "task-1", "status": "open", "issue_type": "task"}
+    task = {"id": "task-1", "status": "open", "issue_type": "task", "parent": "legacy-1"}
     blocker = {"id": "blocker", "status": "open", "issue_type": "task"}
     beads = ScriptedClient(
         tmp_path,
-        call("show", "legacy-1", result=root),
-        call("children", "legacy-1", result=[task]),
-        call("children", "task-1", result=[]),
         call("list", all_statuses=True, result=[root, task, blocker]),
         call("gates", all_statuses=True, result=[]),
     )
@@ -244,13 +254,10 @@ def test_adoption_plan_includes_gate_and_native_supersession_edges(tmp_path: Pat
         "issue_type": "epic",
         "dependencies": [{"depends_on_id": "gate-1", "type": "supersedes"}],
     }
-    task = {"id": "task-1", "status": "open", "issue_type": "task"}
+    task = {"id": "task-1", "status": "open", "issue_type": "task", "parent": "legacy-1"}
     gate = {"id": "gate-1", "status": "open", "issue_type": "gate"}
     beads = ScriptedClient(
         tmp_path,
-        call("show", "legacy-1", result=root),
-        call("children", "legacy-1", result=[task]),
-        call("children", "task-1", result=[]),
         call("list", all_statuses=True, result=[root, task]),
         call("gates", all_statuses=True, result=[gate]),
     )
@@ -654,15 +661,21 @@ def test_execute_adoption_adds_replacement_edge_before_removing_legacy_edge() ->
 def test_adopt_apply_validates_plan_before_pouring_or_other_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    legacy = {"id": "legacy-1", "status": "open", "title": "Feature: Old"}
+    legacy = {
+        "id": "legacy-1",
+        "status": "open",
+        "issue_type": "epic",
+        "title": "Feature: Old",
+    }
+    task = {"id": "task-1", "status": "open", "issue_type": "task", "title": "Work"}
+    snapshot = adoption_snapshot(legacy, task)
     beads = ScriptedClient(tmp_path)
-    monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_compat, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_compat, "resolve_legacy_feature", lambda *args: legacy)
     monkeypatch.setattr(dstack_compat, "is_current_feature", lambda *args: False)
-    invalid = tmp_path / "classification.json"
-    invalid.write_text(
-        '{"schema":"dstack.adoption-classification/v1","legacy_root_id":"legacy-1","entries":[],"unknown":true}'
-    )
+    monkeypatch.setattr(dstack_compat, "adoption_graph_snapshot", lambda *args: snapshot)
+    poured: list[bool] = []
+    monkeypatch.setattr(dstack_compat, "pour_current_formula", lambda *args, **kwargs: poured.append(True))
     args = type(
         "Args",
         (),
@@ -673,15 +686,21 @@ def test_adopt_apply_validates_plan_before_pouring_or_other_mutation(
             "slug": "old",
             "base_branch": "main",
             "design_path": None,
-            "classification_file": invalid,
-            "remaining": [],
+            "remaining": ["foreign-task"],
             "spec_ceremony": [],
             "implementation_coordinator": [],
             "closeout_ceremony": [],
+            "preserve": [],
+            "reparent": [],
+            "recreate": [],
+            "incorporated_decision": [],
+            "decision_blocker": [],
+            "completed": [],
         },
     )()
-    with pytest.raises(DstackError, match="unknown"):
+    with pytest.raises(DstackError, match="not a descendant"):
         dstack_compat.cmd_adopt_apply(args)
+    assert poured == []
     beads.assert_exhausted()
 
 
@@ -693,18 +712,13 @@ def test_adoption_classification_rejects_foreign_and_omitted_open_work(
         "legacy_root_id": "legacy-1",
         "entries": [],
     }
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "legacy-1", result={"id": "legacy-1", "status": "open"}),
-        call(
-            "children",
-            "legacy-1",
-            result=[{"id": "task-1", "status": "open", "issue_type": "task"}],
-        ),
-        call("children", "task-1", result=[]),
+    beads = ScriptedClient(tmp_path)
+    snapshot = adoption_snapshot(
+        {"id": "legacy-1", "status": "open", "issue_type": "epic"},
+        {"id": "task-1", "status": "open", "issue_type": "task"},
     )
     with pytest.raises(DstackError, match="omits open executable"):
-        dstack_adoption.plan_adoption(beads, "legacy-1", base)
+        dstack_adoption.plan_adoption(beads, "legacy-1", base, snapshot=snapshot)
     beads.assert_exhausted()
 
 
@@ -744,9 +758,6 @@ def test_adoption_plan_inventories_both_external_relationship_directions(
     blocker = {"id": "outside-blocker", "status": "open", "issue_type": "task"}
     beads = ScriptedClient(
         tmp_path,
-        call("show", "legacy-1", result=legacy),
-        call("children", "legacy-1", result=[task]),
-        call("children", "task-1", result=[]),
         call("list", all_statuses=True, result=[legacy, task, outside, blocker]),
         call("gates", all_statuses=True, result=[]),
     )
@@ -795,16 +806,23 @@ def test_adoption_rejects_multiple_current_slug_matches(tmp_path: Path, monkeypa
 
 
 def test_adopt_inspect_classifies_without_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    legacy = {"id": "legacy-1", "status": "open", "title": "Feature: Old"}
+    legacy = {
+        "id": "legacy-1",
+        "status": "open",
+        "issue_type": "epic",
+        "title": "Feature: Old",
+    }
+    old_task = {
+        "id": "old-task",
+        "status": "open",
+        "issue_type": "task",
+        "title": "Implement: old",
+    }
     beads = ScriptedClient(tmp_path)
-    monkeypatch.setattr(dstack_compat, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_compat, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_compat, "resolve_legacy_feature", lambda *args: legacy)
     monkeypatch.setattr(dstack_compat, "is_current_feature", lambda *args: False)
-    monkeypatch.setattr(
-        dstack_compat,
-        "descendants",
-        lambda *args: [{"id": "old-task", "status": "open", "title": "Implement: old"}],
-    )
+    monkeypatch.setattr(dstack_compat, "adoption_graph_snapshot", lambda *args: adoption_snapshot(legacy, old_task))
     output = []
     monkeypatch.setattr(dstack_compat, "emit", output.append)
     args = type("Args", (), {"root": tmp_path, "selector": "legacy-1"})()

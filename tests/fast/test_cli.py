@@ -33,6 +33,7 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
                 "resolve",
                 "inspect",
                 "initialize",
+                "plan",
                 "scaffold-design",
                 "scaffold-reconciliation",
                 "add-task",
@@ -79,7 +80,7 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
                 "finalize-pr",
             )
         }
-        | {("adopt", command) for command in ("plan", "inspect", "apply")}
+        | {("adopt", command) for command in ("inspect", "apply")}
         | {("audit", "feature")}
         | {("infra", "check")}
     )

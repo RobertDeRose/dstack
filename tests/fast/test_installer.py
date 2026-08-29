@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
+from dstack import installer as dstack_installer
 from dstack.core import DstackError
 from dstack.installer import SYSTEM_BEGIN, SYSTEM_END, default_agent_dir, install_skills
 
@@ -71,7 +73,7 @@ def test_install_skills_rejects_duplicate_managed_system_blocks(tmp_path: Path) 
     assert system.read_text() == original
 
 
-def test_install_skills_removes_stale_core_skill(tmp_path: Path) -> None:
+def test_install_skills_preserves_unmarked_stale_core_skill(tmp_path: Path) -> None:
     agent = tmp_path / "agent"
     stale = agent / "skills/dstack-beads-core"
     stale.mkdir(parents=True)
@@ -79,34 +81,22 @@ def test_install_skills_removes_stale_core_skill(tmp_path: Path) -> None:
 
     install_skills(agent)
 
-    assert not stale.exists()
+    assert stale.exists()
 
 
-def test_install_skills_preserves_extra_files_in_stale_skill(tmp_path: Path) -> None:
-    agent = tmp_path / "agent"
-    stale = agent / "skills/dstack-beads-core"
-    stale.mkdir(parents=True)
-    (stale / "SKILL.md").write_text("legacy dStack core")
-    note = stale / "user-notes.md"
-    note.write_text("keep this\n")
-
-    install_skills(agent)
-
-    assert not (stale / "SKILL.md").exists()
-    assert note.read_text() == "keep this\n"
-
-
-def test_install_skills_removes_only_recognizable_legacy_dstack_resources(tmp_path: Path) -> None:
+def test_install_skills_removes_only_owned_legacy_dstack_resources(tmp_path: Path) -> None:
     agent = tmp_path / "agent"
     stale = agent / "skills/start-feature"
     stale.mkdir(parents=True)
-    (stale / "SKILL.md").write_text("---\nname: start-feature\n---\nOld dStack workflow\n")
+    (stale / "SKILL.md").write_text("---\nname: start-feature\ndstack-managed: true\n---\nOld dStack workflow\n")
     unrelated = agent / "skills/setup-project"
     unrelated.mkdir(parents=True)
     (unrelated / "SKILL.md").write_text("---\nname: setup-project\n---\nUnrelated setup helper\n")
     stale_prompt = agent / "prompts/setup-project.md"
     stale_prompt.parent.mkdir(parents=True)
-    stale_prompt.write_text("Load the old dStack setup workflow.\n")
+    stale_prompt.write_text(
+        "---\nname: setup-project\ndstack-managed: true\n---\nLoad the old dStack setup workflow.\n"
+    )
 
     payload = install_skills(agent)
 
@@ -121,3 +111,13 @@ def test_default_agent_dir_honors_environment(monkeypatch, tmp_path: Path) -> No
     configured = tmp_path / "pi-agent"
     monkeypatch.setenv("PI_CODING_AGENT_DIR", str(configured))
     assert default_agent_dir() == configured
+
+
+def test_installer_filesystem_error_uses_json_contract(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "not-a-directory"
+    target.write_text("occupied\n")
+
+    assert dstack_installer.main(["--agent-dir", str(target)]) == 1
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["status"] == "error"
+    assert "cannot install dStack agent resources" in payload["error"]

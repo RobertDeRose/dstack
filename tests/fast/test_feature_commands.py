@@ -115,7 +115,7 @@ def patch_command(monkeypatch, module, beads, current=None):
 def test_resolve_and_inspect_emit_observed_state(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
     current = view()
-    monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(
         dstack_feature,
         "resolve_feature",
@@ -145,7 +145,7 @@ def test_default_design_path_rejects_noncanonical_slug(tmp_path: Path, slug: str
 
 def test_initialize_rejects_option_like_base_before_beads_mutation(monkeypatch, git_repo: Path) -> None:
     beads = ScriptedClient(git_repo)
-    monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
     with pytest.raises(DstackError, match="invalid base branch"):
         dstack_feature.cmd_feature_initialize(
             argparse.Namespace(
@@ -162,7 +162,7 @@ def test_initialize_rejects_option_like_base_before_beads_mutation(monkeypatch, 
 
 def test_initialize_rejects_design_path_outside_mdbook_features(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
-    monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
     monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
     monkeypatch.setattr(
@@ -214,7 +214,7 @@ def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, 
             result={"id": "feature-1"},
         ),
     )
-    monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(
         dstack_feature,
         "resolve_feature",
@@ -1678,3 +1678,17 @@ def test_finish_closeout_refuses_untracked_worktree_before_beads_mutation(monkey
             )
         )
     beads.assert_exhausted()
+
+
+@pytest.mark.parametrize("relative", ["docs/src/features/index.md", "docs/src/SUMMARY.md"])
+def test_feature_navigation_rejects_symlinked_destination(tmp_path: Path, relative: str) -> None:
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside\n")
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.symlink_to(outside)
+
+    with pytest.raises(DstackError, match="must not traverse a symlink"):
+        dstack_feature.ensure_feature_navigation(tmp_path, slug="feature", title="Feature")
+
+    assert outside.read_text() == "outside\n"

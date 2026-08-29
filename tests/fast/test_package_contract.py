@@ -65,15 +65,11 @@ def test_feature_planning_is_one_lossless_beads_only_methodology() -> None:
         "Failure and compatibility expectations",
         "Documentation expectations",
         "Deferred questions",
-        "bd create",
-        "bd update",
+        "feature plan",
         "--title",
         "--body-file",
         "--acceptance",
         "--priority",
-        "bd show",
-        "bd dep add",
-        "bd dep remove",
         "open planned feature",
         "current molecule",
         "stable",
@@ -160,22 +156,24 @@ def test_core_principles_and_architecture_are_first_class_docs() -> None:
     assert "post-merge bookkeeping commit" in agents
 
 
-def test_alignment_review_skill_uses_canonical_json_plan() -> None:
+def test_alignment_review_skill_uses_beads_native_authority() -> None:
     skill = (ROOT / "dstack/assets/skills/dstack-beads-project-alignment-review/SKILL.md").read_text()
     documentation = (ROOT / "docs/src/development/documentation.md").read_text()
+    compact = " ".join(skill.split())
     for required in (
-        "dstack.alignment-plan/v2",
-        "current repository",
-        "accepted_corrections",
-        "documentation_impact",
-        "alignment finish-plan AUDIT --plan-file PLAN.json",
+        "current specifications",
+        "alignment add-correction",
+        "documentation impact",
+        "alignment finish-plan AUDIT --summary-file",
+        "do not create a packet",
     ):
-        assert required in skill
-    for obsolete in ("scaffold-record plan", "--summary-file", "Not applicable"):
+        assert required.casefold() in compact.casefold()
+    for obsolete in ("dstack.alignment-plan/", "PLAN.json", "--plan-file", "accepted_corrections"):
         assert obsolete not in skill
-    assert "Alignment plans use strict `dstack.alignment-plan/v2` JSON" in documentation
-    assert "alignment plan/reconciliation records" not in documentation
-    assert "documentation is deferred to the final closeout or landing" in " ".join(documentation.split())
+    normalized_docs = " ".join(documentation.split())
+    assert "Alignment review authority is Beads-native" in documentation
+    assert "does not create an external plan packet" in normalized_docs
+    assert "Documentation is deferred to the final closeout or landing".casefold() in normalized_docs.casefold()
 
 
 def test_active_instructions_preserve_explicit_delivery_recovery() -> None:

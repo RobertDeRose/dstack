@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 from dstack import audit as dstack_audit
 from dstack.commands import RECORD_SUBJECTS
 from dstack.delivery import delivered_candidate_revision, immutable_candidate_revision
-from dstack.core import ancestry, current_head
+from dstack.core import DstackError, ancestry, current_head
 from scripted import ScriptedClient, call
 
 
@@ -158,7 +158,7 @@ def test_audit_command_does_not_initialize_beads(monkeypatch, git_repo: Path, tm
     bd.chmod(0o755)
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
 
-    with pytest.raises(dstack_audit.DstackError, match="returned 0 issues"):
+    with pytest.raises(dstack_audit.DstackError, match="Beads is not initialized"):
         dstack_audit.cmd_audit_feature(argparse.Namespace(root=git_repo, selector="feature-1", format="json"))
 
     assert not (git_repo / ".beads").exists()
@@ -458,3 +458,14 @@ def test_audit_reports_malformed_record(monkeypatch, tmp_path: Path) -> None:
     assert payload["documentation"]["design"]["status"] == "malformed"
     assert "design:malformed" in payload["missing_observations"]
     assert payload["documentation"]["reconciliation"]["status"] == "missing"
+
+
+def test_live_audit_rejects_symlinked_feature_document(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Outside\n")
+    design = tmp_path / "docs/src/features/audit/design.md"
+    design.parent.mkdir(parents=True)
+    design.symlink_to(outside)
+
+    with pytest.raises(DstackError, match="must not traverse a symlink"):
+        dstack_audit.record_fact(design, "feature-design", tmp_path)

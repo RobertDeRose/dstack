@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -103,6 +104,41 @@ def test_invalid_json_has_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     )
     with pytest.raises(dstacklib.DstackError, match="bd list .*returned invalid JSON"):
         client(tmp_path).list()
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({}, "unknown object shape"),
+        ({"items": {}}, "must be an array"),
+        ({"items": [], "data": []}, "unknown object shape"),
+        ([{"title": "missing id"}], "has no issue ID"),
+        (["not an issue"], "is not an object"),
+    ],
+)
+def test_issue_payload_parser_rejects_malformed_native_shapes(payload: object, message: str) -> None:
+    with pytest.raises(dstacklib.DstackError, match=message):
+        dstacklib.as_items(payload, context="test payload")
+
+
+def test_issue_payload_parser_accepts_a_valid_empty_result() -> None:
+    assert dstacklib.as_items([], context="test payload") == []
+
+
+def test_comment_file_is_closed_before_native_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    handle = tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8", delete=False)
+    path = Path(handle.name)
+    monkeypatch.setattr(dstacklib, "write_temp_text", lambda text: handle)
+    beads = client(tmp_path)
+
+    def run_comment(command: list[str]) -> dstacklib.CommandResult:
+        assert command == ["bd", "comments", "add", "task-1", "-f", str(path)]
+        assert handle.closed
+        return dstacklib.CommandResult(0, "", "")
+
+    beads._run = run_comment  # type: ignore[method-assign]
+    beads.add_comment("task-1", "evidence")
+    assert not path.exists()
 
 
 def test_ready_claim_delegates_to_native_ready_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

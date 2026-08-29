@@ -20,6 +20,19 @@ def test_markdown_values_is_public_and_ignores_code() -> None:
     assert dstack_docs.markdown_values(text, dstack_docs.LINK_PATTERN) == ["docs/index.md"]
 
 
+def test_markdown_values_preserves_balanced_and_escaped_parentheses() -> None:
+    text = (
+        "[one](path/file_(variant).md) "
+        "[nested](path/file_(one_(two)).md) "
+        r"[escaped](path/file_\(escaped\).md)"
+    )
+    assert dstack_docs.markdown_values(text, dstack_docs.LINK_PATTERN) == [
+        "path/file_(variant).md",
+        "path/file_(one_(two)).md",
+        r"path/file_\(escaped\).md",
+    ]
+
+
 REQUIRED = {
     "docs/book.toml",
     "docs/src/SUMMARY.md",

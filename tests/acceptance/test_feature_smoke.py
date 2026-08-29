@@ -71,43 +71,19 @@ def test_no_change_alignment_landing_has_no_git_candidate(
         "--acceptance",
         "The correction closes without repository changes.",
     )["correction"]
-    plan_file = acceptance_repo.parent / "no-change-alignment-plan.json"
-    plan_file.write_text(
-        json.dumps(
-            {
-                "schema": "dstack.alignment-plan/v2",
-                "scope": "whole repository",
-                "findings": [],
-                "accepted_corrections": [
-                    {
-                        "title": correction["title"],
-                        "description": correction["description"],
-                        "acceptance": correction["acceptance_criteria"],
-                        "priority": correction["priority"],
-                        "depends_on": [],
-                    }
-                ],
-                "rejected_corrections": [],
-                "validation_expectations": ["No repository changes are required."],
-                "documentation_impact": {
-                    "end_user_operator": [],
-                    "developer_reviewer": [],
-                    "future_auditor": [],
-                },
-                "deferred_findings": [],
-                "accepted_risks": [],
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+    review_file = acceptance_repo.parent / "no-change-alignment-review.md"
+    review_file.write_text(
+        "# Alignment review\n\n"
+        "The repository already satisfies the reviewed requirement. The native correction graph records the "
+        "single verification task and no repository change is expected.\n"
     )
     run_ctl(
         acceptance_repo,
         "alignment",
         "finish-plan",
         root_id,
-        "--plan-file",
-        str(plan_file),
+        "--summary-file",
+        str(review_file),
     )
     run_ctl(acceptance_repo, "alignment", "approve", root_id)
     run_ctl(acceptance_repo, "alignment", "claim-next", root_id)
@@ -558,43 +534,19 @@ External blocker B replaces blocker A.
             "Landing waits for every direct child.",
         )
     )[0]
-    alignment_plan = acceptance_repo.parent / "alignment-plan.json"
-    alignment_plan.write_text(
-        json.dumps(
-            {
-                "schema": "dstack.alignment-plan/v2",
-                "scope": "whole repository",
-                "findings": [],
-                "accepted_corrections": [
-                    {
-                        "title": correction["title"],
-                        "description": correction.get("description")
-                        or "Implement aligned behavior in the acceptance repository.",
-                        "acceptance": correction["acceptance_criteria"],
-                        "priority": correction["priority"],
-                        "depends_on": [],
-                    },
-                    {
-                        "title": native_correction["title"],
-                        "description": native_correction.get("description") or "Preserve fan-in acceptance behavior.",
-                        "acceptance": native_correction["acceptance_criteria"],
-                        "priority": native_correction["priority"],
-                        "depends_on": [correction["title"]],
-                    },
-                ],
-                "rejected_corrections": [],
-                "validation_expectations": ["Acceptance scenario"],
-                "documentation_impact": {
-                    "end_user_operator": [],
-                    "developer_reviewer": [],
-                    "future_auditor": [],
-                },
-                "deferred_findings": [],
-                "accepted_risks": [],
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+    alignment_review = acceptance_repo.parent / "alignment-review.md"
+    alignment_review.write_text(
+        "# Alignment review\n\n"
+        "The correction graph contains the accepted repository change and a native fan-in verification task. "
+        "Current Git and Beads state will be revalidated at execution and delivery.\n"
+    )
+    run_ctl(
+        acceptance_repo,
+        "alignment",
+        "finish-plan",
+        alignment_root,
+        "--summary-file",
+        str(alignment_review),
     )
     run_command(
         ["bd", "dep", "add", native_correction["id"], unrelated["id"], "--type", "related"],
@@ -603,25 +555,15 @@ External blocker B replaces blocker A.
     drifted = run_ctl(
         acceptance_repo,
         "alignment",
-        "finish-plan",
+        "approve",
         alignment_root,
-        "--plan-file",
-        str(alignment_plan),
         check=False,
     )
     assert drifted.returncode != 0
-    assert "graph changed" in drifted.stderr
+    assert "review identity" in drifted.stderr
     run_command(
         ["bd", "dep", "remove", native_correction["id"], unrelated["id"]],
         cwd=acceptance_repo,
-    )
-    run_ctl(
-        acceptance_repo,
-        "alignment",
-        "finish-plan",
-        alignment_root,
-        "--plan-file",
-        str(alignment_plan),
     )
     run_ctl(acceptance_repo, "alignment", "approve", alignment_root)
     late_correction_refused = run_ctl(

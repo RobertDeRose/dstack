@@ -196,25 +196,6 @@ def test_real_adoption_keeps_incoming_dependent_blocked(beads_repo: Path) -> Non
         ["bd", "dep", "add", dependent["id"], child["id"], "--type", "blocks"],
         cwd=beads_repo,
     )
-    classification = {
-        "schema": "dstack.adoption-classification/v1",
-        "legacy_root_id": legacy["id"],
-        "entries": [
-            {
-                "legacy_id": child["id"],
-                "classification": "remaining-implementation",
-                "reason": "product work remains",
-                "replacement": {
-                    "title": "Remaining work",
-                    "description": "Continue the remaining work.",
-                    "acceptance": "The work is complete.",
-                    "priority": 2,
-                },
-            }
-        ],
-    }
-    classification_file = beads_repo / "classification.json"
-    classification_file.write_text(json.dumps(classification))
     result = run_ctl(
         beads_repo,
         "adopt",
@@ -224,8 +205,8 @@ def test_real_adoption_keeps_incoming_dependent_blocked(beads_repo: Path) -> Non
         "Adopted feature",
         "--slug",
         "adopted-feature",
-        "--classification-file",
-        str(classification_file),
+        "--remaining",
+        child["id"],
     )
     replacement_id = result["mapping"][child["id"]]
     dependent_after = items(run_json(beads_repo, "show", dependent["id"]))[0]

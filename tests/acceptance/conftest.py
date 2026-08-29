@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,8 +18,30 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         pytest.exit("real Beads is required: install bd on PATH", returncode=1)
 
 
-def run_command(command: list[str], *, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, cwd=cwd, check=False, text=True, capture_output=True)
+def run_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    check: bool = True,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    effective_timeout = timeout or float(os.environ.get("DSTACK_ACCEPTANCE_COMMAND_TIMEOUT", "120"))
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            check=False,
+            text=True,
+            capture_output=True,
+            timeout=effective_timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else exc.stdout or ""
+        stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else exc.stderr or ""
+        raise AssertionError(
+            f"command timed out after {effective_timeout:g}s ({' '.join(command)}) in {cwd}:\n"
+            f"stdout={stdout}\nstderr={stderr}"
+        ) from exc
     if check and result.returncode:
         raise AssertionError(f"command failed ({' '.join(command)}):\nstdout={result.stdout}\nstderr={result.stderr}")
     return result

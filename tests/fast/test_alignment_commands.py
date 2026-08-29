@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import pytest
@@ -10,7 +9,6 @@ ROOT = Path(__file__).resolve().parents[2]
 from dstack import alignment as dstack_alignment
 from dstack import delivery as dstack_delivery
 from dstack.commands import DstackError, RECORD_SUBJECTS
-from dstack.alignment_plan import plan_digest
 from dstack.core import CommandResult
 
 from scripted import ScriptedClient, call
@@ -20,28 +18,6 @@ from scripted import ScriptedClient, call
 def _ignore_formula_version_stamps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dstack_alignment, "stamp_created_formula_version", lambda *args, **kwargs: 8)
     monkeypatch.setattr(dstack_alignment, "stamp_formula_version", lambda *args, **kwargs: 8)
-
-
-def alignment_plan_json() -> str:
-    return json.dumps(
-        {
-            "schema": "dstack.alignment-plan/v2",
-            "scope": "repository",
-            "findings": [],
-            "accepted_corrections": [],
-            "rejected_corrections": [],
-            "validation_expectations": [],
-            "documentation_impact": {
-                "end_user_operator": [],
-                "developer_reviewer": [],
-                "future_auditor": [],
-            },
-            "deferred_findings": [],
-            "accepted_risks": [],
-        },
-        separators=(",", ":"),
-        sort_keys=True,
-    )
 
 
 def semantic_record(kind: str) -> str:
@@ -77,7 +53,7 @@ def approved_alignment_view() -> dict:
 
 def patch_command(monkeypatch, beads, current=None):
     current = current or alignment_view()
-    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda client, selector: current)
     monkeypatch.setattr(
         dstack_alignment,
@@ -88,12 +64,11 @@ def patch_command(monkeypatch, beads, current=None):
         dstack_alignment,
         "canonical_description",
         lambda *args: (
-            json.loads(alignment_plan_json()),
-            alignment_plan_json(),
-            plan_digest(json.loads(alignment_plan_json())),
+            {"schema": "dstack.alignment-review/v1", "summary": "review", "corrections": []},
+            "review",
+            "0" * 64,
         ),
     )
-    monkeypatch.setattr(dstack_alignment, "verify_correction_graph", lambda *args: None)
     monkeypatch.setattr(dstack_alignment, "root_plan_metadata", lambda *args: ("0" * 64, "0" * 64))
     if current["steps"]["approval"].get("status") == "closed":
         monkeypatch.setattr(dstack_alignment, "require_alignment_authorized", lambda *args: {})
@@ -117,7 +92,7 @@ def test_inspect_emits_observed_alignment(monkeypatch, tmp_path: Path) -> None:
 
 def test_initialize_rejects_option_like_target_before_beads_mutation(monkeypatch, git_repo: Path) -> None:
     beads = ScriptedClient(git_repo)
-    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
     with pytest.raises(DstackError, match="invalid target branch"):
         dstack_alignment.cmd_alignment_initialize(
             argparse.Namespace(
@@ -167,7 +142,7 @@ def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_p
             result={"id": "alignment-1"},
         ),
     )
-    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
     views = iter(
         [
             DstackError("alignment selector resolved to 0 roots"),
@@ -289,340 +264,48 @@ def test_add_correction_rejects_closed_authorization_without_creation(monkeypatc
     beads.assert_exhausted()
 
 
-def test_alignment_plan_scaffold_is_removed(monkeypatch, tmp_path: Path) -> None:
-    with pytest.raises(DstackError, match="canonical JSON"):
+def test_alignment_scaffold_only_allows_reconciliation(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(dstack_alignment, "emit", lambda value: None)
+    with pytest.raises(DstackError, match="only reconciliation records"):
         dstack_alignment.cmd_alignment_scaffold_record(argparse.Namespace(kind="plan", path=tmp_path / "plan.md"))
 
 
-def test_finish_plan_rejects_invalid_json_before_mutation(monkeypatch, tmp_path: Path) -> None:
-    plan = tmp_path / "plan.json"
-    plan.write_text("{}")
-    beads = ScriptedClient(tmp_path)
-    patch_command(monkeypatch, beads)
-    with pytest.raises(DstackError, match="invalid alignment plan fields"):
-        dstack_alignment.cmd_alignment_finish_plan(
-            argparse.Namespace(root=tmp_path, selector="alignment-1", plan_file=plan)
-        )
-    beads.assert_exhausted()
-
-
-def test_finish_plan_uses_native_ready_claim_before_completion(monkeypatch, tmp_path: Path) -> None:
-    plan = tmp_path / "plan.json"
-    plan.write_text(alignment_plan_json())
-    calls = []
-    beads = ScriptedClient(tmp_path)
-    beads.ready_children = lambda *args, **kwargs: (
-        calls.append(("ready_children", *args, kwargs)) or [{"id": "analysis-1", "status": "in_progress"}]
-    )
-
-    def update(*args):
-        calls.append(("update", *args))
-        if "--description" in args:
-            return {"id": args[0], "status": "open", "description": alignment_plan_json()}
-        if "--claim" in args:
-            return {"id": args[0], "status": "in_progress", "description": alignment_plan_json()}
-        return {"id": args[0], "status": "open", "description": alignment_plan_json()}
-
-    beads.update = update
-    beads.show = lambda issue: {"id": issue, "status": "open", "description": alignment_plan_json()}
-    beads.close = lambda *args: calls.append(("close", *args)) or {"id": args[0], "status": "closed"}
-    output = patch_command(monkeypatch, beads)
-    monkeypatch.setattr(
-        dstack_alignment,
-        "root_plan_metadata",
-        lambda *args: (plan_digest(json.loads(alignment_plan_json())), None),
-    )
-    args = argparse.Namespace(root=tmp_path, selector="alignment-1", plan_file=plan)
-    assert dstack_alignment.cmd_alignment_finish_plan(args) == 0
-    assert calls[0][0] in {"update", "ready_children"}
-    assert any(call[0] == "ready_children" for call in calls)
-    assert any(call[0] == "close" for call in calls)
-    assert output[0]["audit"] == "alignment-1"
-
-
-def test_finish_plan_rejects_changed_bytes_on_open_retry(monkeypatch, tmp_path: Path) -> None:
-    existing = json.loads(alignment_plan_json())
-    existing["scope"] = "old scope"
-    incoming = tmp_path / "plan.json"
-    incoming.write_text(alignment_plan_json())
-
-    class Client:
-        root = tmp_path
-
-        def show(self, issue_id):
-            return {
-                "id": issue_id,
-                "status": "open",
-                "description": json.dumps(existing, sort_keys=True, separators=(",", ":")),
-            }
-
-        def update(self, *args):
-            raise AssertionError("changed open-analysis retry attempted mutation")
-
-    client = Client()
-    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
-    monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
-    monkeypatch.setattr(
-        dstack_alignment,
-        "root_plan_metadata",
-        lambda *args: (plan_digest(json.loads(alignment_plan_json())), None),
-    )
-    monkeypatch.setattr(dstack_alignment, "verify_correction_graph", lambda *args: None)
-    with pytest.raises(DstackError, match="different canonical plan"):
-        dstack_alignment.cmd_alignment_finish_plan(
-            argparse.Namespace(root=tmp_path, selector="alignment-1", plan_file=incoming)
-        )
-
-
-def test_approve_rejects_open_analysis_before_gate_mutation(monkeypatch, tmp_path: Path) -> None:
-    class Client:
-        root = tmp_path
-
-        def show(self, issue_id):
-            return {"id": issue_id, "status": "open", "description": alignment_plan_json()}
-
-        def update(self, *args):
-            raise AssertionError("open analysis approval attempted metadata mutation")
-
-    client = Client()
-    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
-    monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
-    monkeypatch.setattr(
-        dstack_alignment,
-        "root_plan_metadata",
-        lambda *args: (plan_digest(json.loads(alignment_plan_json())), None),
-    )
-    with pytest.raises(DstackError, match="closed analysis"):
-        dstack_alignment.cmd_alignment_approve(argparse.Namespace(root=tmp_path, selector="alignment-1"))
-
-
-def test_finish_plan_respects_native_analysis_blocker(monkeypatch, tmp_path: Path) -> None:
-    plan = tmp_path / "plan.json"
-    plan.write_text(alignment_plan_json())
-    beads = ScriptedClient(tmp_path)
-    beads.show = lambda issue: {"id": issue, "status": "open", "description": alignment_plan_json()}
-    beads.update = lambda *args: {
-        "id": args[0],
-        "status": "open",
-        "description": alignment_plan_json(),
-    }
-    beads.ready_children = lambda *args, **kwargs: []
-    patch_command(monkeypatch, beads)
-    monkeypatch.setattr(
-        dstack_alignment,
-        "root_plan_metadata",
-        lambda *args: (plan_digest(json.loads(alignment_plan_json())), None),
-    )
-    with pytest.raises(DstackError, match="analysis is not ready"):
-        dstack_alignment.cmd_alignment_finish_plan(
-            argparse.Namespace(root=tmp_path, selector="alignment-1", plan_file=plan)
-        )
-
-
-def test_approve_resolves_gate_and_authorizes_execution(monkeypatch, tmp_path: Path) -> None:
-    calls = []
+def test_finish_review_uses_markdown_summary_and_native_corrections(monkeypatch, tmp_path: Path) -> None:
+    summary = tmp_path / "review.md"
+    summary.write_text("One finding and its accepted correction.\n", encoding="utf-8")
     state = {
         "alignment-1": {"id": "alignment-1", "status": "open", "metadata": {}},
-        "analysis-1": {
-            "id": "analysis-1",
-            "status": "closed",
-            "description": alignment_plan_json(),
-        },
-        "approval-1": {"id": "approval-1", "status": "open"},
-        "gate-1": {"id": "gate-1", "status": "open"},
+        "analysis-1": {"id": "analysis-1", "status": "open", "description": "Analyze repository"},
     }
     beads = ScriptedClient(tmp_path)
-    beads.show = lambda issue_id: dict(state[issue_id])
-    beads.resolve_gate = lambda issue_id, reason: (
-        calls.append(("resolve", issue_id, reason)) or state[issue_id].update(status="closed") or dict(state[issue_id])
-    )
-    beads.update = lambda issue_id, *args: (
-        calls.append(("update", issue_id, *args))
-        or state[issue_id].update(status="in_progress")
-        or dict(state[issue_id])
-    )
-    beads.close = lambda issue_id, reason: (
-        calls.append(("close", issue_id, reason)) or state[issue_id].update(status="closed") or dict(state[issue_id])
-    )
-    output = patch_command(monkeypatch, beads)
-    monkeypatch.setattr(
-        dstack_alignment,
-        "human_gate_for_step",
-        lambda *args, **kwargs: dict(state["gate-1"]),
-    )
-    digest = plan_digest(json.loads(alignment_plan_json()))
-    state["alignment-1"]["metadata"] = {"dstack.pending_alignment_plan_sha256": digest}
+    beads.children = lambda parent, **kwargs: []
+    beads.show = lambda issue: dict(state[issue])
 
-    def root_plan_metadata(*args):
-        metadata = state["alignment-1"]["metadata"]
-        return (
-            metadata.get("dstack.pending_alignment_plan_sha256"),
-            metadata.get("dstack.approved_alignment_plan_sha256"),
-        )
-
-    def update_metadata(issue_id, *args):
-        calls.append(("update", issue_id, *args))
+    def update(issue, *args):
+        if "--description" in args:
+            state[issue]["description"] = args[args.index("--description") + 1]
         if "--set-metadata" in args:
             key, value = args[args.index("--set-metadata") + 1].split("=", 1)
-            state[issue_id].setdefault("metadata", {})[key] = value
-        elif "--unset-metadata" in args:
-            state[issue_id].setdefault("metadata", {}).pop(args[-1], None)
-        return dict(state[issue_id])
+            state[issue].setdefault("metadata", {})[key] = value
+        return dict(state[issue])
 
-    beads.update = update_metadata
-    monkeypatch.setattr(dstack_alignment, "root_plan_metadata", root_plan_metadata)
-    monkeypatch.setattr(dstack_alignment, "require_alignment_authorized", lambda *args: {})
-    assert dstack_alignment.cmd_alignment_approve(argparse.Namespace(root=tmp_path, selector="alignment-1")) == 0
-    assert ("resolve", "gate-1", "Corrective plan approved") in calls
-    assert ("close", "approval-1", "Corrective execution authorized") in calls
-    assert output[0]["audit"] == "alignment-1"
-    assert state["gate-1"]["status"] == "closed"
-    assert state["approval-1"]["status"] == "closed"
-
-
-@pytest.mark.parametrize(
-    "metadata",
-    [
-        {"dstack.pending_alignment_plan_sha256": "wrong"},
-        {"dstack.approved_alignment_plan_sha256": plan_digest(json.loads(alignment_plan_json()))},
-    ],
-)
-def test_approve_rejects_inconsistent_identity_before_gate_mutation(
-    monkeypatch, tmp_path: Path, metadata: dict[str, str]
-) -> None:
-    calls = []
-    state = {
-        "analysis-1": {
-            "id": "analysis-1",
-            "status": "closed",
-            "description": alignment_plan_json(),
-        },
-        "approval-1": {"id": "approval-1", "status": "open"},
-        "gate-1": {"id": "gate-1", "status": "open"},
-    }
-
-    class Client:
-        root = tmp_path
-
-        def show(self, issue_id):
-            return dict(state[issue_id])
-
-        def resolve_gate(self, *args):
-            calls.append(("resolve", args))
-
-        def close(self, *args):
-            calls.append(("close", args))
-
-        def update(self, *args):
-            calls.append(("update", args))
-
-    client = Client()
-    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
+    beads.update = update
+    beads.ready_children = lambda *args, **kwargs: [{"id": "analysis-1", "status": "in_progress"}]
+    beads.close = lambda issue, reason: state[issue].update(status="closed") or dict(state[issue])
+    monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
-    monkeypatch.setattr(
-        dstack_alignment,
-        "human_gate_for_step",
-        lambda *args, **kwargs: {"id": "gate-1", "status": "open"},
-    )
-    monkeypatch.setattr(
-        dstack_alignment,
-        "root_plan_metadata",
-        lambda *args: (
-            metadata.get("dstack.pending_alignment_plan_sha256"),
-            metadata.get("dstack.approved_alignment_plan_sha256"),
-        ),
-    )
-    with pytest.raises(DstackError, match="identity"):
-        dstack_alignment.cmd_alignment_approve(argparse.Namespace(root=tmp_path, selector="alignment-1"))
-    assert calls == []
-
-
-def test_alignment_reauthorize_reopens_native_boundary_before_scope_changes(monkeypatch, tmp_path: Path) -> None:
-    state = {
-        "alignment-1": {"id": "alignment-1", "status": "open", "metadata": {}},
-        "analysis-1": {"id": "analysis-1", "status": "closed"},
-        "approval-1": {"id": "approval-1", "status": "closed"},
-        "gate-1": {"id": "gate-1", "status": "closed"},
-        "corrections-1": {"id": "corrections-1", "status": "closed"},
-        "landing-1": {"id": "landing-1", "status": "open"},
-    }
-    mutations = []
-    beads = ScriptedClient(tmp_path)
-    beads.show = lambda issue_id: dict(state[issue_id])
-
-    def reopen(issue_id, reason):
-        mutations.append((issue_id, reason))
-        state[issue_id]["status"] = "open"
-        return dict(state[issue_id])
-
-    beads.reopen = reopen
-    beads.children = lambda parent: [{"id": "correction-1", "status": "open"}]
-    beads.ready_children = lambda *args, **kwargs: []
-    output = patch_command(monkeypatch, beads)
-    monkeypatch.setattr(
-        dstack_alignment,
-        "human_gate_for_step",
-        lambda *args, **kwargs: dict(state["gate-1"]),
-    )
-
-    assert (
-        dstack_alignment.cmd_alignment_reauthorize(
-            argparse.Namespace(root=tmp_path, selector="alignment-1", reason="Add scope")
-        )
-        == 0
-    )
-    assert mutations[0][0] == "approval-1"
-    assert all(item["status"] == "open" for item in state.values())
-    assert output[0]["status"] == "ok"
-    assert output[0]["invalidation"]["plan"]["status"] == "absent"
-
-
-def test_reauthorize_reports_plan_without_git_baseline(monkeypatch, tmp_path: Path) -> None:
-    description = alignment_plan_json()
-    state = {
-        "analysis-1": {"id": "analysis-1", "status": "closed", "description": description},
-        "approval-1": {"id": "approval-1", "status": "closed"},
-        "gate-1": {"id": "gate-1", "status": "closed"},
-        "corrections-1": {"id": "corrections-1", "status": "open"},
-        "landing-1": {"id": "landing-1", "status": "open"},
-    }
-
-    class Client:
-        root = tmp_path
-
-        def show(self, issue_id):
-            return dict(state[issue_id])
-
-        def ready_children(self, *args, **kwargs):
-            return []
-
-        def update(self, issue_id, *args):
-            if "--description" in args:
-                state[issue_id]["description"] = args[args.index("--description") + 1]
-            return dict(state[issue_id])
-
-    client = Client()
-    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
-    monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
-    monkeypatch.setattr(dstack_alignment, "root_plan_metadata", lambda *args: ("pending", "approved"))
-    monkeypatch.setattr(dstack_alignment, "human_gate_for_step", lambda *args, **kwargs: dict(state["gate-1"]))
-
-    def reopen(*args, **kwargs):
-        for issue_id in ("analysis-1", "approval-1", "gate-1", "corrections-1"):
-            state[issue_id]["status"] = "open"
-
-    monkeypatch.setattr(dstack_alignment, "reopen_authorization_boundary", reopen)
     output = []
     monkeypatch.setattr(dstack_alignment, "emit", output.append)
+
     assert (
-        dstack_alignment.cmd_alignment_reauthorize(
-            argparse.Namespace(root=tmp_path, selector="alignment-1", reason="Refresh audit")
+        dstack_alignment.cmd_alignment_finish_plan(
+            argparse.Namespace(root=tmp_path, selector="alignment-1", summary_file=summary)
         )
         == 0
     )
-    assert output[0]["invalidation"]["plan"]["status"] == "valid"
-    assert state["analysis-1"]["description"] == "Analyze repository"
-    assert "baseline" not in output[0]["invalidation"]
+    assert state["analysis-1"]["description"] == "One finding and its accepted correction."
+    assert state["analysis-1"]["status"] == "closed"
+    assert output[0]["correction_count"] == 0
 
 
 def test_claim_next_delegates_readiness_and_claim(monkeypatch, tmp_path: Path) -> None:
@@ -1049,7 +732,7 @@ def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
             result={"id": "alignment-1"},
         ),
     )
-    monkeypatch.setattr(dstack_alignment, "client_for", lambda root: beads)
+    monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(
         dstack_alignment,
         "alignment_context",
