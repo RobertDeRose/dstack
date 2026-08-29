@@ -1,4 +1,6 @@
 ---
+dstack-managed: true
+name: adopt-feature
 description: "Adopt an active legacy dstack feature into the current Beads-native workflow"
 ---
 

@@ -1,4 +1,5 @@
 ---
+dstack-managed: true
 name: dstack-beads-project-alignment-execute
 description: "Approve and execute native ready project-alignment corrections against current repository evidence."
 ---

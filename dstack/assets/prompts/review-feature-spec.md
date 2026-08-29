@@ -1,4 +1,6 @@
 ---
+dstack-managed: true
+name: review-feature-spec
 description: "Review and approve the active or selected feature specification boundary"
 ---
 

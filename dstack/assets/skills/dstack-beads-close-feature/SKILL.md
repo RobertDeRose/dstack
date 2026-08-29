@@ -1,4 +1,5 @@
 ---
+dstack-managed: true
 name: dstack-beads-close-feature
 description: "Reconcile a completed feature and deliver it safely without post-delivery Git bookkeeping."
 ---

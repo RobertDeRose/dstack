@@ -1,4 +1,5 @@
 ---
+dstack-managed: true
 name: dstack-beads-plan-feature
 description: "Discover and preserve sufficiently lossless planned feature intent in Beads without materializing repository workflow."
 ---
@@ -49,37 +50,18 @@ Write a temporary Markdown body outside the repository. Give each topic its own 
 Relevant repository context; Decisions and rationale; Alternatives and tradeoffs; Non-goals; Observable acceptance;
 Failure and compatibility expectations; Documentation expectations; Deferred questions; and Dependencies.
 
-Persist multiline intent as data through `--body-file`, never as shell syntax. Derive priority from planning evidence;
-ask only when the choice is consequential and genuinely ambiguous. Create one new idea with native Beads:
+Create or update the planned feature through the controller, which owns native Beads writes and blocker reconciliation:
 
 ```bash
-bd create --type epic --title "<title>" \
-  --labels "dstack:feature-idea,feature:<slug>" \
+dstack ctl feature plan "<existing-selector-if-any>" \
+  --title "<title>" --slug "<slug-for-new-work>" \
   --body-file "<temporary-body>" --acceptance "<observable-acceptance>" \
-  --priority "<0-4>"
+  --priority "<0-4>" --depends-on "<blocker-id>"
 ```
 
-Or update every changed durable field on the resolved open planned feature:
-
-```bash
-bd update "<id>" --title "<title>" --body-file "<temporary-body>" \
-  --acceptance "<observable-acceptance>" --priority "<0-4>"
-```
-
-Before changing blockers, read the native issue and its dependency records:
-
-```bash
-bd show "<id>" --json
-```
-
-Reconcile only the planning blocker relationships in scope. Keep a still-needed edge, add a newly required blocker with
-`bd dep add "<id>" "<blocker-id>"`, and remove a previous planning blocker that the final plan rejects with
-`bd dep remove "<id>" "<blocker-id>"`. Preserve other dependency types and any blocker outside the replanning decision.
-Never maintain a shadow dependency list or replace Beads' graph from body text.
-
-Read the issue back with `bd show "<id>" --json`; verify its title, complete body, acceptance, priority, stable slug
-label, and blocker graph. Remove the temporary file after verification. Do not create lifecycle or implementation
-children.
+Omit the selector when creating new work and repeat `--depends-on` as needed. Replanning keeps the established slug,
+updates only the requested durable fields, and reconciles only blocking dependencies on the planned root. Remove the
+temporary file after the controller confirms convergence. Do not create lifecycle or implementation children.
 
 Do not initialize a workflow, create a branch/worktree, write repository design or planning files, stage or commit Git
 content, or change readiness outside native Beads operations.

@@ -68,14 +68,13 @@ form. Code examples do not create headings or satisfy prose. Duplicate/missing h
 TODOs/placeholders, reference-style local links, missing targets, and repository escapes fail with section-specific
 diagnostics before the corresponding authorization or terminal mutation.
 
-Alignment plans use strict `dstack.alignment-plan/v2` JSON rather than Markdown sections. Every canonical field is
-present, empty collections are `[]`, and unknown fields are rejected. The plan binds reviewed findings, corrections, and
-user decisions; it stores no Git revision or repository snapshot. Tier 1 creates this temporary JSON outside repository
-source; the final landing retains its separate temporary Markdown reconciliation scaffold; documentation is deferred to
-the final closeout or landing, and there is never a per-task documentation manifest or reconciliation task. The
-validators use no score, word-count grade, LLM gate, or parallel state manifest; human review remains responsible for
-truth and content quality. The completed plan or reconciliation is preserved in the corresponding native Beads record.
-Legacy v1 plans remain readable for historical inspection only; new plans use v2.
+Alignment review authority is Beads-native. Accepted corrections, acceptance criteria, priorities, and dependencies live
+in the native correction workstream. Tier 1 writes only a concise temporary Markdown review summary outside the
+repository and finalizes it with `alignment finish-plan --summary-file`. The controller derives the approval digest from
+the summary and exact native correction graph; it does not create an external plan packet or duplicate correction state.
+The final landing retains its separate temporary Markdown reconciliation scaffold. Documentation is deferred to the
+final closeout or landing, and there is never a per-task documentation manifest or reconciliation task. Human review
+remains responsible for truth and content quality.
 
 ## Feature records
 

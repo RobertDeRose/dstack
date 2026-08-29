@@ -1,4 +1,5 @@
 ---
+dstack-managed: true
 name: dstack-beads-review-feature-spec
 description: "Review new feature intent or audit existing approved work against the current formula contract."
 ---

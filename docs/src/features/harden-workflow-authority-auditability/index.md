@@ -37,7 +37,7 @@ remains the bounded-command control.
 
 Existing active workflows are not rewritten. Their next guarded transition may surface previously tolerated ambiguous or
 incomplete state, with explicit repair or supersession guidance. The supported boundary remains Beads 1.2.2, mdBook
-0.5.3, and Python 3.13.
+0.5.3, and Python 3.13 at the time of that historical validation. The current installable package requires Python 3.14.
 
 ## Architecture integration
 
@@ -60,9 +60,9 @@ reauthorization, terminal roots preserved until delivery, conflict-safe PR gates
 verified worktree identity and ancestry.
 
 The semantic feature/alignment records, canonical operations and security handbook, bounded ADR set, stateless audit
-output, plan/apply setup flow, expanded doctor, compatibility registry, and focused Python 3.13 release checks were also
-delivered. The controller still contains no database, scheduler, packet protocol, task manifest, readiness calculation,
-persistent audit cache, or Git-to-Beads SHA mapping.
+output, plan/apply setup flow, expanded doctor, compatibility registry, and focused release checks for the
+then-supported Python 3.13 runtime were also delivered. The controller still contains no database, scheduler, packet
+protocol, task manifest, readiness calculation, persistent audit cache, or Git-to-Beads SHA mapping.
 
 ### Intentional differences
 
@@ -113,8 +113,9 @@ limitations without mirroring transient workflow state.
 
 ## Validation and limitations
 
-Validation completed on 2026-08-24 on macOS with `uv 0.11.7`, Python 3.13.13, `bd version 1.2.2 (6c124203e)`, mdBook
-0.5.3, and Git 2.55.0. The following commands passed with no skipped required scenarios:
+Historical validation completed on 2026-08-24 on macOS with `uv 0.11.7`, Python 3.13.13 (the current package requires
+Python 3.14), `bd version 1.2.2 (6c124203e)`, mdBook 0.5.3, and Git 2.55.0. The following commands passed with no
+skipped required scenarios:
 
 ```bash
 uv run pytest -q -rs --cov=skills/dstack-beads-core/scripts --cov-report=term

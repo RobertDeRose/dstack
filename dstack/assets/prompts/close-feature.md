@@ -1,4 +1,6 @@
 ---
+dstack-managed: true
+name: close-feature
 description: "Reconcile, validate, review, and deliver a completed feature"
 ---
 

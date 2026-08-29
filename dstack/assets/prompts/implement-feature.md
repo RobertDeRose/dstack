@@ -1,4 +1,6 @@
 ---
+dstack-managed: true
+name: implement-feature
 description: "Claim and implement ready work from the active or selected feature molecule"
 ---
 

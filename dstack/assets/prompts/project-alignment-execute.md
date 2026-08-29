@@ -1,4 +1,6 @@
 ---
+dstack-managed: true
+name: project-alignment-execute
 description: "Approve and execute ready project-alignment corrections"
 ---
 

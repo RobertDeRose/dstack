@@ -17,6 +17,13 @@ The first dStack command to run is:
 dstack install_skills
 ```
 
+Use a non-default Pi agent directory with either supported form:
+
+```bash
+dstack install_skills --agent-dir /path/to/pi-agent
+PI_CODING_AGENT_DIR=/path/to/pi-agent dstack install_skills
+```
+
 This installs/updates the dStack decision skills under `~/.pi/agent/skills/`, slash-command prompts under
 `~/.pi/agent/prompts/`, and a compact managed dStack block in `~/.pi/agent/APPEND_SYSTEM.md`. Reload Pi after
 installation or upgrade. The `dstack-beads-core` skill is intentionally not installed; its stable cross-workflow
@@ -26,7 +33,7 @@ The normal controller entry point is `dstack ctl ...`. It uses the repository fr
 is supplied explicitly, initializes Beads when needed, and uses packaged dStack formulas as authority before operating.
 There is no setup workflow and no formula migration.
 
-Required external tools are Beads 1.2.2 exactly and a working mdBook 0.5.3 when documentation validation is required.
+Required external tools are `uv`, Beads 1.2.2 exactly, and a working `mdbook` when documentation validation is required. The repository tooling pins the mdBook release used by CI; the installed controller validates availability rather than an exact patch version.
 The dStack repository's `mise.toml` remains contributor/CI tooling, not the installed CLI launcher.
 
 Stable configuration lives in Git and Beads. dStack has no database, scheduler, setup ledger, migration state, or

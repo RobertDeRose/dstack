@@ -3,7 +3,7 @@
 | Setting | Default | Contract |
 | --- | --- | --- |
 | `DSTACK_COMMAND_TIMEOUT_SECONDS` | Per-tool values below | Positive numeric override applied uniformly to external commands |
-| Git target | `main` for features | Alignment requires its recorded target |
+| Git target | `dev` when present, otherwise `main` | Alignment requires its recorded target |
 | Formula source | Package-owned TOML | Installed bytes must match exactly |
 | Documentation source | `docs/src` | `docs/book.toml` must remain contained and canonical |
 | Beads JSON envelope | Enabled internally | Controller parses the supported structured envelope |

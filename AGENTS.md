@@ -20,8 +20,9 @@ architecture.
   use native operations, be idempotent, and persist no custom state.
 - Never store Git commit identities in Beads as implementation, delivery, task, evidence, or
   bookkeeping mappings. Commits reference work only through `Beads: <id>` footers.
-- Do not store Git revisions or repository snapshots in Beads. Alignment plans store reviewed
-  intent only and revalidates the current repository evidence at execution and delivery boundaries.
+- Do not store Git revisions or repository snapshots in Beads. Alignment review stores human intent in the analysis
+  Bead and correction mechanics in native child Beads, then revalidates current repository evidence at execution and
+  delivery boundaries.
 - Do not store branch/worktree paths or Git-history mirrors in Beads.
 - Do not duplicate feature identity on children when parentage/root labels already establish it.
 - Do not put transient lifecycle state, Beads IDs, branches, commits, gates, or next commands in

@@ -1,4 +1,5 @@
 ---
+dstack-managed: true
 name: dstack-beads-project-alignment-review
 description: "Analyze current project alignment and prepare a gated corrective plan without modifying repository source."
 ---
@@ -7,39 +8,16 @@ description: "Analyze current project alignment and prepare a gated corrective p
 
 Tier 1 is read-only for repository source.
 
-1. Initialize or inspect the audit:
-
-   ```bash
-   dstack ctl alignment initialize --title "<title>" \
-     --target-branch <branch> --scope "<scope>"
-   ```
-
+1. Initialize or inspect the audit with
+   `dstack ctl alignment initialize --title "<title>" --target-branch <branch> --scope "<scope>"`.
 2. Compare current specifications, durable docs, architecture patterns, code, tests, Beads work, and delivery evidence.
-   Treat the current repository and Beads records as the review inputs; do not persist a Git baseline.
-3. Decide bounded corrective outcomes, acceptance criteria, priorities, and real dependencies. Create code/test
-   corrections with `alignment add-correction`; do not create documentation or reconciliation tasks because landing is
-   the sole final reconciliation.
-4. Create temporary `PLAN.json`. Use a canonical JSON plan helper exposed by the current CLI when available; otherwise
-   write the file directly. Markdown record scaffolds are not authoritative plan input.
-5. Populate exactly `dstack.alignment-plan/v2`:
-   - `schema`: `dstack.alignment-plan/v2`;
-   - `scope`;
-   - `findings`: `{title, evidence, rationale}` objects;
-   - `accepted_corrections`: `{title, description, acceptance, priority, depends_on}` objects whose dependency values
-     are accepted correction titles;
-   - `rejected_corrections`: `{title, rationale}` objects;
-   - `validation_expectations`: strings;
-   - `documentation_impact`: exactly `end_user_operator`, `developer_reviewer`, and `future_auditor` string arrays;
-   - `deferred_findings`: `{title, rationale}` objects; and
-   - `accepted_risks`: `{title, rationale}` objects.
+   Treat Git and Beads as the authorities; do not create a packet or duplicate correction state in a file.
+3. Create only accepted code/test corrections with `dstack ctl alignment add-correction`. Put descriptions, acceptance
+   criteria, priorities, and real dependencies directly in Beads. Landing owns final documentation reconciliation.
+4. Write a concise human-readable review summary to a temporary Markdown file outside the repository. Record findings,
+   rejected/deferred findings, accepted risks, validation expectations, and documentation impact. Do not repeat complete
+   correction definitions already stored in Beads.
+5. Finish the review with `dstack ctl alignment finish-plan AUDIT --summary-file <temporary-summary>`. The controller
+   derives approval authority from the summary and exact native correction graph, then stops with the human gate open.
 
-   Include every field, use `[]` for an empty collection, and add no other keys.
-6. Finish the canonical plan and stop with the human gate open:
-
-   ```bash
-   dstack ctl alignment finish-plan AUDIT --plan-file PLAN.json
-   ```
-
-   The controller validates, canonicalizes, stores, rereads, and binds the plan before any authorization state closes.
-
-Return findings, correction graph, decisions required, and `/project-alignment-execute <audit>`.
+Return the findings, correction graph, decisions required, and `/project-alignment-execute <audit>`.

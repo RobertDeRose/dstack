@@ -1,4 +1,6 @@
 ---
+dstack-managed: true
+name: plan-features
 description: "Deprecated alias for /plan-feature"
 ---
 

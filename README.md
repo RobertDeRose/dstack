@@ -36,9 +36,10 @@ Requirements:
 
 - Git
 - Pi
+- `uv`
 - Python 3.14 (the `uv tool` environment is constrained by `pyproject.toml`)
 - Beads 1.2.2 exactly; `bd --version` must print `bd version 1.2.2 (6c124203e)`
-- mdBook 0.5.3 on `PATH` when documentation validation is required
+- a working `mdbook` on `PATH` when documentation validation is required; repository tooling pins the tested release
 
 Install dStack as a normal Python tool from a checkout:
 
@@ -61,6 +62,13 @@ dstack install_skills
 The former `dstack-beads-core` skill is intentionally **not** installed. Its stable CLI guidance, formula-audit
 behavior, and guardrails live in the system-prompt additive so workflow skills do not spend context rereading the same
 core instructions.
+
+Use an alternate Pi agent directory either explicitly or through the environment:
+
+```bash
+dstack install_skills --agent-dir /path/to/pi-agent
+PI_CODING_AGENT_DIR=/path/to/pi-agent dstack install_skills
+```
 
 After installing or upgrading dStack, rerun `dstack install_skills` and reload Pi.
 

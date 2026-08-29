@@ -1,4 +1,5 @@
 ---
+dstack-managed: true
 name: dstack-beads-project-alignment-land
 description: "Reconcile and deliver completed project-alignment corrections through the shared safe delivery controller."
 ---

@@ -1,4 +1,5 @@
 ---
+dstack-managed: true
 name: dstack-beads-implement-feature
 description: "Claim native ready feature work, implement it, and complete it with rewrite-safe Git evidence."
 ---
