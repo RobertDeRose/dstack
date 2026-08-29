@@ -47,6 +47,19 @@ authorization. It refuses terminal or claimed work. Re-review reconciles the com
 adding work: valid tasks are reused, obsolete tasks are closed or superseded, and stale blocking dependencies are
 removed through Beads.
 
+### Automatic formula-contract audit
+
+Before implementation or closeout of approved active work, the controller compares the feature's
+`dstack.formula_version` with the current `dstack-feature` semantic contract version. A match continues immediately. A
+missing/stale value returns a compact internal `audit_required` instruction that the core skill routes through
+`/review-feature-spec`; the user does not invoke an audit switch.
+
+Audit compares the accepted design and authorized tasks semantically with current planning/review expectations. It does
+not regenerate the graph or treat task names/grouping as a schema. If no material gap exists, the internal
+`feature audit-complete` transition stamps the current version on the feature and active work and the original command
+is retried. If a material gap exists, the agent presents only the minimum delta and waits for renewed user authorization
+before reauthorizing or mutating approved work. Historical closed work is never rewritten for version conformity.
+
 ### `/implement-feature [feature] [task|--all]`
 
 The controller verifies the design digest and atomically claims the next native ready implementation task. With no task

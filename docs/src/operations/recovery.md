@@ -3,18 +3,15 @@
 Recovery starts from observed Beads and Git state. dStack never uses a shadow transaction ledger and never claims
 rollback when an external mutation is uncertain.
 
-## Setup failures
+## Formula and compatibility failures
 
-Setup planning is read-only. A changed digest means repository authority changed and the previous plan must not be
-applied. For forced setup, apply consumes the saved plan in a detached worktree, targets the contained Beads database
-explicitly, and preserves the native backup and worktree for inspection. Successful migrations retain those artifacts
-until explicit verification and cleanup.
+Formula synchronization is an idempotent controller prerequisite, not a workflow. If an installed dStack formula cannot
+be refreshed atomically, stop before lifecycle mutation and report the filesystem error. Do not repair historical Beads
+to make a formula install succeed.
 
-If forced setup times out, is interrupted, or reports uncertain mutation, stop. Preserve the plan, native backup, and
-registered worktree, then use the controller's verification or rollback boundary. Do not use ad-hoc commands such as
-`bd update` or `bd close`, label changes, manual Git repair, or documentation edits to reconstruct state. If native
-rollback cannot prove the original Beads and Git state, leave all artifacts intact and report recovery required. A
-pre-existing partial migration without a matching native backup is not automatically repairable.
+If a feature contract audit is required, follow the controller-provided internal review input. A no-change audit stamps
+the current contract version. A changes-required audit stops at the existing human reauthorization boundary; never
+modify approved work without that authorization.
 
 ## Delivery failures
 
@@ -46,8 +43,8 @@ independently and test restoration in an isolated clone before destructive maint
 they do not replace Beads/Dolt backup. Beads backup does not replace pushed Git refs. Never copy live database or socket
 files as an ad-hoc backup.
 
-After restore, run `git fsck`, Beads native diagnostics, setup doctor, documentation validation, and the relevant
-acceptance scenario. Confirm remotes and worktrees before allowing writes.
+After restore, run `git fsck`, Beads native diagnostics, documentation validation, and the relevant acceptance scenario.
+Confirm remotes and worktrees before allowing writes.
 
 ## Interaction audit data
 
@@ -60,7 +57,7 @@ not commit it as documentation or workflow history.
 | Diagnostic | Meaning | Safe response |
 | --- | --- | --- |
 | Unsupported tool version | Compatibility evidence does not cover this binary | Install the pinned version or implement and review an upgrade |
-| Formula byte mismatch | Installed lifecycle differs from package authority | Review setup plan; use explicit forced apply if replacement is intended |
+| Formula synchronization failure | Controller could not refresh dStack-owned formula source | Repair the filesystem/tooling issue; do not mutate historical workflow state |
 | Worktree anomaly | Native Git topology is missing, duplicate, dirty, or prunable | Inspect `git worktree list --porcelain`; repair with native Git |
 | Tracked runtime path | Machine-local Beads state entered Git | Remove it from the index without deleting needed local data |
 | Missing reconciliation | A delivered feature lacks its durable result record | Author and review the record; dStack does not invent it |

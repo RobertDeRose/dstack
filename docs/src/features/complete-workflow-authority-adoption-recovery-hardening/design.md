@@ -1,5 +1,10 @@
 # Complete dStack workflow authority, adoption, and recovery hardening
 
+> **Historical record:** setup/migration behavior described below reflects the workflow at the time this feature was
+> delivered. It is superseded by the current
+> [compatibility and formula-audit contract](../../reference/compatibility.md): formulas are templates, historical
+> graphs are not migrated, and formula-contract drift is handled by semantic audit.
+
 ## Planned intent
 
 Close the remaining correctness gaps in project-alignment authorization, reauthorization, legacy adoption, concurrent

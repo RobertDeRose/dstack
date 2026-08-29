@@ -44,7 +44,6 @@ store reviewed findings and corrections only; they contain no Git baseline.
 ## Commands
 
 ```text
-/setup-project [--force]
 /plan-feature [id|slug|title|request]
 /plan-features [deprecated alias]
 /adopt-feature <legacy-feature>
@@ -81,8 +80,9 @@ design contents drift.
 
 ## Documentation policy
 
-mdBook is canonical for managed projects. Setup creates only the missing core foundation without overwriting project
-content; `docs/src/SUMMARY.md` remains the sole navigation manifest and optional sections follow actual reader needs.
+mdBook is canonical for managed projects. The specification-review boundary creates only the missing core foundation
+when a feature first needs durable design documentation; `docs/src/SUMMARY.md` remains the sole navigation manifest and
+optional sections follow actual reader needs.
 The same durable book serves users/operators, developers/reviewers, and future agents/auditors.
 
 Docs may say a feature is `planned`, `implemented`, or `deprecated`, and must explain what it does, why, and how. They
@@ -113,25 +113,16 @@ installed Pi commands.
 pi install /path/to/dstack
 ```
 
-Reload Pi, then run in the target repository:
+Reload Pi and use the normal workflow commands in the target repository. The controller automatically initializes Beads
+when needed and uses packaged dStack formulas as authority before workflow operations. Native pours use the packaged
+formula transiently; legacy tracked formula copies are tolerated and restored unchanged, so an upgrade does not create a
+formula-migration or commit boundary.
 
-```text
-/setup-project
-```
-
-Setup creates and validates the canonical mdBook foundation without overwriting existing pages or creating optional
-taxonomy. It preserves legitimate tracked Beads repository configuration such as `.beads/config.yaml`,
-`.beads/metadata.json`, `.beads/README.md`, and `.beads/.gitignore`. It keeps `.beads/interactions.jsonl` local and
-untracked so normal Beads transitions cannot dirty Git history. Feature/audit commits made through
-`dstackctl git commit` accept `dStack` formula source under `.beads/` but intentionally exclude setup/configuration
-paths; review and commit the stable setup boundary separately with native Git.
-
-Use `/setup-project --force` only to replace changed formula source or perform explicit legacy repair. Safe noncanonical
-mdBook source trees are moved into `docs/src`; chapters/includes/assets outside `docs/src` are also moved when existing
-navigation or references determine their destination mechanically. References are rewritten with the move. Ambiguous
-Markdown is reported rather than guessed into the book hierarchy. Repair preserves local Beads/Dolt runtime data and
-never persists formula protos in the live ready frontier. Review and commit the repository setup boundary before
-starting feature work.
+Formula versions are semantic planning/review contract versions, not package versions. Existing approved work keeps its
+historical shape. When an active feature was last reviewed against an older formula contract, the controller requests an
+internal semantic specification audit exactly once. If the existing approved design and tasks already satisfy the current
+contract, dStack records the current audited version and continues. If a material task/design delta is required, the agent
+presents only that delta and requires renewed user approval before changing approved work.
 
 ## Development
 

@@ -1,5 +1,10 @@
 # Resolve remaining workflow authority findings
 
+> **Historical record:** setup/migration behavior described below reflects the workflow at the time this feature was
+> delivered. It is superseded by the current
+> [compatibility and formula-audit contract](../../reference/compatibility.md): formulas are templates, historical
+> graphs are not migrated, and formula-contract drift is handled by semantic audit.
+
 [Design record](design.md)
 
 ## Delivered capability

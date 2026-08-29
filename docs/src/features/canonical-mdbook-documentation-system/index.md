@@ -24,9 +24,9 @@ for human or agent authorship.
 
 ## User-visible behavior
 
-`/setup-project` creates missing core book files without overwriting authored content or creating optional sections.
-Projects remain free to organize real operator, reference, module, deployment, security, or other documentation through
-`SUMMARY.md`.
+The specification-review boundary creates missing core book files lazily without overwriting authored content or
+creating optional sections. Projects remain free to organize real operator, reference, module, deployment, security, or
+other documentation through `SUMMARY.md`.
 
 The current book can be checked with the repository's documented validation command. Missing mdBook tooling, invalid
 navigation, broken or escaping local links, orphan Markdown, unsafe required files, and build failures stop setup or

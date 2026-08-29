@@ -1,114 +1,48 @@
-# Compatibility and legacy repair
+# Compatibility and formula audits
 
-Compatibility code is intentionally isolated from normal workflow execution. It exists only to remove known historical
-dStack artifacts and adopt active legacy features.
+dStack compatibility is read-oriented. Historical Beads are execution evidence, not a schema to migrate. Current
+controllers accept supported historical feature roots/graphs when they can be resolved unambiguously; they do not
+rewrite closed tasks, old labels, metadata aliases, or lifecycle topology merely to match today's formula.
 
-## Supported boundary
+## Supported runtime
 
-- Beads: `bd version 1.2.2 (6c124203e)` exactly.
-- mdBook: `mdbook v0.5.3` exactly.
-- Python: 3.14 (the package lock currently selects 3.14.7).
+- Python: 3.14 (package lock: 3.14.7)
+- Beads: 1.2.2 exact supported build
+- mdBook: 0.5.3
 
-Setup doctor requires `--delivery-mode merge|pr`. Both profiles reject a pinned version mismatch. Merge mode checks only
-local/common requirements and does not require a remote, GitHub, or `gh`. PR mode additionally requires a usable
-GitHub-compatible target remote, authenticated `gh`, and native Beads `gh:pr` gate capability. The bundled launcher runs
-Python entry points in the package-relative `mise.toml`/`mise.lock` environment, so an ambient `PATH` entry—including a
-separately installed Homebrew 1.2.2 binary—cannot replace the tested build. Direct Python execution of `setup.py`,
-`dstackctl.py`, or their shared CLI entry point is rejected before command dispatch; use `bin/dstack` or installed Pi
-commands. Prepare missing tools with `mise --cd <dstack-package-root> install --locked`. Upgrades require an explicit
-compatibility change, formula preflight, fast validation, and both isolated real-Beads acceptance scenarios; changing a
-version constraint without that evidence is unsupported.
+The launcher resolves these from the package lock; ambient `PATH` tools such as a Homebrew Beads build are outside the
+tested controller boundary.
 
-## Pinned compatibility shims
+## Formula infrastructure
 
-| Limitation | Reproducer | Compensation | Retirement condition |
-| --- | --- | --- | --- |
-| Blocking dependencies must connect like issue kinds | Real formula contract pour and gate/readiness scenario | A task-sized approval milestone carries the human gate; dynamic tasks depend on the milestone | Supported Beads proves the intended cross-kind topology and migrated formulas pass acceptance |
-| Dynamic-child terminal readiness can ignore a nonterminal direct child | Real contract and smoke fan-in refusal | dStack only vetoes terminal claim when a direct child is nonterminal; Beads still supplies positive readiness | Supported Beads natively blocks the terminal in the pinned reproducer |
-| Terminal completion can auto-close the molecule root before Git delivery | Real smoke closeout/landing scenario | dStack reopens only the automatically closed root while delivery is pending | Supported Beads provides a native delivered boundary or no longer auto-closes in the reproducer |
+The package pins supported Python, Beads, mdBook, and formula source. Controller entry points verify the locked runtime
+and use the two packaged dStack formulas as authority. Native pours expose the packaged formula only for the operation.
+Legacy repositories that tracked old formula copies keep those historical bytes unchanged, and projects without a copy
+are left without one afterward. Formula infrastructure therefore creates no persistent migration state.
 
-These shims are narrow negative safety checks, not a second readiness engine. No stable upstream issue reference is
-recorded for the pinned build; the executable acceptance reproducer is the retirement evidence.
+Each formula carries a semantic contract version. The feature root records the version that created it and the latest
+version whose semantics were approved/audited. A package release increments a formula contract version only when the
+planning/review expectations materially change.
 
-## Setup repair
+## Automatic feature compatibility audit
 
-Normal setup installs and validates formula source. It also applies dStack's standard Git boundary:
-`.beads/interactions.jsonl` stays local and untracked, while legitimate Beads repository configuration remains
-trackable. Normal setup does not scan or rewrite all Beads work.
+When an approved active feature has a missing or stale `dstack.formula_version`, a normal lifecycle command returns an
+internal `audit_required` instruction naming the current review skill and the previous/current contract versions. The
+core skill immediately performs that review; users do not invoke an audit mode.
 
-Explicit legacy repair may:
+The audit compares the accepted design and existing authorized work semantically against current requirements. Different
+task names, grouping, review ceremony, or historical labels are not findings when the same outcomes and validation are
+already covered.
 
-- remove verified persisted formula-template artifacts;
-- remove obsolete duplicated metadata/labels from current molecules;
-- remove inherited workflow/root identity from descendants beneath one parentless current same-kind root when a matching
-  identity, formula placeholder, or root-ineligible native issue type proves the repair; identity-free nested epics and
-  molecules remain ambiguous;
-- remove one standalone feature or audit identity label from a parentless root-ineligible issue when no current workflow
-  marker or identity metadata is present;
-- preserve a parentless active legacy feature root with one canonical historical identity, together with its
-  adoption-owned descendants, while formulas and repository policy are updated;
-- repair an older repository that still tracks `.beads/interactions.jsonl`;
-- canonicalize a safe non-`src` mdBook `[book].src` tree into `docs/src` while preserving its relative layout; and
-- move mechanically placed book content from elsewhere under `docs/` into `docs/src`, including chapters named by
-  `SUMMARY.md`, mdBook include targets, referenced local assets, and the historical `docs/features/<slug>/design.md`
-  layout.
+- **No material delta:** run the controller's internal `feature audit-complete` transition, stamp the current contract
+  version on the root/current work, and retry the original command. No user approval is required.
+- **Material delta:** present only the minimum design/task/dependency changes and rationale. Do not mutate approved work
+  until the user approves reauthorization. The normal review/approval path then records the current contract version.
 
-Documentation migration is conservative and conflict checked. Navigation and local references are rewritten with the
-move, query/fragment suffixes are preserved, authored content is not overwritten, and retries derive everything again
-from visible filesystem/configuration truth. Markdown outside `docs/src` whose chapter placement is not mechanically
-established is reported and left for agent/user judgment; dStack does not invent a taxonomy or silently turn a prose
-cross-link into a `SUMMARY.md` hierarchy. Repository source/configuration files outside `docs/` are never treated as
-documentation merely because a page links to them. Missing reconciliation records for older delivered features are
-reported for authorship rather than created as empty pages.
+The version stamp is the audit cache; no separate audit state, packet, migration map, or compatibility database exists.
 
-Run repair only through `/setup-project --force` and its reviewed setup plan/apply pair; there is no direct legacy
-repair mutator. Forced setup first normalizes mechanically safe legacy documentation, then completes missing core
-documentation/navigation, applies the remaining known compatibility repair, and finally performs strict mdBook
-validation. This order lets a repairable legacy source or navigation shape reach the canonical layout before strict
-validation. The resulting mdBook must validate. Normal setup creates missing core documentation but never relocates
-legacy content; normal feature execution never runs compatibility repair.
+## Legacy adoption
 
-Setup repair uses strict `dstack.setup-plan/v4` mutation records. The reviewed SHA-256 covers the complete canonical
-operation object, including controller-content state, exact Python, Beads, and mdBook outputs, verified template
-deletions, filesystem writes, and Git-index changes. Display summaries are derived from those records. Apply receives
-only that digest, recomputes one object, rejects controller/runtime drift or unmerged authority source, and executes it
-without a second discovery pass. Forced setup permits one narrow dirty bootstrap case: a tracked
-`.beads/interactions.jsonl` may be the sole staged or unstaged path, apart from known machine-local Beads runtime files
-that the missing policy itself will ignore. The repair accepts only an ordinary stage-zero regular-file index entry;
-symlinks, unmerged entries, and special index flags fail closed. Its worktree bytes and exact prior index state are
-preserved on failure; every unrelated or untracked path blocks before documentation or Beads discovery. Forced discovery
-reads one all-status Beads inventory, builds an invocation-local parent/children index, and emits at most one canonical
-mutation per issue. Recognized active legacy feature graphs are reported for `/adopt-feature` and excluded from current
-workflow normalization. Orphaned, cyclic, cross-kind, mismatched, or competing workflow identities fail before mutation
-with native-repair guidance; no graph or migration state is persisted. Initialization is an explicit reviewed operation,
-and filesystem/formula/navigation records carry their exact source, destination, content, conflict, and before/after
-hash predicates. Tool and isolated formula-bundle preflight completes before target mutation. Drift requires a new plan.
-
-## Active legacy feature adoption
-
-`/adopt-feature` is an explicit compatibility boundary. It accepts a parentless epic/molecule with exactly one canonical
-feature identity and no alignment identity even when historical metadata has no current feature-root marker. Current
-feature commands remain stricter and require `workflow:feature` or `dstack:feature-idea`. Planning consumes a strict
-temporary `dstack.adoption-classification/v1` JSON document with exactly `schema`, `legacy_root_id`, and sorted
-`entries`. Every open executable descendant appears exactly once under one of the supported classifications: completed
-history, remaining implementation, obsolete lifecycle ceremony, unresolved decision, or preserved unchanged. Completed
-history requires sorted Git-footer/source/test/documentation evidence and either verified evidence or an explicit
-accepted-risk reason. Remaining and preserved recreation entries carry exact replacement title, description, acceptance,
-and priority; unresolved decisions carry either an incorporated design section or a named native blocker. Unknown
-fields, IDs, paths, strategies, missing work, duplicate entries, and unsupported relationships fail before any Beads
-mutation.
-
-The pure planner inventories all descendants, closed history, outgoing external blockers, and incoming external
-dependents. Its in-memory plan records exact replacement parent/label/approval requirements,
-preserve/redirect/lifecycle-only relationship operations, add-before-remove ordering, and supersession postconditions.
-Native task/bug/chore/gate relationships are checked against the pinned Beads compatibility matrix; an unsupported
-bug/chore approval topology or root remap fails before pour. Apply is a separate two-pass native execution: exact
-replacement content, parent, labels, and approval edges converge first; compatible outgoing blockers and incoming
-external dependents are added and reread before old edges are removed. Unsupported incoming translation fails closed,
-while planned nonblocking context is preserved. Native readiness is checked before and around translation. Interruption
-retries use native replacement associations, relationships, and supersession only; no migration map is written.
-Incorporated decisions keep their blocker and the legacy root unsuperseded until an approved committed-design retry
-verifies resolution. Closed historical work remains in place.
-
-When no active old-dStack features remain in supported repositories, the adoption command may be moved to an optional
-compatibility package or removed.
+`/adopt-feature` remains an explicit compatibility boundary only for genuinely old active workflows that cannot execute
+under the current lifecycle at all. It does not run on routine formula upgrades and is not used to clean historical
+metadata. Retries derive identity from native Beads/Git evidence; no migration map is stored.

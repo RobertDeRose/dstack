@@ -59,10 +59,26 @@ Mechanical work belongs in tested, idempotent commands. Examples include:
 - adding a `Beads: <id>` Git footer;
 - checking delivery ancestry and remote-base freshness;
 - resolving a gate and completing its milestone;
-- migrating known legacy workflow ceremony.
+- using packaged dStack formula authority and checking semantic formula-contract versions.
 
 Automation must remain stateless. It reads current truth from Beads and Git on every invocation and writes only through
 their native interfaces. It must not cache readiness, duplicate dependencies, or create a dStack state store.
+
+## Formula contracts are templates, not schemas
+
+**Formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to.** A
+formula version is a semantic planning/review contract version. Package releases that do not materially change the
+contract do not increment it.
+
+The controller silently keeps installed dStack formulas current. Existing approved feature graphs retain their historical
+labels, task grouping, and closed work. When an active feature was last audited under an older or unknown contract, the
+controller requests an internal semantic specification audit. The review compares outcomes, acceptance, validation,
+dependencies, failure behavior, and documentation expectations—not topology.
+
+If the current approved work already covers the contract, dStack records the current audited version on the feature and
+active work and continues. If a material gap exists, the agent proposes only the minimum delta and must obtain renewed
+user approval before changing the approved design or execution graph. No setup command, repository migration, or bulk
+historical normalization is part of an upgrade.
 
 ## Focus agent compute on decisions
 

@@ -41,9 +41,19 @@ architecture.
 
 ## Formula constraints
 
-Formulas contain only the stable four-step lifecycle skeleton. Dynamic product work is ordinary
-child Beads. Use a task-sized approval milestone and native `children-of(...)` fan-in. Do not encode
-reviewer seats or delivery ceremony.
+**Central rule:** formulas define how dStack creates and reviews new work; they are not schemas that existing work must
+migrate to. Historical feature graphs remain valid execution records and are never normalized merely because dStack or
+a formula changed.
+
+Formulas contain only the stable four-step lifecycle skeleton and a semantic contract version. Dynamic product work is
+ordinary child Beads. Packaged formulas are authoritative; native pours expose the packaged source only for the pour and
+restore any historical tracked formula copy unchanged. No persistent formula cache becomes repository authority. When an approved active feature
+has a missing/stale audited formula version, the controller requests an internal semantic specification audit. A
+no-change audit stamps the current contract version and continues without user involvement; a material design/task delta
+requires renewed user approval before mutation. Compare semantic coverage, not task names or topology.
+
+Use a task-sized approval milestone and native `children-of(...)` fan-in. Do not encode reviewer seats or delivery
+ceremony. Do not add formula-migration state, historical graph normalization, or setup/recovery workflows.
 
 ## Pi package constraints
 

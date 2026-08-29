@@ -5,7 +5,6 @@ mechanics and emits JSON.
 
 | Command | Reads | Authorized mutation | Successful boundary |
 | --- | --- | --- | --- |
-| `/setup-project [--force]` | Git, filesystem, Beads, tools | Reviewed setup plan only | Formula/docs policy validates; doctor reports healthy |
 | `/plan-feature ...` | Repository and planned Beads work | Planned intent in Beads | One lossless planned feature |
 | `/adopt-feature ...` | Legacy and current graph | Narrow explicit compatibility transition | One current native feature |
 | `/review-feature-spec ...` | Design, graph, worktree | Materialization, graph reconciliation, human authorization | Committed design digest and native approval agree |
@@ -43,30 +42,19 @@ or repository snapshot. Existing v1 Beads descriptions remain readable for histo
 Markdown scaffolds and `finish-plan --summary-file` are not alignment-plan interfaces; Markdown reconciliation remains a
 separate landing record.
 
-`setup.py doctor --delivery-mode merge|pr` requires an explicit delivery profile and reports the selected mode. Merge
-checks only common/local requirements; PR adds a usable GitHub target remote, authenticated `gh`, and native Beads
-`gh:pr` gate capability. No profile is inferred from incidental remote state.
 
-`setup.py plan` emits a human-readable envelope containing one strict `dstack.setup-plan/v4` `mutation_plan` and its
-SHA-256. The mutation object binds controller-content state, exact locked runtime outputs, initialization, Beads
-issue/dependency/supersession and verified template deletion, filesystem, Git-index, formula, and navigation/reference
-records; canonical bytes normalize Unicode/newlines, repository-relative POSIX paths, hashes, and collection order.
-`setup.py apply` requires that digest, recomputes the same object once, rejects authority drift and invalid
-deterministic prerequisites, and executes only the digest-matched operations. It does not rediscover broader
-normalization or compare unavailable original plan bytes. After native Beads mutation, apply uses the complete inventory
-for affected-issue postconditions and falls back to a focused issue read only when the inventory omits required core
-fields; incomplete or malformed semantic fields fail closed. It requires metadata, labels, parentage, relationships, and
-supersession state to equal the reviewed post-state. Missing, extra, wrongly directed, or wrongly typed state fails
-closed with the operation, target, expected and observed state, rollback completion, and mutation uncertainty. Any
-changed source, precondition, destination, formula, or navigation result also fails closed. Successful forced apply
-reports invocation-local Beads command counts and phase durations without persisting them.
+Before Beads-backed controller commands, dStack verifies the locked runtime and synchronizes packaged formula source.
+Approved active features whose `dstack.formula_version` is missing/stale return an internal `audit_required` instruction;
+the core skill performs the semantic review automatically. `feature audit-complete` is an internal transition used only
+when that review finds no material delta. Formula drift never triggers historical graph normalization.
 
 Internal controller leaves include `feature reauthorize` and `alignment reauthorize` before approved graph changes,
 `delivery replace-pr` for an explicit conflicting-gate repair, and `delivery cancel-pr-gate` for an explicit switch from
 a unique PR blocker to direct delivery. These commands require reasons and preserve native history. Gate cancellation is
 Beads-only: it does not inspect candidate branches/worktrees, docs, footer evidence, or change the GitHub pull request,
 and proves local Git HEAD/status are unchanged. Full candidate validation remains required for registration,
-replacement, merge, and finalization. Normal commands never invoke legacy repair.
+replacement, merge, and finalization. Normal commands never normalize historical workflow topology merely because a
+formula changed.
 
 ## Retry and errors
 

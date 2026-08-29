@@ -55,7 +55,7 @@ feature records. Projects should share minimum guarantees without being forced i
 
 ### Minimum foundation
 
-`/setup-project` creates these files only when missing:
+`/review-feature-spec` creates these files only when missing:
 
 ```text
 docs/
@@ -221,7 +221,7 @@ The implementation reuses:
 - idempotent `feature scaffold-design` behavior;
 - `features/index.md` and `SUMMARY.md` navigation updates;
 - the narrow documentation leakage patterns and `docs check` delivery guard;
-- setup/doctor and explicit `repair-legacy` boundaries;
+- setup/doctor and explicit legacy adoption boundaries;
 - the single `dstackctl.py` argparse entry point and standard-library Python controller modules;
 - temporary directories, `pathlib`, `urllib.parse`, subprocess argument arrays, and existing Git helpers; and
 - fast protocol tests plus the existing two real-Beads acceptance scenarios.
@@ -281,8 +281,8 @@ remain intact. They do not reorder the project's other sections.
 
 ### Existing-project migration
 
-Normal setup creates missing foundation files but does not relocate legacy content. Explicit `repair-legacy --force`
-owns mechanically safe moves.
+Normal setup creates missing foundation files but does not relocate legacy content. Explicit compatibility handling owns
+mechanically safe moves.
 
 The initially supported automatic move is the existing known feature design layout:
 
@@ -319,14 +319,14 @@ The feature candidate applies the foundation to dStack itself:
 ### Setup and doctor
 
 ```text
-/setup-project
+/review-feature-spec
     -> setup install
     -> preflight mdbook
     -> create missing core docs
     -> validate current book
     -> report visible Git changes and validation
 
-setup doctor
+documentation validation
     -> validate formulas/tooling
     -> validate current book
     -> report only

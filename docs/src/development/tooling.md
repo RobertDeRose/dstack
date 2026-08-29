@@ -1,18 +1,12 @@
 # Testing dStack
 
-## Setup diagnostics
+## Runtime and formula diagnostics
 
-Setup first emits a stateless plan with an authority-state digest. The digest binds target operations, the current
-controller-content identity/state, and exact Python, Beads, and mdBook outputs. Apply requires that reviewed digest,
-recomputes the plan after a strict preflight, rejects unmerged or changed controller authority, and completes
-locked-tool and isolated formula-bundle checks before target mutation. Forced repair accepts only a tracked
-`.beads/interactions.jsonl` as the sole dirty path, preserves its worktree bytes, and restores its exact index entry on
-failure. Formula writes use atomic replacement; failures compensate setup-owned resources where possible and report
-observed recovery for boundaries that require inspection.
+The locked launcher is the runtime boundary. Controller entry points verify the supported Beads binary, initialize Beads
+when necessary, and synchronize dStack-owned formula files before normal workflow mechanics. Fast tests cover formula
+contract parsing, idempotent synchronization, caller-repository preservation, and stale-contract audit dispatch.
 
-Doctor reports independent, actionable checks for pinned Beads and mdBook versions, formula bytes and validity,
-documentation, interaction-log policy, feature reconciliations, Git worktrees, tracked runtime paths, origin/GitHub
-prerequisites, and pending compatibility migration.
+No setup/migration acceptance fixture exists because upgrades do not normalize historical Beads.
 
 ## Documentation
 
@@ -24,13 +18,6 @@ bin/dstack ctl docs validate
 ```
 
 The build uses temporary output and external URLs are not fetched.
-
-Forced setup migration is covered by compact feature-heavy distributed-service, embedded/system, and modular-application
-fixtures. Each fixture proves that known `SUMMARY.md` or include targets move without authored-byte loss, conflicts fail
-closed, and local links keep their query/fragment suffixes. Unreferenced Markdown remains at its exact legacy path with
-a manual navigation action; setup reports `manual-action-required` instead of claiming migration is complete. After the
-reported move and `SUMMARY.md` update, a repeat plan must converge with no unresolved paths. No fixture relies on
-semantic heading or filename guesses.
 
 ## Fast suite
 
@@ -57,8 +44,7 @@ uv run pytest -q tests/acceptance/test_feature_smoke.py
 
 An unavailable or invalid `bd` is an acceptance failure, never a skip. The contract scenario initializes Beads directly
 and verifies the supported JSON envelope, both formula structures and pours, native gates/readiness/claims, child
-fan-in, supersession, worktree primitives, and a representative forced-setup inventory with grouped writes and
-invocation-local command/timing metrics. The smoke scenario alone runs full dStack setup, then one minimal shipped
+fan-in, supersession, worktree primitives, and formula synchronization under the locked launcher. The smoke scenario runs one minimal shipped
 feature through approval, one Git-backed task, closeout, and fast-forward delivery.
 
 GitHub Actions runs with locked mise resolution, validates the mdBook, then runs the fast suite and each real-Beads

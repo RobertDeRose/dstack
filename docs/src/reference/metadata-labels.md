@@ -7,6 +7,8 @@ lifecycle roles, not transient execution state.
 
 | Key | Meaning |
 | --- | --- |
+| `dstack.created_formula_version` | Formula contract version that created/materialized the workflow root; historical provenance |
+| `dstack.formula_version` | Latest formula contract version whose semantics were approved/audited for the active workflow |
 | `dstack.base_branch` | Feature delivery target |
 | `dstack.design_path` | Canonical tracked design path under `docs/src/features` |
 | `dstack.pending_design_sha256` | Committed design digest for an incomplete approval attempt; never sufficient for implementation |
@@ -30,5 +32,5 @@ intent only and never store a Git baseline.
 
 Stable formula step labels identify specification/analysis, approval, implementation/corrections, and closeout/landing
 roles. Formula validation owns the exact set; dynamic children do not duplicate root identity labels or root metadata.
-Issue type alone never establishes a root because implementation and corrections workstreams are also epics. Deprecated
-compatibility aliases may be read only by explicit repair and must not be written by normal commands.
+Issue type alone never establishes a root because implementation and corrections workstreams are also epics. Historical
+compatibility aliases may be read when resolving old work but are not normalized merely because a formula changes.

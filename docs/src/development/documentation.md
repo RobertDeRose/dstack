@@ -111,13 +111,3 @@ The deterministic link checker intentionally recognizes inline Markdown links/im
 Reference-style links, HTML links, autolinks, and other Markdown extensions remain mdBook content but are outside
 dStack's mechanical target extraction. Use inline local Markdown links for concrete documentation surfaces that feature
 closeout must prove exist.
-
-Explicit `/setup-project --force` may migrate mechanically identifiable legacy book content into `docs/src` before
-validation. A noncanonical source directory configured by `book.toml` is canonicalized as a whole, except `src = "."`,
-which is refused before mutation and must be moved manually. With `docs/src` already configured, chapters named by
-`SUMMARY.md`, mdBook include targets, and local assets with deterministic destinations can be moved while their
-references are rewritten. Markdown whose correct chapter placement cannot be inferred is left in place and reported for
-semantic judgment rather than guessed into the book. The migration result includes each exact path and the manual action
-`choose a docs/src chapter, move the file, update SUMMARY.md, and rerun setup`. Forced setup reports
-`manual-action-required` while those paths remain; after a human move and navigation update, a repeat plan must contain
-no unresolved paths before migration is considered converged.

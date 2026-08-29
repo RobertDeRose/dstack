@@ -40,11 +40,11 @@ Git owns source, tests, configuration, durable documentation, branches, worktree
 Workflow commits use a stable `Beads: <id>` footer.
 
 Beads repository configuration may also be tracked when it is stable project configuration (`.beads/config.yaml`,
-`.beads/metadata.json`, `.beads/README.md`, `.beads/.gitignore`, and dStack formulas). Machine-local databases, locks,
-sockets, backup state, and the dStack-local interaction audit log are not Git history. Delivery guards classify those
-paths explicitly instead of treating every `.beads/` file as runtime state. Workflow commits created by
-`dstackctl git commit` still exclude setup/configuration paths so feature history cannot accidentally absorb environment
-setup; those stable files are reviewed and committed in a separate native Git setup boundary.
+`.beads/metadata.json`, `.beads/README.md`, and `.beads/.gitignore`). Packaged dStack formulas remain package authority;
+native pours expose them transiently and restore any historical project copy afterward. Machine-local databases, locks,
+sockets, backup state, and the dStack-local interaction audit log are not Git history. Workflow commits created by
+`dstackctl git commit` exclude all `.beads/` paths so feature history cannot accidentally absorb Beads/controller
+maintenance; intentional stable Beads configuration changes are separate repository maintenance.
 
 ### Repository documentation
 
@@ -76,39 +76,24 @@ It may not:
 - cache a Git-to-Beads mapping;
 - poll GitHub instead of using Beads gates.
 
-Every invocation derives truth from the current repository and Beads database. The bundled launcher runs public Python
-entry points in an isolated package-relative runtime selected from `mise.toml` and `mise.lock`; ambient tools cannot
-replace the supported Python, Beads, or mdBook binaries. Mutation commands load only stable identity, metadata, and
-lifecycle steps, then query the additional native state required for that operation. Forced setup validates the
-projected repository and formula bundle before mutation, then uses a digest-scoped reviewed plan, a detached Git
-worktree, a native Dolt backup, and an explicitly selected Beads database. It reuses complete invocation-local
-inventories, groups only identical supported issue updates, keeps writes sequential, and retains native recovery
-artifacts until explicit cleanup. Incomplete semantic inventory fields fail closed or trigger a focused authoritative
-read; no migration state survives the process outside the reviewed plan and native Git/Beads artifacts. Its canonical
-digest also binds the controller-source content/state and exact runtime outputs; apply rejects unmerged authority source
-or drift before target mutation. Full dashboard hydration (gates, ready work, progress, and delivery state) is reserved
-for inspection and delivery. Nested transitions reuse the invocation's Beads client; no cache or state survives the
-process.
+Every invocation derives truth from the current repository and Beads database. The bundled launcher selects the locked
+package runtime while preserving the caller repository as the controller working directory. Before Beads-backed work,
+the controller validates the supported Beads binary, initializes Beads when needed, and uses packaged dStack formulas
+as authority. Formula source is exposed transiently for native pours; legacy tracked copies are tolerated and restored
+unchanged. No setup workflow or migration authority exists.
 
-Workflow root identity shares three structural invariants: exactly one compatible canonical slug/audit identity,
-parentless Beads topology, and epic/molecule type; type alone is insufficient because stable workstreams are also epics.
-Current feature roots additionally require `workflow:feature` or `dstack:feature-idea`, and current alignment roots
-require `workflow:project-alignment`. Normal lifecycle, audit, and delivery resolution use those current-root
-classifiers. The explicit adoption boundary also accepts a supported historical feature root without a current root
-marker when the structural invariants hold and no alignment identity is present.
+Formula versions are semantic planning/review contracts. New feature roots record their creation version; approved active
+features record the latest audited version. A stale/missing audited version causes the controller to return one compact
+`audit_required` instruction. The core skill invokes the specification-review skill with that instruction internally. If
+the existing design/tasks already satisfy current expectations, dStack stamps the current version and resumes. Material
+gaps produce only a proposed delta and reuse the normal human reauthorization boundary.
 
-Forced setup uses one invocation-local all-status inventory and parent/children index. It removes mechanically proven
-obsolete current-root identity while preserving a recognized active legacy feature root and its descendants for explicit
-adoption. Proof is a compatible duplicated identity or formula placeholder, or an identity-free descendant whose native
-type cannot be a root, beneath exactly one current same-kind root. One standalone feature or audit identity label is
-also repairable on a parentless root-ineligible issue when no current workflow marker or identity metadata is present.
-Identity-free nested epics and molecules remain ambiguous. Doctor reports active legacy work, and remaining orphaned,
-cyclic, mismatched, competing, or cross-kind topology fails before mutation. No graph state survives the invocation.
-
-Compatibility is an explicit boundary: legacy adoption is dispatched only by `adopt`, and repository repair is
-dispatched only by the explicit setup repair operation. Normal feature, alignment, evidence, and delivery operations do
-not run either path or rewrite historical workflow data. The isolated compatibility module can be retired once supported
-repositories no longer contain active legacy workflows.
+**Formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to.**
+Historical labels, task groupings, and closed work are left intact. Current root resolution uses parentless topology,
+root type, and compatible identity; supported historical roots are read for compatibility/adoption but are not
+normalized on upgrade. `/adopt-feature` remains isolated for genuinely old active workflows that cannot execute under
+the current lifecycle. No compatibility database, migration map, setup ledger, or historical normalization state is
+stored.
 
 ### Pi skills
 
