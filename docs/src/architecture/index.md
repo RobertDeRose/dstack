@@ -8,10 +8,11 @@ User / Pi command
         v
 short decision-oriented skill
         |
+        +---- compact installed dStack system guidance
         +---- agent makes engineering decisions
         |
         v
-stateless dstackctl operation
+installed `dstack ctl` operation
         |
         +---- native bd commands ------> Beads / Dolt
         |
@@ -43,7 +44,7 @@ Beads repository configuration may also be tracked when it is stable project con
 `.beads/metadata.json`, `.beads/README.md`, and `.beads/.gitignore`). Packaged dStack formulas remain package authority;
 native pours expose them transiently and restore any historical project copy afterward. Machine-local databases, locks,
 sockets, backup state, and the dStack-local interaction audit log are not Git history. Workflow commits created by
-`dstackctl git commit` exclude all `.beads/` paths so feature history cannot accidentally absorb Beads/controller
+`dstack ctl git commit` exclude all `.beads/` paths so feature history cannot accidentally absorb Beads/controller
 maintenance; intentional stable Beads configuration changes are separate repository maintenance.
 
 ### Repository documentation
@@ -53,9 +54,9 @@ materialized during repository-aware review and used by people and agents to det
 implementation. Unreviewed planned feature intent remains in Beads, so abandoned ideas create no Git artifacts.
 Documentation is not an execution dashboard.
 
-### `dstackctl`
+### `dstack` CLI
 
-`dstackctl` is a stateless deterministic adapter. It may:
+`dstack` is an installable Python tool. `dstack ctl` is its stateless deterministic adapter. It may:
 
 - query and validate Beads JSON;
 - resolve exact feature/audit selectors and stable steps;
@@ -76,17 +77,18 @@ It may not:
 - cache a Git-to-Beads mapping;
 - poll GitHub instead of using Beads gates.
 
-Every invocation derives truth from the current repository and Beads database. The bundled launcher selects the locked
-package runtime while preserving the caller repository as the controller working directory. Before Beads-backed work,
-the controller validates the supported Beads binary, initializes Beads when needed, and uses packaged dStack formulas
-as authority. Formula source is exposed transiently for native pours; legacy tracked copies are tolerated and restored
+Every invocation derives truth from the current repository and Beads database. `uv tool install` places `dstack` on
+`PATH`; controller modules live in the installed Python package rather than under Pi skills. Before Beads-backed work,
+the controller validates the supported Beads binary, initializes Beads when needed, and uses packaged dStack formulas as
+authority. Formula source is exposed transiently for native pours; legacy tracked copies are tolerated and restored
 unchanged. No setup workflow or migration authority exists.
 
-Formula versions are semantic planning/review contracts. New feature roots record their creation version; approved active
-features record the latest audited version. A stale/missing audited version causes the controller to return one compact
-`audit_required` instruction. The core skill invokes the specification-review skill with that instruction internally. If
-the existing design/tasks already satisfy current expectations, dStack stamps the current version and resumes. Material
-gaps produce only a proposed delta and reuse the normal human reauthorization boundary.
+Formula versions are semantic planning/review contracts. New feature roots record their creation version; approved
+active features record the latest audited version. A stale/missing audited version causes the controller to return one
+compact `audit_required` instruction. The installed dStack system guidance routes that instruction to the
+specification-review skill internally. If the existing design/tasks already satisfy current expectations, dStack stamps
+the current version and resumes. Material gaps produce only a proposed delta and reuse the normal human reauthorization
+boundary.
 
 **Formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to.**
 Historical labels, task groupings, and closed work are left intact. Current root resolution uses parentless topology,
@@ -95,7 +97,11 @@ normalized on upgrade. `/adopt-feature` remains isolated for genuinely old activ
 the current lifecycle. No compatibility database, migration map, setup ledger, or historical normalization state is
 stored.
 
-### Pi skills
+### Pi integration
+
+`dstack install_skills` copies dStack's prompt templates and decision skills into Pi and maintains one dStack-owned
+block in the global `APPEND_SYSTEM.md`. The former `dstack-beads-core` skill does not exist: stable CLI usage,
+formula-audit routing, and cross-workflow guardrails are always available through that compact system-prompt additive.
 
 Skills are short policy and judgment guides. They tell the agent:
 
@@ -105,7 +111,7 @@ Skills are short policy and judgment guides. They tell the agent:
 - when to stop and ask;
 - which deterministic command completes the mechanics.
 
-Exact shell choreography belongs in `dstackctl --help` and tests, not repeated across skills.
+Exact shell choreography belongs in `dstack ctl --help` and tests, not repeated across skills.
 
 ## Minimal feature molecule
 
@@ -197,7 +203,7 @@ reconciliation boundary; implementation and correction tasks do not update durab
 amended, fixed up, or rebased before delivery when its history remains linear and final terminal evidence stays
 reachable. After delivery starts, Beads may be finalized but Git may not change.
 
-`dstackctl delivery` requires clean candidate and target worktrees, snapshots the target HEAD and full status including
+`dstack ctl delivery` requires clean candidate and target worktrees, snapshots the target HEAD and full status including
 untracked files, performs the native delivery/finalization operations, and reports any Git mutation caused by Beads
 finalization with explicit delivered/recovery facts. It never rewrites delivered Git history or creates a post-delivery
 bookkeeping commit.

@@ -1,10 +1,11 @@
 # Command contracts
 
-Public slash commands are decision-oriented Pi prompt aliases. The bundled controller performs stateless deterministic
-mechanics and emits JSON.
+Public slash commands are decision-oriented Pi prompt aliases installed by `dstack install_skills`. The installed
+`dstack ctl` controller performs stateless deterministic mechanics and emits JSON.
 
 | Command | Reads | Authorized mutation | Successful boundary |
 | --- | --- | --- | --- |
+| `dstack install_skills` | Packaged Pi resources and existing global Pi guidance | dStack-owned skills/prompts and one managed `APPEND_SYSTEM.md` block | Installed Pi resources match the installed dStack version |
 | `/plan-feature ...` | Repository and planned Beads work | Planned intent in Beads | One lossless planned feature |
 | `/adopt-feature ...` | Legacy and current graph | Narrow explicit compatibility transition | One current native feature |
 | `/review-feature-spec ...` | Design, graph, worktree | Materialization, graph reconciliation, human authorization | Committed design digest and native approval agree |
@@ -13,12 +14,12 @@ mechanics and emits JSON.
 | `/project-alignment-review ...` | Current repository | Alignment analysis and correction plan | Human gate remains for explicit execution |
 | `/project-alignment-execute ...` | Native ready corrections | Exact claim and evidence-backed close | Requested correction closes or none is ready |
 | `/project-alignment-land ...` | Full correction candidate | Landing and optional delivery | Reviewed candidate or delivered root |
-| `dstackctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic facts include current terminal evidence, source revisions, limitations, and reconciliation; delivered evidence survives cleanup |
+| `dstack ctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic facts include current terminal evidence, source revisions, limitations, and reconciliation; delivered evidence survives cleanup |
 
-Adoption planning writes no durable state. Run `dstackctl adopt plan LEGACY --classification-file CLASSIFICATION.json`
+Adoption planning writes no durable state. Run `dstack ctl adopt plan LEGACY --classification-file CLASSIFICATION.json`
 with a temporary strict `dstack.adoption-classification/v1` document; the command only reads Beads/Git and emits a
 deterministic in-memory transformation plan. Apply the same file with
-`dstackctl adopt apply LEGACY --classification-file CLASSIFICATION.json`; all validation and complete graph planning
+`dstack ctl adopt apply LEGACY --classification-file CLASSIFICATION.json`; all validation and complete graph planning
 occur before pour or any other Beads mutation. Apply rereads every legacy, lifecycle, and affected external endpoint;
 creates or reuses exact replacements from native parentage, labels, content, and supersession/association evidence; and
 adds and verifies each compatible blocker before removing its legacy edge. Incoming external dependents are redirected
@@ -42,11 +43,11 @@ or repository snapshot. Existing v1 Beads descriptions remain readable for histo
 Markdown scaffolds and `finish-plan --summary-file` are not alignment-plan interfaces; Markdown reconciliation remains a
 separate landing record.
 
-
-Before Beads-backed controller commands, dStack verifies the locked runtime and synchronizes packaged formula source.
-Approved active features whose `dstack.formula_version` is missing/stale return an internal `audit_required` instruction;
-the core skill performs the semantic review automatically. `feature audit-complete` is an internal transition used only
-when that review finds no material delta. Formula drift never triggers historical graph normalization.
+Before Beads-backed controller commands, dStack validates the supported Beads binary and uses packaged formula source.
+Approved active features whose `dstack.formula_version` is missing/stale return an internal `audit_required`
+instruction; the installed dStack system guidance routes the semantic review automatically. `feature audit-complete` is
+an internal transition used only when that review finds no material delta. Formula drift never triggers historical graph
+normalization.
 
 Internal controller leaves include `feature reauthorize` and `alignment reauthorize` before approved graph changes,
 `delivery replace-pr` for an explicit conflicting-gate repair, and `delivery cancel-pr-gate` for an explicit switch from

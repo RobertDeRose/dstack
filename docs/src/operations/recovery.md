@@ -5,9 +5,10 @@ rollback when an external mutation is uncertain.
 
 ## Formula and compatibility failures
 
-Formula synchronization is an idempotent controller prerequisite, not a workflow. If an installed dStack formula cannot
-be refreshed atomically, stop before lifecycle mutation and report the filesystem error. Do not repair historical Beads
-to make a formula install succeed.
+Packaged formula validation is an idempotent controller prerequisite, not a workflow. Native pours expose the installed
+dStack package's formula only for that operation and restore any historical project copy afterward. If formula source or
+the native pour cannot be used safely, stop before lifecycle mutation. Do not repair historical Beads to make a formula
+operation succeed.
 
 If a feature contract audit is required, follow the controller-provided internal review input. A no-change audit stamps
 the current contract version. A changes-required audit stops at the existing human reauthorization boundary; never
@@ -57,7 +58,7 @@ not commit it as documentation or workflow history.
 | Diagnostic | Meaning | Safe response |
 | --- | --- | --- |
 | Unsupported tool version | Compatibility evidence does not cover this binary | Install the pinned version or implement and review an upgrade |
-| Formula synchronization failure | Controller could not refresh dStack-owned formula source | Repair the filesystem/tooling issue; do not mutate historical workflow state |
+| Formula operation failure | Controller could not validate/use packaged formula source | Repair the package/tooling issue; do not mutate historical workflow state |
 | Worktree anomaly | Native Git topology is missing, duplicate, dirty, or prunable | Inspect `git worktree list --porcelain`; repair with native Git |
 | Tracked runtime path | Machine-local Beads state entered Git | Remove it from the index without deleting needed local data |
 | Missing reconciliation | A delivered feature lacks its durable result record | Author and review the record; dStack does not invent it |

@@ -51,8 +51,8 @@ removed through Beads.
 
 Before implementation or closeout of approved active work, the controller compares the feature's
 `dstack.formula_version` with the current `dstack-feature` semantic contract version. A match continues immediately. A
-missing/stale value returns a compact internal `audit_required` instruction that the core skill routes through
-`/review-feature-spec`; the user does not invoke an audit switch.
+missing/stale value returns a compact internal `audit_required` instruction that the installed dStack system guidance
+routes through `/review-feature-spec`; the user does not invoke an audit switch.
 
 Audit compares the accepted design and authorized tasks semantically with current planning/review expectations. It does
 not regenerate the graph or treat task names/grouping as a schema. If no material gap exists, the internal

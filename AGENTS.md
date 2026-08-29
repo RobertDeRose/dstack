@@ -8,7 +8,7 @@ architecture.
 - Beads: work, dependencies, gates, ready/blocked/closed state, decisions.
 - Git: code, tests, configuration, durable docs, commits, delivery history.
 - Documentation: stable product and architecture intent.
-- `dstackctl`: stateless deterministic orchestration only.
+- `dstack` CLI: stateless deterministic orchestration only.
 - Pi skills/agents: engineering judgment and user interaction.
 
 ## Non-negotiable constraints
@@ -55,15 +55,23 @@ requires renewed user approval before mutation. Compare semantic coverage, not t
 Use a task-sized approval milestone and native `children-of(...)` fan-in. Do not encode reviewer seats or delivery
 ceremony. Do not add formula-migration state, historical graph normalization, or setup/recovery workflows.
 
-## Pi package constraints
+## Installed CLI and Pi resource constraints
 
-Public slash commands are prompt aliases. Internal skills stay under the `dstack-beads-*` namespace.
-Keep skills short and decision-oriented; exact mechanical choreography belongs in tested scripts.
+`dstack` is a normal Python tool installed with `uv tool install`; controller code lives in the top-level `dstack/`
+package, never inside a skill. `dstack install_skills` owns installation of dStack prompt templates and decision skills
+into Pi. The stable cross-workflow guardrails are installed as a managed block in Pi's `APPEND_SYSTEM.md`; there is no
+`dstack-beads-core` skill.
+
+Public slash commands are prompt aliases. Decision skills stay under the `dstack-beads-*` namespace and call `dstack ctl
+...` from `PATH`. Keep skills short and decision-oriented; exact mechanical choreography belongs in the tested CLI.
+The installer may overwrite dStack-owned prompt/skill names and its own marked system-prompt block, but must preserve
+unrelated user Pi configuration and system-prompt content.
 
 ## Release checks
 
 - YAML/TOML/JSON metadata parses.
 - Python compiles and tests pass.
-- Skills do not reintroduce prohibited state or SHA mappings.
+- Installed skills/system guidance do not reintroduce prohibited state or SHA mappings.
+- `uv build` includes the CLI, formulas, prompts, skills, and system-prompt additive; `dstack install_skills` is idempotent.
 - Required CI jobs run fast tests and each real-Beads acceptance scenario separately.
 - `git diff --check`, `git fsck`, bundle verification, and clean-clone tests pass.

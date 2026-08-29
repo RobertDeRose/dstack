@@ -6,17 +6,17 @@ rewrite closed tasks, old labels, metadata aliases, or lifecycle topology merely
 
 ## Supported runtime
 
-- Python: 3.14 (package lock: 3.14.7)
-- Beads: 1.2.2 exact supported build
-- mdBook: 0.5.3
+- Python: 3.14 (`uv tool install` enforces `pyproject.toml`)
+- Beads: 1.2.2 exact supported build on `PATH`
+- mdBook: 0.5.3 on `PATH` when documentation validation is required
 
-The launcher resolves these from the package lock; ambient `PATH` tools such as a Homebrew Beads build are outside the
-tested controller boundary.
+The installed `dstack` executable is the controller boundary. It validates the Beads build before Beads-backed work and
+reports missing external executables directly; there is no package-relative launcher.
 
 ## Formula infrastructure
 
-The package pins supported Python, Beads, mdBook, and formula source. Controller entry points verify the locked runtime
-and use the two packaged dStack formulas as authority. Native pours expose the packaged formula only for the operation.
+The Python package carries the two dStack formulas as authority. Controller entry points validate required external
+tools and use the packaged formula source directly. Native pours expose the packaged formula only for the operation.
 Legacy repositories that tracked old formula copies keep those historical bytes unchanged, and projects without a copy
 are left without one afterward. Formula infrastructure therefore creates no persistent migration state.
 
@@ -27,8 +27,8 @@ planning/review expectations materially change.
 ## Automatic feature compatibility audit
 
 When an approved active feature has a missing or stale `dstack.formula_version`, a normal lifecycle command returns an
-internal `audit_required` instruction naming the current review skill and the previous/current contract versions. The
-core skill immediately performs that review; users do not invoke an audit mode.
+internal `audit_required` instruction naming the current review skill and the previous/current contract versions. Pi's
+installed dStack system guidance immediately routes that review; users do not invoke an audit mode.
 
 The audit compares the accepted design and existing authorized work semantically against current requirements. Different
 task names, grouping, review ceremony, or historical labels are not findings when the same outcomes and validation are

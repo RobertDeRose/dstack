@@ -93,15 +93,15 @@ Documentation may describe durable product classifications such as `planned`, `i
 not mirror Beads readiness, blockers, assignees, active review, delivery readiness, task or gate identities, branches,
 worktrees, commits, pull requests, or next dStack commands.
 
-Beads owns actionable work and dependencies. Git owns documentation and its history. `dstackctl` validates deterministic
-mechanics without a second manifest, cache, or documentation state store.
+Beads owns actionable work and dependencies. Git owns documentation and its history. `dstack ctl` validates
+deterministic mechanics without a second manifest, cache, or documentation state store.
 
 ## Validation
 
 The repository pins the tested mdBook release through mise. Validate the current book with:
 
 ```bash
-bin/dstack ctl docs validate
+dstack ctl docs validate
 ```
 
 Validation requires the core foundation, canonical `[book].src = "src"`, local link targets, chapter navigation, and

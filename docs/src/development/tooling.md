@@ -1,20 +1,21 @@
 # Testing dStack
 
-## Runtime and formula diagnostics
+## Installed CLI boundary
 
-The locked launcher is the runtime boundary. Controller entry points verify the supported Beads binary, initialize Beads
-when necessary, and synchronize dStack-owned formula files before normal workflow mechanics. Fast tests cover formula
-contract parsing, idempotent synchronization, caller-repository preservation, and stale-contract audit dispatch.
+`dstack` is built as a normal Python package and installed with `uv tool install`. Controller modules live in the
+top-level `dstack/` package. `dstack install_skills` installs the Pi prompts, decision skills, and compact managed
+system-prompt additive; no executable controller code lives inside a skill.
 
-No setup/migration acceptance fixture exists because upgrades do not normalize historical Beads.
+Controller entry points verify the supported Beads binary, initialize Beads when necessary, and use packaged formula
+source for native pours. No setup/migration fixture exists because upgrades do not normalize historical Beads.
 
 ## Documentation
 
-The tested mdBook release is pinned through mise. Validate required pages, chapter navigation, local links, orphan
-Markdown, and the build with:
+The tested mdBook release is pinned for repository development through mise. Validate required pages, chapter
+navigation, local links, orphan Markdown, and the build with:
 
 ```bash
-bin/dstack ctl docs validate
+dstack ctl docs validate
 ```
 
 The build uses temporary output and external URLs are not fetched.
@@ -28,60 +29,41 @@ Git repositories where Git is the authority and never invokes a real `bd` binary
 uv run pytest -q -rs
 ```
 
-This suite must complete quickly, with zero skipped tests. The scripted client is a protocol stub only: it matches
-ordered calls and returns declared snapshots; it does not calculate readiness, dependencies, ownership, gates, or
-lifecycle transitions.
+The scripted client is a protocol stub only: it matches ordered calls and returns declared snapshots; it does not
+calculate readiness, dependencies, ownership, gates, or lifecycle transitions.
 
 ## Real-Beads acceptance
 
-Acceptance uses exactly two real-boundary scenarios in `tests/acceptance`:
+Acceptance verifies the supported native boundary:
 
 ```bash
 uv run pytest -q tests/acceptance/test_bd_contract.py
-
 uv run pytest -q tests/acceptance/test_feature_smoke.py
 ```
 
-An unavailable or invalid `bd` is an acceptance failure, never a skip. The contract scenario initializes Beads directly
-and verifies the supported JSON envelope, both formula structures and pours, native gates/readiness/claims, child
-fan-in, supersession, worktree primitives, and formula synchronization under the locked launcher. The smoke scenario runs one minimal shipped
-feature through approval, one Git-backed task, closeout, and fast-forward delivery.
+An unavailable or invalid `bd` is an acceptance failure, never a skip. The contract scenario verifies Beads JSON,
+formulas/pours, gates/readiness/claims, child fan-in, supersession, worktree primitives, and formula-contract auditing.
+The smoke scenario runs one shipped feature through approval, one Git-backed task, closeout, and delivery.
 
-GitHub Actions runs with locked mise resolution, validates the mdBook, then runs the fast suite and each real-Beads
-scenario as separate jobs on pull requests and manual dispatch. The package selects Python 3.14.7, mdBook 0.5.3, and the
-exact supported Beads 1.2.2 release from `mise.lock`. A different version requires an explicit compatibility change
-backed by the same real-boundary scenarios. Acceptance preflight fails immediately unless the locked `bd` is available.
+## Packaging checks
+
+Before release, build the package and verify installation resources:
+
+```bash
+uv build
+uv tool install --force --python 3.14 .
+dstack install_skills --agent-dir /tmp/dstack-pi-agent
+```
+
+The installed resource set must contain prompts and decision skills but no `dstack-beads-core` skill. The managed
+`APPEND_SYSTEM.md` block must be idempotent and preserve unrelated existing content.
 
 ## Test ownership
 
 - Beads owns lifecycle behavior; acceptance tests verify the supported binary.
-- dStack owns selector, validation, refusal, Git evidence, documentation, and delivery policy; fast tests verify those
-  decisions without reimplementing Beads.
+- dStack owns selector, validation, refusal, Git evidence, documentation, packaging, and delivery policy; fast tests
+  verify those decisions without reimplementing Beads.
 - Git owns repository state; fast tests use real temporary Git repositories for Git behavior.
 
 No coverage threshold or fixed test count is used. Every test asserts an observable result, invariant, refusal, or
 failure boundary.
-
-## Validation evidence
-
-| Boundary | Required evidence |
-| --- | --- |
-| Metadata and docs | YAML/TOML/JSON parse, mdBook policy, local links, and build |
-| Python mechanics | Compile, fast tests, formatting/lint/static checks configured by the repository |
-| Native behavior | Contract and smoke real-Beads scenarios run separately |
-| Candidate Git | `git diff --check`, footer/path audit, clean worktree |
-| Release integrity | `git fsck`, bundle verification, and clean-clone validation |
-
-A failed or timed-out required check blocks commit or completion. Reports name the exact command, environment and
-supported tool versions, observed result, omissions, and remaining risk; a weaker substitute is not a pass.
-
-Controller, formula, documentation-policy, and compatibility commits use a meaningful Conventional Commit subject and
-explanatory bullet body. Work commits retain rewrite-safe `Beads:` footers. Do not add a bookkeeping commit after
-delivery.
-
-## Controller command timeouts
-
-Every external Git, Beads, GitHub CLI, Python, and mdBook invocation has a bounded timeout. A timeout reports the
-command, working directory, limit, and whether the operation may have mutated state; it never claims that a timed-out
-mutation was safely rolled back. Set `DSTACK_COMMAND_TIMEOUT_SECONDS` to a positive number only when a repository's
-known validation boundary needs a larger uniform limit.

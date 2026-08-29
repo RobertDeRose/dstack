@@ -5,13 +5,29 @@ This section is the operator contract for installing and running dStack. The
 
 ## Install and configure
 
-1. Install the package's locked runtime with `mise --cd <dstack-package-root> install --locked`.
-2. Install/reload the Pi package.
-3. Run the normal workflow command from the target repository.
+Install dStack as a normal Python tool from a checkout:
 
-There is no setup workflow. Controller entry points preserve the caller repository, initialize Beads when needed, and
-silently synchronize dStack-owned formula files before operating. Formula synchronization does not modify historical
-feature graphs.
+```bash
+uv tool install --python 3.14 /path/to/dstack
+```
+
+The first dStack command to run is:
+
+```bash
+dstack install_skills
+```
+
+This installs/updates the dStack decision skills under `~/.pi/agent/skills/`, slash-command prompts under
+`~/.pi/agent/prompts/`, and a compact managed dStack block in `~/.pi/agent/APPEND_SYSTEM.md`. Reload Pi after
+installation or upgrade. The `dstack-beads-core` skill is intentionally not installed; its stable cross-workflow
+guardrails are part of the system-prompt additive.
+
+The normal controller entry point is `dstack ctl ...`. It uses the repository from which it is invoked unless `--root`
+is supplied explicitly, initializes Beads when needed, and uses packaged dStack formulas as authority before operating.
+There is no setup workflow and no formula migration.
+
+Required external tools are Beads 1.2.2 exactly and a working mdBook 0.5.3 when documentation validation is required.
+The dStack repository's `mise.toml` remains contributor/CI tooling, not the installed CLI launcher.
 
 Stable configuration lives in Git and Beads. dStack has no database, scheduler, setup ledger, migration state, or
 ownership cache.
@@ -22,17 +38,25 @@ Use the [command contracts](../reference/cli.md) to plan, authorize, implement, 
 the sole authority for readiness, dependencies, gates, claims, and completion. Git is the sole authority for content,
 worktrees, commits, and delivery history.
 
-If a normal feature command detects an older formula contract on approved active work, the controller requests an
-internal semantic audit. A no-change audit is cached by updating the audited formula version; a material plan delta is
-shown to the user and requires renewed approval. This is review of current intent, not migration of historical Beads.
+If a normal feature command detects an older formula contract on approved active work, the controller returns an
+internal semantic-audit instruction. Pi's installed dStack system guidance routes it automatically. A no-change audit is
+cached by updating the audited formula version; a material plan delta is shown to the user and requires renewed
+approval. This is review of current intent, not migration of historical Beads.
 
 Each feature or alignment uses a conventional native Git worktree. Native Beads claims arbitrate concurrent workers.
 Clean completed worktrees with native Git after delivery and after confirming no uncommitted files remain.
 
 ## Upgrade and uninstall
 
-Upgrades replace dStack-owned installed formulas automatically. Existing approved work is audited only when a formula's
-semantic contract version changes. No repository-wide migration is performed.
+Upgrade by reinstalling from the same checkout or source, then refresh Pi resources:
 
-To uninstall, remove the Pi package through Pi's package mechanism. Repository-owned documentation, Beads history, and
-Git history remain project data.
+```bash
+uv tool install --force --python 3.14 /path/to/dstack
+dstack install_skills
+```
+
+Formula contract changes audit active approved work only when needed. Existing historical work is never repository-wide
+migrated to a newer formula shape.
+
+To uninstall, remove the uv tool and delete the dStack-owned skills/prompts and managed APPEND_SYSTEM block if desired.
+Repository-owned documentation, Beads history, and Git history remain project data.

@@ -1,8 +1,9 @@
 # ![dstack logo](assets/img/dstack_logo.png#center)
 
 `dStack` is a documentation-first, Beads-backed workflow for planning, implementing, reconciling, and delivering
-agent-assisted software projects. It is currently implemented as a small Pi workflow package. It combines
-decision-oriented skills with stateless automation that uses Beads as the workflow engine.
+agent-assisted software projects. It is implemented as an installable `dstack` CLI plus short Pi decision skills.
+`dstack install_skills` installs the Pi prompts/skills and compact system guidance; stateless controller mechanics use
+Beads as the workflow engine.
 
 - [Architecture](architecture/index.md)
 - [Core principles](development/index.md)
