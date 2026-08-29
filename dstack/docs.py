@@ -14,7 +14,9 @@ from urllib.parse import unquote, urlsplit
 from .commands import RECORD_SUBJECTS, emit
 from .core import DstackError, run
 
-LINK_PATTERN = re.compile(r"!?\[[^]]*\]\(([^)]+)\)")
+# Public sentinel used by callers. Link targets are scanned rather than parsed
+# with this regular expression so balanced parentheses remain intact.
+LINK_PATTERN = re.compile(r"!?\[[^]]*\]\((.+)\)")
 INCLUDE_PATTERN = re.compile(r"\{\{#include\s+([^}\s]+)[^}]*\}\}")
 FENCE_PATTERN = re.compile(r"^( {0,3})(`{3,}|~{3,})")
 
@@ -111,9 +113,64 @@ def _markdown_matches(text: str, pattern: re.Pattern[str]) -> tuple[str, list[re
     return masked, matches
 
 
+def _markdown_link_target_spans(text: str) -> list[tuple[int, int]]:
+    """Return Markdown inline-link target spans outside code.
+
+    A small scanner is both stricter and more accurate than a single regex:
+    it respects escapes and keeps balanced parentheses in local paths.
+    """
+
+    masked = _mask_markdown_code(text)
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while index < len(masked):
+        syntax = index
+        if masked[index] == "!":
+            if _is_escaped(masked, index) or index + 1 >= len(masked) or masked[index + 1] != "[":
+                index += 1
+                continue
+            index += 1
+        if masked[index] != "[" or _is_escaped(masked, index):
+            index = syntax + 1
+            continue
+
+        label_end = index + 1
+        while label_end < len(masked):
+            if masked[label_end] == "]" and not _is_escaped(masked, label_end):
+                break
+            label_end += 1
+        if label_end >= len(masked) or label_end + 1 >= len(masked) or masked[label_end + 1] != "(":
+            index = syntax + 1
+            continue
+
+        target_start = label_end + 2
+        cursor = target_start
+        depth = 1
+        while cursor < len(masked):
+            character = masked[cursor]
+            if _is_escaped(masked, cursor):
+                cursor += 1
+                continue
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            cursor += 1
+        if depth == 0 and cursor > target_start:
+            spans.append((target_start, cursor))
+            index = cursor + 1
+        else:
+            index = syntax + 1
+    return spans
+
+
 def markdown_values(text: str, pattern: re.Pattern[str]) -> list[str]:
     """Return values matched by a Markdown pattern outside code spans."""
 
+    if pattern is LINK_PATTERN:
+        return [text[start:end] for start, end in _markdown_link_target_spans(text)]
     _, matches = _markdown_matches(text, pattern)
     return [match.group(1) for match in matches]
 
@@ -213,6 +270,10 @@ def _rewrite_markdown_values(
     pattern: re.Pattern[str],
     transform: Any,
 ) -> str:
+    if pattern is LINK_PATTERN:
+        for start, end in reversed(_markdown_link_target_spans(text)):
+            text = text[:start] + transform(text[start:end]) + text[end:]
+        return text
     _, matches = _markdown_matches(text, pattern)
     for match in reversed(matches):
         replacement = transform(text[match.start(1) : match.end(1)])

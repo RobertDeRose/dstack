@@ -13,14 +13,14 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Mapping
 
-from .commands import descendants, reject_documentation_work
+from .commands import reject_documentation_work
 from .core import (
     DstackError,
     FEATURE_STEPS,
     dependency_records,
     BeadsClient,
     canonical_feature_design_path,
-    commit_footer_ids,
+    commits_for_bead,
     feature_slug,
     issue_parent,
     issue_type,
@@ -136,7 +136,7 @@ def _evidence(root: Path, legacy_id: str, value: Any) -> list[dict[str, str]]:
         explanation = _text(record["explanation"], "evidence.explanation")
         if kind == "git-footer":
             reference = validate_git_revision(root, _text(reference, "evidence.reference"), name="evidence ref")
-            commits = commit_footer_ids(root, reference).get(legacy_id, [])
+            commits = commits_for_bead(root, reference, legacy_id)
             if not commits:
                 raise DstackError(f"git-footer evidence for {legacy_id} is not reachable from {reference}")
         else:
@@ -363,51 +363,58 @@ def _snapshot_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def adoption_graph_snapshot(client: BeadsClient, legacy_root_id: str) -> dict[str, Any]:
-    """Read the legacy graph from native authorities for drift reconciliation."""
-    root = client.show(legacy_root_id)
+    """Read one coherent native inventory for planning and drift checks."""
+
     all_records = [*client.list(all_statuses=True), *client.gates(all_statuses=True)]
     all_issues: dict[str, dict[str, Any]] = {}
     for item in all_records:
         item_id = item.get("id")
-        if not item_id:
-            continue
-        key = str(item_id)
-        if key in all_issues and all_issues[key] != dict(item):
-            raise DstackError(f"native graph snapshot has conflicting issue records: {key}")
-        all_issues[key] = dict(item)
-    all_issues[legacy_root_id] = dict(root)
+        if not isinstance(item_id, str) or not item_id:
+            raise DstackError("native graph snapshot contains an issue without an ID")
+        if item_id in all_issues and all_issues[item_id] != dict(item):
+            raise DstackError(f"native graph snapshot has conflicting issue records: {item_id}")
+        all_issues[item_id] = dict(item)
+
+    root_issue = all_issues.get(legacy_root_id)
+    if root_issue is None:
+        raise DstackError(f"legacy feature is absent from the native graph snapshot: {legacy_root_id}")
 
     children_by_parent: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in all_issues.values():
         parent = issue_parent(item)
         if parent is not None:
             children_by_parent[parent].append(item)
+    for values in children_by_parent.values():
+        values.sort(key=lambda item: str(item["id"]))
+
     child_records: list[dict[str, Any]] = []
     pending = deque([legacy_root_id])
     seen = {legacy_root_id}
     while pending:
         parent = pending.popleft()
-        for child in sorted(children_by_parent.get(parent, []), key=lambda item: str(item.get("id"))):
+        for child in children_by_parent.get(parent, []):
             child_id = str(child["id"])
             if child_id in seen:
-                continue
+                raise DstackError(f"legacy graph snapshot has a parentage cycle or duplicate child: {child_id}")
             seen.add(child_id)
             child_records.append(child)
             pending.append(child_id)
+
     # Beads keeps hierarchical IDs addressable by the root even after native
-    # supersession clears the live parent projection. Preserve that native
-    # descendant behavior without issuing one query per node.
-    prefix = f"{legacy_root_id}."
-    for child in sorted(all_issues.values(), key=lambda item: str(item.get("id"))):
-        child_id = str(child.get("id"))
-        if child_id.startswith(prefix) and child_id not in seen:
+    # supersession clears the live parent projection. Include that detached
+    # historical namespace from the same inventory rather than issuing one
+    # query per node.
+    prefix_id = f"{legacy_root_id}."
+    for child in sorted(all_issues.values(), key=lambda item: str(item["id"])):
+        child_id = str(child["id"])
+        if child_id.startswith(prefix_id) and child_id not in seen:
             seen.add(child_id)
             child_records.append(child)
-    legacy_records = [dict(root), *child_records]
-    raw_ids = [item.get("id") for item in legacy_records]
-    legacy_ids = {str(item_id) for item_id in raw_ids if item_id}
-    if any(not item_id for item_id in raw_ids) or len(legacy_ids) != len(legacy_records):
-        raise DstackError("legacy graph snapshot contains duplicate or missing IDs")
+
+    legacy_records = [dict(root_issue), *child_records]
+    legacy_ids = {str(item["id"]) for item in legacy_records}
+    if len(legacy_ids) != len(legacy_records):
+        raise DstackError("legacy graph snapshot contains duplicate issue IDs")
 
     internal: list[dict[str, str]] = []
     outgoing: list[dict[str, str]] = []
@@ -451,6 +458,10 @@ def adoption_graph_snapshot(client: BeadsClient, legacy_root_id: str) -> dict[st
             (_snapshot_issue(item) for item in legacy_records),
             key=lambda item: str(item["id"]),
         ),
+        "native_records": sorted(
+            (_snapshot_issue(item) for item in all_issues.values()),
+            key=lambda item: str(item["id"]),
+        ),
         "internal": internal,
         "outgoing_external": outgoing,
         "incoming_external": incoming,
@@ -467,6 +478,9 @@ def adoption_graph_signature(
     value = {
         "legacy_root_id": snapshot.get("legacy_root_id"),
         "legacy_ids": sorted(str(item) for item in snapshot.get("legacy_ids", []) if str(item) not in ignored_ids),
+        "legacy_records": [
+            dict(item) for item in snapshot.get("legacy_records", []) if str(item.get("id")) not in ignored_ids
+        ],
     }
     for name in ("internal", "outgoing_external", "incoming_external"):
         value[name] = [
@@ -509,6 +523,8 @@ def adoption_plan_graph_matches(plan: Mapping[str, Any], snapshot: Mapping[str, 
         str(item) for item in snapshot.get("legacy_ids", [])
     ):
         return False
+    if inventory.get("legacy_records", []) != snapshot.get("legacy_records", []):
+        return False
     for key in ("internal", "outgoing_external", "incoming_external"):
         if inventory.get(key, []) != snapshot.get(key, []):
             return False
@@ -522,12 +538,22 @@ def plan_adoption(
     *,
     target_root: Mapping[str, Any] | None = None,
     target_design_path: str | None = None,
+    snapshot: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Validate classification and return a deterministic, mutation-free plan."""
-    legacy = client.show(legacy_root_id)
+    """Validate selections and return a deterministic, mutation-free plan."""
+    graph = dict(snapshot) if snapshot is not None else adoption_graph_snapshot(client, legacy_root_id)
+    if graph.get("legacy_root_id") != legacy_root_id:
+        raise DstackError("adoption snapshot does not match the selected legacy root")
+    legacy_records = [dict(item) for item in graph.get("legacy_records", [])]
+    by_snapshot_id = {str(item.get("id") or ""): item for item in legacy_records}
+    if "" in by_snapshot_id or len(by_snapshot_id) != len(legacy_records):
+        raise DstackError("adoption snapshot contains missing or duplicate issue IDs")
+    legacy = by_snapshot_id.get(legacy_root_id)
+    if legacy is None:
+        raise DstackError("adoption snapshot does not contain the selected legacy root")
     if legacy.get("status") == "closed":
         raise DstackError("cannot plan adoption for a closed legacy root")
-    all_descendants = descendants(client, legacy_root_id)
+    all_descendants = [item for item_id, item in by_snapshot_id.items() if item_id != legacy_root_id]
     for item in all_descendants:
         if not item.get("status") or not issue_type(item):
             raise DstackError(f"legacy descendant {item.get('id', '<unknown>')} lacks native status/type")
@@ -580,11 +606,14 @@ def plan_adoption(
         raise DstackError("classification contains foreign IDs: " + ", ".join(unknown))
     if missing:
         raise DstackError("classification omits open executable descendants: " + ", ".join(missing))
+    native_records = [dict(item) for item in graph.get("native_records", [])]
     if target_root is not None:
         target_id = str(target_root.get("id") or "")
         if not target_id:
             raise DstackError("target feature root has no ID")
-        target_children = client.children(target_id)
+        target_children = [
+            item for item in native_records if str(item.get("parent") or item.get("parent_id") or "") == target_id
+        ]
         steps = {
             str(label): str(item["id"])
             for item in target_children
@@ -594,9 +623,7 @@ def plan_adoption(
     else:
         steps = {}
     issues = {legacy_root_id: dict(legacy), **by_id}
-    all_records = list(client.list(all_statuses=True))
-    all_records.extend(client.gates(all_statuses=True))
-    all_issues = {str(item["id"]): dict(item) for item in all_records if item.get("id")}
+    all_issues = {str(item["id"]): dict(item) for item in native_records if item.get("id")}
     for item_id, item in {**all_issues, **issues}.items():
         kind = issue_type(item)
         if kind and kind not in _SUPPORTED_ISSUE_TYPES:
@@ -801,6 +828,7 @@ def plan_adoption(
         "entries": entries,
         "inventory": {
             "legacy_ids": sorted(issues),
+            "legacy_records": list(graph.get("legacy_records", [])),
             "open_executable_descendants": executable,
             "closed_history": sorted(item_id for item_id, item in by_id.items() if item.get("status") == "closed"),
             "internal": internal_edges,
@@ -821,26 +849,3 @@ def plan_adoption(
             "preserved executable work remains reachable and ready when appropriate",
         ],
     }
-
-
-def _json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise DstackError(f"duplicate JSON field: {key}")
-        result[key] = value
-    return result
-
-
-def parse_classification_file(
-    path: Path,
-    *,
-    root: Path,
-    legacy_root_id: str,
-    design_path: str | None = None,
-) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_json_object)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise DstackError(f"invalid adoption classification JSON: {path}") from exc
-    return canonicalize_classification(value, root=root, legacy_root_id=legacy_root_id, design_path=design_path)

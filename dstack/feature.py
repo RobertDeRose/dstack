@@ -19,6 +19,7 @@ from .core import (
     canonical_feature_design_path,
     conventional_worktree,
     display_title,
+    dependency_records,
     ensure_clean_worktree,
     feature_authorization_state,
     feature_context,
@@ -30,10 +31,12 @@ from .core import (
     has_label,
     human_gate_for_step,
     is_current_feature,
+    issue_type,
     issue_metadata,
     read_text_file,
     resolve_feature,
     root_metadata_value,
+    safe_repository_path,
     run,
     slugify,
     validate_git_branch,
@@ -195,8 +198,99 @@ def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[
     return context
 
 
-def cmd_feature_resolve(args: argparse.Namespace) -> int:
+def cmd_feature_plan(args: argparse.Namespace) -> int:
+    """Create or update one planned feature through the controller."""
+
     client = client_for(args.root)
+    title = str(args.title).strip()
+    description = required_task_text(args.body_file, None)
+    acceptance = required_task_text(None, args.acceptance)
+    selector = (args.selector or "").strip()
+    existing: dict[str, Any] | None = None
+    if selector:
+        try:
+            existing = resolve_feature(client, selector)
+        except DstackError as exc:
+            if "no feature matches selector" not in str(exc):
+                raise
+    if existing is not None:
+        if existing.get("status") == "closed":
+            raise DstackError(f"planned feature is already closed: {existing['id']}")
+        if is_current_feature(client, existing):
+            raise DstackError("current feature scope must be changed through review and reauthorization")
+        if issue_type(existing) not in {"epic", "molecule"} or not has_label(existing, "dstack:feature-idea"):
+            raise DstackError("selected issue is not an open planned feature")
+        issue_id = str(existing["id"])
+        stable_slug = feature_slug(existing)
+        if not stable_slug:
+            raise DstackError("planned feature has no stable feature slug")
+        if args.slug and args.slug != stable_slug:
+            raise DstackError(f"planned feature slug is immutable: {stable_slug}")
+        client.update(
+            issue_id,
+            "--title",
+            title,
+            "--description",
+            description,
+            "--acceptance",
+            acceptance,
+            "--priority",
+            str(args.priority),
+            "--add-label",
+            "dstack:feature-idea",
+            "--add-label",
+            f"feature:{stable_slug}",
+        )
+        current = client.show(issue_id)
+        existing_blockers = {
+            str(record.get("depends_on_id") or record.get("id"))
+            for record in dependency_records(current)
+            if str(record.get("type") or record.get("dependency_type") or "blocks") == "blocks"
+            and (record.get("depends_on_id") or record.get("id"))
+        }
+        wanted = set(args.depends_on)
+        for blocker in sorted(wanted - existing_blockers):
+            client.add_dependency(issue_id, blocker)
+        for blocker in sorted(existing_blockers - wanted):
+            client.remove_dependency(issue_id, blocker)
+        created = False
+    else:
+        stable_slug = args.slug or slugify(title)
+        item = client.create(
+            title,
+            issue_type_name="epic",
+            labels=["dstack:feature-idea", f"feature:{stable_slug}"],
+            dependencies=args.depends_on,
+            description=description,
+            acceptance=acceptance,
+            priority=args.priority,
+        )
+        issue_id = str(item["id"])
+        created = True
+
+    observed = client.show(issue_id)
+    observed_blockers = sorted(
+        str(record.get("depends_on_id") or record.get("id"))
+        for record in dependency_records(observed)
+        if str(record.get("type") or record.get("dependency_type") or "blocks") == "blocks"
+        and (record.get("depends_on_id") or record.get("id"))
+    )
+    if (
+        str(observed.get("title") or "") != title
+        or str(observed.get("description") or "") != description
+        or str(observed.get("acceptance_criteria") or observed.get("acceptance") or "") != acceptance
+        or observed.get("priority") != args.priority
+        or not has_label(observed, "dstack:feature-idea")
+        or feature_slug(observed) != stable_slug
+        or observed_blockers != sorted(set(args.depends_on))
+    ):
+        raise DstackError("planned feature did not converge to the requested intent")
+    emit({"status": "ok", "created": created, "planned_feature": observed, "slug": stable_slug})
+    return 0
+
+
+def cmd_feature_resolve(args: argparse.Namespace) -> int:
+    client = client_for(args.root, initialize=False)
     root = resolve_feature(client, args.selector)
     emit(
         {
@@ -210,7 +304,7 @@ def cmd_feature_resolve(args: argparse.Namespace) -> int:
 
 
 def cmd_feature_inspect(args: argparse.Namespace) -> int:
-    client = client_for(args.root)
+    client = client_for(args.root, initialize=False)
     view = feature_view(client, args.selector)
     view["formula_contract"] = feature_formula_contract_state(client, view)
     emit({"status": "ok", **view})
@@ -403,18 +497,8 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
 
 def safe_design_file(worktree: Path, design_path: str) -> tuple[Path, str]:
     relative = Path(design_path)
-    if not design_path.strip() or relative.is_absolute() or ".." in relative.parts:
-        raise DstackError("design path must be repository-relative without parent traversal")
-
-    repository = worktree.resolve()
-    resolved = (repository / relative).resolve()
-    try:
-        resolved.relative_to(repository)
-    except ValueError as exc:
-        raise DstackError("design path escapes the feature repository") from exc
-    if resolved == repository:
-        raise DstackError("design path must name a file")
-    return resolved, relative.as_posix()
+    path = safe_repository_path(worktree, relative, purpose="feature design path")
+    return path, relative.as_posix()
 
 
 def ensure_feature_navigation(
@@ -425,10 +509,10 @@ def ensure_feature_navigation(
     reconciled: bool = False,
 ) -> None:
     safe_title = title.replace("[", "").replace("]", "") or slug
-    feature_source = worktree / "docs/src/features"
+    feature_source = safe_repository_path(worktree, "docs/src/features", purpose="feature documentation directory")
     feature_source.mkdir(parents=True, exist_ok=True)
 
-    index = feature_source / "index.md"
+    index = safe_repository_path(worktree, "docs/src/features/index.md", purpose="feature index")
     index_target = f"{slug}/{'index' if reconciled else 'design'}.md"
     index_lines = index.read_text().rstrip().splitlines() if index.is_file() else ["# Feature Records"]
     if index_lines and index_lines[0] == "# Feature designs":
@@ -455,7 +539,7 @@ def ensure_feature_navigation(
         filtered_index.append(f"- [{safe_title}]({index_target})")
     index.write_text("\n".join(filtered_index) + "\n")
 
-    summary = worktree / "docs/src/SUMMARY.md"
+    summary = safe_repository_path(worktree, "docs/src/SUMMARY.md", purpose="mdBook summary")
     summary_lines = summary.read_text().rstrip().splitlines() if summary.is_file() else ["# Summary"]
     old_anchor = "- [Feature designs](features/index.md)"
     anchor = "- [Feature Records](features/index.md)"

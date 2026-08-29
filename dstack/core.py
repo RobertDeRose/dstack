@@ -169,21 +169,44 @@ def parse_json(text: str, *, context: str) -> Any:
     return payload
 
 
-def as_items(payload: Any) -> list[dict[str, Any]]:
+def canonical_positive_integer(value: str | int, *, field: str) -> int:
+    """Parse one positive integer without signs, padding, or coercion."""
+
+    raw = str(value)
+    if re.fullmatch(r"[1-9][0-9]*", raw) is None:
+        raise DstackError(f"{field} must be a positive canonical integer")
+    return int(raw)
+
+
+def as_items(payload: Any, *, context: str = "Beads response") -> list[dict[str, Any]]:
     if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    if isinstance(payload, dict):
+        values = payload
+    elif isinstance(payload, dict):
         if isinstance(payload.get("id"), str):
-            return [payload]
-        for key in ("issues", "items", "data", "closed"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-    return []
+            values = [payload]
+        else:
+            found = [(key, payload[key]) for key in ("issues", "items", "data", "closed") if key in payload]
+            if len(found) != 1:
+                raise DstackError(f"{context} has an unknown object shape")
+            key, values = found[0]
+            if not isinstance(values, list):
+                raise DstackError(f"{context} field {key!r} must be an array")
+    else:
+        raise DstackError(f"{context} must be an issue object or array")
+
+    result: list[dict[str, Any]] = []
+    for index, item in enumerate(values):
+        if not isinstance(item, dict):
+            raise DstackError(f"{context} item {index} is not an object")
+        issue_id = item.get("id")
+        if not isinstance(issue_id, str) or not issue_id:
+            raise DstackError(f"{context} item {index} has no issue ID")
+        result.append(item)
+    return result
 
 
 def first_item(payload: Any, *, context: str) -> dict[str, Any]:
-    items = as_items(payload)
+    items = as_items(payload, context=context)
     if len(items) != 1:
         raise DstackError(f"{context} returned {len(items)} issues; expected exactly one")
     return items[0]
@@ -209,6 +232,37 @@ def supersession_targets(issue: Mapping[str, Any]) -> set[str]:
 def git_root(path: Path) -> Path:
     result = run(["git", "rev-parse", "--show-toplevel"], cwd=path.resolve())
     return Path(result.stdout.strip()).resolve()
+
+
+def safe_repository_path(root: Path, relative: str | Path, *, purpose: str = "repository path") -> Path:
+    """Return a contained repository path without following symlink components."""
+
+    repository = root.resolve()
+    candidate_relative = Path(relative)
+    if not str(relative).strip() or candidate_relative.is_absolute() or ".." in candidate_relative.parts:
+        raise DstackError(f"{purpose} must be repository-relative without parent traversal")
+    candidate = repository
+    for part in candidate_relative.parts:
+        if part in {"", "."}:
+            continue
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise DstackError(f"{purpose} must not traverse a symlink: {candidate_relative.as_posix()}")
+    probe = candidate if candidate.exists() else candidate.parent
+    while not probe.exists() and probe != repository:
+        probe = probe.parent
+    try:
+        probe.resolve().relative_to(repository)
+    except ValueError as exc:
+        raise DstackError(f"{purpose} escapes the repository: {candidate_relative.as_posix()}") from exc
+    if candidate.exists():
+        try:
+            candidate.resolve().relative_to(repository)
+        except ValueError as exc:
+            raise DstackError(f"{purpose} escapes the repository: {candidate_relative.as_posix()}") from exc
+    if candidate == repository:
+        raise DstackError(f"{purpose} must name a file or directory below the repository root")
+    return candidate
 
 
 def git_common_dir(path: Path) -> Path:
@@ -471,7 +525,7 @@ class BeadsClient:
             include_templates,
             issue_type_filter,
         )
-        return self._cached(key, lambda: as_items(self.json(command)))
+        return self._cached(key, lambda: as_items(self.json(command), context="bd list"))
 
     def children(self, parent: str, *, all_statuses: bool = True) -> builtins.list[dict[str, Any]]:
         return self.list(all_statuses=all_statuses, parent=parent)
@@ -481,7 +535,7 @@ class BeadsClient:
         if all_statuses:
             command.append("--all")
         key = ("gates", all_statuses)
-        return self._cached(key, lambda: as_items(self.json(command)))
+        return self._cached(key, lambda: as_items(self.json(command), context="bd gate list"))
 
     def update(self, issue_id: str, *arguments: str) -> dict[str, Any]:
         self._invalidate_reads()
@@ -498,7 +552,7 @@ class BeadsClient:
         self._invalidate_reads()
         try:
             payload = self.json(["bd", "update", *ids, *arguments, "--json"])
-            return as_items(payload)
+            return as_items(payload, context="bd update many")
         finally:
             self._invalidate_reads()
 
@@ -509,7 +563,7 @@ class BeadsClient:
         self._invalidate_reads()
         try:
             payload = self.json(["bd", "close", issue_id, "--reason", reason, "--json"])
-            items = as_items(payload)
+            items = as_items(payload, context=f"bd close {issue_id}")
             if items:
                 return items[0]
             return self.show(issue_id)
@@ -580,12 +634,14 @@ class BeadsClient:
         if not text.strip():
             return
         handle = write_temp_text(text.rstrip() + "\n")
+        name = handle.name
+        handle.close()
         self._invalidate_reads()
         try:
-            self._run(["bd", "comments", "add", issue_id, "-f", handle.name])
+            self._run(["bd", "comments", "add", issue_id, "-f", name])
         finally:
             self._invalidate_reads()
-            Path(handle.name).unlink(missing_ok=True)
+            Path(name).unlink(missing_ok=True)
 
     def create(
         self,
@@ -653,7 +709,7 @@ class BeadsClient:
         if claim:
             self._invalidate_reads()
         try:
-            result = as_items(self.json(command))
+            result = as_items(self.json(command), context="bd ready")
         finally:
             if claim:
                 self._invalidate_reads()
@@ -1018,7 +1074,7 @@ def feature_design_state(client: BeadsClient, context: Mapping[str, Any]) -> dic
         if worktree is None:
             state = "worktree_missing"
         else:
-            design_file = worktree / str(design_path)
+            design_file = safe_repository_path(worktree, str(design_path), purpose="feature design path")
             if not design_file.is_file():
                 state = "design_missing"
             else:
@@ -1136,8 +1192,8 @@ def alignment_context(client: BeadsClient, selector: str) -> dict[str, Any]:
         "steps": {name: step_by_label(children, label) for name, label in ALIGNMENT_STEPS.items()},
         "target_branch": root_metadata_value(root, "dstack.target_branch", "target_branch"),
         "scope": root_metadata_value(root, "dstack.scope", "scope"),
-        "pending_alignment_plan_sha256": root_metadata_value(root, "dstack.pending_alignment_plan_sha256"),
-        "approved_alignment_plan_sha256": root_metadata_value(root, "dstack.approved_alignment_plan_sha256"),
+        "pending_alignment_review_sha256": root_metadata_value(root, "dstack.pending_alignment_review_sha256"),
+        "approved_alignment_review_sha256": root_metadata_value(root, "dstack.approved_alignment_review_sha256"),
     }
 
 
@@ -1372,3 +1428,49 @@ def commit_footer_ids(root: Path, ref_range: str) -> dict[str, list[dict[str, An
     """Return every reachable commit grouped by its ``Beads:`` footer."""
 
     return footer_mapping(commit_records(root, ref_range))
+
+
+def commits_for_bead(root: Path, ref_range: str, bead_id: str) -> list[dict[str, Any]]:
+    """Return commits with one exact ``Beads: <id>`` footer.
+
+    Git performs the cheap candidate filtering; dStack still verifies the
+    footer exactly before accepting evidence. This avoids parsing complete
+    repository history for every task transition.
+    """
+
+    validate_git_range(root, ref_range, name="evidence revision")
+    if not bead_id or any(character.isspace() for character in bead_id):
+        raise DstackError("Beads evidence ID must be one non-empty token")
+    format_string = "%x1e%H%x00%s%x00%B%x00"
+    output = run(
+        [
+            "git",
+            "log",
+            f"--format={format_string}",
+            "--name-only",
+            "--fixed-strings",
+            f"--grep=Beads: {bead_id}",
+            ref_range,
+        ],
+        cwd=root,
+    ).stdout
+    result: list[dict[str, Any]] = []
+    footer = re.compile(rf"(?m)^Beads:\s*{re.escape(bead_id)}\s*$")
+    for record in output.split("\x1e"):
+        if not record.strip():
+            continue
+        parts = record.split("\x00", 3)
+        if len(parts) != 4:
+            raise DstackError("Git evidence query returned a malformed record")
+        commit, subject, body, path_text = parts
+        commit = commit.strip()
+        if not commit or footer.search(body) is None:
+            continue
+        result.append(
+            {
+                "commit": commit,
+                "subject": subject.strip(),
+                "paths": [line for line in path_text.splitlines() if line.strip()],
+            }
+        )
+    return result

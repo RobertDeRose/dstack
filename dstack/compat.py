@@ -12,9 +12,10 @@ import argparse
 from typing import Any, Mapping
 
 from .adoption import (
+    SCHEMA as ADOPTION_CLASSIFICATION_SCHEMA,
     adoption_graph_snapshot,
     adoption_plan_graph_matches,
-    parse_classification_file,
+    canonicalize_classification,
     plan_adoption,
     reconcile_adoption_graph,
 )
@@ -96,34 +97,208 @@ def classify_legacy_item(item: Mapping[str, Any]) -> str:
     return "ambiguous"
 
 
-def cmd_adopt_plan(args: argparse.Namespace) -> int:
-    client = client_for(args.root)
-    legacy = resolve_legacy_feature(client, args.selector)
-    if legacy.get("status") == "closed":
-        raise DstackError(f"legacy feature is already closed: {legacy['id']}")
-    if is_current_feature(client, legacy):
-        raise DstackError(f"feature already uses current dStack workflow: {legacy['id']}")
-    if not args.classification_file:
-        raise DstackError("adoption planning requires --classification-file")
-    classification = parse_classification_file(
-        Path(args.classification_file), root=client.root, legacy_root_id=str(legacy["id"])
+def _selection_pair(value: str, option: str) -> tuple[str, str]:
+    issue_id, separator, detail = value.partition("=")
+    issue_id = issue_id.strip()
+    detail = detail.strip()
+    if not separator or not issue_id or not detail:
+        raise DstackError(f"{option} must use ISSUE_ID=VALUE")
+    return issue_id, detail
+
+
+def _replacement_for(item: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "title": str(item.get("title") or item["id"]),
+        "description": str(item.get("description") or "Legacy work retained during adoption."),
+        "acceptance": str(
+            item.get("acceptance_criteria")
+            or item.get("acceptance")
+            or "Existing acceptance criteria must be revalidated before completion."
+        ),
+        "priority": int(item.get("priority") if isinstance(item.get("priority"), int) else 2),
+    }
+
+
+def _classification_from_args(
+    client: BeadsClient,
+    args: argparse.Namespace,
+    *,
+    legacy_root_id: str,
+    design_path: str,
+    snapshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    records = {
+        str(item["id"]): dict(item)
+        for item in snapshot.get("legacy_records", [])
+        if isinstance(item, Mapping) and item.get("id")
+    }
+    entries: dict[str, dict[str, Any]] = {}
+
+    def record_for(issue_id: str) -> dict[str, Any]:
+        if issue_id == legacy_root_id or issue_id not in records:
+            raise DstackError(f"adoption selection is not a descendant of {legacy_root_id}: {issue_id}")
+        return records[issue_id]
+
+    def add(issue_id: str, entry: dict[str, Any]) -> None:
+        record_for(issue_id)
+        if issue_id in entries:
+            raise DstackError(f"adoption item was classified more than once: {issue_id}")
+        entries[issue_id] = {"legacy_id": issue_id, **entry}
+
+    for issue_id in args.remaining:
+        add(
+            issue_id,
+            {
+                "classification": "remaining-implementation",
+                "reason": "Explicitly selected as remaining implementation work.",
+                "replacement": _replacement_for(record_for(issue_id)),
+            },
+        )
+    for issue_id in args.spec_ceremony:
+        add(
+            issue_id,
+            {"classification": "obsolete-specification-ceremony", "reason": "Covered by current specification review."},
+        )
+    for issue_id in args.implementation_coordinator:
+        add(
+            issue_id,
+            {
+                "classification": "obsolete-implementation-ceremony",
+                "reason": "Covered by the current implementation workstream.",
+            },
+        )
+    for issue_id in args.closeout_ceremony:
+        add(
+            issue_id,
+            {
+                "classification": "obsolete-closeout-delivery-ceremony",
+                "reason": "Covered by current closeout and delivery.",
+            },
+        )
+    for issue_id in args.preserve:
+        add(
+            issue_id,
+            {
+                "classification": "preserved-unchanged",
+                "reason": "Explicitly preserved under the legacy root.",
+                "strategy": "keep-legacy-root",
+                "surviving_parent": None,
+                "replacement": None,
+            },
+        )
+    for value in args.reparent:
+        issue_id, parent_id = _selection_pair(value, "--reparent")
+        add(
+            issue_id,
+            {
+                "classification": "preserved-unchanged",
+                "reason": "Explicitly reparented to a surviving native container.",
+                "strategy": "reparent",
+                "surviving_parent": parent_id,
+                "replacement": None,
+            },
+        )
+    for issue_id in args.recreate:
+        add(
+            issue_id,
+            {
+                "classification": "preserved-unchanged",
+                "reason": "Explicitly recreated under the current implementation workstream.",
+                "strategy": "recreate",
+                "surviving_parent": None,
+                "replacement": _replacement_for(record_for(issue_id)),
+            },
+        )
+    for value in args.incorporated_decision:
+        issue_id, section = _selection_pair(value, "--incorporated-decision")
+        add(
+            issue_id,
+            {
+                "classification": "unresolved-decision",
+                "reason": "Decision is incorporated into the approved specification.",
+                "strategy": "incorporated",
+                "specification_section": section,
+                "blocking_target": None,
+            },
+        )
+    for value in args.decision_blocker:
+        issue_id, target = _selection_pair(value, "--decision-blocker")
+        add(
+            issue_id,
+            {
+                "classification": "unresolved-decision",
+                "reason": "Decision remains an explicit native blocker.",
+                "strategy": "preserve-blocker",
+                "specification_section": None,
+                "blocking_target": target,
+            },
+        )
+    for issue_id in args.completed:
+        add(
+            issue_id,
+            {
+                "classification": "completed-history",
+                "reason": "Explicitly selected as completed historical work.",
+                "evidence": [
+                    {
+                        "kind": "git-footer",
+                        "reference": "HEAD",
+                        "explanation": "Reachable Git history contains the legacy Beads footer.",
+                    }
+                ],
+                "evidence_assessment": "verified",
+                "accepted_risk_reason": None,
+            },
+        )
+
+    payload = {
+        "schema": ADOPTION_CLASSIFICATION_SCHEMA,
+        "legacy_root_id": legacy_root_id,
+        "entries": [entries[item_id] for item_id in sorted(entries)],
+    }
+    return canonicalize_classification(
+        payload,
+        root=client.root,
+        legacy_root_id=legacy_root_id,
+        design_path=design_path,
     )
-    emit(plan_adoption(client, str(legacy["id"]), classification))
-    return 0
 
 
 def cmd_adopt_inspect(args: argparse.Namespace) -> int:
-    client = client_for(args.root)
+    client = client_for(args.root, initialize=False)
     root = resolve_legacy_feature(client, args.selector)
     if root.get("status") == "closed":
         raise DstackError(f"legacy feature is already closed: {root['id']}")
     if is_current_feature(client, root):
         raise DstackError(f"feature already uses current dstack workflow: {root['id']}")
-    items = [item for item in descendants(client, str(root["id"])) if item.get("status") != "closed"]
+    snapshot = adoption_graph_snapshot(client, str(root["id"]))
+    items = [
+        item
+        for item in snapshot["legacy_records"]
+        if str(item.get("id")) != str(root["id"]) and item.get("status") != "closed"
+    ]
     classified: dict[str, list[dict[str, Any]]] = {}
     for item in items:
         classified.setdefault(classify_legacy_item(item), []).append(item)
-    emit({"status": "ok", "legacy_root": root, "classified": classified})
+    emit(
+        {
+            "status": "ok",
+            "legacy_root": root,
+            "classified": classified,
+            "selection_help": {
+                "implementation": "--remaining ID",
+                "specification_ceremony": "--spec-ceremony ID",
+                "implementation_ceremony": "--implementation-coordinator ID",
+                "closeout_ceremony": "--closeout-ceremony ID",
+                "preserve": "--preserve ID",
+                "reparent": "--reparent ID=PARENT",
+                "recreate": "--recreate ID",
+                "incorporated_decision": "--incorporated-decision ID=PATH#HEADING",
+                "decision_blocker": "--decision-blocker ID=STEP",
+                "completed_history": "--completed ID",
+            },
+        }
+    )
     return 0
 
 
@@ -175,42 +350,22 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
     design = canonical_feature_design_path(slug)
     if args.design_path and args.design_path != design:
         raise DstackError(f"feature design path must be {design} for the mdBook layout")
-    legacy_flags = any(
-        getattr(args, name, None)
-        for name in (
-            "remaining",
-            "spec_ceremony",
-            "implementation_coordinator",
-            "closeout_ceremony",
-            "spec_note_file",
-            "closeout_note_file",
-        )
-    )
-    if legacy_flags:
-        raise DstackError(
-            "legacy compatibility flags are not authoritative; use only "
-            "--classification-file with complete strict classification"
-        )
-    if not getattr(args, "classification_file", None):
-        raise DstackError(
-            "adoption apply requires --classification-file; classify every open executable descendant first"
-        )
-
-    classification = parse_classification_file(
-        Path(args.classification_file),
-        root=client.root,
+    planned_graph = adoption_graph_snapshot(client, str(legacy["id"]))
+    classification = _classification_from_args(
+        client,
+        args,
         legacy_root_id=str(legacy["id"]),
         design_path=design,
+        snapshot=planned_graph,
     )
-    # This is deliberately before pour/create: invalid classifications and graph
-    # drift must not mutate Beads.
+    # Selection validation and graph drift checks occur before pour/create.
     plan = plan_adoption(
         client,
         str(legacy["id"]),
         classification,
         target_design_path=design,
+        snapshot=planned_graph,
     )
-    planned_graph = adoption_graph_snapshot(client, str(legacy["id"]))
     if not adoption_plan_graph_matches(plan, planned_graph):
         raise DstackError("legacy adoption graph drifted during planning")
     validate_adoption_preflight(

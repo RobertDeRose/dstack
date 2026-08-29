@@ -23,10 +23,11 @@ from .core import (
     FEATURE_STEPS,
     ancestry,
     branch_exists,
-    commit_footer_ids,
+    commits_for_bead,
     conventional_worktree,
     dependency_records,
     has_label,
+    git_root,
     issue_parent,
     issue_type,
     read_text_file,
@@ -274,9 +275,13 @@ def fail(message: str) -> int:
 
 def client_for(root: Path, *, initialize: bool = True) -> BeadsClient:
     if initialize:
-        infrastructure = ensure_infrastructure(root)
-        return BeadsClient(Path(infrastructure["root"]))
-    client = BeadsClient(root)
+        resolved = Path(ensure_infrastructure(root)["root"])
+    else:
+        resolved = git_root(root)
+        beads = resolved / ".beads"
+        if not beads.is_dir() or beads.is_symlink():
+            raise DstackError("Beads is not initialized in this repository")
+    client = BeadsClient(resolved)
     client.check_version()
     return client
 
@@ -357,11 +362,11 @@ def ensure_branch_worktree(
         elif not ancestry(client.root, base_branch, branch):
             raise DstackError(f"candidate branch {branch} does not contain base {base_branch}")
 
-        created_worktree = True
         run(
             ["bd", "worktree", "create", str(worktree), "--branch", branch],
             cwd=client.root,
         )
+        created_worktree = True
         resolved = worktree_for_branch(client.root, branch)
         if resolved is None:
             raise DstackError(f"Beads created no discoverable worktree for {branch}")
@@ -371,7 +376,8 @@ def ensure_branch_worktree(
         return branch, resolved, created_branch, created_worktree
     except Exception as primary:
         cleanup: list[str] = []
-        if created_worktree and (worktree.exists() or worktree_for_branch(client.root, branch) is not None):
+        registered = worktree_for_branch(client.root, branch) if created_worktree else None
+        if created_worktree and registered is not None and registered.resolve() == worktree.resolve():
             result = run(
                 ["bd", "worktree", "remove", str(worktree), "--force"],
                 cwd=client.root,
@@ -379,7 +385,8 @@ def ensure_branch_worktree(
             )
             if result.returncode:
                 cleanup.append(result.stderr.strip() or "worktree removal failed")
-        if created_branch and branch_exists(client.root, branch):
+        branch_worktree = worktree_for_branch(client.root, branch)
+        if created_branch and branch_worktree is None and branch_exists(client.root, branch):
             result = run(
                 ["git", "branch", "-D", "--", branch],
                 cwd=client.root,
@@ -676,7 +683,7 @@ def feature_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tupl
 
 
 def evidence_for_bead(root: Path, bead_id: str, ref_range: str) -> list[dict[str, Any]]:
-    return commit_footer_ids(root, ref_range).get(bead_id, [])
+    return commits_for_bead(root, ref_range, bead_id)
 
 
 def reject_documentation_work(title: str, *, stage: str) -> None:

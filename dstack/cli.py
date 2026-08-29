@@ -11,9 +11,11 @@ from typing import Sequence
 
 from .audit import cmd_audit_feature
 from .commands import DstackError, cmd_infra_check, fail
+from .core import canonical_positive_integer
 from .docs import cmd_docs_validate
 from .feature import (
     cmd_feature_resolve,
+    cmd_feature_plan,
     cmd_feature_inspect,
     cmd_feature_audit_complete,
     cmd_feature_initialize,
@@ -58,7 +60,7 @@ from .delivery import (
     cmd_delivery_merge,
     cmd_delivery_finalize_pr,
 )
-from .compat import cmd_adopt_inspect, cmd_adopt_plan, cmd_adopt_apply
+from .compat import cmd_adopt_inspect, cmd_adopt_apply
 from .installer import main as install_skills_main
 
 HELP_BY_DEST = {
@@ -83,7 +85,6 @@ HELP_BY_DEST = {
     "bead": "Beads ID to reference in the Git footer.",
     "subject": "One-line Git commit subject.",
     "body_file": "Read the Git or PR body from this file.",
-    "classification_file": "Temporary strict adoption classification JSON file.",
     "ref": "Git ref or range to inspect.",
     "base": "Base Git ref for documentation comparison.",
     "head": "Candidate Git ref for documentation comparison.",
@@ -96,6 +97,13 @@ HELP_BY_DEST = {
     "spec_note_file": "Read the legacy specification note from this file.",
     "closeout_note_file": "Read the legacy closeout note from this file.",
 }
+
+
+def positive_integer(value: str) -> int:
+    try:
+        return canonical_positive_integer(value, field="integer")
+    except DstackError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def add_common_root(parser: argparse.ArgumentParser) -> None:
@@ -140,6 +148,15 @@ def build_ctl_parser() -> argparse.ArgumentParser:
 
     feature = mechanical_parser(top, "feature", "feature lifecycle commands")
     feature_sub = feature.add_subparsers(dest="command", required=True)
+    plan_feature = mechanical_parser(feature_sub, "plan", "create or update durable planned feature intent")
+    plan_feature.add_argument("selector", nargs="?")
+    plan_feature.add_argument("--title", required=True)
+    plan_feature.add_argument("--slug")
+    plan_feature.add_argument("--body-file", type=Path, required=True)
+    plan_feature.add_argument("--acceptance", required=True)
+    plan_feature.add_argument("--priority", type=int, default=2)
+    plan_feature.add_argument("--depends-on", action="append", default=[])
+    plan_feature.set_defaults(func=cmd_feature_plan)
     resolve = mechanical_parser(feature_sub, "resolve", "resolve a feature selector")
     resolve.add_argument("selector", nargs="?")
     resolve.set_defaults(func=cmd_feature_resolve)
@@ -228,7 +245,7 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     alignment_scaffold = mechanical_parser(
         alignment_sub,
         "scaffold-record",
-        "create an alignment plan or reconciliation scaffold without overwriting",
+        "create an alignment reconciliation scaffold without overwriting",
     )
     alignment_scaffold.add_argument("kind", choices=("reconciliation",))
     alignment_scaffold.add_argument("--path", type=Path, required=True)
@@ -249,11 +266,11 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     correction.add_argument("--priority", type=int, default=2)
     correction.add_argument("--depends-on", action="append", default=[])
     correction.set_defaults(func=cmd_alignment_add_correction)
-    finish_plan = mechanical_parser(alignment_sub, "finish-plan", "finish the alignment plan before execution")
+    finish_plan = mechanical_parser(alignment_sub, "finish-plan", "finish the alignment review before execution")
     finish_plan.add_argument("selector")
-    finish_plan.add_argument("--plan-file", type=Path, required=True)
+    finish_plan.add_argument("--summary-file", type=Path, required=True)
     finish_plan.set_defaults(func=cmd_alignment_finish_plan)
-    alignment_approve = mechanical_parser(alignment_sub, "approve", "approve the alignment plan and resolve its gate")
+    alignment_approve = mechanical_parser(alignment_sub, "approve", "approve the alignment review and resolve its gate")
     alignment_approve.add_argument("selector")
     alignment_approve.set_defaults(func=cmd_alignment_approve)
     alignment_reauthorize = mechanical_parser(
@@ -348,11 +365,11 @@ def build_ctl_parser() -> argparse.ArgumentParser:
         "register an open, unmerged pull request as a native pre-merge gate",
     )
     register.add_argument("selector")
-    register.add_argument("--pr-number", type=int, required=True)
+    register.add_argument("--pr-number", type=positive_integer, required=True)
     register.set_defaults(func=cmd_delivery_register_pr)
     replace = mechanical_parser(delivery_sub, "replace-pr", "replace conflicting pull-request gates")
     replace.add_argument("selector")
-    replace.add_argument("--pr-number", type=int, required=True)
+    replace.add_argument("--pr-number", type=positive_integer, required=True)
     replace.add_argument("--reason", required=True)
     replace.set_defaults(func=cmd_delivery_replace_pr)
     cancel_pr = mechanical_parser(
@@ -372,10 +389,6 @@ def build_ctl_parser() -> argparse.ArgumentParser:
 
     adopt = mechanical_parser(top, "adopt", "explicitly inspect or adopt legacy workflow data")
     adopt_sub = adopt.add_subparsers(dest="command", required=True)
-    adopt_plan = mechanical_parser(adopt_sub, "plan", "plan legacy adoption without mutation")
-    adopt_plan.add_argument("selector")
-    adopt_plan.add_argument("--classification-file", type=Path, required=True)
-    adopt_plan.set_defaults(func=cmd_adopt_plan)
     adopt_inspect = mechanical_parser(adopt_sub, "inspect", "inspect legacy workflow data without mutation")
     adopt_inspect.add_argument("selector")
     adopt_inspect.set_defaults(func=cmd_adopt_inspect)
@@ -391,7 +404,12 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     adopt_apply.add_argument("--closeout-ceremony", action="append", default=[])
     adopt_apply.add_argument("--spec-note-file", type=Path)
     adopt_apply.add_argument("--closeout-note-file", type=Path)
-    adopt_apply.add_argument("--classification-file", type=Path)
+    adopt_apply.add_argument("--preserve", action="append", default=[])
+    adopt_apply.add_argument("--reparent", action="append", default=[])
+    adopt_apply.add_argument("--recreate", action="append", default=[])
+    adopt_apply.add_argument("--incorporated-decision", action="append", default=[])
+    adopt_apply.add_argument("--decision-blocker", action="append", default=[])
+    adopt_apply.add_argument("--completed", action="append", default=[])
     adopt_apply.set_defaults(func=cmd_adopt_apply)
 
     fill_argument_help(parser)

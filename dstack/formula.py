@@ -79,7 +79,10 @@ def _step_map(formula: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     for item in raw:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
             raise DstackError("formula contains an invalid step")
-        result[str(item["id"])] = item
+        step_id = str(item["id"])
+        if step_id in result:
+            raise DstackError(f"formula contains duplicate step ID: {step_id}")
+        result[step_id] = item
     return result
 
 

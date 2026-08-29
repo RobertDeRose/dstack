@@ -36,6 +36,7 @@ from .core import (
     issue_type,
     git_blob_text,
     ref_exists,
+    safe_repository_path,
     worktree_for_branch,
 )
 
@@ -103,9 +104,13 @@ def record_fact_text(
 
 
 def record_fact(path: Path, kind: str, root: Path) -> dict[str, Any]:
-    relative = path.relative_to(root).as_posix()
-    text = path.read_text(encoding="utf-8") if path.is_file() else None
-    return record_fact_text(relative, text, kind, source=path, source_root=root)
+    try:
+        relative = path.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise DstackError(f"documentation path escapes the worktree: {path}") from exc
+    safe = safe_repository_path(root, relative, purpose="feature documentation path")
+    text = safe.read_text(encoding="utf-8") if safe.is_file() else None
+    return record_fact_text(relative, text, kind, source=safe, source_root=root)
 
 
 def revision_records(
@@ -308,8 +313,12 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
             git_evidence["status"] = "issues"
             git_evidence["missing_records"] = missing_records
     elif worktree is not None and root.get("status") != "closed":
-        design_path = worktree / relative_design
-        reconciliation = design_path.with_name("index.md")
+        design_path = safe_repository_path(worktree, relative_design, purpose="feature design path")
+        reconciliation = safe_repository_path(
+            worktree,
+            Path(relative_design).with_name("index.md"),
+            purpose="feature reconciliation path",
+        )
         design_record = record_fact(design_path, "feature-design", worktree)
         reconciliation_record = record_fact(reconciliation, "feature-reconciliation", worktree)
         links = sorted(set(design_record["links"]) | set(reconciliation_record["links"]))

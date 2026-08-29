@@ -94,7 +94,7 @@ def _ready_ids(client: BeadsClient) -> set[str] | None:
     if query is None:
         return None
     payload = query(["bd", "ready", "--limit", "0", "--json"])
-    return {str(item["id"]) for item in as_items(payload) if item.get("id")}
+    return {str(item["id"]) for item in as_items(payload, context="bd ready during adoption")}
 
 
 def _assert_not_ready(client: BeadsClient, issue_ids: set[str], *, phase: str) -> None:
@@ -755,13 +755,6 @@ def execute_adoption_plan(
             ignored_ids=ignored_graph_ids,
         )
     for op in plan.get("relationship_operations", []):
-        if expected_graph is not None:
-            reconcile_adoption_graph(
-                client,
-                expected_graph,
-                legacy_root_id,
-                ignored_edges=allowed_graph_edges,
-            )
         decision = op.get("decision")
         if decision in {"preserve", "preserve-native-supersession"}:
             continue
@@ -788,13 +781,6 @@ def execute_adoption_plan(
                 relation = str(op["relationship_type"])
                 _ensure_edge(client, source, repl_target, relation)
                 allowed_graph_edges.add((source, repl_target, relation))
-                if expected_graph is not None:
-                    reconcile_adoption_graph(
-                        client,
-                        expected_graph,
-                        legacy_root_id,
-                        ignored_edges=allowed_graph_edges,
-                    )
                 _assert_not_ready(client, incoming_dependents, phase="after-add-before-remove")
                 _remove_planned_edge(client, so, to, relation)
                 allowed_graph_edges.add((so, to, relation))
@@ -845,14 +831,6 @@ def execute_adoption_plan(
                 raise DstackError(f"supersession drifted for {old_id}")
             if old.get("status") != "closed":
                 _require_open_unassigned(client, old_id)
-                if expected_graph is not None:
-                    reconcile_adoption_graph(
-                        client,
-                        expected_graph,
-                        legacy_root_id,
-                        ignored_edges=allowed_graph_edges,
-                        ignored_ids=ignored_graph_ids,
-                    )
                 client.supersede(old_id, target)
                 allowed_graph_edges.update(
                     {
@@ -869,14 +847,6 @@ def execute_adoption_plan(
                 _require_open_unassigned(client, old_id)
                 if _edge(old, target, "relates-to"):
                     _remove_edge(client, old_id, target)
-                if expected_graph is not None:
-                    reconcile_adoption_graph(
-                        client,
-                        expected_graph,
-                        legacy_root_id,
-                        ignored_edges=allowed_graph_edges,
-                        ignored_ids=ignored_graph_ids,
-                    )
                 client.supersede(old_id, target)
                 allowed_graph_edges.update(
                     {
@@ -903,27 +873,21 @@ def execute_adoption_plan(
                 raise DstackError("legacy root was superseded by an unexpected target")
             allowed_graph_edges.add((legacy_root_id, new_root_id, "superseded-by"))
             allowed_graph_edges.add((legacy_root_id, new_root_id, "supersedes"))
-            if expected_graph is not None:
-                reconcile_adoption_graph(
-                    client,
-                    expected_graph,
-                    legacy_root_id,
-                    ignored_edges=allowed_graph_edges,
-                    ignored_ids=ignored_graph_ids,
-                )
         else:
             _require_open_unassigned(client, legacy_root_id)
-            if expected_graph is not None:
-                reconcile_adoption_graph(
-                    client,
-                    expected_graph,
-                    legacy_root_id,
-                    ignored_edges=allowed_graph_edges,
-                    ignored_ids=ignored_graph_ids,
-                )
             client.supersede(legacy_root_id, new_root_id)
+            allowed_graph_edges.add((legacy_root_id, new_root_id, "superseded-by"))
+            allowed_graph_edges.add((legacy_root_id, new_root_id, "supersedes"))
         _assert_not_ready(client, incoming_dependents, phase="after-supersession")
         root_superseded = True
+    if expected_graph is not None:
+        reconcile_adoption_graph(
+            client,
+            expected_graph,
+            legacy_root_id,
+            ignored_edges=allowed_graph_edges,
+            ignored_ids=ignored_graph_ids,
+        )
     return {
         "status": "ok",
         "legacy_root": legacy_root_id,

@@ -58,19 +58,18 @@ from .formula import (
     stamp_formula_version,
     pour_current_formula,
 )
-from .alignment_plan import (
+from .alignment_authority import (
+    canonical_authority,
     canonical_description,
-    parse_plan_file,
+    read_summary_file,
     require_alignment_authorized,
-    require_current_plan,
     root_plan_metadata,
-    verify_correction_graph,
 )
 
 
 def cmd_alignment_scaffold_record(args: argparse.Namespace) -> int:
     if args.kind != "reconciliation":
-        raise DstackError("alignment plan authoring uses canonical JSON --plan-file")
+        raise DstackError("only reconciliation records are scaffolded; alignment review authority lives in Beads")
     scaffold = ALIGNMENT_RECONCILIATION_SCAFFOLD
     try:
         with args.path.open("x", encoding="utf-8") as handle:
@@ -84,7 +83,7 @@ def cmd_alignment_scaffold_record(args: argparse.Namespace) -> int:
 
 
 def cmd_alignment_inspect(args: argparse.Namespace) -> int:
-    client = client_for(args.root)
+    client = client_for(args.root, initialize=False)
     view = alignment_view(client, args.selector)
     try:
         require_alignment_authorized(client, view)
@@ -99,11 +98,16 @@ def cmd_alignment_inspect(args: argparse.Namespace) -> int:
 
 def cmd_alignment_initialize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    slug = args.slug or slugify(args.title)
+    title = str(args.title).strip()
+    scope = str(args.scope).strip()
+    target_branch = str(args.target_branch).strip()
+    if not title or not scope or not target_branch:
+        raise DstackError("alignment title, scope, and target branch must be non-empty")
+    slug = str(args.slug).strip() if args.slug else slugify(title)
     branch = f"audit/{slug}"
     validate_git_branch(client.root, branch, name="alignment branch")
-    validate_git_branch(client.root, args.target_branch, name="target branch")
-    validate_git_revision(client.root, args.target_branch, name="target branch")
+    validate_git_branch(client.root, target_branch, name="target branch")
+    validate_git_revision(client.root, target_branch, name="target branch")
     try:
         existing = alignment_context(client, slug)
     except DstackError as exc:
@@ -111,8 +115,8 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
             raise
     else:
         if existing["root"].get("status") != "closed":
-            target_branch = str(existing.get("target_branch") or args.target_branch)
-            _, worktree, _, _ = ensure_branch_worktree(client, branch, target_branch)
+            existing_target = str(existing.get("target_branch") or target_branch)
+            _, worktree, _, _ = ensure_branch_worktree(client, branch, existing_target)
             emit({"status": "ok", "created": False, "worktree": str(worktree), **existing})
             return 0
         raise DstackError(f"project alignment is already closed: {existing['root']['id']}")
@@ -121,9 +125,9 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
         client,
         ALIGNMENT_FORMULA,
         {
-            "audit_title": args.title,
+            "audit_title": title,
             "audit_slug": slug,
-            "scope": args.scope,
+            "scope": scope,
         },
     )
     root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
@@ -135,19 +139,19 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
         client.update(
             root_id,
             "--title",
-            f"Project alignment: {args.title}",
+            f"Project alignment: {title}",
             "--add-label",
             "workflow:project-alignment",
             "--add-label",
             f"audit:{slug}",
             "--set-metadata",
-            f"dstack.target_branch={args.target_branch}",
+            f"dstack.target_branch={target_branch}",
             "--set-metadata",
-            f"dstack.scope={args.scope}",
+            f"dstack.scope={scope}",
         )
         stamp_created_formula_version(client, root_id, formula_name=ALIGNMENT_FORMULA)
         stamp_formula_version(client, [root_id], formula_name=ALIGNMENT_FORMULA)
-        _, worktree, created_branch, created_worktree = ensure_branch_worktree(client, branch, args.target_branch)
+        _, worktree, created_branch, created_worktree = ensure_branch_worktree(client, branch, target_branch)
     except Exception:
         if created_worktree:
             run(
@@ -209,7 +213,7 @@ def _reauthorization_diagnostics(
         plan_state = {"status": "absent"}
     else:
         try:
-            _, _, digest = canonical_description(analysis)
+            _, _, digest = canonical_description(client, view, analysis)
         except DstackError as exc:
             plan_state = {"status": "invalid", "reason": str(exc)}
         else:
@@ -222,7 +226,7 @@ def _reauthorization_diagnostics(
     }
 
 
-def _reset_alignment_plan_after_reauthorization(
+def _reset_alignment_review_after_reauthorization(
     client: BeadsClient,
     view: Mapping[str, Any],
     analysis: Mapping[str, Any],
@@ -235,7 +239,7 @@ def _reset_alignment_plan_after_reauthorization(
     client.update(str(analysis["id"]), "--description", placeholder)
     observed = client.show(str(analysis["id"]))
     if observed.get("description") != placeholder:
-        raise DstackError("alignment plan reset did not converge")
+        raise DstackError("alignment review reset did not converge")
 
 
 def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
@@ -258,12 +262,12 @@ def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
         workstream_id=str(steps["corrections"]["id"]),
         terminal_id=str(steps["landing"]["id"]),
         reason=args.reason,
-        digest_key="dstack.approved_alignment_plan_sha256",
-        pending_digest_key="dstack.pending_alignment_plan_sha256",
+        digest_key="dstack.approved_alignment_review_sha256",
+        pending_digest_key="dstack.pending_alignment_review_sha256",
     )
 
     analysis = client.show(str(steps["analysis"]["id"]))
-    _reset_alignment_plan_after_reauthorization(client, view, analysis)
+    _reset_alignment_review_after_reauthorization(client, view, analysis)
     approval = client.show(str(steps["approval"]["id"]))
     gate = human_gate_for_step(client, root_id=root_id, step=approval)
     corrections = client.show(str(steps["corrections"]["id"]))
@@ -294,67 +298,67 @@ def _is_unfinished_formula_analysis(description: Any) -> bool:
 def cmd_alignment_finish_plan(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
-    if not getattr(args, "plan_file", None):
-        raise DstackError("alignment plan requires --plan-file")
-    plan, encoded_bytes, digest = parse_plan_file(args.plan_file)
-    encoded = encoded_bytes.decode("utf-8")
+    summary_file = getattr(args, "summary_file", None)
+    if summary_file is None:
+        raise DstackError("alignment review requires --summary-file")
+    summary = read_summary_file(summary_file)
+    authority, _, digest = canonical_authority(client, view, summary)
     analysis = client.show(str(view["steps"]["analysis"]["id"]))
     pending, approved = root_plan_metadata(client, str(view["root"]["id"]))
     raw_description = analysis.get("description")
+
     if analysis.get("status") == "closed":
-        existing, existing_text, existing_digest = canonical_description(analysis)
-        if existing_digest != digest or existing != plan or existing_text != encoded:
-            raise DstackError("closed alignment analysis has a different canonical plan")
+        existing, existing_summary, existing_digest = canonical_description(client, view, analysis)
+        if existing_digest != digest or existing != authority or existing_summary != summary:
+            raise DstackError("closed alignment analysis has different review authority")
         if approved not in (None, digest) or pending not in (None, digest):
-            raise DstackError("closed alignment analysis has inconsistent plan identity")
+            raise DstackError("closed alignment analysis has inconsistent review identity")
         if pending is None and approved is None:
-            raise DstackError("closed alignment analysis has no pending or approved plan identity")
-        verify_correction_graph(client, view, plan)
+            raise DstackError("closed alignment analysis has no pending or approved review identity")
         emit(
             {
                 "status": "ok",
                 "audit": view["root"]["id"],
                 "analysis": analysis,
+                "review_sha256": digest,
                 "already_closed": True,
             }
         )
         return 0
+
     if approved is not None:
-        raise DstackError("open alignment analysis has an approved plan identity; reauthorize before retry")
+        raise DstackError("open alignment analysis has approved authority; reauthorize before retry")
     if pending is not None and pending != digest:
-        raise DstackError("open alignment analysis has a different pending plan identity")
+        raise DstackError("open alignment analysis has different pending review authority")
     if (
         isinstance(raw_description, str)
         and raw_description.strip()
         and not _is_unfinished_formula_analysis(raw_description)
     ):
-        try:
-            existing, existing_text, existing_digest = canonical_description(analysis)
-        except DstackError as exc:
-            raise DstackError("open alignment analysis has a non-canonical plan; reauthorize before retry") from exc
-        if existing_digest != digest or existing != plan or existing_text != encoded:
-            raise DstackError("open alignment analysis has a different canonical plan")
+        existing, existing_summary, existing_digest = canonical_description(client, view, analysis)
+        if existing_digest != digest or existing != authority or existing_summary != summary:
+            raise DstackError("open alignment analysis has a different review summary or correction graph")
     elif pending is not None:
-        raise DstackError("open alignment analysis has pending identity without a canonical plan")
-    verify_correction_graph(client, view, plan)
+        raise DstackError("open alignment analysis has pending identity without a review summary")
+
     if (
         _is_unfinished_formula_analysis(raw_description)
         or not isinstance(raw_description, str)
         or not raw_description.strip()
     ):
-        analysis = client.update(str(analysis["id"]), "--description", encoded)
+        analysis = client.update(str(analysis["id"]), "--description", summary)
     observed = client.show(str(analysis["id"]))
-    if observed.get("description") != encoded:
-        raise DstackError("canonical alignment plan description did not converge")
+    if observed.get("description") != summary:
+        raise DstackError("alignment review summary did not converge")
     if pending != digest:
         client.update(
             str(view["root"]["id"]),
             "--set-metadata",
-            f"dstack.pending_alignment_plan_sha256={digest}",
+            f"dstack.pending_alignment_review_sha256={digest}",
         )
     pending, _ = root_plan_metadata(client, str(view["root"]["id"]))
     if pending != digest:
-        raise DstackError(f"pending alignment plan identity did not converge: {pending!r}")
+        raise DstackError(f"pending alignment review identity did not converge: {pending!r}")
     analysis = claim_ready_step(
         client,
         root_id=str(view["root"]["id"]),
@@ -362,8 +366,16 @@ def cmd_alignment_finish_plan(args: argparse.Namespace) -> int:
         label="dstack:step:alignment-analysis",
         name="alignment analysis",
     )
-    analysis = client.close(str(analysis["id"]), "Corrective plan prepared")
-    emit({"status": "ok", "audit": view["root"]["id"], "analysis": analysis, "plan_sha256": digest})
+    analysis = client.close(str(analysis["id"]), "Corrective review prepared")
+    emit(
+        {
+            "status": "ok",
+            "audit": view["root"]["id"],
+            "analysis": analysis,
+            "review_sha256": digest,
+            "correction_count": len(authority["corrections"]),
+        }
+    )
     return 0
 
 
@@ -372,8 +384,7 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
     view = alignment_context(client, args.selector)
     root_id = str(view["root"]["id"])
     analysis = client.show(str(view["steps"]["analysis"]["id"]))
-    plan, _, digest = canonical_description(analysis)
-    require_current_plan(plan)
+    authority, _, digest = canonical_description(client, view, analysis)
     if analysis.get("status") != "closed":
         raise DstackError("alignment approval requires closed analysis")
     pending, approved = root_plan_metadata(client, root_id)
@@ -383,19 +394,17 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
         raise DstackError("alignment workflow has no unique human gate")
     native_closed = gate.get("status") == "closed" and approval.get("status") == "closed"
     if approved not in (None, digest):
-        raise DstackError("alignment approval has a different approved plan identity")
+        raise DstackError("alignment approval has a different approved review identity")
     if pending not in (None, digest):
-        raise DstackError("alignment approval has a different pending plan identity")
+        raise DstackError("alignment approval has a different pending review identity")
     if approved == digest and pending is None and not native_closed:
         raise DstackError("alignment approval has approved identity before native authorization converged")
     if approved is None and pending is None:
-        raise DstackError("alignment approval requires matching pending plan identity")
+        raise DstackError("alignment approval requires matching pending review identity")
     if approved == digest and pending == digest and not native_closed:
         raise DstackError("alignment approval has inconsistent pending and approved identity")
-    verify_correction_graph(client, view, plan)
-
     if not native_closed:
-        gate = resolve_gate_if_needed(client, gate, "Corrective plan approved")
+        gate = resolve_gate_if_needed(client, gate, "Corrective review approved")
         approval = close_issue_if_needed(client, client.show(str(approval["id"])), "Corrective execution authorized")
         gate = client.show(str(gate["id"]))
         approval = client.show(str(approval["id"]))
@@ -410,14 +419,14 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
         client.update(
             root_id,
             "--set-metadata",
-            f"dstack.approved_alignment_plan_sha256={digest}",
+            f"dstack.approved_alignment_review_sha256={digest}",
         )
         if root_plan_metadata(client, root_id)[1] != digest:
-            raise DstackError("approved alignment plan identity did not converge")
+            raise DstackError("approved alignment review identity did not converge")
     if pending is not None:
-        client.update(root_id, "--unset-metadata", "dstack.pending_alignment_plan_sha256")
+        client.update(root_id, "--unset-metadata", "dstack.pending_alignment_review_sha256")
         if root_plan_metadata(client, root_id)[0] is not None:
-            raise DstackError("pending alignment plan identity did not clear")
+            raise DstackError("pending alignment review identity did not clear")
     authorized_view = alignment_context(client, root_id)
     authorized_view["human_gate"] = client.show(str(gate["id"]))
     require_alignment_authorized(client, authorized_view)
@@ -427,7 +436,7 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
             "audit": root_id,
             "human_gate": gate,
             "approval": approval,
-            "plan_sha256": digest,
+            "review_sha256": digest,
         }
     )
     return 0
@@ -437,7 +446,7 @@ def require_alignment_approval(client: BeadsClient, view: Mapping[str, Any]) -> 
     # Older protocol-only test doubles omit new alignment metadata; real views
     # always include it through alignment_context and therefore take the strict
     # authorization predicate.
-    if "approved_alignment_plan_sha256" not in view and "pending_alignment_plan_sha256" not in view:
+    if "approved_alignment_review_sha256" not in view and "pending_alignment_review_sha256" not in view:
         if view["steps"]["approval"].get("status") != "closed":
             raise DstackError("alignment approval milestone is not closed")
         return {}

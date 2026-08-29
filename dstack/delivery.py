@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 from .core import (
     BeadsClient,
     DstackError,
+    canonical_positive_integer,
     alignment_context,
     ancestry,
     blocker_ids,
@@ -48,7 +49,7 @@ from .core import (
     worktree_records,
 )
 
-from .alignment_plan import canonical_description, require_alignment_authorized, require_current_plan
+from .alignment_authority import canonical_description, require_alignment_authorized
 from .docs import validate_docs
 from .commands import (
     BEADS_RUNTIME_DIR_PREFIXES,
@@ -258,12 +259,10 @@ def feature_delivery_context(client: BeadsClient, selector: str) -> dict[str, An
 
 def alignment_delivery_context(client: BeadsClient, selector: str) -> dict[str, Any]:
     view = alignment_context(client, selector)
-    plan, _, _ = canonical_description(client.show(str(view["steps"]["analysis"]["id"])))
     if view["root"].get("status") != "closed":
-        if "approved_alignment_plan_sha256" in view or "pending_alignment_plan_sha256" in view:
-            require_alignment_authorized(client, view)
-        else:
-            require_current_plan(plan)
+        require_alignment_authorized(client, view)
+    else:
+        canonical_description(client, view, client.show(str(view["steps"]["analysis"]["id"])))
     view["corrections"] = [
         item
         for item in client.children(str(view["steps"]["corrections"]["id"]))
@@ -748,7 +747,7 @@ def alignment_evidence_audit(
 
 
 def cmd_evidence_audit_feature(args: argparse.Namespace) -> int:
-    client = client_for(args.root)
+    client = client_for(args.root, initialize=False)
     view = feature_delivery_context(client, args.selector)
     audit = feature_evidence_audit(client, view)
     emit(audit)
@@ -1009,13 +1008,12 @@ def _git_snapshot(root: Path) -> tuple[str, str]:
 
 
 def cmd_delivery_inspect(args: argparse.Namespace) -> int:
-    client = client_for(args.root)
-    payload = delivery_inspection(client, args.selector)
+    client = client_for(args.root, initialize=False)
     if args.fetch:
         remote = run(["git", "remote", "get-url", "origin"], cwd=client.root, check=False)
         if remote.returncode == 0:
             run(["git", "fetch", "origin", "--prune"], cwd=client.root)
-            payload = delivery_inspection(client, args.selector)
+    payload = delivery_inspection(client, args.selector)
     emit({"status": "ok", **payload})
     return 0
 
@@ -1102,7 +1100,7 @@ def validate_pr_copy(
 
 
 def cmd_delivery_pr_preflight(args: argparse.Namespace) -> int:
-    client = client_for(args.root)
+    client = client_for(args.root, initialize=False)
     run(["git", "fetch", "origin", "--prune"], cwd=client.root)
     payload = delivery_view(client, args.selector)
     ensure_clean_candidate(client.root, payload)
@@ -1183,6 +1181,7 @@ def incomplete_pr_gate_cancellations(
 
 
 def register_pr_gate(client: BeadsClient, root_id: str, pr_number: str) -> dict[str, Any]:
+    pr_number = str(canonical_positive_integer(pr_number, field="PR number"))
     active = pr_gate_state(client, root_id)["active"]
     if not active:
         return client.create_gate(
@@ -1205,6 +1204,7 @@ def register_pr_gate(client: BeadsClient, root_id: str, pr_number: str) -> dict[
 def replace_pr_gates(
     client: BeadsClient, root_id: str, pr_number: str, reason: str
 ) -> tuple[dict[str, Any], list[str]]:
+    pr_number = str(canonical_positive_integer(pr_number, field="PR number"))
     reason = reason.strip()
     if not reason:
         raise DstackError("PR gate replacement requires a non-empty reason")
