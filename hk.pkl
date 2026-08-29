@@ -2,13 +2,16 @@ amends "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.
 
 import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtins.pkl"
 
-local markdown_excludes = List(".beads/**", "prompts/**")
+fail_fast = false
+
+local markdown_excludes =
+  List(".beads/**", "dstack/assets/APPEND_SYSTEM.md", "dstack/assets/prompts/**")
 
 local linters = new Mapping<String, Step> {
   ["actionlint"] = Builtins.actionlint
   ["docs"] = new Step {
     glob = List("docs/src/**/*.md", "docs/book.toml")
-    check = "bin/dstack ctl docs validate"
+    check = "python -m dstack ctl docs validate"
   }
   ["json"] = Builtins.jq
   ["pkl"] = Builtins.pkl
@@ -32,7 +35,7 @@ local linters = new Mapping<String, Step> {
   }
   ["ty"] = (Builtins.ty) {
     exclude = "tests/**"
-    check = "ty check --extra-search-path skills/dstack-beads-core/scripts {{files}}"
+    check = "ty check {{files}}"
   }
   ["yamlfmt"] = Builtins.yamlfmt
 }
