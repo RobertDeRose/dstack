@@ -21,6 +21,10 @@ Public slash commands are decision-oriented Pi prompt aliases installed by `dsta
 Beads owns workflow state, correction content, dependencies, gates, and readiness. Git owns repository content and
 history. dStack does not use an external workflow packet, classification file, migration map, or shadow graph.
 
+Inspection payloads emit each full work item or correction exactly once. Readiness is projected separately as
+`ready_work_ids`, so large Beads descriptions, acceptance criteria, metadata, and dependency records are not duplicated
+in agent context.
+
 Alignment review stores accepted corrections directly under the native correction workstream. A concise temporary
 Markdown summary records findings, rejected or deferred findings, accepted risks, validation expectations, and
 three-audience documentation impact without repeating complete correction definitions. Finish the review with:

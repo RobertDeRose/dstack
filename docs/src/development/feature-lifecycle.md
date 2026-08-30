@@ -134,12 +134,13 @@ required.
 
 ### `/adopt-feature` compatibility boundary
 
-Legacy adoption is an explicit two-pass native transition, never a normal feature claim. The agent supplies one strict
-classification file and reviews the pure closed-world plan before apply. Apply rereads all legacy, lifecycle, and
-affected external issues, then creates or reuses exact replacement tasks before changing old work. Every compatible
-outgoing blocker and incoming dependent edge is added and verified before its legacy edge is removed; unsupported
-incoming translation fails closed. Planned nonblocking context remains native. Readiness is reread around each
-translation so unrelated external work cannot become ready early.
+Legacy adoption is an explicit native compatibility transition, never a normal feature claim. The agent first inspects
+the legacy graph, then supplies explicit classifications in one `dstack ctl adopt apply` invocation. The controller
+validates those selections against one coherent native snapshot before mutation; no classification packet or separate
+plan file exists. It creates or reuses exact replacement tasks before changing old work. Every compatible outgoing
+blocker and incoming dependent edge is added and verified before its legacy edge is removed; unsupported incoming
+translation fails closed. Planned nonblocking context remains native. Readiness is reread around each translation so
+unrelated external work cannot become ready early.
 
 Retries reconstruct replacement identity from native parentage, labels, content, relationships, and supersession; no
 migration map is stored. Incorporated unresolved decisions keep their blocker and the legacy root unsuperseded until an
