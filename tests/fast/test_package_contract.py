@@ -36,6 +36,15 @@ def test_cli_is_a_normal_importable_python_package() -> None:
     assert cli.main(["--version"]) == 0
 
 
+def test_release_check_validates_installed_wheel_assets() -> None:
+    script = (ROOT / "scripts/release-check.sh").read_text()
+    assert 'install_skills --agent-dir "$agent_dir"' in script
+    assert "from dstack.formula import load_formula" in script
+    assert "dstack-beads-review-feature-spec" in script
+    assert "review-feature-spec.md" in script
+    assert "APPEND_SYSTEM.md" in script
+
+
 def test_all_skill_and_prompt_frontmatter_parses() -> None:
     for path in [*(ROOT / "dstack/assets/skills").glob("*/SKILL.md"), *(ROOT / "dstack/assets/prompts").glob("*.md")]:
         text = path.read_text()
