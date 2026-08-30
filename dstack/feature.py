@@ -24,6 +24,7 @@ from .core import (
     feature_authorization_state,
     feature_context,
     feature_design_state,
+    feature_roots,
     feature_slug,
     feature_view,
     file_sha256,
@@ -33,7 +34,9 @@ from .core import (
     is_current_feature,
     issue_type,
     issue_metadata,
+    read_utf8_text,
     read_text_file,
+    replace_text_if_unchanged,
     resolve_feature,
     root_metadata_value,
     safe_repository_path,
@@ -198,9 +201,28 @@ def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[
     return context
 
 
+def require_unique_open_feature_slug(
+    client: BeadsClient,
+    slug: str,
+    *,
+    exclude_ids: set[str] | frozenset[str] = frozenset(),
+) -> None:
+    conflicts = sorted(
+        str(root["id"])
+        for root in feature_roots(client)
+        if str(root.get("id") or "") not in exclude_ids
+        and root.get("status") != "closed"
+        and feature_slug(root) == slug
+    )
+    if conflicts:
+        raise DstackError(f"an open feature root already uses slug {slug}: " + ", ".join(conflicts))
+
+
 def cmd_feature_plan(args: argparse.Namespace) -> int:
     """Create or update one planned feature through the controller."""
 
+    if args.slug:
+        canonical_feature_design_path(str(args.slug))
     client = client_for(args.root)
     title = str(args.title).strip()
     description = required_task_text(args.body_file, None)
@@ -224,8 +246,10 @@ def cmd_feature_plan(args: argparse.Namespace) -> int:
         stable_slug = feature_slug(existing)
         if not stable_slug:
             raise DstackError("planned feature has no stable feature slug")
+        canonical_feature_design_path(stable_slug)
         if args.slug and args.slug != stable_slug:
             raise DstackError(f"planned feature slug is immutable: {stable_slug}")
+        require_unique_open_feature_slug(client, stable_slug, exclude_ids={issue_id})
         client.update(
             issue_id,
             "--title",
@@ -256,6 +280,8 @@ def cmd_feature_plan(args: argparse.Namespace) -> int:
         created = False
     else:
         stable_slug = args.slug or slugify(title)
+        canonical_feature_design_path(stable_slug)
+        require_unique_open_feature_slug(client, stable_slug)
         item = client.create(
             title,
             issue_type_name="epic",
@@ -340,6 +366,8 @@ def default_design_path(_root: Path, slug: str) -> str:
 
 
 def cmd_feature_initialize(args: argparse.Namespace) -> int:
+    if args.slug:
+        canonical_feature_design_path(str(args.slug))
     client = client_for(args.root)
     selector = (args.selector or args.title or "").strip()
     if not selector:
@@ -404,15 +432,25 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     title = (
         args.title or (display_title(str(planned_source.get("title", ""))) if planned_source else selector)
     ).strip()
-    slug = args.slug or (feature_slug(planned_source) if planned_source else None) or slugify(title)
+    planned_slug = feature_slug(planned_source) if planned_source else None
+    if planned_source is not None and not planned_slug:
+        raise DstackError("planned feature has no stable feature slug")
+    if args.slug and planned_slug and args.slug != planned_slug:
+        raise DstackError(f"planned feature slug is immutable: {planned_slug}")
+    slug = planned_slug or args.slug or slugify(title)
+    design_path = default_design_path(client.root, slug)
+    if args.design_path and args.design_path != design_path:
+        raise DstackError(f"feature design path must be {design_path} for the mdBook layout")
+    require_unique_open_feature_slug(
+        client,
+        slug,
+        exclude_ids={str(planned_source["id"])} if planned_source else frozenset(),
+    )
     inherited_base = root_metadata_value(planned_source, "base_branch") if planned_source else None
     base_branch = inherited_base or args.base_branch
     validate_git_branch(client.root, base_branch, name="base branch")
     validate_git_revision(client.root, base_branch, name="base branch")
     validate_git_branch(client.root, f"feat/{slug}", name="feature branch")
-    design_path = default_design_path(client.root, slug)
-    if args.design_path and args.design_path != design_path:
-        raise DstackError(f"feature design path must be {design_path} for the mdBook layout")
     pour = pour_current_formula(
         client,
         FEATURE_FORMULA,
@@ -501,6 +539,12 @@ def safe_design_file(worktree: Path, design_path: str) -> tuple[Path, str]:
     return path, relative.as_posix()
 
 
+def safe_reconciliation_file(worktree: Path, design_path: str) -> tuple[Path, str]:
+    relative = Path(design_path).with_name("index.md")
+    path = safe_repository_path(worktree, relative, purpose="feature reconciliation path")
+    return path, relative.as_posix()
+
+
 def ensure_feature_navigation(
     worktree: Path,
     *,
@@ -514,7 +558,8 @@ def ensure_feature_navigation(
 
     index = safe_repository_path(worktree, "docs/src/features/index.md", purpose="feature index")
     index_target = f"{slug}/{'index' if reconciled else 'design'}.md"
-    index_lines = index.read_text().rstrip().splitlines() if index.is_file() else ["# Feature Records"]
+    index_original = read_utf8_text(index, purpose="feature index") if index.is_file() else None
+    index_lines = index_original.rstrip().splitlines() if index_original is not None else ["# Feature Records"]
     if index_lines and index_lines[0] == "# Feature designs":
         index_lines[0] = "# Feature Records"
     existing_index: str | None = None
@@ -537,10 +582,17 @@ def ensure_feature_navigation(
         if filtered_index:
             filtered_index.append("")
         filtered_index.append(f"- [{safe_title}]({index_target})")
-    index.write_text("\n".join(filtered_index) + "\n")
+    index_updated = "\n".join(filtered_index) + "\n"
+    replace_text_if_unchanged(
+        index,
+        expected=index_original,
+        content=index_updated,
+        purpose="feature index",
+    )
 
     summary = safe_repository_path(worktree, "docs/src/SUMMARY.md", purpose="mdBook summary")
-    summary_lines = summary.read_text().rstrip().splitlines() if summary.is_file() else ["# Summary"]
+    summary_original = read_utf8_text(summary, purpose="mdBook summary") if summary.is_file() else None
+    summary_lines = summary_original.rstrip().splitlines() if summary_original is not None else ["# Summary"]
     old_anchor = "- [Feature designs](features/index.md)"
     anchor = "- [Feature Records](features/index.md)"
     summary_lines = [anchor if line == old_anchor else line for line in summary_lines]
@@ -582,8 +634,13 @@ def ensure_feature_navigation(
         while summary_position < len(filtered_summary) and filtered_summary[summary_position].startswith("  "):
             summary_position += 1
     filtered_summary[summary_position:summary_position] = block
-    summary.parent.mkdir(parents=True, exist_ok=True)
-    summary.write_text("\n".join(filtered_summary) + "\n")
+    summary_updated = "\n".join(filtered_summary) + "\n"
+    replace_text_if_unchanged(
+        summary,
+        expected=summary_original,
+        content=summary_updated,
+        purpose="mdBook summary",
+    )
 
 
 def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
@@ -603,28 +660,24 @@ def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
         if not design_file.is_file():
             raise DstackError("design path exists but is not a file")
     else:
-        design_file.parent.mkdir(parents=True, exist_ok=True)
         planned_intent = str(view["root"].get("description") or "").strip()
         planned_acceptance = str(view["root"].get("acceptance_criteria") or "").strip()
-        try:
-            with design_file.open("x", encoding="utf-8") as handle:
-                handle.write(
-                    DESIGN_SCAFFOLD.format(
-                        planned_intent=planned_intent or "_No durable planning description was provided._",
-                        planned_acceptance=planned_acceptance
-                        or "_No durable planning acceptance criteria were provided._",
-                    )
-                )
-            created = True
-        except FileExistsError:
-            if not design_file.is_file():
-                raise DstackError("design path exists but is not a file")
+        created = replace_text_if_unchanged(
+            design_file,
+            expected=None,
+            content=DESIGN_SCAFFOLD.format(
+                planned_intent=planned_intent or "_No durable planning description was provided._",
+                planned_acceptance=planned_acceptance or "_No durable planning acceptance criteria were provided._",
+            ),
+            purpose="feature design",
+        )
 
+    reconciliation_file, _ = safe_reconciliation_file(worktree, design_path)
     ensure_feature_navigation(
         worktree,
         slug=str(view["slug"]),
         title=display_title(str(view["root"].get("title") or view["slug"])),
-        reconciled=design_file.with_name("index.md").is_file(),
+        reconciled=reconciliation_file.is_file(),
     )
     emit({"status": "ok", "created": created, "design_path": relative})
     return 0
@@ -641,16 +694,19 @@ def cmd_feature_scaffold_reconciliation(args: argparse.Namespace) -> int:
     if not design_file.is_file():
         raise DstackError("feature design does not exist")
 
-    reconciliation = design_file.with_name("index.md")
+    reconciliation, reconciliation_relative = safe_reconciliation_file(worktree, design_path)
     title = display_title(str(view["root"].get("title") or view["slug"]))
     created = False
-    try:
-        with reconciliation.open("x", encoding="utf-8") as handle:
-            handle.write(RECONCILIATION_SCAFFOLD.format(title=title))
-        created = True
-    except FileExistsError:
+    if reconciliation.exists():
         if not reconciliation.is_file():
             raise DstackError("feature reconciliation path exists but is not a file")
+    else:
+        created = replace_text_if_unchanged(
+            reconciliation,
+            expected=None,
+            content=RECONCILIATION_SCAFFOLD.format(title=title),
+            purpose="feature reconciliation",
+        )
 
     ensure_feature_navigation(
         worktree,
@@ -662,7 +718,7 @@ def cmd_feature_scaffold_reconciliation(args: argparse.Namespace) -> int:
         {
             "status": "ok",
             "created": created,
-            "reconciliation_path": str(Path(relative).with_name("index.md")),
+            "reconciliation_path": reconciliation_relative,
         }
     )
     return 0
@@ -794,7 +850,7 @@ def approved_design_digest(client: BeadsClient, view: Mapping[str, Any]) -> str:
     if file_sha256(design_file) != head_digest:
         raise DstackError(f"feature design differs from HEAD: {relative}")
     validate_record(
-        design_file.read_text(encoding="utf-8"),
+        read_utf8_text(design_file, purpose="feature design"),
         "feature-design",
         source=design_file,
         source_root=worktree,
@@ -1019,12 +1075,13 @@ def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
 def validate_feature_documentation(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, object]:
     _, worktree, _ = feature_branch_context(client, view)
     ensure_clean_worktree(worktree)
-    design_file, _ = safe_design_file(worktree, str(view.get("design_path") or ""))
-    reconciliation = design_file.with_name("index.md")
+    design_path = str(view.get("design_path") or "")
+    safe_design_file(worktree, design_path)
+    reconciliation, _ = safe_reconciliation_file(worktree, design_path)
     if not reconciliation.is_file():
         raise DstackError("feature reconciliation does not exist")
     title = display_title(str(view["root"].get("title") or view["slug"]))
-    content = reconciliation.read_text(encoding="utf-8")
+    content = read_utf8_text(reconciliation, purpose="feature reconciliation")
     untouched = RECONCILIATION_SCAFFOLD.format(title=title)
     if not content.strip() or content.strip() == untouched.strip():
         raise DstackError(

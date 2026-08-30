@@ -2019,3 +2019,54 @@ def test_cleanup_reports_unknown_registration_and_status(monkeypatch: pytest.Mon
     assert "dirty=unknown" in message
     subprocess.run(["git", "worktree", "remove", "--force", str(retained)], cwd=git_repo, check=True)
     retained.parent.rmdir()
+
+
+def test_root_beads_credential_key_is_forbidden() -> None:
+    assert dstack_delivery.is_forbidden_tracked_beads_path(".beads-credential-key")
+    assert dstack_delivery.is_forbidden_tracked_beads_path("nested/.beads-credential-key")
+
+
+def test_commit_rejects_force_added_root_beads_credential_key(git_repo: Path) -> None:
+    credential = git_repo / ".beads-credential-key"
+    credential.write_text("secret\n")
+    subprocess.run(["git", "add", "-f", credential.name], cwd=git_repo, check=True)
+
+    with pytest.raises(DstackError, match="Beads repository/runtime"):
+        commit_with_message(git_repo, "reject credential\n\nBeads: task-1\n", amend=False)
+
+
+def test_tracked_runtime_beads_detects_root_credential_key(git_repo: Path) -> None:
+    credential = git_repo / ".beads-credential-key"
+    credential.write_text("secret\n")
+    subprocess.run(["git", "add", "-f", credential.name], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "force credential"], cwd=git_repo, check=True)
+
+    assert dstack_delivery.tracked_runtime_beads(git_repo) == [credential.name]
+
+
+def test_timed_out_delivery_worktree_creation_retains_native_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    parent = tmp_path / "delivery-parent"
+    parent.mkdir()
+    monkeypatch.setattr(dstack_delivery.tempfile, "mkdtemp", lambda **kwargs: str(parent))
+    monkeypatch.setattr(
+        dstack_delivery,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            DstackError("command timed out; operation may have changed state")
+        ),
+    )
+    monkeypatch.setattr(dstack_delivery, "_cleanup_state", lambda *args: (True, True, False))
+
+    with pytest.raises(DstackError, match="creation may have changed native state") as raised:
+        with dstack_delivery.delivery_target_worktree(root, "release", None):
+            raise AssertionError("unreachable")
+
+    message = str(raised.value)
+    assert "retained_path=" in message
+    assert "registered=true" in message
+    assert "git worktree list --porcelain" in message

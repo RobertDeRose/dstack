@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from .commands import RECORD_SUBJECTS, emit
-from .core import DstackError, run
+from .core import DstackError, read_utf8_text, replace_text_if_unchanged, run
 
 # Public sentinel used by callers. Link targets are scanned rather than parsed
 # with this regular expression so balanced parentheses remain intact.
@@ -27,6 +27,7 @@ CORE_NAVIGATION = (
     ("Documentation", "development/documentation.md"),
     ("Feature Records", "features/index.md"),
 )
+SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.3"
 
 
 def _is_escaped(text: str, index: int) -> bool:
@@ -334,8 +335,8 @@ def _inside(path: Path, parent: Path, message: str) -> Path:
 
 def _book_source_value(book: Path) -> str:
     try:
-        payload = tomllib.loads(book.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        payload = tomllib.loads(read_utf8_text(book, purpose="mdBook configuration"))
+    except (DstackError, OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
         raise DstackError(f"invalid mdBook configuration: {book}") from exc
     table = payload.get("book", {})
     if not isinstance(table, dict):
@@ -388,7 +389,7 @@ def ensure_core_navigation(root: Path) -> list[str]:
     if summary.is_symlink() or not summary.is_file():
         raise DstackError("documentation foundation path is not a regular file: docs/src/SUMMARY.md")
 
-    original = summary.read_text(encoding="utf-8")
+    original = read_utf8_text(summary, purpose="mdBook summary")
     targets = {
         target for raw in _markdown_values(original, LINK_PATTERN) if (target := _summary_link_target(raw)) is not None
     }
@@ -417,7 +418,12 @@ def ensure_core_navigation(root: Path) -> list[str]:
         else:
             indentation = lines[parent][: len(lines[parent]) - len(lines[parent].lstrip())]
             lines.insert(parent + 1, indentation + entry)
-    summary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    replace_text_if_unchanged(
+        summary,
+        expected=original,
+        content="\n".join(lines) + "\n",
+        purpose="mdBook summary",
+    )
     return [target for _, target in missing]
 
 
@@ -427,14 +433,16 @@ def create_foundation(root: Path) -> list[str]:
     for relative, content in foundation_files(root.name).items():
         path = root / relative
         _inside(path.parent, root, "documentation foundation path escapes repository")
-        path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("x", encoding="utf-8") as handle:
                 handle.write(content)
             created.append(relative)
         except FileExistsError:
             if path.is_symlink() or not path.is_file():
                 raise DstackError(f"documentation foundation path is not a regular file: {relative}")
+        except (OSError, UnicodeError) as exc:
+            raise DstackError(f"cannot create documentation foundation path {relative}: {exc}") from exc
     ensure_core_navigation(root)
     return created
 
@@ -443,6 +451,12 @@ def require_mdbook() -> str:
     executable = shutil.which("mdbook")
     if not executable:
         raise DstackError("mdbook is unavailable on PATH")
+    observed = run([executable, "--version"], cwd=Path.cwd()).stdout.strip()
+    if observed != SUPPORTED_MDBOOK_VERSION_OUTPUT:
+        raise DstackError(
+            "dStack requires mdBook 0.5.3 exactly "
+            f"({SUPPORTED_MDBOOK_VERSION_OUTPUT}); found {observed or '<empty output>'}"
+        )
     return executable
 
 
@@ -474,7 +488,7 @@ def _local_target(source: Path, raw: str, source_root: Path) -> Path | None:
 
 
 def _links(path: Path) -> list[str]:
-    return _markdown_values(path.read_text(encoding="utf-8"), LINK_PATTERN)
+    return _markdown_values(read_utf8_text(path, purpose="documentation link source"), LINK_PATTERN)
 
 
 def validate_decision_records(source: Path) -> list[str]:
@@ -484,7 +498,7 @@ def validate_decision_records(source: Path) -> list[str]:
     errors: list[str] = []
     allowed = {"Proposed", "Accepted", "Deprecated", "Superseded"}
     for path in sorted(decisions.glob("[0-9][0-9][0-9][0-9]-*.md")):
-        text = path.read_text(encoding="utf-8")
+        text = read_utf8_text(path, purpose="decision record")
         fields: dict[str, str] = {}
         for name in ("Status", "Supersedes", "Superseded by"):
             match = re.search(rf"^- \*\*{re.escape(name)}:\*\*\s*(.+)$", text, re.MULTILINE)
@@ -551,7 +565,7 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
     pending = list(chapters)
     while pending:
         path = pending.pop()
-        for raw in _markdown_values(path.read_text(encoding="utf-8"), INCLUDE_PATTERN):
+        for raw in _markdown_values(read_utf8_text(path, purpose="documentation include source"), INCLUDE_PATTERN):
             try:
                 included = _local_target(path, raw.split(":", 1)[0], source)
             except DstackError as exc:

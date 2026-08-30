@@ -188,6 +188,7 @@ def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, 
     monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
     beads = ScriptedClient(
         tmp_path,
+        call("list", all_statuses=True, result=[]),
         call(
             "pour",
             "dstack-feature",
@@ -1692,3 +1693,200 @@ def test_feature_navigation_rejects_symlinked_destination(tmp_path: Path, relati
         dstack_feature.ensure_feature_navigation(tmp_path, slug="feature", title="Feature")
 
     assert outside.read_text() == "outside\n"
+
+
+def test_feature_plan_rejects_noncanonical_slug_before_beads(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        dstack_feature,
+        "client_for",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Beads must not be opened")),
+    )
+    args = argparse.Namespace(
+        root=tmp_path,
+        selector=None,
+        title="Feature",
+        slug="Feature Name",
+        body_file=None,
+        acceptance="Observable outcome",
+        priority=1,
+        depends_on=[],
+    )
+
+    with pytest.raises(DstackError, match="feature slug must be canonical"):
+        dstack_feature.cmd_feature_plan(args)
+
+
+def test_feature_initialize_preserves_planned_slug(monkeypatch, tmp_path: Path) -> None:
+    planned = {
+        "id": "planned-1",
+        "status": "open",
+        "issue_type": "epic",
+        "title": "Feature: Planned",
+        "labels": ["dstack:feature-idea", "feature:planned"],
+    }
+    beads = ScriptedClient(tmp_path)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "resolve_feature", lambda *args: planned)
+    monkeypatch.setattr(dstack_feature, "feature_context", lambda *args: {"current": False})
+
+    with pytest.raises(DstackError, match="planned feature slug is immutable: planned"):
+        dstack_feature.cmd_feature_initialize(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="planned-1",
+                title=None,
+                slug="different",
+                base_branch="main",
+                design_path=None,
+            )
+        )
+    beads.assert_exhausted()
+
+
+def test_feature_plan_rejects_duplicate_open_slug(monkeypatch, tmp_path: Path) -> None:
+    body = tmp_path / "body.md"
+    body.write_text("Durable intent\n")
+    existing = {
+        "id": "existing-1",
+        "status": "open",
+        "issue_type": "epic",
+        "labels": ["dstack:feature-idea", "feature:duplicate"],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("list", all_statuses=True, result=[existing]),
+    )
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+
+    with pytest.raises(DstackError, match="open feature root already uses slug duplicate"):
+        dstack_feature.cmd_feature_plan(
+            argparse.Namespace(
+                root=tmp_path,
+                selector=None,
+                title="Duplicate",
+                slug="duplicate",
+                body_file=body,
+                acceptance="Observable outcome",
+                priority=1,
+                depends_on=[],
+            )
+        )
+    beads.assert_exhausted()
+
+
+def test_feature_initialize_rejects_duplicate_open_current_slug(monkeypatch, tmp_path: Path) -> None:
+    existing = {
+        "id": "existing-1",
+        "status": "open",
+        "issue_type": "epic",
+        "labels": ["workflow:feature", "feature:feature"],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("list", all_statuses=True, result=[existing]),
+    )
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(
+        dstack_feature,
+        "resolve_feature",
+        lambda *args: (_ for _ in ()).throw(DstackError("no feature matches selector")),
+    )
+
+    with pytest.raises(DstackError, match="open feature root already uses slug feature"):
+        dstack_feature.cmd_feature_initialize(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="Feature",
+                title=None,
+                slug=None,
+                base_branch="main",
+                design_path=None,
+            )
+        )
+    beads.assert_exhausted()
+
+
+def test_reconciliation_symlink_is_rejected_for_scaffold_and_validation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    design = tmp_path / "docs/src/features/feature/design.md"
+    design.parent.mkdir(parents=True)
+    design.write_text("# Design\n")
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside\n")
+    design.with_name("index.md").symlink_to(outside)
+
+    beads = ScriptedClient(tmp_path)
+    current = view()
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_feature, "feature_context", lambda *args: current)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_branch_context",
+        lambda *args: ("feat/feature", tmp_path, "main"),
+    )
+    monkeypatch.setattr(dstack_feature, "ensure_clean_worktree", lambda *args: None)
+
+    with pytest.raises(DstackError, match="must not traverse a symlink"):
+        dstack_feature.cmd_feature_scaffold_reconciliation(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    with pytest.raises(DstackError, match="must not traverse a symlink"):
+        dstack_feature.validate_feature_documentation(beads, current)
+    assert outside.read_text() == "outside\n"
+
+
+def test_navigation_reconciliation_rejects_stale_content(monkeypatch, tmp_path: Path) -> None:
+    source = tmp_path / "docs/src"
+    features = source / "features"
+    features.mkdir(parents=True)
+    index = features / "index.md"
+    summary = source / "SUMMARY.md"
+    index.write_text("# Feature Records\n")
+    summary.write_text("# Summary\n\n- [Feature Records](features/index.md)\n")
+    real_replace = dstack_feature.replace_text_if_unchanged
+    changed = False
+
+    def race(path: Path, *, expected: str | None, content: str, purpose: str) -> bool:
+        nonlocal changed
+        if path == index and not changed:
+            changed = True
+            path.write_text("# Concurrent edit\n")
+        return real_replace(path, expected=expected, content=content, purpose=purpose)
+
+    monkeypatch.setattr(dstack_feature, "replace_text_if_unchanged", race)
+    with pytest.raises(DstackError, match="changed while dStack was reconciling"):
+        dstack_feature.ensure_feature_navigation(
+            tmp_path,
+            slug="feature",
+            title="Feature",
+        )
+    assert index.read_text() == "# Concurrent edit\n"
+
+
+def test_atomic_text_replacement_rechecks_content_before_commit(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "SUMMARY.md"
+    target.write_text("original\n")
+    real_read_text = Path.read_text
+    reads = 0
+
+    def concurrent_read(path: Path, *args: object, **kwargs: object) -> str:
+        nonlocal reads
+        if path == target:
+            reads += 1
+            if reads == 2:
+                path.write_text("concurrent\n")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", concurrent_read)
+    with pytest.raises(DstackError, match="changed while dStack was reconciling"):
+        dstack_feature.replace_text_if_unchanged(
+            target,
+            expected="original\n",
+            content="replacement\n",
+            purpose="mdBook summary",
+        )
+    assert real_read_text(target) == "concurrent\n"

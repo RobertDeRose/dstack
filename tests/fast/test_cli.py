@@ -156,3 +156,24 @@ def test_formula_audit_required_is_machine_readable_exit_three(monkeypatch, caps
     error = capsys.readouterr().err
     assert '"status": "audit_required"' in error
     assert '"skill": "dstack-beads-review-feature-spec"' in error
+
+
+def test_adopt_apply_does_not_accept_ignored_note_file_options() -> None:
+    parser = dict(leaves(dstack_cli.build_ctl_parser()))[("adopt", "apply")]
+    help_text = parser.format_help()
+    assert "--spec-note-file" not in help_text
+    assert "--closeout-note-file" not in help_text
+
+
+def test_ctl_normalizes_expected_filesystem_errors(monkeypatch, capsys) -> None:
+    def fail_with_permission(args):
+        del args
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(dstack_cli, "cmd_feature_resolve", fail_with_permission)
+    assert dstack_cli.ctl_main(["feature", "resolve", "feature-1"]) == 1
+    payload = json.loads(capsys.readouterr().err)
+    assert payload == {
+        "status": "error",
+        "error": "filesystem operation failed: permission denied",
+    }

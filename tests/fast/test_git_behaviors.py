@@ -259,9 +259,11 @@ def test_failed_creator_does_not_remove_concurrent_worker_worktree(
         raise AssertionError(command)
 
     monkeypatch.setattr(dstack_commands, "run", fake_run)
-    with pytest.raises(DstackError, match="another worker"):
+    with pytest.raises(DstackError, match="another worker") as raised:
         dstack_commands.ensure_feature_worktree(SimpleNamespace(root=root), "topic", "main")
 
+    assert "retained_path=" in str(raised.value)
+    assert "git worktree list --porcelain" in str(raised.value)
     assert worktree.exists()
     assert "feat/topic" in branches
     assert not any(call[:3] == ("bd", "worktree", "remove") for call in calls)

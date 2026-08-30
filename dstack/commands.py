@@ -376,7 +376,25 @@ def ensure_branch_worktree(
         return branch, resolved, created_branch, created_worktree
     except Exception as primary:
         cleanup: list[str] = []
-        registered = worktree_for_branch(client.root, branch) if created_worktree else None
+        try:
+            registered = worktree_for_branch(client.root, branch)
+        except Exception:
+            registered = None
+        if not created_worktree:
+            try:
+                path_exists = worktree.exists()
+            except OSError:
+                path_exists = True
+            registered_path = None if registered is None else registered.resolve(strict=False)
+            expected_path = worktree.resolve(strict=False)
+            if path_exists or registered_path is not None:
+                retained = registered_path or expected_path
+                raise DstackError(
+                    f"{primary}; worktree creation may have changed native state; "
+                    f"retained_path={retained}; "
+                    "recovery_guidance=inspect `git worktree list --porcelain` and the retained path; "
+                    "do not remove it until ownership is confirmed"
+                ) from primary
         if created_worktree and registered is not None and registered.resolve() == worktree.resolve():
             result = run(
                 ["bd", "worktree", "remove", str(worktree), "--force"],

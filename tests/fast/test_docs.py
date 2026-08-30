@@ -6,6 +6,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 from dstack import docs as dstack_docs
+from dstack.core import CommandResult
 from dstack.commands import (
     ALIGNMENT_RECONCILIATION_SCAFFOLD,
     DESIGN_SCAFFOLD,
@@ -45,7 +46,15 @@ REQUIRED = {
 
 
 def fake_mdbook(monkeypatch: pytest.MonkeyPatch) -> None:
+    original_run = dstack_docs.run
     monkeypatch.setattr(dstack_docs.shutil, "which", lambda name: "/usr/bin/true")
+
+    def fake_run(command, *, cwd, **kwargs):
+        if command == ["/usr/bin/true", "--version"]:
+            return CommandResult(0, "mdbook v0.5.3\n", "")
+        return original_run(command, cwd=cwd, **kwargs)
+
+    monkeypatch.setattr(dstack_docs, "run", fake_run)
 
 
 def test_foundation_creates_only_missing_required_files_and_is_idempotent(
@@ -229,6 +238,18 @@ def test_initialize_requires_mdbook_before_documentation_mutation(
         dstack_docs.initialize_docs(tmp_path)
 
     assert not (tmp_path / "docs").exists()
+
+
+def test_require_mdbook_rejects_unsupported_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dstack_docs.shutil, "which", lambda name: "/usr/bin/mdbook")
+    monkeypatch.setattr(
+        dstack_docs,
+        "run",
+        lambda *args, **kwargs: CommandResult(0, "mdbook v0.5.2\n", ""),
+    )
+
+    with pytest.raises(DstackError, match="requires mdBook 0.5.3 exactly"):
+        dstack_docs.require_mdbook()
 
 
 def test_validation_accepts_project_sections_external_links_and_includes(
@@ -453,3 +474,22 @@ def test_validation_still_checks_real_include_outside_code(tmp_path: Path, monke
 
 def test_repository_book_passes_dstack_validation() -> None:
     assert dstack_docs.validate_docs(ROOT, mdbook="/usr/bin/true")["status"] == "ok"
+
+
+def test_documentation_encoding_failures_are_normalized(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    book = docs / "book.toml"
+    book.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(DstackError, match="invalid mdBook configuration"):
+        dstack_docs.configured_source(tmp_path)
+
+
+def test_summary_encoding_failure_is_normalized(tmp_path: Path) -> None:
+    dstack_docs.create_foundation(tmp_path)
+    summary = tmp_path / "docs/src/SUMMARY.md"
+    summary.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(DstackError, match="cannot read documentation link source"):
+        dstack_docs.validate_docs(tmp_path, mdbook="/usr/bin/true")

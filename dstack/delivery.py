@@ -108,6 +108,8 @@ def staged_paths(root: Path) -> list[str]:
 
 def is_forbidden_tracked_beads_path(path: str) -> bool:
     normalized = path.replace("\\", "/")
+    if normalized.rsplit("/", 1)[-1] in BEADS_SENSITIVE_BASENAMES:
+        return True
     if normalized in DSTACK_UNTRACKED_BEADS_FILES:
         return True
     if not normalized.startswith(".beads/"):
@@ -116,8 +118,6 @@ def is_forbidden_tracked_beads_path(path: str) -> bool:
         return True
     relative = normalized[len(".beads/") :]
     if ".corrupt.backup/" in relative:
-        return True
-    if relative.rsplit("/", 1)[-1] in BEADS_SENSITIVE_BASENAMES:
         return True
     if "/" in relative:
         return False
@@ -802,7 +802,7 @@ def cmd_docs_check(args: argparse.Namespace) -> int:
 
 
 def tracked_runtime_beads(root: Path) -> list[str]:
-    output = run(["git", "ls-files", ".beads"], cwd=root).stdout.splitlines()
+    output = run(["git", "ls-files"], cwd=root).stdout.splitlines()
     return sorted(path for path in output if is_forbidden_tracked_beads_path(path))
 
 
@@ -1431,6 +1431,26 @@ def _cleanup_failure(
     )
 
 
+def _creation_failure(
+    *,
+    root: Path,
+    worktree: Path,
+    branch: str,
+    error: str,
+) -> str:
+    path_exists, registered, dirty = _cleanup_state(root, worktree, branch)
+    return (
+        "temporary delivery worktree creation may have changed native state; "
+        f"retained_path={worktree}; "
+        f"path_exists={_cleanup_value(path_exists)}; "
+        f"registered={_cleanup_value(registered)}; "
+        f"dirty={_cleanup_value(dirty)}; "
+        f"creation_error={error}; "
+        "recovery_guidance=inspect the retained path and `git worktree list --porcelain`; "
+        "remove it only after confirming ownership"
+    )
+
+
 @contextmanager
 def delivery_target_worktree(root: Path, branch: str, existing: str | None):
     """Yield a target worktree, retaining evidence when cleanup is uncertain."""
@@ -1443,7 +1463,17 @@ def delivery_target_worktree(root: Path, branch: str, existing: str | None):
     worktree = (parent / "target").resolve()
     try:
         run(["git", "worktree", "add", "--quiet", str(worktree), branch], cwd=root)
-    except BaseException:
+    except BaseException as exc:
+        path_exists, registered, _ = _cleanup_state(root, worktree, branch)
+        if path_exists is not False or registered is not False:
+            raise DstackError(
+                _creation_failure(
+                    root=root,
+                    worktree=worktree,
+                    branch=branch,
+                    error=str(exc),
+                )
+            ) from exc
         try:
             parent.rmdir()
         except OSError:

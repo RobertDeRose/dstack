@@ -94,8 +94,6 @@ HELP_BY_DEST = {
     "spec_ceremony": "Legacy specification item to preserve; repeat as needed.",
     "implementation_coordinator": "Legacy implementation item to preserve; repeat as needed.",
     "closeout_ceremony": "Legacy closeout item to preserve; repeat as needed.",
-    "spec_note_file": "Read the legacy specification note from this file.",
-    "closeout_note_file": "Read the legacy closeout note from this file.",
 }
 
 
@@ -402,8 +400,6 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     adopt_apply.add_argument("--spec-ceremony", action="append", default=[])
     adopt_apply.add_argument("--implementation-coordinator", action="append", default=[])
     adopt_apply.add_argument("--closeout-ceremony", action="append", default=[])
-    adopt_apply.add_argument("--spec-note-file", type=Path)
-    adopt_apply.add_argument("--closeout-note-file", type=Path)
     adopt_apply.add_argument("--preserve", action="append", default=[])
     adopt_apply.add_argument("--reparent", action="append", default=[])
     adopt_apply.add_argument("--recreate", action="append", default=[])
@@ -427,6 +423,8 @@ def ctl_main(argv: Sequence[str] | None = None) -> int:
         return 3
     except DstackError as exc:
         return fail(str(exc))
+    except (OSError, UnicodeError) as exc:
+        return fail(f"filesystem operation failed: {exc}")
 
 
 def _package_version() -> str:

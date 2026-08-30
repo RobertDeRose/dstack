@@ -403,6 +403,63 @@ def read_text_file(path: Path | None) -> str:
         raise DstackError(f"cannot read text file: {path}") from exc
 
 
+def read_utf8_text(path: Path, *, purpose: str) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise DstackError(f"cannot read {purpose}: {path}") from exc
+
+
+def replace_text_if_unchanged(
+    path: Path,
+    *,
+    expected: str | None,
+    content: str,
+    purpose: str,
+) -> bool:
+    """Atomically replace UTF-8 text only when its observed bytes are unchanged."""
+
+    try:
+        if path.is_symlink():
+            raise DstackError(f"{purpose} must not be a symlink: {path}")
+        current = path.read_text(encoding="utf-8") if path.exists() else None
+    except DstackError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise DstackError(f"cannot read {purpose}: {path}") from exc
+    if current != expected:
+        raise DstackError(f"{purpose} changed while dStack was reconciling it: {path}")
+    if current == content:
+        return False
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_symlink():
+            raise DstackError(f"{purpose} must not be a symlink: {path}")
+        mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temporary_path = Path(temporary)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                os.chmod(temporary_path, mode)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if path.is_symlink():
+                raise DstackError(f"{purpose} must not be a symlink: {path}")
+            latest = path.read_text(encoding="utf-8") if path.exists() else None
+            if latest != expected:
+                raise DstackError(f"{purpose} changed while dStack was reconciling it: {path}")
+            os.replace(temporary_path, path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+    except DstackError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise DstackError(f"cannot write {purpose}: {path}") from exc
+    return True
+
+
 def write_temp_text(text: str) -> TextIO:
     handle = tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8", delete=False)
     handle.write(text)
