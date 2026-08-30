@@ -559,6 +559,7 @@ def test_execute_adoption_validates_expected_post_mutation_state() -> None:
                     "description": "description",
                     "acceptance_criteria": "acceptance",
                     "priority": 1,
+                    "dependencies": [{"depends_on_id": "legacy", "type": "parent-child"}],
                 },
                 "new-root": {"id": "new-root", "status": "open", "issue_type": "molecule"},
                 "approval": {"id": "approval", "status": "open", "issue_type": "task"},

@@ -263,7 +263,7 @@ def test_feature_view_projects_real_steps_gate_design_and_ready_work(git_repo: P
     assert observed["human_gate"] == gate
     assert observed["native_approved"] is True
     assert observed["design_approved"] is True
-    assert observed["ready_work"] == [task]
+    assert observed["ready_work_ids"] == ["task-1"]
     beads.assert_exhausted()
 
 
@@ -318,5 +318,5 @@ def test_alignment_view_projects_real_steps_gate_metadata_and_ready_work(
     assert observed["human_gate"] == gate
     assert observed["target_branch"] == "main"
     assert observed["scope"] == "whole repository"
-    assert observed["ready_work"] == [correction]
+    assert observed["ready_work_ids"] == ["correction-1"]
     beads.assert_exhausted()

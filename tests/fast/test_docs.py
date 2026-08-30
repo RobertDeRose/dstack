@@ -7,12 +7,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 from dstack import docs as dstack_docs
 from dstack.core import CommandResult
-from dstack.commands import (
+from dstack.commands import DstackError
+from dstack.docs import (
     ALIGNMENT_RECONCILIATION_SCAFFOLD,
     DESIGN_SCAFFOLD,
     RECORD_SUBJECTS,
     RECONCILIATION_SCAFFOLD,
-    DstackError,
 )
 
 

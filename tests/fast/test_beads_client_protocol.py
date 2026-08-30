@@ -125,6 +125,32 @@ def test_issue_payload_parser_accepts_a_valid_empty_result() -> None:
     assert dstacklib.as_items([], context="test payload") == []
 
 
+def test_json_envelope_null_normalizes_to_empty_collection() -> None:
+    assert (
+        dstacklib.parse_json(
+            json.dumps({"schema_version": 1, "data": None}),
+            context="bd gate list",
+        )
+        == []
+    )
+
+
+def test_gate_list_accepts_empty_null_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        calls.append(tuple(command))
+        return dstacklib.CommandResult(
+            0,
+            json.dumps({"schema_version": 1, "data": None}),
+            "",
+        )
+
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    assert client(tmp_path).gates(all_statuses=True) == []
+    assert calls == [("bd", "gate", "list", "--limit", "0", "--json", "--all")]
+
+
 def test_comment_file_is_closed_before_native_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     handle = tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8", delete=False)
     path = Path(handle.name)

@@ -457,7 +457,7 @@ def test_tracked_beads_configuration_contains_no_machine_local_paths() -> None:
 
 
 def test_feature_scaffolds_cover_operator_developer_and_audit_surfaces() -> None:
-    commands = (ROOT / "dstack/commands.py").read_text()
+    documentation = (ROOT / "dstack/docs.py").read_text()
     for phrase in (
         "Planned intent",
         "Planned acceptance",
@@ -472,4 +472,15 @@ def test_feature_scaffolds_cover_operator_developer_and_audit_surfaces() -> None
         "Decisions and rationale",
         "Invariants, regression evidence, and known limitations",
     ):
-        assert phrase in commands
+        assert phrase in documentation
+
+
+def test_documentation_policy_does_not_import_workflow_commands() -> None:
+    documentation = (ROOT / "dstack/docs.py").read_text()
+    assert "from .commands" not in documentation
+
+
+def test_json_output_helper_is_neutral() -> None:
+    output = (ROOT / "dstack/output.py").read_text()
+    assert "from .commands" not in output
+    assert "from .core" not in output

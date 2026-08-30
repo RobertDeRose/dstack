@@ -8,7 +8,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 from dstack import alignment as dstack_alignment
 from dstack import delivery as dstack_delivery
-from dstack.commands import DstackError, RECORD_SUBJECTS
+from dstack.commands import DstackError
+from dstack.docs import RECORD_SUBJECTS
 from dstack.core import CommandResult
 
 from scripted import ScriptedClient, call
@@ -51,7 +52,7 @@ def approved_alignment_view() -> dict:
     return value
 
 
-def patch_command(monkeypatch, beads, current=None):
+def patch_command(monkeypatch, beads, current=None, *, plan_metadata=None):
     current = current or alignment_view()
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda client, selector: current)
@@ -69,7 +70,9 @@ def patch_command(monkeypatch, beads, current=None):
             "0" * 64,
         ),
     )
-    monkeypatch.setattr(dstack_alignment, "root_plan_metadata", lambda *args: ("0" * 64, "0" * 64))
+    if plan_metadata is None:
+        plan_metadata = ("0" * 64, "0" * 64) if current["steps"]["approval"].get("status") == "closed" else (None, None)
+    monkeypatch.setattr(dstack_alignment, "root_plan_metadata", lambda *args: plan_metadata)
     if current["steps"]["approval"].get("status") == "closed":
         monkeypatch.setattr(dstack_alignment, "require_alignment_authorized", lambda *args: {})
     output = []
@@ -176,6 +179,7 @@ def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_p
 def test_add_correction_delegates_native_dependencies(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
+        call("show", "analysis-1", result={"id": "analysis-1", "status": "open"}),
         call("show", "approval-1", result={"id": "approval-1", "status": "open"}),
         call(
             "show",
@@ -235,16 +239,9 @@ def test_add_correction_rejects_documentation_or_reconciliation_work(monkeypatch
 def test_add_correction_rejects_closed_authorization_without_creation(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
-        call(
-            "show",
-            "approval-1",
-            result={"id": "approval-1", "status": "closed"},
-        ),
-        call(
-            "show",
-            "corrections-1",
-            result={"id": "corrections-1", "status": "open"},
-        ),
+        call("show", "analysis-1", result={"id": "analysis-1", "status": "open"}),
+        call("show", "approval-1", result={"id": "approval-1", "status": "closed"}),
+        call("show", "corrections-1", result={"id": "corrections-1", "status": "open"}),
     )
     patch_command(monkeypatch, beads)
     with pytest.raises(DstackError, match="reauthorization"):
@@ -254,6 +251,42 @@ def test_add_correction_rejects_closed_authorization_without_creation(monkeypatc
                 selector="alignment-1",
                 title="Late correction",
                 description=None,
+                description_file=None,
+                acceptance="observable",
+                acceptance_file=None,
+                priority=2,
+                depends_on=[],
+            )
+        )
+    beads.assert_exhausted()
+
+
+@pytest.mark.parametrize(
+    ("analysis_status", "plan_metadata"),
+    [
+        ("closed", (None, None)),
+        ("open", ("a" * 64, None)),
+        ("open", (None, "a" * 64)),
+    ],
+)
+def test_add_correction_rejects_finalized_review_scope(
+    monkeypatch,
+    tmp_path: Path,
+    analysis_status: str,
+    plan_metadata: tuple[str | None, str | None],
+) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "analysis-1", result={"id": "analysis-1", "status": analysis_status}),
+    )
+    patch_command(monkeypatch, beads, plan_metadata=plan_metadata)
+    with pytest.raises(DstackError, match="review has been finalized"):
+        dstack_alignment.cmd_alignment_add_correction(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                title="Unreviewed correction",
+                description="details",
                 description_file=None,
                 acceptance="observable",
                 acceptance_file=None,

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from conftest import run_command, run_ctl, run_json
 
-from dstack.commands import RECORD_SUBJECTS  # noqa: E402
+from dstack.docs import RECORD_SUBJECTS  # noqa: E402
 
 
 def semantic_record(kind: str) -> str:
@@ -113,7 +113,10 @@ def test_no_change_alignment_landing_has_no_git_candidate(
     assert landed["landing"]["close_reason"] == "Alignment landing completed"
 
     inspected = run_ctl(acceptance_repo, "delivery", "inspect", root_id)
-    assert inspected["candidate_revision"] == inspected["candidate_head"]
+    assert inspected["candidate_revision"] is None
+    assert inspected["candidate_head"]
+    assert inspected["evidence"]["candidate_revision"] is None
+    assert inspected["evidence"]["evidence_source"] is None
     assert inspected["evidence"]["derivation"] == "no repository change"
 
 
@@ -138,25 +141,25 @@ External blocker A must ship first.
 """
     initial_acceptance = "Multiline planned intent survives materialization."
     body_file.write_text(initial_body)
-    planned = items(
-        run_json(
-            acceptance_repo,
-            "create",
-            "--type",
-            "epic",
-            "--title",
-            "Acceptance smoke",
-            "--labels",
-            "dstack:feature-idea,feature:acceptance-smoke",
-            "--body-file",
-            str(body_file),
-            "--acceptance",
-            initial_acceptance,
-            "--priority",
-            "1",
-        )
-    )[0]
-    run_command(["bd", "dep", "add", planned["id"], blocker_a["id"]], cwd=acceptance_repo)
+    planned_result = run_ctl(
+        acceptance_repo,
+        "feature",
+        "plan",
+        "--title",
+        "Acceptance smoke",
+        "--slug",
+        "acceptance-smoke",
+        "--body-file",
+        str(body_file),
+        "--acceptance",
+        initial_acceptance,
+        "--priority",
+        "1",
+        "--depends-on",
+        blocker_a["id"],
+    )
+    assert planned_result["created"] is True
+    planned = planned_result["planned_feature"]
     run_command(
         [
             "bd",
@@ -194,9 +197,10 @@ External blocker B replaces blocker A.
     revised_acceptance = "Revised intent, priority, and blocker survive materialization."
     revised_title = "Acceptance smoke revised"
     body_file.write_text(revised_body)
-    run_json(
+    replanned = run_ctl(
         acceptance_repo,
-        "update",
+        "feature",
+        "plan",
         planned["id"],
         "--title",
         revised_title,
@@ -206,12 +210,11 @@ External blocker B replaces blocker A.
         revised_acceptance,
         "--priority",
         "3",
+        "--depends-on",
+        blocker_b["id"],
     )
-    run_command(
-        ["bd", "dep", "remove", planned["id"], blocker_a["id"]],
-        cwd=acceptance_repo,
-    )
-    run_command(["bd", "dep", "add", planned["id"], blocker_b["id"]], cwd=acceptance_repo)
+    assert replanned["created"] is False
+    assert replanned["planned_feature"]["id"] == planned["id"]
     body_file.unlink()
 
     planned = items(run_json(acceptance_repo, "show", planned["id"]))[0]

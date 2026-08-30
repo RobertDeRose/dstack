@@ -876,7 +876,10 @@ def test_no_repository_change_alignment_has_no_git_candidate(monkeypatch: pytest
         ),
         "alignment-1",
     )
-    assert before["candidate_revision"] == current_head(git_repo)
+    assert before["candidate_revision"] is None
+    assert before["candidate_head"] == current_head(git_repo)
+    assert before["evidence"]["candidate_revision"] is None
+    assert before["evidence"]["evidence_source"] is None
     assert before["evidence"]["derivation"] == "no repository change"
 
     (worktree / "unexpected.py").write_text("unexpected = True\n")

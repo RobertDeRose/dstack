@@ -9,7 +9,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 from dstack import feature as dstack_feature
-from dstack.commands import DstackError, RECORD_SUBJECTS, release_claim
+from dstack.commands import DstackError, release_claim
+from dstack.docs import RECORD_SUBJECTS
 
 from scripted import ScriptedClient, call
 
@@ -248,6 +249,7 @@ def test_add_task_delegates_acceptance_and_dependencies(monkeypatch, tmp_path: P
     beads = ScriptedClient(
         tmp_path,
         call("show", "feature-1", result={"id": "feature-1", "metadata": {}}),
+        call("show", "specification-1", result={"id": "specification-1", "status": "open"}),
         call("show", "approval-1", result={"id": "approval-1", "status": "open"}),
         call(
             "show",
@@ -305,7 +307,7 @@ def test_add_task_rejects_documentation_or_reconciliation_work(monkeypatch, tmp_
     beads.assert_exhausted()
 
 
-def test_add_task_rejects_approved_or_closed_graph_without_creation(monkeypatch, tmp_path: Path) -> None:
+def test_add_task_rejects_approved_graph_without_creation(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
         call(
@@ -315,16 +317,6 @@ def test_add_task_rejects_approved_or_closed_graph_without_creation(monkeypatch,
                 "id": "feature-1",
                 "metadata": {"dstack.approved_design_sha256": "digest"},
             },
-        ),
-        call(
-            "show",
-            "approval-1",
-            result={"id": "approval-1", "status": "closed"},
-        ),
-        call(
-            "show",
-            "implementation-1",
-            result={"id": "implementation-1", "status": "open"},
         ),
     )
     patch_command(monkeypatch, dstack_feature, beads)
@@ -340,6 +332,46 @@ def test_add_task_rejects_approved_or_closed_graph_without_creation(monkeypatch,
         depends_on=[],
     )
     with pytest.raises(DstackError, match="reauthorization"):
+        dstack_feature.cmd_feature_add_task(args)
+    beads.assert_exhausted()
+
+
+@pytest.mark.parametrize(
+    ("root_metadata", "specification_status"),
+    [
+        ({"dstack.pending_design_sha256": "digest"}, None),
+        ({}, "closed"),
+    ],
+)
+def test_add_task_rejects_interrupted_approval_without_creation(
+    monkeypatch,
+    tmp_path: Path,
+    root_metadata: dict[str, str],
+    specification_status: str | None,
+) -> None:
+    calls = [call("show", "feature-1", result={"id": "feature-1", "metadata": root_metadata})]
+    if specification_status is not None:
+        calls.append(
+            call(
+                "show",
+                "specification-1",
+                result={"id": "specification-1", "status": specification_status},
+            )
+        )
+    beads = ScriptedClient(tmp_path, *calls)
+    patch_command(monkeypatch, dstack_feature, beads)
+    args = argparse.Namespace(
+        root=tmp_path,
+        selector="feature-1",
+        title="Unreviewed late outcome",
+        description=None,
+        description_file=None,
+        acceptance="observable result",
+        acceptance_file=None,
+        priority=1,
+        depends_on=[],
+    )
+    with pytest.raises(DstackError, match="approval has begun"):
         dstack_feature.cmd_feature_add_task(args)
     beads.assert_exhausted()
 
@@ -1616,7 +1648,7 @@ def test_safe_design_file_rejects_escape(tmp_path: Path) -> None:
 
 def test_closeout_validation_rejects_untouched_reconciliation_scaffold(monkeypatch, tmp_path: Path) -> None:
     from dstack import docs as dstack_docs
-    from dstack.commands import RECONCILIATION_SCAFFOLD
+    from dstack.docs import RECONCILIATION_SCAFFOLD
 
     worktree = tmp_path / "worktree"
     dstack_docs.create_foundation(worktree)

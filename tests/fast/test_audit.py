@@ -11,7 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 from dstack import audit as dstack_audit
-from dstack.commands import RECORD_SUBJECTS
+from dstack.docs import RECORD_SUBJECTS
 from dstack.delivery import delivered_candidate_revision, immutable_candidate_revision
 from dstack.core import DstackError, ancestry, current_head
 from scripted import ScriptedClient, call
