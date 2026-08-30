@@ -59,12 +59,12 @@ from .commands import (
     FORBIDDEN_DOC_PATTERNS,
     NO_REPOSITORY_CHANGE_PREFIX,
     client_for,
-    emit,
     feature_branch_context,
     require_approved_design,
     require_complete_fan_in,
     superseded_target,
 )
+from .output import emit
 
 
 class _CommitHistory:
@@ -701,6 +701,8 @@ def alignment_evidence_audit(
     result = {"alignment": view["root"]["id"], **audit}
     if steps["landing"].get("status") == "closed":
         head = current_head(worktree)
+        candidate_revision: str | None = head
+        evidence_source: str | None = head
         landing_id = str(steps["landing"]["id"])
         records = history.records(client.root, f"{base}..{branch}")
         if _latest_footer_commit(client.root, records, [landing_id], name=f"landing {landing_id}") is not None:
@@ -734,13 +736,15 @@ def alignment_evidence_audit(
             else:
                 require_alignment_candidate_head(client.root, branch, base, head, view, history=history)
                 derivation = "no repository change"
+                candidate_revision = None
+                evidence_source = None
         result.update(
             {
                 "search_ref": branch,
-                "candidate_revision": head,
+                "candidate_revision": candidate_revision,
                 "derivation": derivation,
                 "candidate_head": head,
-                "evidence_source": head,
+                "evidence_source": evidence_source,
             }
         )
     return result
@@ -888,6 +892,7 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
             if values:
                 details.append(f"{key}={','.join(str(value) for value in values)}")
         raise DstackError(f"{kind} delivery evidence audit failed" + (": " + "; ".join(details) if details else ""))
+    candidate_revision = evidence.get("candidate_revision")
     target_head = current_head(client.root, target)
     remote_ref = f"origin/{target}"
     remote_head = current_head(client.root, remote_ref) if ref_exists(client.root, remote_ref) else None
@@ -919,7 +924,7 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
         "target_worktree": str(target_worktree) if target_worktree else None,
         "candidate_worktree": str(candidate_worktree),
         "target_head": target_head,
-        "candidate_revision": candidate,
+        "candidate_revision": candidate_revision,
         "remote_target_head": remote_head,
         "remote_candidate_head": remote_candidate_head,
         "candidate_head": candidate,

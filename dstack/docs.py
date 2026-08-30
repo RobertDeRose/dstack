@@ -11,8 +11,168 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from .commands import RECORD_SUBJECTS, emit
+from .output import emit
 from .core import DstackError, read_utf8_text, replace_text_if_unchanged, run
+
+
+DESIGN_SCAFFOLD = """# Feature design
+
+## Planned intent
+
+{planned_intent}
+
+## Planned acceptance
+
+{planned_acceptance}
+
+## Feature summary
+
+## User intent
+
+## Goals
+
+## Non-goals
+
+## User-visible behavior
+
+## Requirements
+
+## Existing patterns and reuse
+
+## Proposed design
+
+## Architecture consistency
+
+## Interfaces and data flow
+
+## Failure behavior
+
+## Security implications
+
+## Compatibility and migration implications
+
+## Validation strategy
+
+## Documentation impact
+
+### End user and operator
+
+- Usage and configuration:
+- Deployment, upgrade, and rollback:
+- Operations, troubleshooting, and recovery:
+
+### Developer and reviewer
+
+- Architecture and structure:
+- Interfaces, contracts, and maintenance:
+
+### Future auditor
+
+- Decisions and rationale:
+- Invariants, regression evidence, and known limitations:
+
+## Risks and tradeoffs
+
+## Rejected alternatives
+
+## Open or intentionally deferred decisions
+"""
+
+RECONCILIATION_SCAFFOLD = """# {title}
+
+[Design record](design.md)
+
+## Delivered capability
+
+## User-visible behavior
+
+## Architecture integration
+
+## Design reconciliation
+
+### Delivered as designed
+
+### Intentional differences
+
+### Deferred scope
+
+### Removed or rejected scope
+
+## Documentation
+
+### End user and operator
+
+### Developer and reviewer
+
+### Future auditor
+
+## Validation and limitations
+"""
+
+ALIGNMENT_RECONCILIATION_SCAFFOLD = """# Alignment reconciliation
+
+## Delivered corrections
+
+## Remaining findings and limitations
+
+## Architecture integration
+
+## Documentation and operator effects
+
+## Validation evidence
+
+## Recovery and follow-up obligations
+"""
+
+RECORD_SUBJECTS = {
+    "feature-design": (
+        "Feature summary",
+        "User intent",
+        "Goals",
+        "Non-goals",
+        "User-visible behavior",
+        "Requirements",
+        "Existing patterns and reuse",
+        "Proposed design",
+        "Architecture consistency",
+        "Interfaces and data flow",
+        "Failure behavior",
+        "Security implications",
+        "Compatibility and migration implications",
+        "Validation strategy",
+        "Documentation impact",
+        "End user and operator",
+        "Developer and reviewer",
+        "Future auditor",
+        "Risks and tradeoffs",
+        "Rejected alternatives",
+        "Open or intentionally deferred decisions",
+    ),
+    "feature-reconciliation": (
+        "Delivered capability",
+        "User-visible behavior",
+        "Architecture integration",
+        "Design reconciliation",
+        "Delivered as designed",
+        "Intentional differences",
+        "Deferred scope",
+        "Removed or rejected scope",
+        "Documentation",
+        "End user and operator",
+        "Developer and reviewer",
+        "Future auditor",
+        "Validation and limitations",
+    ),
+    "alignment-reconciliation": (
+        "Delivered corrections",
+        "Remaining findings and limitations",
+        "Architecture integration",
+        "Documentation and operator effects",
+        "Validation evidence",
+        "Recovery and follow-up obligations",
+    ),
+}
+
 
 # Public sentinel used by callers. Link targets are scanned rather than parsed
 # with this regular expression so balanced parentheses remain intact.

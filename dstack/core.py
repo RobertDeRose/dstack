@@ -165,7 +165,12 @@ def parse_json(text: str, *, context: str) -> Any:
     except json.JSONDecodeError as exc:
         raise DstackError(f"{context} returned invalid JSON") from exc
     if isinstance(payload, dict) and payload.get("schema_version") == 1 and "data" in payload:
-        return payload["data"]
+        # Beads 1.2.2 represents a valid empty collection as ``data: null``
+        # for some list commands (notably ``bd gate list``). Normalize that
+        # protocol representation here so strict issue parsing can continue to
+        # reject every other malformed shape.
+        data = payload["data"]
+        return [] if data is None else data
     return payload
 
 
@@ -1196,10 +1201,11 @@ def feature_view(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     ]
     result.update(feature_design_state(client, result))
     result.update(feature_authorization_state(client, result))
+    ready_work = client.ready_children(implementation_id, label="dstack:work:implementation")
     result.update(
         {
             "work_items": work_items,
-            "ready_work": client.ready_children(implementation_id, label="dstack:work:implementation"),
+            "ready_work_ids": [str(item["id"]) for item in ready_work],
             "progress": client.progress(root_id),
             "delivery_ready": steps["closeout"].get("status") == "closed" and root.get("status") != "closed",
         }
@@ -1260,15 +1266,18 @@ def alignment_view(client: BeadsClient, selector: str) -> dict[str, Any]:
     root_id = str(root["id"])
     steps = result["steps"]
     corrections_id = str(steps["corrections"]["id"])
+    human_gate = human_gate_for_step(
+        client,
+        root_id=root_id,
+        step=steps["approval"],
+    )
+    corrections = client.children(corrections_id)
+    ready_work = client.ready_children(corrections_id, label="dstack:work:correction")
     result.update(
         {
-            "human_gate": human_gate_for_step(
-                client,
-                root_id=root_id,
-                step=steps["approval"],
-            ),
-            "corrections": client.children(corrections_id),
-            "ready_work": client.ready_children(corrections_id, label="dstack:work:correction"),
+            "human_gate": human_gate,
+            "corrections": corrections,
+            "ready_work_ids": [str(item["id"]) for item in ready_work],
             "progress": client.progress(root_id),
             "delivery_ready": steps["landing"].get("status") == "closed" and root.get("status") != "closed",
         }

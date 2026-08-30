@@ -192,6 +192,7 @@ def _adoption_postcondition(
         raise DstackError("adoption snapshot legacy_records must be an array")
     issue_states: dict[str, dict[str, Any]] = {}
     original_parents: dict[str, str | None] = {}
+    superseded_ids: set[str] = set()
     for index, raw in enumerate(raw_records):
         if not isinstance(raw, Mapping):
             raise DstackError(f"adoption snapshot legacy_records item {index} is not an object")
@@ -224,6 +225,7 @@ def _adoption_postcondition(
         original_parent = state["parents"][0]
         state["status"] = "closed"
         state["superseded_target"] = target_id
+        superseded_ids.add(issue_id)
         # Beads may clear the live parent projection when an issue is
         # superseded. Either the original parent or a detached projection is
         # expected; reparenting to any other container is drift.
@@ -259,7 +261,11 @@ def _adoption_postcondition(
         expect_superseded(legacy_root_id, new_root_id)
 
     legacy_ids = set(issue_states)
-    expected_edges = {edge for edge in _snapshot_edges(expected_graph) if edge[2] not in _SUPERSESSION_RELATIONS}
+    expected_edges = {
+        edge
+        for edge in _snapshot_edges(expected_graph)
+        if edge[2] not in _SUPERSESSION_RELATIONS and (edge[0] not in superseded_ids or edge[2] == "parent-child")
+    }
     # Reparenting is performed through the native parent field. When the
     # snapshot exposes that relationship as a parent-child dependency too,
     # transform the expected edge alongside the expected parent value.
@@ -274,8 +280,11 @@ def _adoption_postcondition(
         if state is None or not isinstance(parent, str) or not parent:
             continue
         original_parent = original_parents.get(issue_id)
-        original_edge = (issue_id, original_parent, "parent-child")
-        if original_parent is not None and original_edge in expected_edges:
+        if original_parent is not None:
+            original_edge = (issue_id, original_parent, "parent-child")
+        else:
+            original_edge = None
+        if original_edge is not None and original_edge in expected_edges:
             expected_edges.remove(original_edge)
             expected_edges.add((issue_id, parent, "parent-child"))
     required_external_edges: set[tuple[str, str, str]] = set()

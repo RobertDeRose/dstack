@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Sequence
 
 from .audit import cmd_audit_feature
-from .commands import DstackError, cmd_infra_check, fail
+from .commands import DstackError, cmd_infra_check
 from .core import canonical_positive_integer
 from .docs import cmd_docs_validate
+from .output import fail
 from .feature import (
     cmd_feature_resolve,
     cmd_feature_plan,

@@ -9,14 +9,13 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
-import json
 import re
-import sys
 from collections import deque
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .formula import ensure_infrastructure
+from .output import emit
 from .core import (
     BeadsClient,
     DstackError,
@@ -100,177 +99,8 @@ FORBIDDEN_DOC_PATTERNS = (
         r"\s*/(plan-features?|start-feature|review-feature-spec|implement-feature|close-feature)\b"
     ),
 )
-DESIGN_SCAFFOLD = """# Feature design
-
-## Planned intent
-
-{planned_intent}
-
-## Planned acceptance
-
-{planned_acceptance}
-
-## Feature summary
-
-## User intent
-
-## Goals
-
-## Non-goals
-
-## User-visible behavior
-
-## Requirements
-
-## Existing patterns and reuse
-
-## Proposed design
-
-## Architecture consistency
-
-## Interfaces and data flow
-
-## Failure behavior
-
-## Security implications
-
-## Compatibility and migration implications
-
-## Validation strategy
-
-## Documentation impact
-
-### End user and operator
-
-- Usage and configuration:
-- Deployment, upgrade, and rollback:
-- Operations, troubleshooting, and recovery:
-
-### Developer and reviewer
-
-- Architecture and structure:
-- Interfaces, contracts, and maintenance:
-
-### Future auditor
-
-- Decisions and rationale:
-- Invariants, regression evidence, and known limitations:
-
-## Risks and tradeoffs
-
-## Rejected alternatives
-
-## Open or intentionally deferred decisions
-"""
-
-RECONCILIATION_SCAFFOLD = """# {title}
-
-[Design record](design.md)
-
-## Delivered capability
-
-## User-visible behavior
-
-## Architecture integration
-
-## Design reconciliation
-
-### Delivered as designed
-
-### Intentional differences
-
-### Deferred scope
-
-### Removed or rejected scope
-
-## Documentation
-
-### End user and operator
-
-### Developer and reviewer
-
-### Future auditor
-
-## Validation and limitations
-"""
-
-ALIGNMENT_RECONCILIATION_SCAFFOLD = """# Alignment reconciliation
-
-## Delivered corrections
-
-## Remaining findings and limitations
-
-## Architecture integration
-
-## Documentation and operator effects
-
-## Validation evidence
-
-## Recovery and follow-up obligations
-"""
-
-RECORD_SUBJECTS = {
-    "feature-design": (
-        "Feature summary",
-        "User intent",
-        "Goals",
-        "Non-goals",
-        "User-visible behavior",
-        "Requirements",
-        "Existing patterns and reuse",
-        "Proposed design",
-        "Architecture consistency",
-        "Interfaces and data flow",
-        "Failure behavior",
-        "Security implications",
-        "Compatibility and migration implications",
-        "Validation strategy",
-        "Documentation impact",
-        "End user and operator",
-        "Developer and reviewer",
-        "Future auditor",
-        "Risks and tradeoffs",
-        "Rejected alternatives",
-        "Open or intentionally deferred decisions",
-    ),
-    "feature-reconciliation": (
-        "Delivered capability",
-        "User-visible behavior",
-        "Architecture integration",
-        "Design reconciliation",
-        "Delivered as designed",
-        "Intentional differences",
-        "Deferred scope",
-        "Removed or rejected scope",
-        "Documentation",
-        "End user and operator",
-        "Developer and reviewer",
-        "Future auditor",
-        "Validation and limitations",
-    ),
-    "alignment-reconciliation": (
-        "Delivered corrections",
-        "Remaining findings and limitations",
-        "Architecture integration",
-        "Documentation and operator effects",
-        "Validation evidence",
-        "Recovery and follow-up obligations",
-    ),
-}
-
 NO_REPOSITORY_CHANGE_PREFIX = "no-repository-change: "
 _RECONCILIATION_TITLE = re.compile(r"(?i)\b(?:reconcil\w*|document\w*|docs?)\b")
-
-
-def emit(payload: Any) -> None:
-    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
-    sys.stdout.write("\n")
-
-
-def fail(message: str) -> int:
-    json.dump({"status": "error", "error": message}, sys.stderr)
-    sys.stderr.write("\n")
-    return 1
 
 
 def client_for(root: Path, *, initialize: bool = True) -> BeadsClient:

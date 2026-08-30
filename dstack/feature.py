@@ -46,7 +46,13 @@ from .core import (
     validate_git_revision,
 )
 
-from .docs import create_foundation, validate_docs, validate_record
+from .docs import (
+    DESIGN_SCAFFOLD,
+    RECONCILIATION_SCAFFOLD,
+    create_foundation,
+    validate_docs,
+    validate_record,
+)
 from .formula import (
     CREATED_FORMULA_VERSION_KEY,
     FEATURE_FORMULA,
@@ -58,8 +64,6 @@ from .formula import (
     pour_current_formula,
 )
 from .commands import (
-    DESIGN_SCAFFOLD,
-    RECONCILIATION_SCAFFOLD,
     claim_ready_step,
     claim_ready_step_with_fan_in,
     claim_ready_work,
@@ -67,7 +71,6 @@ from .commands import (
     resolve_gate_if_needed,
     client_for,
     completion_reason,
-    emit,
     ensure_feature_worktree,
     evidence_for_bead,
     feature_branch_context,
@@ -83,6 +86,7 @@ from .commands import (
     task_text,
     update_root_identity,
 )
+from .output import emit
 
 
 def _feature_contract_issues(
@@ -733,14 +737,18 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
     reject_documentation_work(args.title, stage="implementation")
     implementation = view["steps"]["implementation"]
     approval = view["steps"]["approval"]
+    specification = view["steps"]["specification"]
     root = client.show(str(view["root"]["id"]))
+    if root_metadata_value(root, "dstack.approved_design_sha256") or root_metadata_value(
+        root, "dstack.pending_design_sha256"
+    ):
+        raise DstackError("feature approval has begun; task scope requires explicit reauthorization")
+    specification = client.show(str(specification["id"]))
+    if specification.get("status") == "closed":
+        raise DstackError("feature approval has begun; task scope requires explicit reauthorization")
     approval = client.show(str(approval["id"]))
     implementation = client.show(str(implementation["id"]))
-    if (
-        root_metadata_value(root, "dstack.approved_design_sha256")
-        or approval.get("status") == "closed"
-        or implementation.get("status") == "closed"
-    ):
+    if approval.get("status") == "closed" or implementation.get("status") == "closed":
         raise DstackError("approved or closed feature scope requires explicit reauthorization")
     dependencies = [str(approval["id"]), *args.depends_on]
     item = client.create(

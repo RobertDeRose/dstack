@@ -43,10 +43,10 @@ from .core import (
 from .formula import FEATURE_FORMULA, pour_current_formula
 from .commands import (
     client_for,
-    emit,
     superseded_target,
     update_root_identity,
 )
+from .output import emit
 
 COMPATIBILITY_SHIMS = (
     {
@@ -107,6 +107,7 @@ def _selection_pair(value: str, option: str) -> tuple[str, str]:
 
 
 def _replacement_for(item: Mapping[str, Any]) -> dict[str, Any]:
+    priority = item.get("priority")
     return {
         "title": str(item.get("title") or item["id"]),
         "description": str(item.get("description") or "Legacy work retained during adoption."),
@@ -115,7 +116,7 @@ def _replacement_for(item: Mapping[str, Any]) -> dict[str, Any]:
             or item.get("acceptance")
             or "Existing acceptance criteria must be revalidated before completion."
         ),
-        "priority": int(item.get("priority") if isinstance(item.get("priority"), int) else 2),
+        "priority": priority if isinstance(priority, int) and not isinstance(priority, bool) else 2,
     }
 
 

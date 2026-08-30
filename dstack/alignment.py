@@ -32,7 +32,6 @@ from .core import (
 )
 
 from .commands import (
-    ALIGNMENT_RECONCILIATION_SCAFFOLD,
     claim_ready_step,
     claim_ready_step_with_fan_in,
     claim_ready_work,
@@ -40,7 +39,6 @@ from .commands import (
     resolve_gate_if_needed,
     client_for,
     completion_reason,
-    emit,
     ensure_branch_worktree,
     evidence_for_bead,
     keep_root_open_for_delivery,
@@ -51,7 +49,8 @@ from .commands import (
     required_task_text,
     task_text,
 )
-from .docs import validate_docs, validate_record
+from .docs import ALIGNMENT_RECONCILIATION_SCAFFOLD, validate_docs, validate_record
+from .output import emit
 from .formula import (
     ALIGNMENT_FORMULA,
     stamp_created_formula_version,
@@ -186,6 +185,13 @@ def cmd_alignment_add_correction(args: argparse.Namespace) -> int:
     view = alignment_context(client, args.selector)
     acceptance = required_task_text(args.acceptance_file, args.acceptance)
     reject_documentation_work(args.title, stage="alignment correction")
+    root_id = str(view["root"]["id"])
+    analysis = client.show(str(view["steps"]["analysis"]["id"]))
+    if analysis.get("status") == "closed":
+        raise DstackError("alignment review has been finalized; correction scope requires explicit reauthorization")
+    pending, approved = root_plan_metadata(client, root_id)
+    if pending is not None or approved is not None:
+        raise DstackError("alignment review has been finalized; correction scope requires explicit reauthorization")
     approval = client.show(str(view["steps"]["approval"]["id"]))
     corrections = client.show(str(view["steps"]["corrections"]["id"]))
     if approval.get("status") == "closed" or corrections.get("status") == "closed":
