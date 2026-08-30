@@ -97,7 +97,7 @@ deterministic mechanics without a second manifest, cache, or documentation state
 
 ## Validation
 
-The repository pins the tested mdBook release through mise. Validate the current book with:
+The repository and installed controller require mdBook 0.5.3. Validate the current book with:
 
 ```bash
 dstack ctl docs validate

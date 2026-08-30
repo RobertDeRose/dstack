@@ -33,8 +33,9 @@ The normal controller entry point is `dstack ctl ...`. It uses the repository fr
 is supplied explicitly, initializes Beads when needed, and uses packaged dStack formulas as authority before operating.
 There is no setup workflow and no formula migration.
 
-Required external tools are `uv`, Beads 1.2.2 exactly, and a working `mdbook` when documentation validation is required. The repository tooling pins the mdBook release used by CI; the installed controller validates availability rather than an exact patch version.
-The dStack repository's `mise.toml` remains contributor/CI tooling, not the installed CLI launcher.
+Required external tools are `uv`, Beads 1.2.2 exactly, and mdBook 0.5.3 exactly when documentation validation is
+required. The installed controller validates the same mdBook version exercised by repository tooling and CI. The dStack
+repository's `mise.toml` remains contributor/CI tooling, not the installed CLI launcher.
 
 Stable configuration lives in Git and Beads. dStack has no database, scheduler, setup ledger, migration state, or
 ownership cache.

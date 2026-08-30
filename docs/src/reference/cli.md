@@ -65,9 +65,10 @@ formula changed.
 
 ## Retry and errors
 
-Inspection, planning, and converged no-op commands are retry-safe and do not initialize an absent Beads workspace.
-Commands that create or mutate work initialize Beads when needed. A task claim without a selector delegates selection
-directly to Beads' atomic ready claim; an explicit `--task` remains exact.
+Read-only inspection and converged no-op commands are retry-safe and do not initialize an absent Beads workspace.
+Planning commands that create planned Beads state, along with other mutation commands, initialize Beads when needed. A
+task claim without a selector delegates selection directly to Beads' atomic ready claim; an explicit `--task` remains
+exact.
 
 Expected validation, filesystem, malformed-response, timeout, and conflict failures are JSON on standard error. A
 timeout identifies the native command and reports captured output plus whether the operation may have mutated state. No

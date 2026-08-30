@@ -39,7 +39,7 @@ Requirements:
 - `uv`
 - Python 3.14 (the `uv tool` environment is constrained by `pyproject.toml`)
 - Beads 1.2.2 exactly; `bd --version` must print `bd version 1.2.2 (6c124203e)`
-- a working `mdbook` on `PATH` when documentation validation is required; repository tooling pins the tested release
+- mdBook 0.5.3 exactly on `PATH` when documentation validation is required
 
 Install dStack as a normal Python tool from a checkout:
 

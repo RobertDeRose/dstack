@@ -11,8 +11,8 @@ source for native pours. No setup/migration fixture exists because upgrades do n
 
 ## Documentation
 
-The tested mdBook release is pinned for repository development through mise. Validate required pages, chapter
-navigation, local links, orphan Markdown, and the build with:
+mdBook 0.5.3 is pinned for repository development through mise and enforced by the controller. Validate required pages,
+chapter navigation, local links, orphan Markdown, and the build with:
 
 ```bash
 dstack ctl docs validate
