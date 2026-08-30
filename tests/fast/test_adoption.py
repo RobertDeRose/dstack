@@ -480,66 +480,202 @@ def test_raw_poured_topology_rejects_invalid_root_before_identity_update() -> No
         dstack_adoption_apply.validate_target_topology(Client(), "new-root")
 
 
-def test_execute_adoption_rejects_post_plan_incoming_graph_drift(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[int] = []
+def test_adoption_postcondition_rejects_unplanned_incoming_graph_drift() -> None:
+    snapshot = {
+        "legacy_root_id": "legacy",
+        "legacy_ids": ["legacy"],
+        "legacy_records": [
+            {
+                "id": "legacy",
+                "status": "open",
+                "issue_type": "epic",
+            }
+        ],
+        "native_records": [],
+        "internal": [],
+        "outgoing_external": [],
+        "incoming_external": [],
+    }
+    plan = {
+        "entries": [],
+        "relationship_operations": [],
+        "decision_staging": [],
+    }
+    view = {"steps": {name: {"id": name} for name in ("specification", "approval", "implementation", "closeout")}}
+    postcondition = dstack_adoption_apply._adoption_postcondition(
+        snapshot,
+        plan,
+        legacy_root_id="legacy",
+        new_root_id="new-root",
+        view=view,
+        replacement_ids={},
+        resolved_decisions=set(),
+        supersede_root=True,
+    )
 
-    def reconcile(*args: Any, **kwargs: Any) -> None:
-        calls.append(len(calls) + 1)
-        if len(calls) == 2:
-            raise DstackError("legacy adoption graph drifted; incoming blocker added")
+    class Native:
+        def list(self, *, all_statuses: bool) -> list[dict[str, Any]]:
+            assert all_statuses is True
+            return [
+                {
+                    "id": "legacy",
+                    "status": "closed",
+                    "issue_type": "epic",
+                    "dependencies": [{"depends_on_id": "new-root", "type": "superseded-by"}],
+                },
+                {
+                    "id": "dependent",
+                    "status": "open",
+                    "issue_type": "task",
+                    "dependencies": [{"depends_on_id": "legacy", "type": "blocks"}],
+                },
+            ]
 
-    monkeypatch.setattr(dstack_adoption_apply, "reconcile_adoption_graph", reconcile)
+        def gates(self, *, all_statuses: bool) -> list[dict[str, Any]]:
+            assert all_statuses is True
+            return []
 
+    with pytest.raises(DstackError, match="relationship postcondition"):
+        dstack_adoption_apply.validate_adoption_postcondition(Native(), postcondition)
+
+
+def test_execute_adoption_validates_expected_post_mutation_state() -> None:
     class Native:
         root = Path(".")
 
+        def __init__(self) -> None:
+            self.issues: dict[str, dict[str, Any]] = {
+                "legacy": {
+                    "id": "legacy",
+                    "status": "open",
+                    "issue_type": "epic",
+                },
+                "task": {
+                    "id": "task",
+                    "status": "open",
+                    "issue_type": "task",
+                    "parent": "legacy",
+                    "title": "Remaining work",
+                    "description": "description",
+                    "acceptance_criteria": "acceptance",
+                    "priority": 1,
+                },
+                "new-root": {"id": "new-root", "status": "open", "issue_type": "molecule"},
+                "approval": {"id": "approval", "status": "open", "issue_type": "task"},
+                "implementation": {"id": "implementation", "status": "open", "issue_type": "epic"},
+                "specification": {"id": "specification", "status": "open", "issue_type": "task"},
+                "closeout": {"id": "closeout", "status": "open", "issue_type": "task"},
+            }
+
+        def list(self, *, all_statuses: bool) -> list[dict[str, Any]]:
+            assert all_statuses is True
+            return [dict(issue) for issue in self.issues.values()]
+
+        def gates(self, *, all_statuses: bool) -> list[dict[str, Any]]:
+            assert all_statuses is True
+            return []
+
         def show(self, issue_id: str) -> dict[str, Any]:
-            return {"id": issue_id, "status": "open", "issue_type": "task"}
+            return dict(self.issues[issue_id])
 
-        def supersede(self, *args: Any, **kwargs: Any) -> None:
-            raise AssertionError("graph drift must block root supersession")
+        def children(self, parent: str, *, all_statuses: bool = True) -> list[dict[str, Any]]:
+            del all_statuses
+            return [dict(issue) for issue in self.issues.values() if issue.get("parent") == parent]
 
+        def create(self, title: str, **kwargs: Any) -> dict[str, Any]:
+            self.issues["replacement"] = {
+                "id": "replacement",
+                "title": title,
+                "description": kwargs["description"],
+                "acceptance_criteria": kwargs["acceptance"],
+                "priority": kwargs["priority"],
+                "parent": kwargs["parent"],
+                "labels": kwargs["labels"],
+                "dependencies": [{"depends_on_id": "approval", "type": "blocks"}],
+                "status": "open",
+                "issue_type": "task",
+            }
+            return {"id": "replacement"}
+
+        def add_dependency(self, source: str, target: str, *, relation_type: str = "blocks") -> None:
+            dependencies = self.issues[source].setdefault("dependencies", [])
+            if not any(
+                item.get("depends_on_id") == target and item.get("type") == relation_type for item in dependencies
+            ):
+                dependencies.append({"depends_on_id": target, "type": relation_type})
+
+        def remove_dependency(self, source: str, target: str) -> None:
+            self.issues[source]["dependencies"] = [
+                item for item in self.issues[source].get("dependencies", []) if item.get("depends_on_id") != target
+            ]
+
+        def supersede(self, old: str, new: str) -> None:
+            self.issues[old]["status"] = "closed"
+            self.issues[old]["dependencies"] = [
+                *self.issues[old].get("dependencies", []),
+                {"depends_on_id": new, "type": "superseded-by"},
+            ]
+
+        def json(self, command: list[str]) -> list[dict[str, Any]]:
+            assert command == ["bd", "ready", "--limit", "0", "--json"]
+            return []
+
+    native = Native()
+    snapshot = dstack_adoption.adoption_graph_snapshot(native, "legacy")
     plan = {
         "schema": dstack_adoption.PLAN_SCHEMA,
         "legacy_root_id": "legacy",
-        "entries": [],
-        "replacements": [],
-        "decision_staging": [],
-        "relationship_operations": [
+        "entries": [
             {
-                "source_id": "dependent",
-                "target_id": "legacy",
-                "relationship_type": "blocks",
-                "decision": "deferred-redirect",
+                "legacy_id": "task",
+                "classification": "remaining-implementation",
+                "reason": "remaining",
+                "replacement": {
+                    "title": "replacement",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
             }
         ],
+        "replacements": [
+            {
+                "legacy_id": "task",
+                "replacement": {
+                    "title": "replacement",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+        "decision_staging": [],
+        "relationship_operations": [],
         "inventory": {
-            "internal": [],
-            "outgoing_external": [],
-            "incoming_external": [
-                {
-                    "source_id": "dependent",
-                    "target_id": "legacy",
-                    "relationship_type": "blocks",
-                }
-            ],
+            "legacy_ids": snapshot["legacy_ids"],
+            "legacy_records": snapshot["legacy_records"],
+            "internal": snapshot["internal"],
+            "outgoing_external": snapshot["outgoing_external"],
+            "incoming_external": snapshot["incoming_external"],
         },
         "supersession": {"eligible": True},
     }
-    with pytest.raises(DstackError, match="incoming blocker added"):
-        dstack_adoption_apply.execute_adoption_plan(
-            Native(),
-            plan,
-            legacy_root_id="legacy",
-            new_root_id="new-root",
-            view={
-                "steps": {name: {"id": name} for name in ("specification", "approval", "implementation", "closeout")}
-            },
-            expected_graph={"legacy_root_id": "legacy"},
-        )
-    assert calls == [1, 2]
+    result = dstack_adoption_apply.execute_adoption_plan(
+        native,
+        plan,
+        legacy_root_id="legacy",
+        new_root_id="new-root",
+        view={"steps": {name: {"id": name} for name in ("specification", "approval", "implementation", "closeout")}},
+        expected_graph=snapshot,
+    )
+
+    assert result["root_superseded"] is True
+    assert native.issues["legacy"]["status"] == "closed"
+    assert native.issues["task"]["status"] == "closed"
+    assert native.issues["task"]["dependencies"] == [
+        {"depends_on_id": "legacy", "type": "parent-child"},
+        {"depends_on_id": "replacement", "type": "superseded-by"},
+    ]
 
 
 def test_execute_adoption_adds_replacement_edge_before_removing_legacy_edge() -> None:
@@ -920,3 +1056,61 @@ def test_external_blocker_is_preserved_on_compatible_native_step(
     monkeypatch.setattr(dstack_commands, "descendants", lambda *args: [])
     assert dstack_commands.preserve_external_blockers(beads, source, "feature-1") == ["blocker-1"]
     beads.assert_exhausted()
+
+
+def test_adoption_postcondition_transforms_native_parent_child_edge_for_reparent() -> None:
+    snapshot = {
+        "legacy_root_id": "legacy",
+        "legacy_ids": ["legacy", "task"],
+        "legacy_records": [
+            {"id": "legacy", "status": "open", "issue_type": "epic"},
+            {
+                "id": "task",
+                "status": "open",
+                "issue_type": "task",
+                "parent": "legacy",
+                "dependencies": [{"depends_on_id": "legacy", "type": "parent-child"}],
+            },
+        ],
+        "native_records": [],
+        "internal": [
+            {
+                "source_id": "task",
+                "target_id": "legacy",
+                "relationship_type": "parent-child",
+            }
+        ],
+        "outgoing_external": [],
+        "incoming_external": [],
+    }
+    postcondition = dstack_adoption_apply._adoption_postcondition(
+        snapshot,
+        {
+            "entries": [
+                {
+                    "legacy_id": "task",
+                    "classification": "preserved-unchanged",
+                    "strategy": "reparent",
+                    "surviving_parent": "outside-parent",
+                }
+            ],
+            "relationship_operations": [
+                {
+                    "source_id": "task",
+                    "target_id": "legacy",
+                    "relationship_type": "parent-child",
+                    "decision": "preserve",
+                }
+            ],
+            "decision_staging": [],
+        },
+        legacy_root_id="legacy",
+        new_root_id="new-root",
+        view={"steps": {name: {"id": name} for name in ("specification", "approval", "implementation", "closeout")}},
+        replacement_ids={},
+        resolved_decisions=set(),
+        supersede_root=False,
+    )
+
+    assert postcondition["issue_states"]["task"]["parents"] == ["outside-parent"]
+    assert postcondition["legacy_edges"] == [("task", "outside-parent", "parent-child")]

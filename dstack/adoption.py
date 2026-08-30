@@ -362,8 +362,8 @@ def _snapshot_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     return {key: issue[key] for key in _SNAPSHOT_ISSUE_FIELDS if key in issue}
 
 
-def adoption_graph_snapshot(client: BeadsClient, legacy_root_id: str) -> dict[str, Any]:
-    """Read one coherent native inventory for planning and drift checks."""
+def adoption_native_inventory(client: BeadsClient) -> dict[str, dict[str, Any]]:
+    """Read and validate one coherent native Beads inventory for adoption."""
 
     all_records = [*client.list(all_statuses=True), *client.gates(all_statuses=True)]
     all_issues: dict[str, dict[str, Any]] = {}
@@ -371,9 +371,17 @@ def adoption_graph_snapshot(client: BeadsClient, legacy_root_id: str) -> dict[st
         item_id = item.get("id")
         if not isinstance(item_id, str) or not item_id:
             raise DstackError("native graph snapshot contains an issue without an ID")
-        if item_id in all_issues and all_issues[item_id] != dict(item):
+        current = dict(item)
+        if item_id in all_issues and all_issues[item_id] != current:
             raise DstackError(f"native graph snapshot has conflicting issue records: {item_id}")
-        all_issues[item_id] = dict(item)
+        all_issues[item_id] = current
+    return all_issues
+
+
+def adoption_graph_snapshot(client: BeadsClient, legacy_root_id: str) -> dict[str, Any]:
+    """Read one coherent native inventory for planning and drift checks."""
+
+    all_issues = adoption_native_inventory(client)
 
     root_issue = all_issues.get(legacy_root_id)
     if root_issue is None:

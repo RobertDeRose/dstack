@@ -8,6 +8,7 @@ from .adoption import (
     PLAN_SCHEMA,
     RELATIONS,
     _section,
+    adoption_native_inventory,
     reconcile_adoption_graph,
 )
 from .commands import descendants, reject_documentation_work, superseded_target
@@ -132,48 +133,266 @@ def _incoming_dependent_ids(plan: Mapping[str, Any]) -> set[str]:
     }
 
 
-def _planned_graph_edges(
-    plan: Mapping[str, Any],
+_SUPERSESSION_RELATIONS = {"superseded-by", "supersedes", "superseded_by"}
+
+
+def _relationship_destination(
+    operation: Mapping[str, Any],
     replacement_ids: Mapping[str, str],
     view: Mapping[str, Any],
     *,
     legacy_root_id: str,
     new_root_id: str,
-    decision_block_ids: set[str],
-) -> set[tuple[str, str, str]]:
-    allowed: set[tuple[str, str, str]] = set()
-    for old_id, replacement_id in replacement_ids.items():
-        allowed.add((str(old_id), str(replacement_id), "relates-to"))
-    for staged in plan.get("decision_staging", []):
-        if not isinstance(staged, Mapping):
+) -> tuple[str, str]:
+    source_id = str(operation["source_id"])
+    target_id = str(operation["target_id"])
+    source = replacement_ids.get(source_id, new_root_id if source_id == legacy_root_id else source_id)
+    target = replacement_ids.get(target_id, new_root_id if target_id == legacy_root_id else target_id)
+    target_step = operation.get("target_step")
+    if target_step and source_id == legacy_root_id:
+        source = _step_id(view, str(target_step))
+    if target_step and target_id == legacy_root_id:
+        target = _step_id(view, str(target_step))
+    return source, target
+
+
+def _snapshot_edges(snapshot: Mapping[str, Any]) -> set[tuple[str, str, str]]:
+    result: set[tuple[str, str, str]] = set()
+    for name in ("internal", "outgoing_external", "incoming_external"):
+        values = snapshot.get(name)
+        if not isinstance(values, list):
+            raise DstackError(f"adoption snapshot field {name} must be an array")
+        for index, edge in enumerate(values):
+            if not isinstance(edge, Mapping):
+                raise DstackError(f"adoption snapshot field {name} item {index} is not an object")
+            source = edge.get("source_id")
+            target = edge.get("target_id")
+            relation = edge.get("relationship_type")
+            if not all(isinstance(value, str) and value for value in (source, target, relation)):
+                raise DstackError(f"adoption snapshot field {name} item {index} is invalid")
+            result.add((str(source), str(target), str(relation)))
+    return result
+
+
+def _adoption_postcondition(
+    expected_graph: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    *,
+    legacy_root_id: str,
+    new_root_id: str,
+    view: Mapping[str, Any],
+    replacement_ids: Mapping[str, str],
+    resolved_decisions: set[str],
+    supersede_root: bool,
+) -> dict[str, Any]:
+    """Derive the exact intended legacy-graph state from the reviewed plan."""
+
+    raw_records = expected_graph.get("legacy_records")
+    if not isinstance(raw_records, list):
+        raise DstackError("adoption snapshot legacy_records must be an array")
+    issue_states: dict[str, dict[str, Any]] = {}
+    original_parents: dict[str, str | None] = {}
+    for index, raw in enumerate(raw_records):
+        if not isinstance(raw, Mapping):
+            raise DstackError(f"adoption snapshot legacy_records item {index} is not an object")
+        issue_id = raw.get("id")
+        native_type = issue_type(raw)
+        status = raw.get("status")
+        if (
+            not isinstance(issue_id, str)
+            or not issue_id
+            or not native_type
+            or not isinstance(status, str)
+            or not status
+        ):
+            raise DstackError(f"adoption snapshot legacy_records item {index} is incomplete")
+        parent = issue_parent(raw)
+        original_parents[issue_id] = parent
+        issue_states[issue_id] = {
+            "status": status,
+            "issue_type": native_type,
+            "parents": [parent],
+            "superseded_target": superseded_target(raw),
+        }
+    if legacy_root_id not in issue_states:
+        raise DstackError("adoption snapshot does not contain the selected legacy root")
+
+    def expect_superseded(issue_id: str, target_id: str) -> None:
+        state = issue_states.get(issue_id)
+        if state is None:
+            raise DstackError(f"adoption postcondition references unknown legacy issue: {issue_id}")
+        original_parent = state["parents"][0]
+        state["status"] = "closed"
+        state["superseded_target"] = target_id
+        # Beads may clear the live parent projection when an issue is
+        # superseded. Either the original parent or a detached projection is
+        # expected; reparenting to any other container is drift.
+        state["parents"] = list(dict.fromkeys([original_parent, None]))
+
+    for entry in plan.get("entries", []):
+        if not isinstance(entry, Mapping):
+            raise DstackError("adoption plan contains an invalid entry")
+        issue_id = str(entry.get("legacy_id") or "")
+        classification = str(entry.get("classification") or "")
+        if issue_id not in issue_states:
+            raise DstackError(f"adoption plan references unknown legacy issue: {issue_id}")
+        if classification == "completed-history":
+            issue_states[issue_id]["status"] = "closed"
+        elif classification in _CEREMONY_TARGETS:
+            expect_superseded(issue_id, _step_id(view, _CEREMONY_TARGETS[classification]))
+        elif classification == "remaining-implementation" or (
+            classification == "preserved-unchanged" and entry.get("strategy") == "recreate"
+        ):
+            replacement = replacement_ids.get(issue_id)
+            if not replacement:
+                raise DstackError(f"adoption postcondition has no replacement for {issue_id}")
+            expect_superseded(issue_id, replacement)
+        elif classification == "preserved-unchanged" and entry.get("strategy") == "reparent":
+            parent = entry.get("surviving_parent")
+            if not isinstance(parent, str) or not parent:
+                raise DstackError(f"adoption postcondition has no surviving parent for {issue_id}")
+            issue_states[issue_id]["parents"] = [parent]
+        elif classification == "unresolved-decision" and issue_id in resolved_decisions:
+            expect_superseded(issue_id, _step_id(view, "specification"))
+
+    if supersede_root:
+        expect_superseded(legacy_root_id, new_root_id)
+
+    legacy_ids = set(issue_states)
+    expected_edges = {edge for edge in _snapshot_edges(expected_graph) if edge[2] not in _SUPERSESSION_RELATIONS}
+    # Reparenting is performed through the native parent field. When the
+    # snapshot exposes that relationship as a parent-child dependency too,
+    # transform the expected edge alongside the expected parent value.
+    for entry in plan.get("entries", []):
+        if not isinstance(entry, Mapping):
             continue
-        if staged.get("action") == "incorporate-after-approval":
-            target = _step_id(view, "specification")
-        else:
-            name = str(staged.get("blocking_target"))
-            if name in FEATURE_STEPS:
-                target = _step_id(view, name)
-            elif name in FEATURE_STEPS.values():
-                target = _step_id(
-                    view,
-                    next(key for key, label in FEATURE_STEPS.items() if label == name),
-                )
+        if entry.get("classification") != "preserved-unchanged" or entry.get("strategy") != "reparent":
+            continue
+        issue_id = str(entry.get("legacy_id") or "")
+        parent = entry.get("surviving_parent")
+        state = issue_states.get(issue_id)
+        if state is None or not isinstance(parent, str) or not parent:
+            continue
+        original_parent = original_parents.get(issue_id)
+        original_edge = (issue_id, original_parent, "parent-child")
+        if original_parent is not None and original_edge in expected_edges:
+            expected_edges.remove(original_edge)
+            expected_edges.add((issue_id, parent, "parent-child"))
+    required_external_edges: set[tuple[str, str, str]] = set()
+    for operation in plan.get("relationship_operations", []):
+        if not isinstance(operation, Mapping):
+            raise DstackError("adoption plan contains an invalid relationship operation")
+        source_id = str(operation.get("source_id") or "")
+        target_id = str(operation.get("target_id") or "")
+        relation = str(operation.get("relationship_type") or "")
+        original = (source_id, target_id, relation)
+        decision = str(operation.get("decision") or "")
+        if decision in {"preserve", "preserve-native-supersession"}:
+            continue
+        if decision == "deferred-redirect" and not supersede_root:
+            continue
+        if relation == "relates-to" and replacement_ids.get(source_id) == target_id:
+            expected_edges.discard(original)
+            continue
+        if decision == "lifecycle-only":
+            expected_edges.discard(original)
+            continue
+        if decision not in {"redirect", "deferred-redirect"}:
+            raise DstackError(f"unknown relationship decision: {decision}")
+        mapped = (
+            *_relationship_destination(
+                operation,
+                replacement_ids,
+                view,
+                legacy_root_id=legacy_root_id,
+                new_root_id=new_root_id,
+            ),
+            relation,
+        )
+        if mapped != original:
+            expected_edges.discard(original)
+            if mapped[0] in legacy_ids or mapped[1] in legacy_ids:
+                expected_edges.add(mapped)
             else:
-                target = name
-        old_id = str(staged.get("legacy_id"))
-        if old_id in decision_block_ids:
-            allowed.add((str(target), old_id, "blocks"))
-    return allowed
+                required_external_edges.add(mapped)
 
+    for staged in plan.get("decision_staging", []):
+        if not isinstance(staged, Mapping) or staged.get("action") != "preserve-blocker":
+            continue
+        issue_id = str(staged.get("legacy_id") or "")
+        if issue_id in resolved_decisions:
+            continue
+        name = str(staged.get("blocking_target") or "")
+        if name in FEATURE_STEPS:
+            target = _step_id(view, name)
+        elif name in FEATURE_STEPS.values():
+            target = _step_id(view, next(key for key, label in FEATURE_STEPS.items() if label == name))
+        else:
+            target = name
+        expected_edges.add((target, issue_id, "blocks"))
 
-def _planned_reparent_ids(plan: Mapping[str, Any]) -> set[str]:
     return {
-        str(entry.get("legacy_id"))
-        for entry in plan.get("entries", [])
-        if isinstance(entry, Mapping)
-        and entry.get("classification") == "preserved-unchanged"
-        and entry.get("strategy") == "reparent"
+        "legacy_root_id": legacy_root_id,
+        "legacy_ids": sorted(legacy_ids),
+        "issue_states": issue_states,
+        "legacy_edges": sorted(expected_edges),
+        "required_external_edges": sorted(required_external_edges),
     }
+
+
+def validate_adoption_postcondition(client: BeadsClient, postcondition: Mapping[str, Any]) -> None:
+    """Validate the explicitly derived state after all adoption mutations."""
+
+    inventory = adoption_native_inventory(client)
+    raw_states = postcondition.get("issue_states")
+    if not isinstance(raw_states, Mapping):
+        raise DstackError("adoption postcondition has no issue states")
+    legacy_ids = {str(item) for item in postcondition.get("legacy_ids", [])}
+    if legacy_ids != {str(item) for item in raw_states}:
+        raise DstackError("adoption postcondition legacy issue set is inconsistent")
+
+    for issue_id, raw_state in raw_states.items():
+        if not isinstance(raw_state, Mapping):
+            raise DstackError(f"adoption postcondition is invalid for {issue_id}")
+        actual = inventory.get(str(issue_id))
+        if actual is None:
+            raise DstackError(f"adoption postcondition is missing legacy issue: {issue_id}")
+        if issue_type(actual) != raw_state.get("issue_type"):
+            raise DstackError(f"adoption changed the native issue type unexpectedly: {issue_id}")
+        if actual.get("status") != raw_state.get("status"):
+            raise DstackError(f"adoption status postcondition failed: {issue_id}")
+        parents = raw_state.get("parents")
+        if not isinstance(parents, list) or issue_parent(actual) not in parents:
+            raise DstackError(f"adoption parent postcondition failed: {issue_id}")
+        if superseded_target(actual) != raw_state.get("superseded_target"):
+            raise DstackError(f"adoption supersession postcondition failed: {issue_id}")
+
+    actual_legacy_edges: set[tuple[str, str, str]] = set()
+    for source_id, issue in inventory.items():
+        for record in dependency_records(issue):
+            target = record.get("depends_on_id") or record.get("id")
+            relation = str(record.get("type") or record.get("dependency_type") or "blocks")
+            if not isinstance(target, str) or not target:
+                raise DstackError(f"native adoption postcondition has an invalid edge: {source_id}")
+            if relation in _SUPERSESSION_RELATIONS:
+                continue
+            if source_id in legacy_ids or target in legacy_ids:
+                actual_legacy_edges.add((source_id, target, relation))
+    expected_legacy_edges = {
+        tuple(str(value) for value in edge)
+        for edge in postcondition.get("legacy_edges", [])
+        if isinstance(edge, (list, tuple)) and len(edge) == 3
+    }
+    if actual_legacy_edges != expected_legacy_edges:
+        raise DstackError("adoption relationship postcondition failed for the legacy graph")
+
+    for raw_edge in postcondition.get("required_external_edges", []):
+        if not isinstance(raw_edge, (list, tuple)) or len(raw_edge) != 3:
+            raise DstackError("adoption postcondition contains an invalid external edge")
+        source, target, relation = (str(value) for value in raw_edge)
+        issue = inventory.get(source)
+        if issue is None or not _edge(issue, target, relation):
+            raise DstackError(f"adoption external relationship postcondition failed: {source} -> {target}")
 
 
 def _remove_planned_edge(client: BeadsClient, source: str, target: str, relation: str) -> None:
@@ -703,24 +922,6 @@ def execute_adoption_plan(
             )
         )
     )
-    root_map = {legacy_root_id: new_root_id}
-    decision_block_ids = {
-        str(staged["legacy_id"])
-        for staged in plan.get("decision_staging", [])
-        if str(staged.get("legacy_id")) not in resolved
-    }
-    planned_reparent_ids = _planned_reparent_ids(plan)
-    allowed_graph_edges = _planned_graph_edges(
-        plan,
-        replacement_ids,
-        view,
-        legacy_root_id=legacy_root_id,
-        new_root_id=new_root_id,
-        decision_block_ids=decision_block_ids,
-    )
-    for old_id in resolved:
-        allowed_graph_edges.add((old_id, specification_id, "superseded-by"))
-        allowed_graph_edges.add((old_id, specification_id, "supersedes"))
     for entry in entries:
         old_id = str(entry["legacy_id"])
         prior_target = superseded_target(client.show(old_id))
@@ -736,24 +937,23 @@ def execute_adoption_plan(
             planned_target = specification_id
         if prior_target and prior_target != planned_target:
             raise DstackError(f"unexpected supersession target for {old_id}")
-        if prior_target:
-            allowed_graph_edges.add((old_id, prior_target, "superseded-by"))
-            allowed_graph_edges.add((old_id, prior_target, "supersedes"))
     prior_root_target = superseded_target(client.show(legacy_root_id))
     if prior_root_target and prior_root_target != new_root_id:
         raise DstackError("unexpected legacy root supersession target")
-    if prior_root_target:
-        allowed_graph_edges.add((legacy_root_id, prior_root_target, "superseded-by"))
-        allowed_graph_edges.add((legacy_root_id, prior_root_target, "supersedes"))
-    ignored_graph_ids: set[str] = set()
-    if expected_graph is not None:
-        reconcile_adoption_graph(
-            client,
+    postcondition = (
+        _adoption_postcondition(
             expected_graph,
-            legacy_root_id,
-            ignored_edges=allowed_graph_edges,
-            ignored_ids=ignored_graph_ids,
+            plan,
+            legacy_root_id=legacy_root_id,
+            new_root_id=new_root_id,
+            view=view,
+            replacement_ids=replacement_ids,
+            resolved_decisions=resolved,
+            supersede_root=effective,
         )
+        if expected_graph is not None
+        else None
+    )
     for op in plan.get("relationship_operations", []):
         decision = op.get("decision")
         if decision in {"preserve", "preserve-native-supersession"}:
@@ -767,37 +967,25 @@ def execute_adoption_plan(
             # This native edge is the retry association created immediately
             # after replacement creation, not a product dependency to redirect.
             continue
-        source, repl_target = (
-            replacement_ids.get(so, root_map.get(so, so)),
-            replacement_ids.get(to, root_map.get(to, to)),
+        source, repl_target = _relationship_destination(
+            op,
+            replacement_ids,
+            view,
+            legacy_root_id=legacy_root_id,
+            new_root_id=new_root_id,
         )
-        step = op.get("target_step")
-        if step and so == legacy_root_id:
-            source = _step_id(view, str(step))
-        if step and to == legacy_root_id:
-            repl_target = _step_id(view, str(step))
         if decision == "redirect":
             if source != so or repl_target != to:
                 relation = str(op["relationship_type"])
                 _ensure_edge(client, source, repl_target, relation)
-                allowed_graph_edges.add((source, repl_target, relation))
                 _assert_not_ready(client, incoming_dependents, phase="after-add-before-remove")
                 _remove_planned_edge(client, so, to, relation)
-                allowed_graph_edges.add((so, to, relation))
                 _assert_not_ready(client, incoming_dependents, phase="after-remove")
         elif decision == "lifecycle-only":
             relation = str(op["relationship_type"])
             _remove_planned_edge(client, so, to, relation)
-            allowed_graph_edges.add((so, to, relation))
         else:
             raise DstackError(f"unknown relationship decision: {decision}")
-    if expected_graph is not None:
-        reconcile_adoption_graph(
-            client,
-            expected_graph,
-            legacy_root_id,
-            ignored_edges=allowed_graph_edges,
-        )
     for entry in entries:
         if entry["classification"] == "preserved-unchanged" and entry["strategy"] == "reparent":
             old_id, parent = str(entry["legacy_id"]), str(entry["surviving_parent"])
@@ -806,15 +994,6 @@ def execute_adoption_plan(
                 client.update(old_id, "--parent", parent)
             if issue_parent(client.show(old_id)) != parent:
                 raise DstackError(f"preserved work was not reparented: {old_id}")
-    ignored_graph_ids = planned_reparent_ids
-    if expected_graph is not None:
-        reconcile_adoption_graph(
-            client,
-            expected_graph,
-            legacy_root_id,
-            ignored_edges=allowed_graph_edges,
-            ignored_ids=ignored_graph_ids,
-        )
     mapping = dict(replacement_ids)
     for entry in entries:
         old_id, cls = str(entry["legacy_id"]), entry["classification"]
@@ -832,12 +1011,6 @@ def execute_adoption_plan(
             if old.get("status") != "closed":
                 _require_open_unassigned(client, old_id)
                 client.supersede(old_id, target)
-                allowed_graph_edges.update(
-                    {
-                        (old_id, target, "superseded-by"),
-                        (old_id, target, "supersedes"),
-                    }
-                )
             mapping[old_id] = target
         elif cls == "remaining-implementation" or (cls == "preserved-unchanged" and entry["strategy"] == "recreate"):
             target = replacement_ids.get(old_id)
@@ -848,12 +1021,6 @@ def execute_adoption_plan(
                 if _edge(old, target, "relates-to"):
                     _remove_edge(client, old_id, target)
                 client.supersede(old_id, target)
-                allowed_graph_edges.update(
-                    {
-                        (old_id, target, "superseded-by"),
-                        (old_id, target, "supersedes"),
-                    }
-                )
             mapping[old_id] = target
     _assert_not_ready(client, incoming_dependents, phase="before-supersession")
     root_superseded = False
@@ -871,23 +1038,13 @@ def execute_adoption_plan(
         if root_state.get("status") == "closed":
             if superseded_target(root_state) != new_root_id:
                 raise DstackError("legacy root was superseded by an unexpected target")
-            allowed_graph_edges.add((legacy_root_id, new_root_id, "superseded-by"))
-            allowed_graph_edges.add((legacy_root_id, new_root_id, "supersedes"))
         else:
             _require_open_unassigned(client, legacy_root_id)
             client.supersede(legacy_root_id, new_root_id)
-            allowed_graph_edges.add((legacy_root_id, new_root_id, "superseded-by"))
-            allowed_graph_edges.add((legacy_root_id, new_root_id, "supersedes"))
         _assert_not_ready(client, incoming_dependents, phase="after-supersession")
         root_superseded = True
-    if expected_graph is not None:
-        reconcile_adoption_graph(
-            client,
-            expected_graph,
-            legacy_root_id,
-            ignored_edges=allowed_graph_edges,
-            ignored_ids=ignored_graph_ids,
-        )
+    if postcondition is not None:
+        validate_adoption_postcondition(client, postcondition)
     return {
         "status": "ok",
         "legacy_root": legacy_root_id,

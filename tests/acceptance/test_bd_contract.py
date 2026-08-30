@@ -208,7 +208,18 @@ def test_real_adoption_keeps_incoming_dependent_blocked(beads_repo: Path) -> Non
         "--remaining",
         child["id"],
     )
+    assert result["status"] == "ok"
+    assert result["root_superseded"] is True
     replacement_id = result["mapping"][child["id"]]
+    legacy_after = items(run_json(beads_repo, "show", legacy["id"]))[0]
+    child_after = items(run_json(beads_repo, "show", child["id"]))[0]
+    assert legacy_after["status"] == "closed"
+    assert child_after["status"] == "closed"
+    assert replacement_id in {
+        str(record.get("depends_on_id") or record.get("id"))
+        for record in child_after.get("dependencies", [])
+        if str(record.get("type") or record.get("dependency_type")) in {"superseded-by", "supersedes"}
+    }
     dependent_after = items(run_json(beads_repo, "show", dependent["id"]))[0]
     dependency_ids = {
         str(record.get("depends_on_id") or record.get("id")) for record in dependent_after.get("dependencies", [])
