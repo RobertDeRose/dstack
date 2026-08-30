@@ -30,6 +30,7 @@ from .core import (
     issue_parent,
     issue_type,
     read_text_file,
+    read_utf8_text,
     root_metadata_value,
     run,
     validate_git_branch,
@@ -284,13 +285,13 @@ def superseded_target(issue: Mapping[str, Any]) -> str | None:
 
 def task_text(path: Path | None, inline: str | None) -> str:
     if path:
-        return read_text_file(path)
+        return read_utf8_text(path, purpose="task text")
     return (inline or "").strip()
 
 
 def required_task_text(path: Path | None, inline: str | None) -> str:
     text = task_text(path, inline)
-    if not text:
+    if not text.strip():
         raise DstackError("acceptance criteria is required")
     return text
 

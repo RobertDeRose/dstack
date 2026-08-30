@@ -7,8 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 from dstack import cli as dstack_cli
-from dstack.commands import task_text
+from dstack.commands import required_task_text, task_text
 from dstack.formula import FormulaAuditRequired
+from dstack.core import DstackError
 
 
 def leaves(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()):
@@ -22,6 +23,26 @@ def leaves(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()):
                 yield from leaves(child, child_prefix)
             else:
                 yield child_prefix, child
+
+
+def test_task_text_preserves_file_content(tmp_path: Path) -> None:
+    source = tmp_path / "body.md"
+    content = "# Goal\n\nPreserve durable planning text.\n"
+    source.write_text(content, encoding="utf-8")
+
+    assert task_text(source, None) == content
+
+
+def test_required_task_text_rejects_whitespace_only_file(tmp_path: Path) -> None:
+    source = tmp_path / "body.md"
+    source.write_text(" \n\t", encoding="utf-8")
+
+    try:
+        required_task_text(source, None)
+    except DstackError as exc:
+        assert "required" in str(exc)
+    else:
+        raise AssertionError("whitespace-only task text should be rejected")
 
 
 def test_every_public_leaf_has_dispatch_handler() -> None:
