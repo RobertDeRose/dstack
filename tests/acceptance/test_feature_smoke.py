@@ -354,7 +354,10 @@ External blocker B replaces blocker A.
     assert int(approved_root["metadata"]["dstack.created_formula_version"]) == 9
     assert int(approved_root["metadata"]["dstack.formula_version"]) == 9
 
-    # Formula contract drift is an internal semantic audit boundary, not a migration.
+    # Formula contract drift is a read-only compatibility boundary, not workflow migration.
+    root_children_before_audit = items(run_json(acceptance_repo, "list", "--all", "--parent", root_id, "--limit", "0"))
+    task_before_audit = items(run_json(acceptance_repo, "show", task["id"]))[0]
+    closeout_before_audit = by_label(root_children_before_audit, "dstack:step:closeout")
     run_json(
         acceptance_repo,
         "update",
@@ -362,37 +365,25 @@ External blocker B replaces blocker A.
         "--set-metadata",
         "dstack.formula_version=8",
     )
-    stale = run_ctl(acceptance_repo, "feature", "claim-next", root_id, check=False)
-    assert stale.returncode != 0
-    stale_payload = json.loads(stale.stderr)
-    assert stale_payload["status"] == "error"
-    assert "semantic formula compatibility review" in stale_payload["error"]
+    stale = run_ctl(acceptance_repo, "feature", "inspect", root_id, "--verbose")
+    assert int(stale["formula_contract"]["audited_version"]) == 8
+    assert int(stale["formula_contract"]["current_version"]) == 9
 
-    root_children = items(
-        run_json(acceptance_repo, "list", "--all", "--parent", root_id, "--limit", "0")
-    )
-    audit = by_label(root_children, "dstack:work:formula-audit")
-    ready_audits = items(
-        run_json(
-            acceptance_repo,
-            "ready",
-            "--parent",
-            root_id,
-            "--label",
-            "dstack:work:formula-audit",
-            "--limit",
-            "0",
-        )
-    )
-    assert [item["id"] for item in ready_audits] == [audit["id"]]
-    assert audit["id"] in dependency_ids(items(run_json(acceptance_repo, "show", task["id"]))[0])
-    closeout = by_label(root_children, "dstack:step:closeout")
-    assert audit["id"] in dependency_ids(items(run_json(acceptance_repo, "show", closeout["id"]))[0])
+    root_children_after_inspect = items(run_json(acceptance_repo, "list", "--all", "--parent", root_id, "--limit", "0"))
+    assert [item["id"] for item in root_children_after_inspect] == [item["id"] for item in root_children_before_audit]
+    assert all("dstack:work:formula-audit" not in item.get("labels", []) for item in root_children_after_inspect)
+    assert dependency_ids(items(run_json(acceptance_repo, "show", task["id"]))[0]) == dependency_ids(task_before_audit)
+    closeout_after_inspect = by_label(root_children_after_inspect, "dstack:step:closeout")
+    assert dependency_ids(closeout_after_inspect) == dependency_ids(closeout_before_audit)
 
     run_ctl(acceptance_repo, "feature", "audit-complete", root_id)
-    assert items(run_json(acceptance_repo, "show", audit["id"]))[0]["status"] == "closed"
     audited_root = items(run_json(acceptance_repo, "show", root_id))[0]
     assert int(audited_root["metadata"]["dstack.formula_version"]) == 9
+    root_children_after_audit = items(run_json(acceptance_repo, "list", "--all", "--parent", root_id, "--limit", "0"))
+    assert [item["id"] for item in root_children_after_audit] == [item["id"] for item in root_children_before_audit]
+    assert dependency_ids(items(run_json(acceptance_repo, "show", task["id"]))[0]) == dependency_ids(task_before_audit)
+    closeout_after_audit = by_label(root_children_after_audit, "dstack:step:closeout")
+    assert dependency_ids(closeout_after_audit) == dependency_ids(closeout_before_audit)
     late_refused = run_ctl(
         acceptance_repo,
         "feature",

@@ -15,7 +15,6 @@ from typing import Any, Mapping
 from .core import (
     BeadsClient,
     DstackError,
-    blocker_ids,
     branch_exists,
     canonical_feature_design_path,
     conventional_worktree,
@@ -91,14 +90,10 @@ from .commands import (
 from .output import emit
 
 
-FORMULA_AUDIT_LABEL = "dstack:work:formula-audit"
-FORMULA_AUDIT_TITLE = "Audit feature compatibility with the current dStack formula"
-
-
-def feature_formula_contract_state(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
+def feature_formula_contract_state(view: Mapping[str, Any]) -> dict[str, Any]:
     """Return root formula-version facts without projecting lifecycle state."""
 
-    root = client.show(str(view["root"]["id"]))
+    root = view["root"]
     return {
         "formula": FEATURE_FORMULA,
         "current_version": formula_contract_version(FEATURE_FORMULA),
@@ -114,93 +109,12 @@ def stamp_feature_formula_contract(client: BeadsClient, view: Mapping[str, Any])
         formula_name=FEATURE_FORMULA,
     )
 
-def feature_formula_audit_bead(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any] | None:
-    root_id = str(view["root"]["id"])
-    matches = [item for item in client.children(root_id) if has_label(item, FORMULA_AUDIT_LABEL)]
-    if len(matches) > 1:
-        raise DstackError(
-            f"feature {root_id} has multiple formula compatibility audit beads: "
-            + ", ".join(sorted(str(item.get("id")) for item in matches))
-        )
-    return matches[0] if matches else None
-
-
-def _ensure_blocked_by(client: BeadsClient, issue: Mapping[str, Any], blocker_id: str) -> dict[str, Any]:
-    issue_id = str(issue["id"])
-    if blocker_id not in blocker_ids(issue):
-        client.add_dependency(issue_id, blocker_id)
-        issue = client.show(issue_id)
-    if blocker_id not in blocker_ids(issue):
-        raise DstackError(f"Beads blocker did not converge: {issue_id} -> {blocker_id}")
-    return dict(issue)
-
-
-def ensure_feature_formula_audit(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
-    """Materialize one native Bead that blocks work until semantic review completes."""
-
-    root_id = str(view["root"]["id"])
-    steps = view["steps"]
-    approval_id = str(steps["approval"]["id"])
-    audit = feature_formula_audit_bead(client, view)
-    if audit is None:
-        audit = client.create(
-            FORMULA_AUDIT_TITLE,
-            parent=root_id,
-            labels=[FORMULA_AUDIT_LABEL],
-            dependencies=[approval_id],
-            description="Review the approved feature against the current dStack feature formula contract.",
-            acceptance="Close this Bead only after the semantic compatibility review is complete.",
-            priority=1,
-        )
-    elif audit.get("status") == "closed":
-        audit = client.reopen(str(audit["id"]), "dStack feature formula contract requires renewed review")
-
-    audit_id = str(audit["id"])
-    audit_type = issue_type(audit)
-    if audit_type and audit_type != "task":
-        raise DstackError(f"formula compatibility audit Bead must be a task: {audit_id}")
-    if audit.get("status") not in {"open", "claimed", "in_progress"}:
-        raise DstackError(
-            f"formula compatibility audit Bead has unsupported status {audit.get('status')!r}: {audit_id}"
-        )
-    audit = _ensure_blocked_by(client, audit, approval_id)
-
-    implementation_id = str(steps["implementation"]["id"])
-    dependents = [
-        item
-        for item in client.children(implementation_id)
-        if item.get("status") not in {"closed", "deferred"}
-    ]
-    closeout = client.show(str(steps["closeout"]["id"]))
-    if closeout.get("status") != "closed":
-        dependents.append(closeout)
-    for item in dependents:
-        _ensure_blocked_by(client, item, audit_id)
-
-    observed = client.show(audit_id)
-    if observed.get("status") == "closed":
-        raise DstackError(f"formula compatibility audit Bead unexpectedly remained closed: {audit_id}")
-    return observed
-
-
-def require_feature_formula_current(client: BeadsClient, view: Mapping[str, Any]) -> None:
-    facts = feature_formula_contract_state(client, view)
-    approved = view.get("approved_design_sha256") or root_metadata_value(
-        view["root"], "dstack.approved_design_sha256"
-    )
-    if not approved or facts["audited_version"] == facts["current_version"]:
-        return
-    audit = ensure_feature_formula_audit(client, view)
-    raise DstackError(
-        f"feature requires semantic formula compatibility review; native Bead {audit['id']} is the blocking work item"
-    )
 
 def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     context = feature_context(client, selector)
     context.update(feature_design_state(client, context))
     context.update(feature_authorization_state(client, context))
     require_approved_design(context)
-    require_feature_formula_current(client, context)
     return context
 
 
@@ -337,7 +251,7 @@ def cmd_feature_inspect(args: argparse.Namespace) -> int:
     verbose = getattr(args, "verbose", False)
     view = feature_view(client, args.selector, verbose=True) if verbose else feature_view(client, args.selector)
     if verbose:
-        view["formula_contract"] = feature_formula_contract_state(client, view)
+        view["formula_contract"] = feature_formula_contract_state(view)
     emit({"status": "ok", **view})
     return 0
 
@@ -353,27 +267,18 @@ def cmd_feature_audit_complete(args: argparse.Namespace) -> int:
     view.update(authorization)
     require_approved_design(view)
 
-    facts = feature_formula_contract_state(client, view)
-    audit = feature_formula_audit_bead(client, view)
-    if audit is None and facts["audited_version"] != facts["current_version"]:
-        audit = ensure_feature_formula_audit(client, view)
-    if audit is not None and audit.get("status") != "closed":
-        audit = claim_ready_work(
-            client,
-            parent_id=str(view["root"]["id"]),
-            label=FORMULA_AUDIT_LABEL,
-            requested_id=str(audit["id"]),
-        )
-        audit = client.close(str(audit["id"]), "Formula compatibility review completed")
-
+    facts = feature_formula_contract_state(view)
     version = facts["audited_version"]
     if version != facts["current_version"]:
         version = stamp_feature_formula_contract(client, view)
-    observed = feature_formula_contract_state(client, view)
+    observed_view = dict(view)
+    observed_view["root"] = client.show(str(view["root"]["id"]))
+    observed = feature_formula_contract_state(observed_view)
     if observed["audited_version"] != version or version != observed["current_version"]:
         raise DstackError("feature formula compatibility audit did not converge")
-    emit({"status": "ok", "feature": view["root"]["id"], "audit": audit, "formula_contract": observed})
+    emit({"status": "ok", "feature": view["root"]["id"], "formula_contract": observed})
     return 0
+
 
 def is_planned_legacy_feature(issue: Mapping[str, Any]) -> bool:
     metadata = issue_metadata(issue)

@@ -84,11 +84,12 @@ authority. Formula source is exposed transiently for native pours; legacy tracke
 unchanged. No setup workflow or migration authority exists.
 
 Formula versions are semantic planning/review contracts. New feature roots record their creation version; approved
-active features record the latest audited version. A stale/missing audited version causes the controller to create or
-reuse one native `dstack:work:formula-audit` Bead and add native blockers to affected open work. Beads then exposes that
-work through its normal ready surface. The specification-review skill owns the semantic decision; dStack emits no
-inter-agent packet. If the existing design/tasks already satisfy current expectations, `feature audit-complete` closes
-the Bead and stamps the current version. Material gaps reuse the normal human reauthorization boundary.
+active features record the latest audited version. A stale/missing audited version does not override Beads readiness or
+change the existing molecule. When the feature is explicitly reviewed under the current contract, the
+specification-review skill owns the semantic decision; dStack emits no inter-agent packet and creates no compatibility
+work item. If the existing design/tasks already satisfy current expectations, `feature audit-complete` stamps only the
+root contract version. Material gaps reuse the existing specification/human-gate/approval boundary after explicit user
+reauthorization.
 
 **Formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to.**
 Historical labels, task groupings, and closed work are left intact. Current root resolution uses parentless topology,
@@ -101,7 +102,8 @@ stored.
 
 `dstack install_skills` copies dStack's prompt templates and decision skills into Pi and maintains one dStack-owned
 block in the global `APPEND_SYSTEM.md`. The former `dstack-beads-core` skill does not exist: stable CLI usage,
-formula-audit routing, and cross-workflow guardrails are always available through that compact system-prompt additive.
+formula-compatibility guardrails, and cross-workflow guardrails are always available through that compact system-prompt
+additive.
 
 Skills are short policy and judgment guides. They tell the agent:
 

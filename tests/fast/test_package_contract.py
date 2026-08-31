@@ -388,7 +388,8 @@ def test_installed_system_guidance_is_compact() -> None:
     guidance = (ROOT / "dstack/assets/APPEND_SYSTEM.md").read_text()
     assert len(guidance.split()) <= 350
     assert "Central rule:" in guidance
-    assert "dstack:work:formula-audit" in guidance
+    assert "Formula drift never creates workflow work" in guidance
+    assert "dstack:work:formula-audit" not in guidance
     assert "bd ready" in guidance
     assert "dstack ctl" in guidance
 
@@ -495,10 +496,12 @@ def test_json_output_helper_is_neutral() -> None:
 
 
 def test_controller_has_no_next_work_or_formula_audit_packet_protocol() -> None:
-    controller_source = "\n".join(
-        path.read_text(encoding="utf-8") for path in sorted((ROOT / "dstack").glob("*.py"))
+    controller_source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((ROOT / "dstack").glob("*.py")))
+    packaged_assets = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / "dstack" / "assets").rglob("*"))
+        if path.is_file() and path.suffix in {".md", ".toml", ".txt", ".py"}
     )
-    guidance = (ROOT / "dstack" / "assets" / "APPEND_SYSTEM.md").read_text(encoding="utf-8")
 
     for token in (
         "selected_bead_id",
@@ -508,6 +511,7 @@ def test_controller_has_no_next_work_or_formula_audit_packet_protocol() -> None:
         "FormulaAuditRequired",
         "audit_required",
         "user_input",
+        "dstack:work:formula-audit",
     ):
         assert token not in controller_source
-        assert token not in guidance
+        assert token not in packaged_assets

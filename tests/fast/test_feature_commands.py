@@ -798,6 +798,32 @@ def test_approved_context_requires_closed_native_authorization(monkeypatch, tmp_
         dstack_feature.approved_feature_context(beads, "feature-1")
 
 
+def test_approved_context_does_not_gate_native_work_on_formula_version_drift(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(tmp_path)
+    current = view()
+    current["root"]["metadata"] = {
+        "dstack.approved_design_sha256": "digest",
+        "dstack.created_formula_version": 8,
+        "dstack.formula_version": 8,
+    }
+    patch_command(monkeypatch, dstack_feature, beads, current)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_formula_contract_state",
+        lambda context: {
+            "formula": "dstack-feature",
+            "created_version": 8,
+            "audited_version": 8,
+            "current_version": 9,
+        },
+    )
+
+    observed = dstack_feature.approved_feature_context(beads, "feature-1")
+
+    assert observed["root"]["id"] == "feature-1"
+    beads.assert_exhausted()
+
+
 def test_claim_next_uses_native_ready_result(monkeypatch, tmp_path: Path) -> None:
     ready = {
         "id": "task-1",

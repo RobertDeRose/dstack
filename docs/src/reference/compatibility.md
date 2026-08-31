@@ -24,25 +24,26 @@ Each formula carries a semantic contract version. The feature root records the v
 version whose semantics were approved/audited. A package release increments a formula contract version only when the
 planning/review expectations materially change.
 
-## Automatic feature compatibility audit
+## Feature compatibility audit
 
-When an approved active feature has a missing or stale `dstack.formula_version`, a normal lifecycle command creates or
-reuses one native Bead labeled `dstack:work:formula-audit`. The controller adds ordinary Beads blockers from affected
-open implementation tasks and closeout to that Bead, then stops. Native `bd ready` is the routing surface; no skill name,
-resume command, or inter-agent payload is emitted.
+An approved active feature continues to execute according to native Beads readiness even when its
+`dstack.formula_version` is missing or older than the packaged contract. Formula versions are review compatibility
+metadata, not an execution gate. When that feature is explicitly reviewed under the current contract, the existing
+molecule, implementation work, dependencies, labels, and statuses remain exactly as they were approved. Formula drift is
+a compatibility question over that native intent, not new workflow work.
 
 The feature-review skill compares the accepted design and existing authorized work semantically against current
 requirements. Different task names, grouping, review ceremony, or historical labels are not findings when the same
 outcomes and validation are already covered.
 
-- **No material delta:** run `feature audit-complete`; it closes the native audit Bead and stamps the current contract
-  version on the feature root. No user approval is required.
+- **No material delta:** run `feature audit-complete`; it stamps the current contract version on the feature root and
+  changes no Bead topology or lifecycle status. No user approval is required.
 - **Material delta:** present only the minimum design/task/dependency changes and rationale. Do not mutate approved work
-  until the user approves reauthorization. The normal review/approval path records the current contract version, and the
-  audit Bead remains the blocker until the review skill completes it.
+  until the user approves reauthorization. Reuse the existing specification, human gate, and approval milestone; the
+  normal review/approval path records the current contract version after the approved delta converges.
 
-The version stamp is the compatibility cache and the audit itself is ordinary Beads work; no separate audit state,
-packet, migration map, or compatibility database exists.
+The root version stamp is only a compatibility cache. There is no audit Bead, fifth lifecycle role, dependency rewrite,
+packet, migration map, or compatibility database.
 
 ## Legacy adoption
 

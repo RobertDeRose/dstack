@@ -23,8 +23,9 @@ Pi slash command -> short decision skill -> dstack ctl -> Beads / Git
 - **Pi skills/agent** own architecture, implementation, review judgment, and user interaction.
 
 **Central rule:** formulas define how dStack creates and reviews new work; they are not schemas that existing work must
-migrate to. Historical Beads remain execution evidence. When a formula contract changes, dStack audits active approved
-work semantically and asks the user only when a material design/task delta is actually required.
+migrate to. Historical Beads remain execution evidence and native readiness remains authoritative. When an approved
+feature is explicitly reviewed under a newer formula contract, dStack compares it semantically and asks the user only
+when a material design/task delta is actually required.
 
 See the [architecture](docs/src/architecture/index.md), [core principles](docs/src/development/index.md),
 [workflow reference](docs/src/development/feature-lifecycle.md), and
@@ -59,7 +60,7 @@ dstack install_skills
 - dStack slash-command prompts in `~/.pi/agent/prompts/`; and
 - a compact managed dStack block in `~/.pi/agent/APPEND_SYSTEM.md`.
 
-The former `dstack-beads-core` skill is intentionally **not** installed. Its stable CLI guidance, formula-audit
+The former `dstack-beads-core` skill is intentionally **not** installed. Its stable CLI guidance, formula-compatibility
 behavior, and guardrails live in the system-prompt additive so workflow skills do not spend context rereading the same
 core instructions.
 

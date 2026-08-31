@@ -8,11 +8,11 @@ migrate to. Historical Beads remain execution evidence. Never rewrite closed his
 formula changed.
 
 Use native `bd ready`/claims to select work. dStack inspection may add deterministic Git/worktree facts, but it does not
-project the next task, required evidence, or lifecycle state. When Beads surfaces a ready Bead labeled
-`dstack:work:formula-audit`, use the feature-specification review skill for the semantic compatibility decision. The Bead
-itself blocks affected work; the skill decides whether the existing approved design/tasks still satisfy the current
-contract. A no-change audit ends with `dstack ctl feature audit-complete`; a material delta requires user approval before
-reauthorization or task mutation.
+project the next task, required evidence, or lifecycle state. Formula drift never creates workflow work or rewires the
+approved graph and never overrides native Beads readiness. When explicitly reviewing an approved feature under a newer
+or unknown formula contract, use the feature-specification review skill to compare the existing approved Beads intent
+semantically. A no-change audit ends with the explicit `dstack ctl feature audit-complete` root-version update; a
+material delta requires user approval and reuses the existing reauthorization/specification boundary.
 
 Guardrails:
 

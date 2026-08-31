@@ -50,11 +50,11 @@ takes one planning snapshot, rejects omitted, duplicate, foreign, or conflicting
 revalidates the legacy graph at destructive phase boundaries. No classification file is created or accepted.
 
 Before Beads-backed mutation commands, dStack validates the supported Beads binary and uses packaged formula source.
-For approved active features whose `dstack.formula_version` is missing or stale, dStack creates or reuses one native
-`dstack:work:formula-audit` Bead and makes affected open implementation work and closeout depend on it. Native
-`bd ready` therefore surfaces the audit without a controller handoff packet. The feature-review skill decides semantic
-compatibility. A no-change review closes the audit through `feature audit-complete`; a material delta requires renewed
-user approval. Formula drift never normalizes historical graph shape.
+Formula-version drift does not override native Beads readiness for already approved work. When an approved feature is
+explicitly reviewed under a newer or unknown contract, the feature-review skill judges the existing design/tasks
+semantically without mutating the native graph. A no-change review records only the root contract version through
+`feature audit-complete`; a material delta requires renewed user approval and the existing reauthorization/specification
+boundary. Formula drift never creates work or normalizes historical graph shape.
 
 ## Delivery
 

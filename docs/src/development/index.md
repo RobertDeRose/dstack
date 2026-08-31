@@ -67,14 +67,14 @@ contract do not increment it.
 
 The controller uses the packaged dStack formula as the current contract when creating/reviewing work. Existing approved
 feature graphs retain their historical labels, task grouping, and closed work. When an active feature was last audited
-under an older or unknown contract, the controller materializes a native formula-audit Bead and blocks affected open
-work through Beads. The review skill compares outcomes, acceptance, validation, dependencies, failure behavior, and
-documentation expectations—not topology.
+under an older or unknown contract, native Beads readiness remains authoritative. If that feature is explicitly reviewed
+again, the review skill compares outcomes, acceptance, validation, dependencies, failure behavior, and documentation
+expectations—not topology.
 
-If the current approved work already covers the contract, the audit Bead closes and dStack records the current audited
-version on the feature root. If a material gap exists, the agent proposes only the minimum delta and must
-obtain renewed user approval before changing the approved design or execution graph. No setup command, repository
-migration, inter-agent packet, or bulk historical normalization is part of an upgrade.
+If the current approved work already covers the contract, `feature audit-complete` records only the current audited
+version on the feature root. If a material gap exists, the agent proposes only the minimum delta and must obtain renewed
+user approval before changing the approved design or execution graph. No setup command, repository migration,
+inter-agent packet, or bulk historical normalization is part of an upgrade.
 
 ## Focus agent compute on decisions
 

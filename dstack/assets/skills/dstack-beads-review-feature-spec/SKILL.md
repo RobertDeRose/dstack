@@ -9,21 +9,21 @@ description: "Review new feature intent or audit existing approved work against 
 Pass the selected feature ID, slug, or title explicitly. Default the base branch to `dev` when it exists, otherwise
 `main`, unless the user chose one. Omission is safe only inside the registered feature worktree.
 
-## Native formula compatibility audit
+## Formula compatibility audit
 
-When Beads surfaces a ready Bead labeled `dstack:work:formula-audit`, treat that Bead as the selected semantic review
-work. The controller creates no routing packet and does not choose the review outcome. Do **not** re-pour the molecule,
-normalize historical labels, or rebuild the graph to look like the current formula.
+When explicitly reviewing an already approved feature, run `dstack ctl feature inspect "<feature>" --verbose` and
+compare its recorded formula-contract version with the current packaged contract. A stale or missing version does not
+gate native-ready implementation work and does not create a Bead, alter dependencies, reopen steps, or normalize the
+molecule. Review the existing approved Beads intent in place using only the accepted design/task facts needed by the
+semantic comparison.
 
-1. Claim the selected audit Bead through native Beads and run `dstack ctl feature inspect "<feature>" --verbose` only
-   for the full accepted design/task facts needed by the review.
-2. Compare semantic coverage with the current requirements in this skill. Different task names/grouping are not
-   findings when the existing plan covers the same outcomes.
-3. If there is no material gap, run `dstack ctl feature audit-complete "<feature>"`. This closes the native audit Bead
-   and stamps the current formula contract; continue from native `bd ready`. No user approval is required.
-4. If changes are required, present only the minimal design/task/dependency delta and why each change is required. Stop
-   for explicit user approval **before** reauthorization or task mutation. After approval, use the normal review
-   mechanics below, changing only the approved delta, then complete the audit Bead.
+1. Compare semantic coverage with the current requirements in this skill. Different task names/grouping are not findings
+   when the existing plan covers the same outcomes.
+2. If there is no material gap, run `dstack ctl feature audit-complete "<feature>"`. This explicit operation updates
+   only the feature root's formula-contract version. No user approval is required.
+3. If changes are required, present only the minimal design/task/dependency delta and why each change is required. Stop
+   for explicit user approval **before** any mutation. After approval, run `feature reauthorize` and reuse the normal
+   specification/human-gate/approval mechanics below, changing only the approved delta.
 
 ## Normal review and approved audit changes
 

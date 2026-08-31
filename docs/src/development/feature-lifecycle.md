@@ -49,19 +49,19 @@ store a task-graph digest or other shadow graph: Beads remains authoritative, an
 graph/readiness at each boundary. Re-review reconciles that live graph: valid tasks are reused, obsolete tasks are
 closed or superseded, and stale blocking dependencies are removed through Beads.
 
-### Automatic formula-contract audit
+### Formula-contract compatibility audit
 
-Before implementation or closeout of approved active work, the controller compares the feature's
-`dstack.formula_version` with the current `dstack-feature` semantic contract version. A match continues immediately. A
-missing/stale value creates or reuses one ordinary Bead labeled `dstack:work:formula-audit`; native blocking dependencies
-prevent affected implementation work and closeout from becoming ready until that Bead closes.
+Formula-version drift does not gate implementation or closeout of already approved work; native Beads readiness remains
+the execution authority. When an approved active feature is explicitly reviewed under the current `dstack-feature`
+semantic contract, the review skill compares its recorded `dstack.formula_version` with the packaged version. The
+existing approved molecule remains the complete workflow topology throughout that review.
 
-The selected audit Bead is handled by the feature-review skill, which compares accepted design and authorized tasks
-semantically with current planning/review expectations. The controller emits no skill/routing/resume packet and does not
-choose the review outcome. If no material gap exists, `feature audit-complete` closes the audit Bead and stamps the
-current version on the feature root. If a material gap exists, the agent presents only the minimum delta and
-waits for renewed user authorization before reauthorizing or mutating approved work. Historical closed work is never
-rewritten for version conformity.
+The feature-review skill compares accepted design and authorized tasks semantically with current planning/review
+expectations. The controller emits no skill/routing/resume packet and does not choose the review outcome. If no material
+gap exists, the explicit `feature audit-complete` operation stamps only the current version on the feature root. If a
+material gap exists, the agent presents only the minimum delta and waits for renewed user authorization before using the
+existing `feature reauthorize` plus specification/approval boundary. Historical topology is never rewritten for version
+conformity.
 
 ### `/implement-feature [feature] [task|--all]`
 

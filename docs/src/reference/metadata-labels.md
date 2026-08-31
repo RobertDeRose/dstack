@@ -29,8 +29,6 @@ reviewed intent only and never stores a Git baseline or external packet.
 - `workflow:project-alignment` and one compatible `audit:<slug>` identity label a parentless alignment molecule.
 - `dstack:work:implementation` marks bounded implementation tasks.
 - `dstack:work:correction` marks bounded alignment corrections.
-- `dstack:work:formula-audit` marks the native semantic compatibility review Bead created only when an approved feature
-  predates the current feature-formula contract.
 
 Stable formula step labels identify specification/analysis, approval, implementation/corrections, and closeout/landing
 roles. Formula validation owns the exact set; dynamic children do not duplicate root identity labels or root metadata.
