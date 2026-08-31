@@ -1,8 +1,9 @@
 # dStack workflow reference
 
-Mutation commands return the root identifier and the native objects they touch. Use `feature inspect`,
-`alignment inspect`, or `delivery inspect` when the full current dashboard is required; mutations do not hydrate
-unrelated ready work or progress.
+Mutation commands return the root identifier and the native objects they touch. `feature inspect` and
+`alignment inspect` default to the current workflow boundary: selected/next Bead ID, worktree, required evidence, and
+blocking reason. Use `--verbose` only when complete live native records are required. `delivery inspect` remains the
+candidate/delivery evidence view.
 
 | Boundary | Native operation | Retry contract |
 | --- | --- | --- |
@@ -29,8 +30,9 @@ implementation tasks, or change Git. `/plan-features` is a deprecated thin alias
 
 The controller resolves planned intent or an existing current molecule, then idempotently pours or reuses the stable
 workflow and conventional worktree. It claims specification ownership and scaffolds the canonical
-`docs/src/features/<slug>/design.md` only when absent. The scaffold covers accepted intent, behavior, architecture,
-failure, security, compatibility, validation, documentation impact, risks, alternatives, and deferred decisions.
+`docs/src/features/<slug>/design.md` only when absent. The scaffold stays deliberately lean: Outcome, Non-goals, Design,
+Failure/security/compatibility, Validation, and Documentation impact. Required intent, rationale, behavior, interfaces,
+risks, and alternatives are captured within those sections only when they materially affect the feature.
 
 The agent reconciles the complete planned intent with current architecture, source, tests, durable docs, dependencies,
 and related work. It resolves holes and collisions, refines the canonical design, and creates or updates bounded
@@ -41,11 +43,11 @@ worktree and tracked design identical to the candidate `HEAD`, writes and verifi
 the exact specification, blocking human gate, and approval milestone, promotes the same digest to approved, and clears
 pending. Implementation remains unauthorized until the final conjunction is verified.
 
-Approved scope is immutable. `feature reauthorize` invalidates approved and pending digests before reopening the native
-approval, gate, specification, and workstream boundary; only then may review change the graph and seek renewed
-authorization. It refuses terminal or claimed work. Re-review reconciles the complete native graph rather than only
-adding work: valid tasks are reused, obsolete tasks are closed or superseded, and stale blocking dependencies are
-removed through Beads.
+dStack serializes its own review/scope mutations with approval transitions and refuses those mutations after native
+approval until `feature reauthorize` reopens the approval, gate, specification, and workstream boundary. It does not
+store a task-graph digest or other shadow graph: Beads remains authoritative, and execution rereads the current native
+graph/readiness at each boundary. Re-review reconciles that live graph: valid tasks are reused, obsolete tasks are
+closed or superseded, and stale blocking dependencies are removed through Beads.
 
 ### Automatic formula-contract audit
 

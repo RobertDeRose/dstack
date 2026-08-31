@@ -17,160 +17,112 @@ from .core import DstackError, read_utf8_text, replace_text_if_unchanged, run
 
 DESIGN_SCAFFOLD = """# Feature design
 
-## Planned intent
+## Outcome
 
 {planned_intent}
 
-## Planned acceptance
+Acceptance:
 
 {planned_acceptance}
 
-## Feature summary
-
-## User intent
-
-## Goals
-
 ## Non-goals
 
-## User-visible behavior
+## Design
 
-## Requirements
+## Failure, security, and compatibility
 
-## Existing patterns and reuse
-
-## Proposed design
-
-## Architecture consistency
-
-## Interfaces and data flow
-
-## Failure behavior
-
-## Security implications
-
-## Compatibility and migration implications
-
-## Validation strategy
+## Validation
 
 ## Documentation impact
-
-### End user and operator
-
-- Usage and configuration:
-- Deployment, upgrade, and rollback:
-- Operations, troubleshooting, and recovery:
-
-### Developer and reviewer
-
-- Architecture and structure:
-- Interfaces, contracts, and maintenance:
-
-### Future auditor
-
-- Decisions and rationale:
-- Invariants, regression evidence, and known limitations:
-
-## Risks and tradeoffs
-
-## Rejected alternatives
-
-## Open or intentionally deferred decisions
 """
 
 RECONCILIATION_SCAFFOLD = """# {title}
 
 [Design record](design.md)
 
-## Delivered capability
+## Delivered outcome
 
-## User-visible behavior
+## Material deviations
 
-## Architecture integration
+## Validation
 
-## Design reconciliation
+## Documentation links
 
-### Delivered as designed
-
-### Intentional differences
-
-### Deferred scope
-
-### Removed or rejected scope
-
-## Documentation
-
-### End user and operator
-
-### Developer and reviewer
-
-### Future auditor
-
-## Validation and limitations
+## Remaining limitations
 """
 
 ALIGNMENT_RECONCILIATION_SCAFFOLD = """# Alignment reconciliation
 
-## Delivered corrections
+## Delivered outcome
 
-## Remaining findings and limitations
+## Material deviations
 
-## Architecture integration
+## Validation
 
-## Documentation and operator effects
+## Documentation links
 
-## Validation evidence
-
-## Recovery and follow-up obligations
+## Remaining limitations
 """
 
 RECORD_SUBJECTS = {
     "feature-design": (
-        "Feature summary",
-        "User intent",
-        "Goals",
+        "Outcome",
         "Non-goals",
-        "User-visible behavior",
-        "Requirements",
-        "Existing patterns and reuse",
-        "Proposed design",
-        "Architecture consistency",
-        "Interfaces and data flow",
-        "Failure behavior",
-        "Security implications",
-        "Compatibility and migration implications",
-        "Validation strategy",
+        "Design",
+        "Failure, security, and compatibility",
+        "Validation",
         "Documentation impact",
-        "End user and operator",
-        "Developer and reviewer",
-        "Future auditor",
-        "Risks and tradeoffs",
-        "Rejected alternatives",
-        "Open or intentionally deferred decisions",
     ),
     "feature-reconciliation": (
-        "Delivered capability",
-        "User-visible behavior",
-        "Architecture integration",
-        "Design reconciliation",
-        "Delivered as designed",
-        "Intentional differences",
-        "Deferred scope",
-        "Removed or rejected scope",
-        "Documentation",
-        "End user and operator",
-        "Developer and reviewer",
-        "Future auditor",
-        "Validation and limitations",
+        "Delivered outcome",
+        "Material deviations",
+        "Validation",
+        "Documentation links",
+        "Remaining limitations",
     ),
     "alignment-reconciliation": (
-        "Delivered corrections",
-        "Remaining findings and limitations",
-        "Architecture integration",
-        "Documentation and operator effects",
-        "Validation evidence",
-        "Recovery and follow-up obligations",
+        "Delivered outcome",
+        "Material deviations",
+        "Validation",
+        "Documentation links",
+        "Remaining limitations",
     ),
+}
+
+# Historical records used earlier, more verbose section layouts. They remain
+# valid evidence; new records use only the compact canonical subjects above.
+RECORD_SUBJECT_ALTERNATIVES: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
+    "feature-design": {
+        "Outcome": (("Outcome",), ("Goal",), ("Feature summary",)),
+        "Non-goals": (("Non-goals",),),
+        "Design": (("Design",), ("Proposed design",)),
+        "Failure, security, and compatibility": (
+            ("Failure, security, and compatibility",),
+            ("Failure / security / compatibility behavior",),
+            ("Failure behavior", "Security implications", "Compatibility and migration implications"),
+            (
+                "Failure, recovery, and state behavior",
+                "Security implications",
+                "Compatibility and migration implications",
+            ),
+        ),
+        "Validation": (("Validation",), ("Validation strategy",)),
+        "Documentation impact": (("Documentation impact",),),
+    },
+    "feature-reconciliation": {
+        "Delivered outcome": (("Delivered outcome",), ("Delivered capability",)),
+        "Material deviations": (("Material deviations",), ("Design reconciliation",)),
+        "Validation": (("Validation",), ("Validation and limitations",)),
+        "Documentation links": (("Documentation links",), ("Documentation",)),
+        "Remaining limitations": (("Remaining limitations",), ("Validation and limitations",)),
+    },
+    "alignment-reconciliation": {
+        "Delivered outcome": (("Delivered outcome",), ("Delivered corrections",)),
+        "Material deviations": (("Material deviations",), ("Architecture integration",)),
+        "Validation": (("Validation",), ("Validation evidence",)),
+        "Documentation links": (("Documentation links",), ("Documentation and operator effects",)),
+        "Remaining limitations": (("Remaining limitations",), ("Remaining findings and limitations",)),
+    },
 }
 
 
@@ -355,6 +307,7 @@ def validate_record(
     subjects = RECORD_SUBJECTS.get(kind)
     if not subjects:
         raise DstackError(f"unknown documentation record kind: {kind}")
+    alternatives = RECORD_SUBJECT_ALTERNATIVES[kind]
     masked = _mask_markdown_code(text)
     headings = list(HEADING_PATTERN.finditer(masked))
     by_title: dict[str, list[re.Match[str]]] = {}
@@ -368,12 +321,7 @@ def validate_record(
     if REFERENCE_LINK_PATTERN.search(masked):
         errors.append("record uses unsupported reference-style local links")
 
-    for subject in subjects:
-        matches = by_title.get(subject.casefold(), [])
-        if not matches:
-            errors.append(f"missing required section: {subject}")
-            continue
-        heading = matches[0]
+    def validate_subject(subject: str, heading: re.Match[str]) -> None:
         level = len(heading.group(1))
         end = len(text)
         for candidate in headings:
@@ -385,7 +333,7 @@ def validate_record(
         content = text[heading.end() : end].strip()
         if not re.search(r"[A-Za-z0-9]", _mask_markdown_code(content)):
             errors.append(f"section has no substantive content: {subject}")
-            continue
+            return
         if content.startswith("Not applicable"):
             prefix = "Not applicable — "
             reason = content.removeprefix(prefix).strip() if content.startswith(prefix) else ""
@@ -401,6 +349,18 @@ def validate_record(
                 }
             ):
                 errors.append(f"section requires 'Not applicable — <specific reason>': {subject}")
+
+    for subject in subjects:
+        selected: tuple[str, ...] | None = None
+        for option in alternatives[subject]:
+            if all(by_title.get(title.casefold()) for title in option):
+                selected = option
+                break
+        if selected is None:
+            errors.append(f"missing required section: {subject}")
+            continue
+        for title in selected:
+            validate_subject(title, by_title[title.casefold()][0])
 
     if source is not None and source_root is not None:
         root = source_root.resolve()

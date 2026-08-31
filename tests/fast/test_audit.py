@@ -179,6 +179,28 @@ def test_audit_command_uses_a_non_initializing_client(monkeypatch, tmp_path: Pat
     assert seen == {"root": tmp_path, "initialize": False}
 
 
+def test_audit_default_returns_only_compact_feature_boundary(monkeypatch, tmp_path: Path) -> None:
+    client = ScriptedClient(tmp_path)
+    boundary = {
+        "selected_bead_id": "feature-1",
+        "next_bead_id": "task-1",
+        "worktree": "/tmp/feature",
+        "required_evidence": ["reachable Beads footer"],
+        "blocking_reason": None,
+    }
+    monkeypatch.setattr(dstack_audit, "feature_view", lambda observed, selector: boundary)
+
+    assert dstack_audit.feature_audit(client, "feature-1") == boundary
+    assert set(boundary) == {
+        "selected_bead_id",
+        "next_bead_id",
+        "worktree",
+        "required_evidence",
+        "blocking_reason",
+    }
+    client.assert_exhausted()
+
+
 def test_planned_audit_is_deterministic_and_read_only(monkeypatch, git_repo: Path) -> None:
     planned = {**root(), "labels": ["dstack:feature-idea", "feature:audit"]}
     monkeypatch.setattr(
@@ -203,8 +225,8 @@ def test_planned_audit_is_deterministic_and_read_only(monkeypatch, git_repo: Pat
         ).stdout,
         sorted(path.relative_to(git_repo).as_posix() for path in git_repo.rglob("*") if path.is_file()),
     )
-    first = dstack_audit.feature_audit(client, "audit")
-    second = dstack_audit.feature_audit(client, "audit")
+    first = dstack_audit.feature_audit(client, "audit", verbose=True)
+    second = dstack_audit.feature_audit(client, "audit", verbose=True)
     after = (
         subprocess.run(["git", "rev-parse", "HEAD"], cwd=git_repo, check=True, capture_output=True, text=True).stdout,
         subprocess.run(
@@ -257,7 +279,7 @@ def test_current_audit_reports_missing_and_pr_observations(monkeypatch, tmp_path
         },
     )
 
-    payload = dstack_audit.feature_audit(client, "audit")
+    payload = dstack_audit.feature_audit(client, "audit", verbose=True)
     assert payload["classification"] == "current"
     assert payload["design"]["approved"] is False
     assert payload["missing_observations"] == ["worktree"]
@@ -275,7 +297,7 @@ def test_closed_audit_never_falls_back_to_live_worktree_docs(monkeypatch, tmp_pa
     reconciliation = design.with_name("index.md")
     reconciliation.write_text(
         record("feature-reconciliation").replace(
-            "Evidence for Delivered capability.",
+            "Evidence for Delivered outcome.",
             "Delivered. [Architecture](../../architecture/index.md)",
         )
     )
@@ -303,7 +325,7 @@ def test_closed_audit_never_falls_back_to_live_worktree_docs(monkeypatch, tmp_pa
         lambda *args: {"all": [], "active": []},
     )
 
-    payload = dstack_audit.feature_audit(client, "audit")
+    payload = dstack_audit.feature_audit(client, "audit", verbose=True)
     assert payload["classification"] == "delivered"
     assert payload["git_evidence"]["status"] == "issues"
     assert payload["documentation"]["design"] is None
@@ -360,7 +382,7 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
     )
     design.with_name("index.md").write_text(
         record("feature-reconciliation").replace(
-            "Evidence for Delivered capability.",
+            "Evidence for Delivered outcome.",
             "Delivered. [Architecture](../../architecture/index.md)",
         )
     )
@@ -412,7 +434,7 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
         lambda *args: {"all": [], "active": []},
     )
 
-    payload = dstack_audit.feature_audit(client, "audit")
+    payload = dstack_audit.feature_audit(client, "audit", verbose=True)
     evidence = payload["git_evidence"]
     assert evidence["status"] == "ok"
     assert evidence["source"] == "delivered-target"
@@ -454,7 +476,7 @@ def test_audit_reports_malformed_record(monkeypatch, tmp_path: Path) -> None:
         "pr_gate_state",
         lambda *args: {"all": [], "active": []},
     )
-    payload = dstack_audit.feature_audit(client, "audit")
+    payload = dstack_audit.feature_audit(client, "audit", verbose=True)
     assert payload["documentation"]["design"]["status"] == "malformed"
     assert "design:malformed" in payload["missing_observations"]
     assert payload["documentation"]["reconciliation"]["status"] == "missing"

@@ -427,7 +427,7 @@ External blocker B replaces blocker A.
     claimed_closeout = run_ctl(acceptance_repo, "feature", "claim-closeout", root_id)
     reconciliation = run_ctl(acceptance_repo, "feature", "scaffold-reconciliation", root_id)
     reconciliation_text = semantic_record("feature-reconciliation").replace(
-        "Acceptance evidence for Delivered capability.",
+        "Acceptance evidence for Delivered outcome.",
         "The smoke behavior is delivered. [Architecture](../../architecture/index.md)",
     )
     (worktree / reconciliation["reconciliation_path"]).write_text(reconciliation_text)

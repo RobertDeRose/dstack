@@ -181,7 +181,65 @@ def test_feature_design_state_uses_registered_committed_content(git_repo: Path, 
     assert state["current_design_sha256"] is None
 
 
-def test_feature_view_projects_real_steps_gate_design_and_ready_work(git_repo: Path, monkeypatch) -> None:
+def test_feature_view_default_stops_at_specification_without_hydrating_work(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = {
+        "id": "feature-1",
+        "issue_type": "molecule",
+        "status": "open",
+        "labels": ["workflow:feature", "feature:feature"],
+        "metadata": {
+            "dstack.base_branch": "main",
+            "dstack.design_path": "docs/src/features/feature/design.md",
+        },
+    }
+    steps = [
+        {
+            "id": "specification-1",
+            "issue_type": "task",
+            "status": "open",
+            "labels": [FEATURE_STEPS["specification"]],
+        },
+        {
+            "id": "approval-1",
+            "issue_type": "task",
+            "status": "open",
+            "labels": [FEATURE_STEPS["approval"]],
+        },
+        {
+            "id": "implementation-1",
+            "issue_type": "epic",
+            "status": "open",
+            "labels": [FEATURE_STEPS["implementation"]],
+        },
+        {
+            "id": "closeout-1",
+            "issue_type": "task",
+            "status": "open",
+            "labels": [FEATURE_STEPS["closeout"]],
+        },
+    ]
+    beads = ScriptedClient(
+        tmp_path,
+        call("show_optional", "feature-1", result=root),
+        call("children", "feature-1", result=steps),
+    )
+    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: tmp_path)
+
+    observed = dstacklib.feature_view(beads, "feature-1")
+
+    assert observed == {
+        "selected_bead_id": "feature-1",
+        "next_bead_id": "specification-1",
+        "worktree": str(tmp_path),
+        "required_evidence": ["committed feature design", "explicit human authorization"],
+        "blocking_reason": None,
+    }
+    beads.assert_exhausted()
+
+
+def test_feature_view_verbose_projects_real_steps_gate_and_design(git_repo: Path, monkeypatch) -> None:
     relative = "docs/src/features/feature/design.md"
     design = git_repo / relative
     design.parent.mkdir(parents=True)
@@ -248,26 +306,76 @@ def test_feature_view_projects_real_steps_gate_design_and_ready_work(git_repo: P
         call("show", "specification-1", result=steps[0]),
         call("show", "approval-1", result=approval),
         call("show_optional", "gate-1", result=gate),
-        call(
-            "ready_children",
-            "implementation-1",
-            label="dstack:work:implementation",
-            result=[task],
-        ),
-        call("progress", "feature-1", result={"completed": 1, "total": 5}),
     )
     monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: git_repo)
 
-    observed = dstacklib.feature_view(beads, "feature-1")
+    observed = dstacklib.feature_view(beads, "feature-1", verbose=True)
     assert observed["steps"]["approval"]["id"] == "approval-1"
     assert observed["human_gate"] == gate
     assert observed["native_approved"] is True
     assert observed["design_approved"] is True
-    assert observed["ready_work_ids"] == ["task-1"]
+    assert "ready_work_ids" not in observed
+    assert "progress" not in observed
+    assert "delivery_ready" not in observed
     beads.assert_exhausted()
 
 
-def test_alignment_view_projects_real_steps_gate_metadata_and_ready_work(
+def test_alignment_view_default_stops_at_analysis_without_hydrating_corrections(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = {
+        "id": "alignment-1",
+        "issue_type": "molecule",
+        "status": "open",
+        "labels": ["workflow:project-alignment", "audit:repository"],
+        "metadata": {"dstack.target_branch": "main", "dstack.scope": "repository"},
+    }
+    steps = [
+        {
+            "id": "analysis-1",
+            "issue_type": "task",
+            "status": "open",
+            "labels": [ALIGNMENT_STEPS["analysis"]],
+        },
+        {
+            "id": "approval-1",
+            "issue_type": "task",
+            "status": "open",
+            "labels": [ALIGNMENT_STEPS["approval"]],
+        },
+        {
+            "id": "corrections-1",
+            "issue_type": "epic",
+            "status": "open",
+            "labels": [ALIGNMENT_STEPS["corrections"]],
+        },
+        {
+            "id": "landing-1",
+            "issue_type": "task",
+            "status": "open",
+            "labels": [ALIGNMENT_STEPS["landing"]],
+        },
+    ]
+    beads = ScriptedClient(
+        tmp_path,
+        call("show_optional", "alignment-1", result=root),
+        call("children", "alignment-1", result=steps),
+    )
+    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: tmp_path)
+
+    observed = dstacklib.alignment_view(beads, "alignment-1")
+
+    assert observed == {
+        "selected_bead_id": "alignment-1",
+        "next_bead_id": "analysis-1",
+        "worktree": str(tmp_path),
+        "required_evidence": ["review summary", "native correction graph"],
+        "blocking_reason": None,
+    }
+    beads.assert_exhausted()
+
+
+def test_alignment_view_verbose_projects_real_steps_gate_and_metadata(
     tmp_path: Path,
 ) -> None:
     root = {
@@ -304,19 +412,14 @@ def test_alignment_view_projects_real_steps_gate_metadata_and_ready_work(
         call("show", "approval-1", result=approval),
         call("show_optional", "gate-1", result=gate),
         call("children", "corrections-1", result=[correction]),
-        call(
-            "ready_children",
-            "corrections-1",
-            label="dstack:work:correction",
-            result=[correction],
-        ),
-        call("progress", "alignment-1", result={"completed": 1, "total": 5}),
     )
 
-    observed = dstacklib.alignment_view(beads, "alignment-1")
+    observed = dstacklib.alignment_view(beads, "alignment-1", verbose=True)
     assert observed["steps"]["corrections"]["id"] == "corrections-1"
     assert observed["human_gate"] == gate
     assert observed["target_branch"] == "main"
     assert observed["scope"] == "whole repository"
-    assert observed["ready_work_ids"] == ["correction-1"]
+    assert "ready_work_ids" not in observed
+    assert "progress" not in observed
+    assert "delivery_ready" not in observed
     beads.assert_exhausted()

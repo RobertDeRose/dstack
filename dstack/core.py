@@ -1244,32 +1244,103 @@ def feature_authorization_state(client: BeadsClient, context: Mapping[str, Any])
     }
 
 
-def feature_view(client: BeadsClient, selector: str | None) -> dict[str, Any]:
+def feature_view(client: BeadsClient, selector: str | None, *, verbose: bool = False) -> dict[str, Any]:
     result = feature_context(client, selector)
     if not result["current"]:
-        return result
+        if verbose:
+            return result
+        root_id = str(result["root"]["id"])
+        return {
+            "selected_bead_id": root_id,
+            "next_bead_id": root_id,
+            "worktree": None,
+            "required_evidence": ["reviewed feature design and native implementation scope"],
+            "blocking_reason": None,
+        }
 
     root = result["root"]
-    root_id = str(root["id"])
     steps = result["steps"]
     implementation_id = str(steps["implementation"]["id"])
-    work_items = [
-        item
-        for item in client.children(implementation_id)
-        if has_label(item, "dstack:work:implementation") or issue_type(item) not in {"epic", "molecule", "gate"}
-    ]
-    result.update(feature_design_state(client, result))
-    result.update(feature_authorization_state(client, result))
-    ready_work = client.ready_children(implementation_id, label="dstack:work:implementation")
-    result.update(
-        {
-            "work_items": work_items,
-            "ready_work_ids": [str(item["id"]) for item in ready_work],
-            "progress": client.progress(root_id),
-            "delivery_ready": steps["closeout"].get("status") == "closed" and root.get("status") != "closed",
-        }
-    )
-    return result
+    if verbose:
+        work_items = [
+            item
+            for item in client.children(implementation_id)
+            if has_label(item, "dstack:work:implementation") or issue_type(item) not in {"epic", "molecule", "gate"}
+        ]
+        result.update(feature_design_state(client, result))
+        result.update(feature_authorization_state(client, result))
+        result["work_items"] = work_items
+        return result
+
+    root_id = str(root["id"])
+    branch = f"feat/{result['slug']}"
+    worktree = worktree_for_branch(client.root, branch)
+    specification = steps["specification"]
+    approval = steps["approval"]
+    closeout = steps["closeout"]
+    blocking_reason: str | None = None
+
+    if root.get("status") == "closed":
+        next_bead_id = None
+        required_evidence = ["reachable delivered closeout footer on the configured target"]
+    elif specification.get("status") != "closed":
+        next_bead_id = str(specification["id"])
+        required_evidence = ["committed feature design", "explicit human authorization"]
+    else:
+        gate = human_gate_for_step(client, root_id=root_id, step=approval)
+        if not isinstance(gate, Mapping) or gate.get("status") != "closed":
+            next_bead_id = str(approval["id"])
+            required_evidence = ["explicit human authorization"]
+            blocking_reason = "human approval gate is not closed"
+        elif approval.get("status") != "closed":
+            next_bead_id = str(approval["id"])
+            required_evidence = ["closed native approval"]
+            blocking_reason = "feature specification is not fully authorized"
+        else:
+            design_state = feature_design_state(client, result)
+            if not design_state.get("design_approved"):
+                next_bead_id = str(approval["id"])
+                required_evidence = ["committed design matching the approved design digest"]
+                blocking_reason = "feature specification is not fully authorized"
+            else:
+                work_items = [
+                    item
+                    for item in client.children(implementation_id)
+                    if has_label(item, "dstack:work:implementation")
+                    or issue_type(item) not in {"epic", "molecule", "gate"}
+                ]
+                ready = client.ready_children(implementation_id, label="dstack:work:implementation")
+                open_items = [item for item in work_items if item.get("status") != "closed"]
+                if len(ready) == 1:
+                    next_bead_id = str(ready[0]["id"])
+                    required_evidence = ["reachable Beads footer or explicit no-repository-change reason"]
+                elif len(ready) > 1:
+                    next_bead_id = None
+                    ready_ids = ", ".join(sorted(str(item["id"]) for item in ready))
+                    required_evidence = ["native Beads selection of an implementation task"]
+                    blocking_reason = f"multiple implementation beads are natively ready: {ready_ids}"
+                elif open_items:
+                    next_bead_id = None
+                    required_evidence = ["native Beads blockers resolved"]
+                    blocking_reason = "no implementation bead is natively ready"
+                elif steps["implementation"].get("status") != "closed":
+                    next_bead_id = implementation_id
+                    required_evidence = ["all native implementation children closed"]
+                elif closeout.get("status") != "closed":
+                    next_bead_id = str(closeout["id"])
+                    required_evidence = ["valid reconciliation", "complete Git evidence", "documentation policy"]
+                else:
+                    next_bead_id = root_id
+                    required_evidence = ["clean delivery candidate", "terminal footer evidence"]
+                    blocking_reason = "feature is awaiting delivery"
+
+    return {
+        "selected_bead_id": root_id,
+        "next_bead_id": next_bead_id,
+        "worktree": str(worktree) if worktree is not None else None,
+        "required_evidence": required_evidence,
+        "blocking_reason": blocking_reason,
+    }
 
 
 def alignment_slug(issue: Mapping[str, Any]) -> str | None:
@@ -1319,29 +1390,87 @@ def alignment_context(client: BeadsClient, selector: str) -> dict[str, Any]:
     }
 
 
-def alignment_view(client: BeadsClient, selector: str) -> dict[str, Any]:
+def alignment_view(client: BeadsClient, selector: str, *, verbose: bool = False) -> dict[str, Any]:
     result = alignment_context(client, selector)
     root = result["root"]
     root_id = str(root["id"])
     steps = result["steps"]
     corrections_id = str(steps["corrections"]["id"])
-    human_gate = human_gate_for_step(
-        client,
-        root_id=root_id,
-        step=steps["approval"],
-    )
-    corrections = client.children(corrections_id)
-    ready_work = client.ready_children(corrections_id, label="dstack:work:correction")
-    result.update(
-        {
-            "human_gate": human_gate,
-            "corrections": corrections,
-            "ready_work_ids": [str(item["id"]) for item in ready_work],
-            "progress": client.progress(root_id),
-            "delivery_ready": steps["landing"].get("status") == "closed" and root.get("status") != "closed",
-        }
-    )
-    return result
+    if verbose:
+        human_gate = human_gate_for_step(
+            client,
+            root_id=root_id,
+            step=steps["approval"],
+        )
+        result.update(
+            {
+                "human_gate": human_gate,
+                "corrections": client.children(corrections_id),
+            }
+        )
+        return result
+
+    branch = f"audit/{result['slug']}"
+    worktree = worktree_for_branch(client.root, branch)
+    analysis = steps["analysis"]
+    approval = steps["approval"]
+    landing = steps["landing"]
+    blocking_reason: str | None = None
+
+    if root.get("status") == "closed":
+        next_bead_id = None
+        required_evidence = ["reachable delivered landing footer on the configured target"]
+    elif analysis.get("status") != "closed":
+        next_bead_id = str(analysis["id"])
+        required_evidence = ["review summary", "native correction graph"]
+    else:
+        human_gate = human_gate_for_step(
+            client,
+            root_id=root_id,
+            step=approval,
+        )
+        if not isinstance(human_gate, Mapping) or human_gate.get("status") != "closed":
+            next_bead_id = str(approval["id"])
+            required_evidence = ["explicit human authorization"]
+            blocking_reason = "human approval gate is not closed"
+        elif approval.get("status") != "closed":
+            next_bead_id = str(approval["id"])
+            required_evidence = ["closed native approval"]
+            blocking_reason = "alignment is not fully authorized"
+        else:
+            corrections = client.children(corrections_id)
+            ready = client.ready_children(corrections_id, label="dstack:work:correction")
+            open_items = [item for item in corrections if item.get("status") != "closed"]
+            if len(ready) == 1:
+                next_bead_id = str(ready[0]["id"])
+                required_evidence = ["reachable Beads footer or explicit no-repository-change reason"]
+            elif len(ready) > 1:
+                next_bead_id = None
+                ready_ids = ", ".join(sorted(str(item["id"]) for item in ready))
+                required_evidence = ["native Beads selection of a correction"]
+                blocking_reason = f"multiple correction beads are natively ready: {ready_ids}"
+            elif open_items:
+                next_bead_id = None
+                required_evidence = ["native Beads blockers resolved"]
+                blocking_reason = "no correction bead is natively ready"
+            elif steps["corrections"].get("status") != "closed":
+                next_bead_id = corrections_id
+                required_evidence = ["all native correction children closed"]
+            elif landing.get("status") != "closed":
+                next_bead_id = str(landing["id"])
+                required_evidence = ["valid reconciliation", "complete Git evidence", "documentation policy"]
+            else:
+                next_bead_id = root_id
+                required_evidence = ["clean delivery candidate", "terminal footer evidence"]
+                blocking_reason = "alignment is awaiting delivery"
+
+    return {
+        "selected_bead_id": root_id,
+        "next_bead_id": next_bead_id,
+        "worktree": str(worktree) if worktree is not None else None,
+        "required_evidence": required_evidence,
+        "blocking_reason": blocking_reason,
+    }
 
 
 def worktree_records(root: Path) -> list[dict[str, str | bool]]:

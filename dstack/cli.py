@@ -159,8 +159,9 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     resolve = mechanical_parser(feature_sub, "resolve", "resolve a feature selector")
     resolve.add_argument("selector", nargs="?")
     resolve.set_defaults(func=cmd_feature_resolve)
-    inspect = mechanical_parser(feature_sub, "inspect", "inspect feature state and ready work")
+    inspect = mechanical_parser(feature_sub, "inspect", "inspect the next feature workflow boundary")
     inspect.add_argument("selector", nargs="?")
+    inspect.add_argument("--verbose", action="store_true", help="emit the full live feature view")
     inspect.set_defaults(func=cmd_feature_inspect)
     audit_complete = mechanical_parser(
         feature_sub, "audit-complete", "record that existing approved work satisfies the current formula contract"
@@ -238,8 +239,9 @@ def build_ctl_parser() -> argparse.ArgumentParser:
 
     alignment = mechanical_parser(top, "alignment", "project-alignment lifecycle commands")
     alignment_sub = alignment.add_subparsers(dest="command", required=True)
-    alignment_inspect = mechanical_parser(alignment_sub, "inspect", "inspect project-alignment state")
+    alignment_inspect = mechanical_parser(alignment_sub, "inspect", "inspect the next project-alignment boundary")
     alignment_inspect.add_argument("selector")
+    alignment_inspect.add_argument("--verbose", action="store_true", help="emit the full live alignment view")
     alignment_inspect.set_defaults(func=cmd_alignment_inspect)
     alignment_scaffold = mechanical_parser(
         alignment_sub,
@@ -332,10 +334,11 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     audit_feature = mechanical_parser(
         audit_view_sub,
         "feature",
-        "join live Beads, Git, and documentation feature facts",
+        "inspect the feature boundary; add --verbose for full audit facts",
     )
     audit_feature.add_argument("selector")
     audit_feature.add_argument("--format", choices=("json", "markdown"), default="json")
+    audit_feature.add_argument("--verbose", action="store_true", help="emit complete Beads/Git/docs audit facts")
     audit_feature.set_defaults(func=cmd_audit_feature)
 
     docs = mechanical_parser(top, "docs", "run documentation policy checks")

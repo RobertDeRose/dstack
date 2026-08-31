@@ -15,7 +15,7 @@ When `User input` says `Internal formula compatibility audit`, this is a control
 existing approved work with the current formula/review contract. Do **not** re-pour the molecule, normalize historical
 labels, or rebuild the graph to look like the current formula.
 
-1. Run `dstack ctl feature inspect "<feature>"` and read the accepted design plus existing implementation
+1. Run `dstack ctl feature inspect "<feature>" --verbose` and read the accepted design plus existing implementation
    tasks/dependencies.
 2. Compare their **semantic coverage** with the current requirements in this skill: outcome, failure/security/
    compatibility behavior, behavior-first validation, and the three Documentation impact audiences. Different task
@@ -46,16 +46,16 @@ For an already-approved feature whose compatibility audit found changes, first r
 **only after user approval**. Scaffolding creates missing canonical documentation without overwriting project content.
 
 Read complete Beads intent and the canonical design, then inspect only relevant architecture, source, tests, durable
-documentation, dependencies, and other work. Reconcile `docs/src/features/<slug>/design.md` so it covers outcome,
-rationale, requirements, decisions, non-goals, existing patterns, interfaces/data flow, observable outcomes, happy path,
-invalid input, persistence/state behavior, failure recovery, security, compatibility, behavior-first
-validation/regression expectations, concrete local Markdown links for required documentation surfaces, and Documentation
-impact for end users/operators, developers/reviewers, and future auditors.
+documentation, dependencies, and other work. Reconcile `docs/src/features/<slug>/design.md` using only the six canonical
+sections: Outcome, Non-goals, Design, Failure/security/compatibility, Validation, and Documentation impact. Capture
+rationale, requirements, existing patterns, interfaces/data flow, observable behavior, risks, and alternatives inside
+those sections only when material; do not create extra mandatory sections. Documentation impact should link the durable
+surfaces actually affected.
 
 Inspect the current graph with:
 
 ```bash
-dstack ctl feature inspect "<returned-root>"
+dstack ctl feature inspect "<returned-root>" --verbose
 ```
 
 Reuse/update valid tasks with native `bd update`; create only missing outcomes; close/supersede obsolete tasks with a

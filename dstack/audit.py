@@ -28,6 +28,7 @@ from .core import (
     feature_authorization_state,
     feature_context,
     feature_design_state,
+    feature_view,
     gate_type,
     has_label,
     issue_labels,
@@ -148,7 +149,7 @@ def revision_records(
     return records, sorted(missing)
 
 
-def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
+def _feature_audit_verbose(client: BeadsClient, selector: str) -> FeatureAuditView:
     view = feature_context(client, selector)
     root = view["root"]
     root_id = str(root["id"])
@@ -359,14 +360,31 @@ def feature_audit(client: BeadsClient, selector: str) -> FeatureAuditView:
     return cast(FeatureAuditView, payload)
 
 
+def feature_audit(client: BeadsClient, selector: str, *, verbose: bool = False) -> dict[str, Any]:
+    """Return a compact workflow boundary by default; expose full audit facts explicitly."""
+
+    if not verbose:
+        return feature_view(client, selector)
+    return dict(_feature_audit_verbose(client, selector))
+
+
 def render_markdown(payload: Mapping[str, Any]) -> str:
     facts = json.dumps(payload, indent=2, sort_keys=True)
-    title = str(payload["root"]["title"] or payload["root"]["id"])
+    root = payload.get("root")
+    if isinstance(root, Mapping):
+        title = str(root.get("title") or root.get("id") or "feature")
+    else:
+        title = str(payload.get("selected_bead_id") or "feature")
     return f"# Feature audit: {title}\n\n```json\n{facts}\n```\n"
 
 
 def cmd_audit_feature(args: argparse.Namespace) -> int:
-    payload = feature_audit(client_for(args.root, initialize=False), args.selector)
+    client = client_for(args.root, initialize=False)
+    payload = (
+        feature_audit(client, args.selector, verbose=True)
+        if getattr(args, "verbose", False)
+        else feature_audit(client, args.selector)
+    )
     if args.format == "markdown":
         sys.stdout.write(render_markdown(payload))
     else:

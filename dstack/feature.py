@@ -9,8 +9,6 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,7 +18,6 @@ from .core import (
     branch_exists,
     canonical_feature_design_path,
     conventional_worktree,
-    current_head,
     display_title,
     dependency_records,
     ensure_clean_worktree,
@@ -201,61 +198,11 @@ def require_feature_formula_current(client: BeadsClient, view: Mapping[str, Any]
     )
 
 
-def feature_scope_digest(client: BeadsClient, view: Mapping[str, Any]) -> str:
-    """Hash the native implementation graph that approval authorizes."""
-
-    implementation_id = str(view["steps"]["implementation"]["id"])
-    records = []
-    for item in client.children(implementation_id):
-        records.append(
-            {
-                "id": str(item.get("id") or ""),
-                "type": issue_type(item),
-                "parent": str(item.get("parent") or item.get("parent_id") or ""),
-                "title": str(item.get("title") or ""),
-                "description": str(item.get("description") or ""),
-                "acceptance": str(item.get("acceptance_criteria") or item.get("acceptance") or ""),
-                "priority": item.get("priority"),
-                "labels": sorted(str(label) for label in item.get("labels", [])),
-                "dependencies": sorted(
-                    (
-                        str(record.get("depends_on_id") or record.get("id") or ""),
-                        str(record.get("type") or record.get("dependency_type") or "blocks"),
-                    )
-                    for record in dependency_records(item)
-                ),
-            }
-        )
-    payload = json.dumps(sorted(records, key=lambda record: record["id"]), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def require_approved_scope_identity(client: BeadsClient, view: Mapping[str, Any]) -> None:
-    root = view["root"]
-    expected_scope = root_metadata_value(root, "dstack.approved_task_graph_sha256")
-    # Existing approvals created by older dStack versions have no scope
-    # identity. They remain readable for compatibility, while every approval
-    # created by this version is bound below and thereafter checked strictly.
-    if not expected_scope:
-        return
-    observed_scope = feature_scope_digest(client, view)
-    if observed_scope != expected_scope:
-        raise DstackError("feature task graph changed after approval; explicitly reauthorize")
-    approved_branch = root_metadata_value(root, "dstack.approved_target_branch")
-    approved_head = root_metadata_value(root, "dstack.approved_target_head")
-    base_branch = str(view.get("base_branch") or "")
-    if not approved_branch or not approved_head or approved_branch != base_branch:
-        raise DstackError("feature target identity changed after approval; explicitly reauthorize")
-    if current_head(client.root, approved_branch) != approved_head:
-        raise DstackError("feature target HEAD changed after approval; explicitly reauthorize")
-
-
 def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     context = feature_context(client, selector)
     context.update(feature_design_state(client, context))
     context.update(feature_authorization_state(client, context))
     require_approved_design(context)
-    require_approved_scope_identity(client, context)
     require_feature_formula_current(client, context)
     return context
 
@@ -390,8 +337,10 @@ def cmd_feature_resolve(args: argparse.Namespace) -> int:
 
 def cmd_feature_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root, initialize=False)
-    view = feature_view(client, args.selector)
-    view["formula_contract"] = feature_formula_contract_state(client, view)
+    verbose = getattr(args, "verbose", False)
+    view = feature_view(client, args.selector, verbose=True) if verbose else feature_view(client, args.selector)
+    if verbose:
+        view["formula_contract"] = feature_formula_contract_state(client, view)
     emit({"status": "ok", **view})
     return 0
 
@@ -892,10 +841,6 @@ def cmd_feature_reauthorize(args: argparse.Namespace) -> int:
         digest_key="dstack.approved_design_sha256",
         pending_digest_key="dstack.pending_design_sha256",
     )
-    for key in ("dstack.approved_task_graph_sha256", "dstack.approved_target_branch", "dstack.approved_target_head"):
-        if root_metadata_value(client.show(root_id), key):
-            client.update(root_id, "--unset-metadata", key)
-
     root = client.show(root_id)
     specification = client.show(str(steps["specification"]["id"]))
     approval = client.show(str(steps["approval"]["id"]))
@@ -1016,17 +961,6 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         if pending != digest:
             raise DstackError(f"pending design identity did not converge: {pending!r}")
 
-    bind_identity = run(["git", "rev-parse", "--is-inside-work-tree"], cwd=client.root, check=False).returncode == 0
-    scope_digest: str | None = None
-    base_branch: str | None = None
-    target_head: str | None = None
-    if bind_identity:
-        scope_digest = feature_scope_digest(client, view)
-        base_branch = str(view.get("base_branch") or "")
-        if not base_branch:
-            raise DstackError("feature has no target branch")
-        target_head = current_head(client.root, base_branch)
-
     if specification.get("status") != "closed" and args.summary_file:
         client.add_comment(str(specification["id"]), read_text_file(args.summary_file))
     specification = close_issue_if_needed(client, specification, "Specification approved")
@@ -1053,18 +987,6 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         approved = root_metadata_value(client.show(root_id), "dstack.approved_design_sha256")
         if approved != digest:
             raise DstackError(f"approved design identity did not converge: {approved!r}")
-    if bind_identity:
-        for key, value in (
-            ("dstack.approved_task_graph_sha256", scope_digest),
-            ("dstack.approved_target_branch", base_branch),
-            ("dstack.approved_target_head", target_head),
-        ):
-            current_value = root_metadata_value(client.show(root_id), key)
-            if current_value not in (None, value):
-                raise DstackError(f"approved feature identity conflicts for {key}")
-            if current_value != value:
-                client.update(root_id, "--set-metadata", f"{key}={value}")
-
     if root_metadata_value(client.show(root_id), "dstack.pending_design_sha256"):
         client.update(
             root_id,
@@ -1083,14 +1005,7 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         "human_gate": gate.get("status"),
         "approval": approval.get("status"),
     }
-    identity_ok = not bind_identity or (
-        root_metadata_value(observed_root, "dstack.approved_task_graph_sha256") == scope_digest
-        and root_metadata_value(observed_root, "dstack.approved_target_branch") == base_branch
-        and root_metadata_value(observed_root, "dstack.approved_target_head") == target_head
-        and feature_scope_digest(client, view) == scope_digest
-        and current_head(client.root, str(base_branch)) == target_head
-    )
-    if approved != digest or pending or not identity_ok or any(status != "closed" for status in states.values()):
+    if approved != digest or pending or any(status != "closed" for status in states.values()):
         raise DstackError(
             f"specification approval did not converge: approved={approved!r}, pending={pending!r}, states={states}"
         )

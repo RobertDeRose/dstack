@@ -16,19 +16,13 @@ A proposal should answer both questions:
 
 ## Feature design quality contract
 
-A feature design must make the following explicit:
-
-- the user/developer outcome;
-- non-goals;
-- existing patterns and reuse;
-- why any additional abstraction is necessary;
-- observable behavior that proves success;
-- failure, negative, security, and compatibility behavior;
-- the validation strategy; and
-- the documentation impact.
+A feature design uses six durable sections: **Outcome**, **Non-goals**, **Design**,
+**Failure, security, and compatibility**, **Validation**, and **Documentation impact**. Keep each section proportional
+to the feature. Existing patterns/reuse, abstraction rationale, observable behavior, interfaces, risks, and alternatives
+belong inside those sections only when they affect the design; they are not separate mandatory ceremony.
 
 Prefer an existing pattern over a new abstraction. Add complexity only when a concrete requirement requires it. Do not
-add scoring systems, design grades, approval matrices, or additional Beads metadata.
+add scoring systems, design grades, approval matrices, shadow task graphs, or additional Beads metadata.
 
 Tests prove externally meaningful behavior, invariants, failure handling, and regression boundaries. They should fail
 when behavior is wrong, not merely confirm that the current implementation was executed. Review should consider
@@ -45,8 +39,9 @@ Documentation impact considers three perspectives without requiring three docume
 - **Future agent/auditor:** which durable docs and tests establish intent well enough to detect implementation drift
   later.
 
-Each perspective may be `N/A` only with a reason. Future agents use the same durable architecture, design, user
-documentation, tests, and Beads intent as people do; no separate agent documentation is required.
+Address only the perspectives materially affected by the feature; a single concise Documentation impact section is
+sufficient. Future agents use the same durable architecture, design, user documentation, tests, and Beads intent as
+people do; no separate agent documentation is required.
 
 ## Automate deterministic work
 

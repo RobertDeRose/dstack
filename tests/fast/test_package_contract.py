@@ -104,7 +104,7 @@ def test_review_materializes_and_authorizes_repository_aware_specification() -> 
         "feature inspect",
         "canonical design",
         "architecture, source, tests",
-        "observable outcomes",
+        "observable behavior",
         "feature add-task",
         "native `bd update`",
         "native `bd dep add`",
@@ -207,28 +207,37 @@ def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
 
     for phrase in (
         "Feature design quality contract",
-        "user/developer outcome",
-        "observable behavior",
+        "Outcome",
+        "Non-goals",
+        "Design",
+        "Failure, security, and compatibility",
+        "Validation",
+        "Documentation impact",
         "Tests prove externally meaningful behavior",
-        "End user/operator",
-        "Developer/reviewer",
-        "Future agent/auditor",
         "coverage-percentage gate",
     ):
         assert phrase in principles
     for phrase in ("outcome and why", "observable success", "documentation expectations"):
         assert phrase in " ".join(plan.split())
     for phrase in (
-        "happy path",
-        "failure recovery",
+        "Outcome, Non-goals, Design",
+        "Failure/security/compatibility",
+        "Validation",
         "Documentation impact",
-        "local Markdown links",
+        "do not create extra mandatory sections",
     ):
         assert phrase in " ".join(review.split())
     for phrase in ("externally meaningful behavior", "failure handling", "Documentation impact"):
         assert phrase in " ".join(implement.split())
     assert "Defer durable documentation to closeout" in " ".join(implement.split())
-    for phrase in ("externally meaningful behavior", "failure handling", "Documentation impact"):
+    for phrase in (
+        "externally meaningful behavior",
+        "failure handling",
+        "Delivered outcome",
+        "Material deviations",
+        "Documentation links",
+        "Remaining limitations",
+    ):
         assert phrase in " ".join(close.split())
     assert "sole final reconciliation" in " ".join(close.split())
 
@@ -456,21 +465,19 @@ def test_tracked_beads_configuration_contains_no_machine_local_paths() -> None:
     assert "~/" not in config
 
 
-def test_feature_scaffolds_cover_operator_developer_and_audit_surfaces() -> None:
+def test_feature_scaffolds_use_lean_design_and_reconciliation_contracts() -> None:
     documentation = (ROOT / "dstack/docs.py").read_text()
     for phrase in (
-        "Planned intent",
-        "Planned acceptance",
-        "End user and operator",
-        "Usage and configuration",
-        "Deployment, upgrade, and rollback",
-        "Operations, troubleshooting, and recovery",
-        "Developer and reviewer",
-        "Architecture and structure",
-        "Interfaces, contracts, and maintenance",
-        "Future auditor",
-        "Decisions and rationale",
-        "Invariants, regression evidence, and known limitations",
+        "Outcome",
+        "Non-goals",
+        "Design",
+        "Failure, security, and compatibility",
+        "Validation",
+        "Documentation impact",
+        "Delivered outcome",
+        "Material deviations",
+        "Documentation links",
+        "Remaining limitations",
     ):
         assert phrase in documentation
 

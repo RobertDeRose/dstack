@@ -41,7 +41,6 @@ from .core import (
     is_feature_root,
     read_text_file,
     repository_mutation_lock,
-    root_metadata_value,
     ref_exists,
     run,
     validate_git_branch,
@@ -831,23 +830,6 @@ def tracked_runtime_beads(root: Path) -> list[str]:
     return sorted(path for path in output if is_forbidden_tracked_beads_path(path))
 
 
-def _require_approved_target_identity(client: BeadsClient, view: Mapping[str, Any], target: str) -> None:
-    root = view["root"]
-    approved_branch = root_metadata_value(root, "dstack.approved_target_branch")
-    approved_head = root_metadata_value(root, "dstack.approved_target_head")
-    if approved_branch is None and approved_head is None:
-        # Backward compatibility for workflow roots approved before target
-        # identity became part of the authorization contract.
-        return
-    if not approved_branch or not approved_head or approved_branch != target:
-        raise DstackError("approved target identity no longer matches the delivery target; explicitly reauthorize")
-    observed_head = current_head(client.root, target)
-    if observed_head != approved_head:
-        raise DstackError(
-            f"target HEAD changed after approval; explicitly reauthorize ({approved_head} -> {observed_head})"
-        )
-
-
 def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
     exact = client.show_optional(selector)
     if exact is not None and is_alignment_root(exact):
@@ -896,7 +878,6 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
         parent_id=str(workstream["id"]),
         name=f"{kind} workstream",
     )
-    _require_approved_target_identity(client, view, target)
     validate_git_branch(client.root, target, name="target branch")
     validate_git_branch(client.root, branch, name="candidate branch")
     validate_git_revision(client.root, target, name="target branch")

@@ -14,16 +14,17 @@ Public slash commands are decision-oriented Pi prompt aliases installed by `dsta
 | `/project-alignment-review ...` | Current repository | Alignment review summary and native correction graph | Human gate remains for explicit execution |
 | `/project-alignment-execute ...` | Native ready corrections | Exact claim and evidence-backed close | Requested correction closes or none is ready |
 | `/project-alignment-land ...` | Full correction candidate | Landing and optional delivery | Reviewed candidate or delivered root |
-| `dstack ctl audit feature ... --format json\|markdown` | Live Beads, reachable target Git history, optional worktree, mdBook, evidence, and delivery observations | None | Deterministic current facts suitable for human or agent review |
+| `dstack ctl audit feature ... [--verbose] --format json\|markdown` | Current native workflow boundary; `--verbose` also reads full Beads/Git/docs evidence | None | Compact next-boundary facts by default; complete audit facts only on request |
 
 ## Native authority
 
 Beads owns workflow state, correction content, dependencies, gates, and readiness. Git owns repository content and
 history. dStack does not use an external workflow packet, classification file, migration map, or shadow graph.
 
-Inspection payloads emit each full work item or correction exactly once. Readiness is projected separately as
-`ready_work_ids`, so large Beads descriptions, acceptance criteria, metadata, and dependency records are not duplicated
-in agent context.
+Default feature/alignment inspection and feature audit output are boundary-oriented: selected Bead ID, next Bead ID,
+worktree, required evidence, and blocking reason. They query native Beads readiness when needed but do not persist or
+emit controller-owned progress, readiness, or delivery dashboards. Use `feature inspect --verbose`,
+`alignment inspect --verbose`, or `audit feature --verbose` only when the complete live records are required.
 
 Alignment review stores accepted corrections directly under the native correction workstream. A concise temporary
 Markdown summary records findings, rejected or deferred findings, accepted risks, validation expectations, and

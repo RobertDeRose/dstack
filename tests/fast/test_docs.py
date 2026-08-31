@@ -162,7 +162,7 @@ def test_record_local_links_and_scaffolds_share_the_contract(tmp_path: Path) -> 
     current.write_text("# Current\n")
     record = tmp_path / "record.md"
     text = complete_record("feature-reconciliation").replace(
-        "Evidence for Delivered capability.",
+        "Evidence for Delivered outcome.",
         "Evidence for delivery. [Current behavior](current.md)",
     )
     record.write_text(text)

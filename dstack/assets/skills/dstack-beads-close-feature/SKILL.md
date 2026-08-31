@@ -22,11 +22,11 @@ mode is `ready` (default), `pr`, or `merge`.
 2. Compare accepted design, actual code/tests, durable docs, decisions, and required validation. This is the sole final
    reconciliation for the feature; implementation tasks do not create reconciliation or documentation tasks. Reconcile
    real behavior and documentation here. Confirm tests prove externally meaningful behavior, invariants, failure
-   handling, and regression boundaries. Reconcile every declared Documentation impact surface for end users/operators,
-   developers/reviewers, and future agents/auditors. Allowed docs describe what is planned/implemented, why, and how;
-   they must not contain transient workflow state or IDs. Complete every reconciliation scaffold section with
-   substantive content or `Not applicable — <specific reason>`; placeholders, duplicate/missing headings, and
-   unsupported local links fail before closeout mutation.
+   handling, and regression boundaries. Keep reconciliation to the five canonical sections: Delivered outcome, Material
+   deviations, Validation, Documentation links, and Remaining limitations. Link only durable documentation surfaces
+   actually affected. Allowed docs describe what is planned/implemented, why, and how; they must not contain transient
+   workflow state or IDs. Complete each section with substantive content or `Not applicable — <specific reason>`;
+   placeholders, duplicate/missing headings, and unsupported local links fail before closeout mutation.
 3. Run the repository's full/release validation and review the complete candidate diff after any fixups or rebase. If a
    required check fails, times out, is interrupted, runs the wrong scope, unexpectedly skips required tests, or
    substitutes weaker coverage, report the exact command, scope, and outcome and stop before `feature finish-closeout`

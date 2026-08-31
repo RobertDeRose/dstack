@@ -414,11 +414,11 @@ def test_scaffold_design_creates_once_without_overwriting(monkeypatch, tmp_path:
     authored = design.read_text()
     assert "Preserve this planned outcome" in authored
     assert "The planned behavior is externally observable" in authored
-    assert "### End user and operator" in authored
-    assert "### Developer and reviewer" in authored
-    assert "### Future auditor" in authored
-    assert "## Validation strategy" in authored
-    assert "## Risks and tradeoffs" in authored
+    assert "## Outcome" in authored
+    assert "## Non-goals" in authored
+    assert "## Design" in authored
+    assert "## Failure, security, and compatibility" in authored
+    assert "## Validation" in authored
     assert "## Documentation impact" in authored
     assert "[Feature Records](features/index.md)" in summary.read_text()
     assert "[Feature](features/feature/design.md)" in summary.read_text()
@@ -454,8 +454,10 @@ def test_scaffold_reconciliation_creates_once_and_updates_navigation(monkeypatch
     assert dstack_feature.cmd_feature_scaffold_reconciliation(args) == 0
     reconciliation = design.with_name("index.md")
     authored = reconciliation.read_text()
-    assert "## Delivered capability" in authored
-    assert "## Design reconciliation" in authored
+    assert "## Delivered outcome" in authored
+    assert "## Material deviations" in authored
+    assert "## Documentation links" in authored
+    assert "## Remaining limitations" in authored
     assert "[Authored catalog title](feature/index.md)" in (worktree / "docs/src/features/index.md").read_text()
     summary_path = worktree / "docs/src/SUMMARY.md"
     summary = summary_path.read_text()

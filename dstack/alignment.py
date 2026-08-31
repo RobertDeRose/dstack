@@ -22,7 +22,6 @@ from .core import (
     ancestry,
     branch_exists,
     conventional_worktree,
-    current_head,
     ensure_clean_worktree,
     human_gate_for_step,
     read_text_file,
@@ -88,7 +87,11 @@ def cmd_alignment_scaffold_record(args: argparse.Namespace) -> int:
 
 def cmd_alignment_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root, initialize=False)
-    view = alignment_view(client, args.selector)
+    verbose = getattr(args, "verbose", False)
+    view = alignment_view(client, args.selector, verbose=True) if verbose else alignment_view(client, args.selector)
+    if not verbose:
+        emit({"status": "ok", **view})
+        return 0
     try:
         require_alignment_authorized(client, view)
     except DstackError as exc:
@@ -307,10 +310,6 @@ def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
         digest_key="dstack.approved_alignment_review_sha256",
         pending_digest_key="dstack.pending_alignment_review_sha256",
     )
-    for key in ("dstack.approved_target_branch", "dstack.approved_target_head"):
-        if root_metadata_value(view["root"], key):
-            client.update(root_id, "--unset-metadata", key)
-
     analysis = client.show(str(steps["analysis"]["id"]))
     _reset_alignment_review_after_reauthorization(client, view, analysis)
     approval = client.show(str(steps["approval"]["id"]))
@@ -430,14 +429,6 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
     root_id = str(view["root"]["id"])
-    bind_target = run(["git", "rev-parse", "--is-inside-work-tree"], cwd=client.root, check=False).returncode == 0
-    target_branch: str | None = None
-    target_head: str | None = None
-    if bind_target:
-        target_branch = str(view.get("target_branch") or "")
-        if not target_branch:
-            raise DstackError("alignment has no target branch")
-        target_head = current_head(client.root, target_branch)
     analysis = client.show(str(view["steps"]["analysis"]["id"]))
     authority, _, digest = canonical_description(client, view, analysis)
     if analysis.get("status") != "closed":
@@ -478,16 +469,6 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
         )
         if root_plan_metadata(client, root_id)[1] != digest:
             raise DstackError("approved alignment review identity did not converge")
-    if bind_target:
-        for key, value in (
-            ("dstack.approved_target_branch", target_branch),
-            ("dstack.approved_target_head", target_head),
-        ):
-            current_value = root_metadata_value(client.show(root_id), key)
-            if current_value not in (None, value):
-                raise DstackError(f"approved alignment target identity conflicts for {key}")
-            if current_value != value:
-                client.update(root_id, "--set-metadata", f"{key}={value}")
     if pending is not None:
         client.update(root_id, "--unset-metadata", "dstack.pending_alignment_review_sha256")
         if root_plan_metadata(client, root_id)[0] is not None:
@@ -495,8 +476,6 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
     authorized_view = alignment_context(client, root_id)
     authorized_view["human_gate"] = client.show(str(gate["id"]))
     require_alignment_authorized(client, authorized_view)
-    if bind_target and current_head(client.root, str(target_branch)) != target_head:
-        raise DstackError("alignment target HEAD changed during approval; explicitly reauthorize")
     emit(
         {
             "status": "ok",
@@ -517,17 +496,7 @@ def require_alignment_approval(client: BeadsClient, view: Mapping[str, Any]) -> 
         if view["steps"]["approval"].get("status") != "closed":
             raise DstackError("alignment approval milestone is not closed")
         return {}
-    authority = require_alignment_authorized(client, view)
-    root = client.show(str(view["root"]["id"]))
-    target_branch = str(view.get("target_branch") or "")
-    approved_branch = root_metadata_value(root, "dstack.approved_target_branch")
-    approved_head = root_metadata_value(root, "dstack.approved_target_head")
-    if approved_branch or approved_head:
-        if approved_branch != target_branch or not approved_head:
-            raise DstackError("alignment target identity changed after approval; explicitly reauthorize")
-        if current_head(client.root, target_branch) != approved_head:
-            raise DstackError("alignment target HEAD changed after approval; explicitly reauthorize")
-    return authority
+    return require_alignment_authorized(client, view)
 
 
 def alignment_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tuple[str, Path, str]:
