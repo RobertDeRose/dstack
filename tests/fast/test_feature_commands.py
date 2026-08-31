@@ -190,6 +190,7 @@ def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, 
     beads = ScriptedClient(
         tmp_path,
         call("list", all_statuses=True, result=[]),
+        call("list", all_statuses=True, result=[]),
         call(
             "pour",
             "dstack-feature",

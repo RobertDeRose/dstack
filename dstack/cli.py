@@ -171,7 +171,7 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     initialize.add_argument("selector", nargs="?")
     initialize.add_argument("--title")
     initialize.add_argument("--slug")
-    initialize.add_argument("--base-branch", default="main")
+    initialize.add_argument("--base-branch")
     initialize.add_argument("--design-path")
     initialize.set_defaults(func=cmd_feature_initialize)
     scaffold_design = mechanical_parser(
@@ -252,7 +252,7 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     alignment_init = mechanical_parser(alignment_sub, "initialize", "create a project-alignment workstream")
     alignment_init.add_argument("--title", required=True)
     alignment_init.add_argument("--slug")
-    alignment_init.add_argument("--target-branch", default="main")
+    alignment_init.add_argument("--target-branch")
     alignment_init.add_argument("--scope", default="whole repository")
     alignment_init.set_defaults(func=cmd_alignment_initialize)
     correction = mechanical_parser(alignment_sub, "add-correction", "create a correction through native Beads")

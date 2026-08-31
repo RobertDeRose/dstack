@@ -40,6 +40,8 @@ from .core import (
     is_alignment_root,
     is_feature_root,
     read_text_file,
+    repository_mutation_lock,
+    root_metadata_value,
     ref_exists,
     run,
     validate_git_branch,
@@ -523,12 +525,14 @@ def feature_evidence_audit(
     view: Mapping[str, Any],
     *,
     history: _CommitHistory | None = None,
+    require_terminal: bool = False,
 ) -> dict[str, Any]:
     history = history or _CommitHistory()
     branch, worktree, base = feature_branch_context(client, view)
     steps = view["steps"]
     candidate_revision: str | None = None
-    if view["steps"]["closeout"].get("status") == "closed":
+    closeout_id = str(steps["closeout"]["id"])
+    if view["steps"]["closeout"].get("status") == "closed" or require_terminal:
         candidate_revision = require_candidate_head(
             client.root,
             branch,
@@ -549,6 +553,23 @@ def feature_evidence_audit(
         ],
         history=history,
     )
+    specification_id = str(steps["specification"]["id"])
+    mapping = history.mapping(client.root, f"{base}..{branch}")
+    specification_missing = steps["specification"].get("status") == "closed" and not mapping.get(specification_id)
+    required_lifecycle_ids = {specification_id}
+    if require_terminal:
+        required_lifecycle_ids.add(closeout_id)
+        if not mapping.get(closeout_id) and closeout_id not in audit["missing"]:
+            audit["missing"] = sorted([*audit["missing"], closeout_id])
+    specification_multiple, specification_malformed = footer_cardinality(mapping, required_lifecycle_ids)
+    if specification_missing and specification_id not in audit["missing"]:
+        audit["missing"] = sorted([*audit["missing"], specification_id])
+    if specification_malformed:
+        audit["malformed_footer_ids"] = sorted(set(audit["malformed_footer_ids"]) | set(specification_malformed))
+    if specification_multiple:
+        audit["multiple_commits"].update(specification_multiple)
+    if audit["missing"] or audit["unexpected_footer_ids"] or audit["malformed_footer_ids"]:
+        audit["status"] = "issues"
     result = {"feature": view["root"]["id"], **audit}
     if candidate_revision is not None:
         result.update(
@@ -810,6 +831,23 @@ def tracked_runtime_beads(root: Path) -> list[str]:
     return sorted(path for path in output if is_forbidden_tracked_beads_path(path))
 
 
+def _require_approved_target_identity(client: BeadsClient, view: Mapping[str, Any], target: str) -> None:
+    root = view["root"]
+    approved_branch = root_metadata_value(root, "dstack.approved_target_branch")
+    approved_head = root_metadata_value(root, "dstack.approved_target_head")
+    if approved_branch is None and approved_head is None:
+        # Backward compatibility for workflow roots approved before target
+        # identity became part of the authorization contract.
+        return
+    if not approved_branch or not approved_head or approved_branch != target:
+        raise DstackError("approved target identity no longer matches the delivery target; explicitly reauthorize")
+    observed_head = current_head(client.root, target)
+    if observed_head != approved_head:
+        raise DstackError(
+            f"target HEAD changed after approval; explicitly reauthorize ({approved_head} -> {observed_head})"
+        )
+
+
 def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
     exact = client.show_optional(selector)
     if exact is not None and is_alignment_root(exact):
@@ -858,6 +896,7 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
         parent_id=str(workstream["id"]),
         name=f"{kind} workstream",
     )
+    _require_approved_target_identity(client, view, target)
     validate_git_branch(client.root, target, name="target branch")
     validate_git_branch(client.root, branch, name="candidate branch")
     validate_git_revision(client.root, target, name="target branch")
@@ -1185,7 +1224,7 @@ def incomplete_pr_gate_cancellations(
     return incomplete
 
 
-def register_pr_gate(client: BeadsClient, root_id: str, pr_number: str) -> dict[str, Any]:
+def _register_pr_gate_unlocked(client: BeadsClient, root_id: str, pr_number: str) -> dict[str, Any]:
     pr_number = str(canonical_positive_integer(pr_number, field="PR number"))
     active = pr_gate_state(client, root_id)["active"]
     if not active:
@@ -1206,7 +1245,13 @@ def register_pr_gate(client: BeadsClient, root_id: str, pr_number: str) -> dict[
     return active[0]
 
 
-def replace_pr_gates(
+def register_pr_gate(client: BeadsClient, root_id: str, pr_number: str) -> dict[str, Any]:
+    normalized = str(canonical_positive_integer(pr_number, field="PR number"))
+    with repository_mutation_lock(client.root):
+        return _register_pr_gate_unlocked(client, root_id, normalized)
+
+
+def _replace_pr_gates_unlocked(
     client: BeadsClient, root_id: str, pr_number: str, reason: str
 ) -> tuple[dict[str, Any], list[str]]:
     pr_number = str(canonical_positive_integer(pr_number, field="PR number"))
@@ -1243,7 +1288,15 @@ def replace_pr_gates(
     return observed, replaced
 
 
-def cancel_pr_gate(client: BeadsClient, root_id: str, reason: str) -> dict[str, Any]:
+def replace_pr_gates(
+    client: BeadsClient, root_id: str, pr_number: str, reason: str
+) -> tuple[dict[str, Any], list[str]]:
+    normalized = str(canonical_positive_integer(pr_number, field="PR number"))
+    with repository_mutation_lock(client.root):
+        return _replace_pr_gates_unlocked(client, root_id, normalized, reason)
+
+
+def _cancel_pr_gate_unlocked(client: BeadsClient, root_id: str, reason: str) -> dict[str, Any]:
     reason = reason.strip()
     if not reason:
         raise DstackError("PR gate cancellation requires a non-empty reason")
@@ -1326,46 +1379,54 @@ def cancel_pr_gate(client: BeadsClient, root_id: str, reason: str) -> dict[str, 
     return matches[0]
 
 
+def cancel_pr_gate(client: BeadsClient, root_id: str, reason: str) -> dict[str, Any]:
+    with repository_mutation_lock(client.root):
+        return _cancel_pr_gate_unlocked(client, root_id, reason)
+
+
 def cmd_delivery_register_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    run(["git", "fetch", "origin", "--prune"], cwd=client.root)
-    payload = delivery_view(client, args.selector)
-    ensure_clean_candidate(client.root, payload)
-    validate_delivery(payload, require_remote=True)
-    if payload.get("remote_candidate_head") != payload.get("candidate_head"):
-        raise DstackError(
-            "origin candidate branch does not match the inspected candidate; "
-            "push the exact branch before registering the PR"
-        )
-    root_id = str(payload["root"]["id"])
-    gate = register_pr_gate(client, root_id, str(args.pr_number))
+    with repository_mutation_lock(client.root):
+        run(["git", "fetch", "origin", "--prune"], cwd=client.root)
+        payload = delivery_view(client, args.selector)
+        ensure_clean_candidate(client.root, payload)
+        validate_delivery(payload, require_remote=True)
+        if payload.get("remote_candidate_head") != payload.get("candidate_head"):
+            raise DstackError(
+                "origin candidate branch does not match the inspected candidate; "
+                "push the exact branch before registering the PR"
+            )
+        root_id = str(payload["root"]["id"])
+        gate = _register_pr_gate_unlocked(client, root_id, str(args.pr_number))
     emit({"status": "ok", "root": root_id, "gate": gate, "pr_number": args.pr_number})
     return 0
 
 
 def cmd_delivery_cancel_pr_gate(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    root = _delivery_root(client, args.selector)
-    root_id = str(root["id"])
-    gate = cancel_pr_gate(client, root_id, args.reason)
+    with repository_mutation_lock(client.root):
+        root = _delivery_root(client, args.selector)
+        root_id = str(root["id"])
+        gate = _cancel_pr_gate_unlocked(client, root_id, args.reason)
     emit({"status": "ok", "root": root_id, "gate": gate})
     return 0
 
 
 def cmd_delivery_replace_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    run(["git", "fetch", "origin", "--prune"], cwd=client.root)
-    payload = delivery_view(client, args.selector)
-    ensure_clean_candidate(client.root, payload)
-    validate_delivery(payload, require_remote=True)
-    if payload.get("remote_candidate_head") != payload.get("candidate_head"):
-        raise DstackError(
-            "origin candidate branch does not match the inspected candidate; "
-            "push the exact branch before replacing the PR gate"
-        )
+    with repository_mutation_lock(client.root):
+        run(["git", "fetch", "origin", "--prune"], cwd=client.root)
+        payload = delivery_view(client, args.selector)
+        ensure_clean_candidate(client.root, payload)
+        validate_delivery(payload, require_remote=True)
+        if payload.get("remote_candidate_head") != payload.get("candidate_head"):
+            raise DstackError(
+                "origin candidate branch does not match the inspected candidate; "
+                "push the exact branch before replacing the PR gate"
+            )
 
-    root_id = str(payload["root"]["id"])
-    gate, replaced = replace_pr_gates(client, root_id, str(args.pr_number), args.reason)
+        root_id = str(payload["root"]["id"])
+        gate, replaced = _replace_pr_gates_unlocked(client, root_id, str(args.pr_number), args.reason)
     emit(
         {
             "status": "ok",
@@ -1586,7 +1647,7 @@ def finalize_beads_without_git_mutation(
     )
 
 
-def cmd_delivery_merge(args: argparse.Namespace) -> int:
+def _cmd_delivery_merge_unlocked(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)
     validate_delivery(payload, require_remote=False)
@@ -1610,6 +1671,19 @@ def cmd_delivery_merge(args: argparse.Namespace) -> int:
             raise DstackError("delivery candidate worktree is unavailable")
         before_head = current_head(target_worktree)
         before_status = run(["git", "status", "--short", "--untracked-files=all"], cwd=target_worktree).stdout
+        final_payload = delivery_view(client, root_id)
+        if str(final_payload["target_branch"]) != str(payload["target_branch"]):
+            raise DstackError("delivery target branch drifted before merge")
+        final_gates = pr_gate_state(client, root_id)
+        if final_gates["active"]:
+            ids = ", ".join(str(gate["id"]) for gate in final_gates["active"])
+            raise DstackError(f"direct merge requires explicit cancellation of active PR gate: {ids}")
+        incomplete = incomplete_pr_gate_cancellations(client, root_id, final_gates)
+        if incomplete:
+            raise DstackError("direct merge rejects incomplete PR gate cancellation: " + ", ".join(incomplete))
+        final_target_head = final_payload.get("target_head")
+        if final_target_head is not None and str(final_target_head) != before_head:
+            raise DstackError("target HEAD drifted immediately before merge")
         run(
             ["git", "merge", "--ff-only", candidate_revision],
             cwd=target_worktree,
@@ -1636,6 +1710,12 @@ def cmd_delivery_merge(args: argparse.Namespace) -> int:
         }
     )
     return 0
+
+
+def cmd_delivery_merge(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    with repository_mutation_lock(client.root):
+        return _cmd_delivery_merge_unlocked(args)
 
 
 def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:

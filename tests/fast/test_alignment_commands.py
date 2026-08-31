@@ -119,6 +119,7 @@ def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_p
     )
     beads = ScriptedClient(
         tmp_path,
+        call("list", all_statuses=True, result=[]),
         call(
             "pour",
             "dstack-project-alignment",
@@ -739,6 +740,7 @@ def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
     monkeypatch.setattr(dstack_alignment, "validate_git_revision", lambda *args, **kwargs: "main")
     beads = ScriptedClient(
         tmp_path,
+        call("list", all_statuses=True, result=[]),
         call(
             "pour",
             "dstack-project-alignment",

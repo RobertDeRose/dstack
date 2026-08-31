@@ -9,6 +9,8 @@ focus on engineering decisions.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -18,6 +20,7 @@ from .core import (
     branch_exists,
     canonical_feature_design_path,
     conventional_worktree,
+    current_head,
     display_title,
     dependency_records,
     ensure_clean_worktree,
@@ -37,10 +40,12 @@ from .core import (
     read_utf8_text,
     read_text_file,
     replace_text_if_unchanged,
+    repository_default_branch,
     resolve_feature,
     root_metadata_value,
     safe_repository_path,
     run,
+    serialized_repository_mutation,
     slugify,
     validate_git_branch,
     validate_git_revision,
@@ -196,11 +201,61 @@ def require_feature_formula_current(client: BeadsClient, view: Mapping[str, Any]
     )
 
 
+def feature_scope_digest(client: BeadsClient, view: Mapping[str, Any]) -> str:
+    """Hash the native implementation graph that approval authorizes."""
+
+    implementation_id = str(view["steps"]["implementation"]["id"])
+    records = []
+    for item in client.children(implementation_id):
+        records.append(
+            {
+                "id": str(item.get("id") or ""),
+                "type": issue_type(item),
+                "parent": str(item.get("parent") or item.get("parent_id") or ""),
+                "title": str(item.get("title") or ""),
+                "description": str(item.get("description") or ""),
+                "acceptance": str(item.get("acceptance_criteria") or item.get("acceptance") or ""),
+                "priority": item.get("priority"),
+                "labels": sorted(str(label) for label in item.get("labels", [])),
+                "dependencies": sorted(
+                    (
+                        str(record.get("depends_on_id") or record.get("id") or ""),
+                        str(record.get("type") or record.get("dependency_type") or "blocks"),
+                    )
+                    for record in dependency_records(item)
+                ),
+            }
+        )
+    payload = json.dumps(sorted(records, key=lambda record: record["id"]), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def require_approved_scope_identity(client: BeadsClient, view: Mapping[str, Any]) -> None:
+    root = view["root"]
+    expected_scope = root_metadata_value(root, "dstack.approved_task_graph_sha256")
+    # Existing approvals created by older dStack versions have no scope
+    # identity. They remain readable for compatibility, while every approval
+    # created by this version is bound below and thereafter checked strictly.
+    if not expected_scope:
+        return
+    observed_scope = feature_scope_digest(client, view)
+    if observed_scope != expected_scope:
+        raise DstackError("feature task graph changed after approval; explicitly reauthorize")
+    approved_branch = root_metadata_value(root, "dstack.approved_target_branch")
+    approved_head = root_metadata_value(root, "dstack.approved_target_head")
+    base_branch = str(view.get("base_branch") or "")
+    if not approved_branch or not approved_head or approved_branch != base_branch:
+        raise DstackError("feature target identity changed after approval; explicitly reauthorize")
+    if current_head(client.root, approved_branch) != approved_head:
+        raise DstackError("feature target HEAD changed after approval; explicitly reauthorize")
+
+
 def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     context = feature_context(client, selector)
     context.update(feature_design_state(client, context))
     context.update(feature_authorization_state(client, context))
     require_approved_design(context)
+    require_approved_scope_identity(client, context)
     require_feature_formula_current(client, context)
     return context
 
@@ -369,6 +424,7 @@ def default_design_path(_root: Path, slug: str) -> str:
     return canonical_feature_design_path(slug)
 
 
+@serialized_repository_mutation
 def cmd_feature_initialize(args: argparse.Namespace) -> int:
     if args.slug:
         canonical_feature_design_path(str(args.slug))
@@ -376,8 +432,9 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     selector = (args.selector or args.title or "").strip()
     if not selector:
         raise DstackError("feature selector/title is required")
-    validate_git_branch(client.root, args.base_branch, name="base branch")
-    validate_git_revision(client.root, args.base_branch, name="base branch")
+    requested_base = args.base_branch or repository_default_branch(client.root)
+    validate_git_branch(client.root, requested_base, name="base branch")
+    validate_git_revision(client.root, requested_base, name="base branch")
 
     existing: dict[str, Any] | None = None
     try:
@@ -397,7 +454,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
                     branch, worktree, _, _ = ensure_feature_worktree(
                         client,
                         str(replacement_view["slug"]),
-                        str(replacement_view.get("base_branch") or args.base_branch),
+                        str(replacement_view.get("base_branch") or requested_base),
                     )
                     emit(
                         {
@@ -415,7 +472,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
             branch, worktree, _, _ = ensure_feature_worktree(
                 client,
                 str(view["slug"]),
-                str(view.get("base_branch") or args.base_branch),
+                str(view.get("base_branch") or requested_base),
             )
             emit(
                 {
@@ -451,22 +508,53 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
         exclude_ids={str(planned_source["id"])} if planned_source else frozenset(),
     )
     inherited_base = root_metadata_value(planned_source, "base_branch") if planned_source else None
-    base_branch = inherited_base or args.base_branch
+    base_branch = inherited_base or requested_base
     validate_git_branch(client.root, base_branch, name="base branch")
     validate_git_revision(client.root, base_branch, name="base branch")
-    validate_git_branch(client.root, f"feat/{slug}", name="feature branch")
-    pour = pour_current_formula(
-        client,
-        FEATURE_FORMULA,
-        {
-            "feature_title": title,
-            "feature_slug": slug,
-            "design_path": design_path,
-        },
-    )
-    root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
-    if not root_id:
-        raise DstackError("bd mol pour returned no feature root")
+    feature_branch = f"feat/{slug}"
+    validate_git_branch(client.root, feature_branch, name="feature branch")
+    if branch_exists(client.root, feature_branch):
+        raise DstackError(
+            f"feature branch already exists without a current open feature: {feature_branch}; choose a new slug"
+        )
+    before_root_ids = {str(root.get("id")) for root in feature_roots(client)}
+    try:
+        pour = pour_current_formula(
+            client,
+            FEATURE_FORMULA,
+            {
+                "feature_title": title,
+                "feature_slug": slug,
+                "design_path": design_path,
+            },
+        )
+        root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
+        if not root_id:
+            raise DstackError("bd mol pour returned no feature root")
+    except DstackError as exc:
+        if "may have changed state" not in str(exc):
+            raise
+        observed_roots = feature_roots(client)
+        created_candidates = [root for root in observed_roots if str(root.get("id")) not in before_root_ids]
+        candidates = created_candidates or [
+            root
+            for root in observed_roots
+            if root.get("status") != "closed"
+            and feature_slug(root) == slug
+            and (planned_source is None or str(root.get("id")) != str(planned_source.get("id")))
+        ]
+        ids = ", ".join(str(item.get("id")) for item in candidates) or "none"
+        if len(candidates) != 1:
+            raise DstackError(f"{exc}; poured feature recovery is ambiguous; candidate roots: {ids}") from exc
+        try:
+            current = is_current_feature(client, candidates[0])
+        except DstackError as recovery_error:
+            raise DstackError(
+                f"{exc}; poured feature root may exist but is not inspectable: {ids}; recovery_error={recovery_error}"
+            ) from exc
+        if not current:
+            raise DstackError(f"{exc}; poured feature root is incomplete and retained for inspection: {ids}") from exc
+        root_id = str(candidates[0]["id"])
 
     source_description = str(planned_source.get("description") or "") if planned_source else ""
     source_acceptance = (
@@ -497,30 +585,45 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
         if planned_source is not None:
             preserved_blockers = preserve_external_blockers(client, planned_source, root_id)
             client.supersede(str(planned_source["id"]), root_id)
-    except Exception:
+    except Exception as exc:
+        uncertainty = str(exc)
+        if "may have changed state" in uncertainty or "may have changed native state" in uncertainty:
+            raise DstackError(
+                f"{exc}; feature initialization state retained for inspection: "
+                f"root_id={root_id}; branch={feature_branch}"
+            ) from exc
+        cleanup_failures: list[str] = []
         if created_worktree:
-            run(
+            result = run(
                 [
                     "bd",
                     "worktree",
                     "remove",
-                    str(conventional_worktree(client.root, f"feat/{slug}")),
+                    str(conventional_worktree(client.root, feature_branch)),
                     "--force",
                 ],
                 cwd=client.root,
                 check=False,
             )
-        if created_branch and branch_exists(client.root, f"feat/{slug}"):
-            run(
-                ["git", "branch", "-D", "--", f"feat/{slug}"],
+            if result.returncode != 0:
+                cleanup_failures.append(f"worktree removal: {result.stderr.strip() or result.stdout.strip()}")
+        if created_branch and branch_exists(client.root, feature_branch):
+            result = run(
+                ["git", "branch", "-D", "--", feature_branch],
                 cwd=client.root,
                 check=False,
             )
-        run(
+            if result.returncode != 0:
+                cleanup_failures.append(f"branch removal: {result.stderr.strip() or result.stdout.strip()}")
+        result = run(
             ["bd", "delete", root_id, "--cascade", "--force"],
             cwd=client.root,
             check=False,
         )
+        if result.returncode != 0:
+            cleanup_failures.append(f"feature root deletion: {result.stderr.strip() or result.stdout.strip()}")
+        if cleanup_failures:
+            raise DstackError(f"{exc}; cleanup incomplete: " + "; ".join(cleanup_failures)) from exc
         raise
 
     emit(
@@ -728,6 +831,7 @@ def cmd_feature_scaffold_reconciliation(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_feature_add_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
@@ -766,6 +870,7 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_feature_reauthorize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
@@ -787,6 +892,9 @@ def cmd_feature_reauthorize(args: argparse.Namespace) -> int:
         digest_key="dstack.approved_design_sha256",
         pending_digest_key="dstack.pending_design_sha256",
     )
+    for key in ("dstack.approved_task_graph_sha256", "dstack.approved_target_branch", "dstack.approved_target_head"):
+        if root_metadata_value(client.show(root_id), key):
+            client.update(root_id, "--unset-metadata", key)
 
     root = client.show(root_id)
     specification = client.show(str(steps["specification"]["id"]))
@@ -818,6 +926,7 @@ def cmd_feature_reauthorize(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_feature_claim_spec(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
@@ -866,6 +975,7 @@ def approved_design_digest(client: BeadsClient, view: Mapping[str, Any]) -> str:
     return head_digest
 
 
+@serialized_repository_mutation
 def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
@@ -906,6 +1016,17 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         if pending != digest:
             raise DstackError(f"pending design identity did not converge: {pending!r}")
 
+    bind_identity = run(["git", "rev-parse", "--is-inside-work-tree"], cwd=client.root, check=False).returncode == 0
+    scope_digest: str | None = None
+    base_branch: str | None = None
+    target_head: str | None = None
+    if bind_identity:
+        scope_digest = feature_scope_digest(client, view)
+        base_branch = str(view.get("base_branch") or "")
+        if not base_branch:
+            raise DstackError("feature has no target branch")
+        target_head = current_head(client.root, base_branch)
+
     if specification.get("status") != "closed" and args.summary_file:
         client.add_comment(str(specification["id"]), read_text_file(args.summary_file))
     specification = close_issue_if_needed(client, specification, "Specification approved")
@@ -932,6 +1053,18 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         approved = root_metadata_value(client.show(root_id), "dstack.approved_design_sha256")
         if approved != digest:
             raise DstackError(f"approved design identity did not converge: {approved!r}")
+    if bind_identity:
+        for key, value in (
+            ("dstack.approved_task_graph_sha256", scope_digest),
+            ("dstack.approved_target_branch", base_branch),
+            ("dstack.approved_target_head", target_head),
+        ):
+            current_value = root_metadata_value(client.show(root_id), key)
+            if current_value not in (None, value):
+                raise DstackError(f"approved feature identity conflicts for {key}")
+            if current_value != value:
+                client.update(root_id, "--set-metadata", f"{key}={value}")
+
     if root_metadata_value(client.show(root_id), "dstack.pending_design_sha256"):
         client.update(
             root_id,
@@ -950,7 +1083,14 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
         "human_gate": gate.get("status"),
         "approval": approval.get("status"),
     }
-    if approved != digest or pending or any(status != "closed" for status in states.values()):
+    identity_ok = not bind_identity or (
+        root_metadata_value(observed_root, "dstack.approved_task_graph_sha256") == scope_digest
+        and root_metadata_value(observed_root, "dstack.approved_target_branch") == base_branch
+        and root_metadata_value(observed_root, "dstack.approved_target_head") == target_head
+        and feature_scope_digest(client, view) == scope_digest
+        and current_head(client.root, str(base_branch)) == target_head
+    )
+    if approved != digest or pending or not identity_ok or any(status != "closed" for status in states.values()):
         raise DstackError(
             f"specification approval did not converge: approved={approved!r}, pending={pending!r}, states={states}"
         )
@@ -970,6 +1110,7 @@ def cmd_feature_approve_spec(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_feature_claim_next(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
@@ -984,6 +1125,7 @@ def cmd_feature_claim_next(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_feature_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
@@ -1050,6 +1192,7 @@ def finish_feature_workstream(
     }
 
 
+@serialized_repository_mutation
 def cmd_feature_finish_workstream(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
@@ -1059,6 +1202,7 @@ def cmd_feature_finish_workstream(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_feature_claim_closeout(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
@@ -1104,11 +1248,14 @@ def validate_feature_documentation(client: BeadsClient, view: Mapping[str, Any])
     return validate_docs(worktree)
 
 
+@serialized_repository_mutation
 def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = approved_feature_context(client, args.selector)
     closeout_id = str(view["steps"]["closeout"]["id"])
     closeout = client.show(closeout_id)
+    evidence: dict[str, Any] | None = None
+    policy: dict[str, Any] | None = None
     documentation = validate_feature_documentation(client, view)
     if closeout.get("status") != "closed":
         closeout = claim_ready_step_with_fan_in(
@@ -1120,6 +1267,22 @@ def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
             fan_in_parent_id=str(view["steps"]["implementation"]["id"]),
             fan_in_name="feature implementation",
         )
+        if run(["git", "rev-parse", "--is-inside-work-tree"], cwd=client.root, check=False).returncode == 0:
+            from .delivery import docs_check, feature_evidence_audit
+
+            implementation_id = str(view["steps"]["implementation"]["id"])
+            view["work_items"] = [
+                item
+                for item in client.children(implementation_id)
+                if has_label(item, "dstack:work:implementation") or issue_type(item) not in {"epic", "molecule", "gate"}
+            ]
+            evidence = feature_evidence_audit(client, view, require_terminal=True)
+            if evidence["status"] != "ok":
+                raise DstackError("feature closeout evidence audit failed before terminal close")
+            branch, _, base = feature_branch_context(client, view)
+            policy = docs_check(client.root, base, branch)
+            if policy["status"] != "ok":
+                raise DstackError("feature closeout documentation policy check failed")
         if args.summary_file:
             client.add_comment(closeout_id, read_text_file(args.summary_file))
         closeout = client.close(closeout_id, args.reason)
@@ -1130,6 +1293,8 @@ def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
             "feature": view["root"]["id"],
             "closeout": closeout,
             "documentation": documentation,
+            "evidence": evidence,
+            "documentation_policy": policy,
         }
     )
     return 0

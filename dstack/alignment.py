@@ -16,14 +16,19 @@ from .core import (
     BeadsClient,
     DstackError,
     alignment_context,
+    alignment_roots,
+    alignment_slug,
     alignment_view,
     ancestry,
     branch_exists,
     conventional_worktree,
+    current_head,
     ensure_clean_worktree,
     human_gate_for_step,
     read_text_file,
+    repository_default_branch,
     run,
+    serialized_repository_mutation,
     slugify,
     validate_git_branch,
     validate_git_revision,
@@ -95,11 +100,12 @@ def cmd_alignment_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_alignment_initialize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     title = str(args.title).strip()
     scope = str(args.scope).strip()
-    target_branch = str(args.target_branch).strip()
+    target_branch = str(args.target_branch or repository_default_branch(client.root)).strip()
     if not title or not scope or not target_branch:
         raise DstackError("alignment title, scope, and target branch must be non-empty")
     slug = str(args.slug).strip() if args.slug else slugify(title)
@@ -120,18 +126,32 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
             return 0
         raise DstackError(f"project alignment is already closed: {existing['root']['id']}")
 
-    pour = pour_current_formula(
-        client,
-        ALIGNMENT_FORMULA,
-        {
-            "audit_title": title,
-            "audit_slug": slug,
-            "scope": scope,
-        },
-    )
-    root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
-    if not root_id:
-        raise DstackError("bd mol pour returned no alignment root")
+    before_root_ids = {str(root.get("id")) for root in alignment_roots(client)}
+    try:
+        pour = pour_current_formula(
+            client,
+            ALIGNMENT_FORMULA,
+            {
+                "audit_title": title,
+                "audit_slug": slug,
+                "scope": scope,
+            },
+        )
+        root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
+        if not root_id:
+            raise DstackError("bd mol pour returned no alignment root")
+    except DstackError as exc:
+        if "may have changed state" not in str(exc):
+            raise
+        observed_roots = alignment_roots(client)
+        created_candidates = [root for root in observed_roots if str(root.get("id")) not in before_root_ids]
+        candidates = created_candidates or [
+            root for root in observed_roots if root.get("status") != "closed" and alignment_slug(root) == slug
+        ]
+        ids = ", ".join(str(item.get("id")) for item in candidates) or "none"
+        if len(candidates) != 1:
+            raise DstackError(f"{exc}; poured alignment recovery is ambiguous; candidate roots: {ids}") from exc
+        root_id = str(candidates[0]["id"])
     created_branch = False
     created_worktree = False
     try:
@@ -151,9 +171,15 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
         stamp_created_formula_version(client, root_id, formula_name=ALIGNMENT_FORMULA)
         stamp_formula_version(client, [root_id], formula_name=ALIGNMENT_FORMULA)
         _, worktree, created_branch, created_worktree = ensure_branch_worktree(client, branch, target_branch)
-    except Exception:
+    except Exception as exc:
+        uncertainty = str(exc)
+        if "may have changed state" in uncertainty or "may have changed native state" in uncertainty:
+            raise DstackError(
+                f"{exc}; alignment initialization state retained for inspection: root_id={root_id}; branch={branch}"
+            ) from exc
+        cleanup_failures: list[str] = []
         if created_worktree:
-            run(
+            result = run(
                 [
                     "bd",
                     "worktree",
@@ -164,22 +190,31 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
                 cwd=client.root,
                 check=False,
             )
+            if result.returncode != 0:
+                cleanup_failures.append(f"worktree removal: {result.stderr.strip() or result.stdout.strip()}")
         if created_branch and branch_exists(client.root, branch):
-            run(
+            result = run(
                 ["git", "branch", "-D", "--", branch],
                 cwd=client.root,
                 check=False,
             )
-        run(
+            if result.returncode != 0:
+                cleanup_failures.append(f"branch removal: {result.stderr.strip() or result.stdout.strip()}")
+        result = run(
             ["bd", "delete", root_id, "--cascade", "--force"],
             cwd=client.root,
             check=False,
         )
+        if result.returncode != 0:
+            cleanup_failures.append(f"alignment root deletion: {result.stderr.strip() or result.stdout.strip()}")
+        if cleanup_failures:
+            raise DstackError(f"{exc}; cleanup incomplete: " + "; ".join(cleanup_failures)) from exc
         raise
     emit({"status": "ok", "worktree": str(worktree), **alignment_context(client, root_id)})
     return 0
 
 
+@serialized_repository_mutation
 def cmd_alignment_add_correction(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
@@ -248,6 +283,7 @@ def _reset_alignment_review_after_reauthorization(
         raise DstackError("alignment review reset did not converge")
 
 
+@serialized_repository_mutation
 def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
@@ -271,6 +307,9 @@ def cmd_alignment_reauthorize(args: argparse.Namespace) -> int:
         digest_key="dstack.approved_alignment_review_sha256",
         pending_digest_key="dstack.pending_alignment_review_sha256",
     )
+    for key in ("dstack.approved_target_branch", "dstack.approved_target_head"):
+        if root_metadata_value(view["root"], key):
+            client.update(root_id, "--unset-metadata", key)
 
     analysis = client.show(str(steps["analysis"]["id"]))
     _reset_alignment_review_after_reauthorization(client, view, analysis)
@@ -301,6 +340,7 @@ def _is_unfinished_formula_analysis(description: Any) -> bool:
     return isinstance(description, str) and description.lstrip().startswith("Analyze ")
 
 
+@serialized_repository_mutation
 def cmd_alignment_finish_plan(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
@@ -385,10 +425,19 @@ def cmd_alignment_finish_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_alignment_approve(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
     root_id = str(view["root"]["id"])
+    bind_target = run(["git", "rev-parse", "--is-inside-work-tree"], cwd=client.root, check=False).returncode == 0
+    target_branch: str | None = None
+    target_head: str | None = None
+    if bind_target:
+        target_branch = str(view.get("target_branch") or "")
+        if not target_branch:
+            raise DstackError("alignment has no target branch")
+        target_head = current_head(client.root, target_branch)
     analysis = client.show(str(view["steps"]["analysis"]["id"]))
     authority, _, digest = canonical_description(client, view, analysis)
     if analysis.get("status") != "closed":
@@ -429,6 +478,16 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
         )
         if root_plan_metadata(client, root_id)[1] != digest:
             raise DstackError("approved alignment review identity did not converge")
+    if bind_target:
+        for key, value in (
+            ("dstack.approved_target_branch", target_branch),
+            ("dstack.approved_target_head", target_head),
+        ):
+            current_value = root_metadata_value(client.show(root_id), key)
+            if current_value not in (None, value):
+                raise DstackError(f"approved alignment target identity conflicts for {key}")
+            if current_value != value:
+                client.update(root_id, "--set-metadata", f"{key}={value}")
     if pending is not None:
         client.update(root_id, "--unset-metadata", "dstack.pending_alignment_review_sha256")
         if root_plan_metadata(client, root_id)[0] is not None:
@@ -436,6 +495,8 @@ def cmd_alignment_approve(args: argparse.Namespace) -> int:
     authorized_view = alignment_context(client, root_id)
     authorized_view["human_gate"] = client.show(str(gate["id"]))
     require_alignment_authorized(client, authorized_view)
+    if bind_target and current_head(client.root, str(target_branch)) != target_head:
+        raise DstackError("alignment target HEAD changed during approval; explicitly reauthorize")
     emit(
         {
             "status": "ok",
@@ -456,7 +517,17 @@ def require_alignment_approval(client: BeadsClient, view: Mapping[str, Any]) -> 
         if view["steps"]["approval"].get("status") != "closed":
             raise DstackError("alignment approval milestone is not closed")
         return {}
-    return require_alignment_authorized(client, view)
+    authority = require_alignment_authorized(client, view)
+    root = client.show(str(view["root"]["id"]))
+    target_branch = str(view.get("target_branch") or "")
+    approved_branch = root_metadata_value(root, "dstack.approved_target_branch")
+    approved_head = root_metadata_value(root, "dstack.approved_target_head")
+    if approved_branch or approved_head:
+        if approved_branch != target_branch or not approved_head:
+            raise DstackError("alignment target identity changed after approval; explicitly reauthorize")
+        if current_head(client.root, target_branch) != approved_head:
+            raise DstackError("alignment target HEAD changed after approval; explicitly reauthorize")
+    return authority
 
 
 def alignment_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tuple[str, Path, str]:
@@ -475,6 +546,7 @@ def alignment_branch_context(client: BeadsClient, view: Mapping[str, Any]) -> tu
     return branch, worktree, target
 
 
+@serialized_repository_mutation
 def cmd_alignment_claim_next(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
@@ -490,6 +562,7 @@ def cmd_alignment_claim_next(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_alignment_finish_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
@@ -554,6 +627,7 @@ def finish_alignment_workstream(client: BeadsClient, view: Mapping[str, Any], *,
     }
 
 
+@serialized_repository_mutation
 def cmd_alignment_finish_workstream(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
@@ -563,6 +637,7 @@ def cmd_alignment_finish_workstream(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_alignment_claim_landing(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)
@@ -585,6 +660,7 @@ def cmd_alignment_claim_landing(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_alignment_finish_landing(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = alignment_context(client, args.selector)

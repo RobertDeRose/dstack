@@ -8,6 +8,9 @@ no database, cache, packet format, readiness calculation, or workflow state.
 from __future__ import annotations
 
 import builtins
+from contextlib import contextmanager
+from functools import wraps
+import fcntl
 import hashlib
 import json
 import os
@@ -157,6 +160,62 @@ def run(
         detail = completed.stderr.strip() or completed.stdout.strip()
         raise DstackError(f"command failed ({' '.join(command)}): {detail}")
     return result
+
+
+@contextmanager
+def repository_mutation_lock(root: Path):
+    """Serialize dstack graph/Git mutations for one repository.
+
+    The lock lives in Git's common directory so linked worktrees share the
+    same boundary. It intentionally protects only dstack controller
+    operations; native mutations performed outside dstack are detected by the
+    final rereads/generation checks at each boundary.
+    """
+
+    result = run(["git", "rev-parse", "--git-common-dir"], cwd=root, check=False)
+    common = result.stdout.strip()
+    if result.returncode == 0 and common:
+        common_path = Path(common)
+        if not common_path.is_absolute():
+            common_path = (root / common_path).resolve()
+        lock_path = common_path / "dstack-mutation.lock"
+    else:
+        # Protocol-focused unit tests use lightweight non-Git roots. Real CLI
+        # invocations are still rooted by client_for/git_root.
+        lock_path = root.resolve() / ".dstack-mutation.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError as exc:
+        raise DstackError(f"cannot acquire repository mutation lock: {lock_path}") from exc
+
+
+def serialized_repository_mutation(func):
+    """Serialize one argparse controller mutation for its Git repository."""
+
+    @wraps(func)
+    def wrapped(args):
+        try:
+            root = git_root(args.root)
+        except DstackError:
+            root = Path(args.root).resolve()
+        with repository_mutation_lock(root):
+            return func(args)
+
+    return wrapped
+
+
+def repository_default_branch(root: Path) -> str:
+    """Use the documented dev-first target policy with main as fallback."""
+
+    if run(["git", "show-ref", "--verify", "--quiet", "refs/heads/dev"], cwd=root, check=False).returncode == 0:
+        return "dev"
+    return "main"
 
 
 def parse_json(text: str, *, context: str) -> Any:
