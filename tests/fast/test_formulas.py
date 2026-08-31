@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import subprocess
 import threading
 import tomllib
 from pathlib import Path
@@ -103,6 +105,34 @@ def test_infrastructure_checks_beads_before_initializing(monkeypatch, tmp_path: 
     assert infrastructure["beads_version"] == "bd version 1.2.2 (6c124203e)"
 
 
+def test_beads_initialization_uses_repository_mutation_lock(monkeypatch, tmp_path: Path) -> None:
+    events: list[str] = []
+
+    @contextmanager
+    def locked(root: Path):
+        assert root == tmp_path
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    def run(command, *, cwd, **kwargs):
+        del kwargs
+        assert cwd == tmp_path
+        assert events == ["enter"]
+        assert command[:2] == ["bd", "init"]
+        (tmp_path / ".beads").mkdir()
+        return None
+
+    monkeypatch.setattr(dstack_formula, "git_root", lambda root: tmp_path)
+    monkeypatch.setattr(dstack_formula, "repository_mutation_lock", locked)
+    monkeypatch.setattr(dstack_formula, "run", run)
+
+    assert dstack_formula.ensure_beads_initialized(tmp_path) == (tmp_path, True)
+    assert events == ["enter", "exit"]
+
+
 def test_concurrent_formula_pours_are_serialized(git_repo: Path) -> None:
     destination = git_repo / ".beads/formulas/dstack-feature.formula.toml"
     first = dstack_formula.current_formula_for_pour(type("Client", (), {"root": git_repo})(), "dstack-feature")
@@ -148,6 +178,60 @@ def test_formula_pour_uses_package_bytes_without_persistent_cache(git_repo: Path
 
     assert pour_current_formula(Client(), "dstack-feature", {"feature_title": "Demo"}) == {"root_id": "feature-1"}
     assert not destination.exists()
+
+
+def test_untracked_identical_formula_residue_is_cleaned(git_repo: Path) -> None:
+    destination = git_repo / ".beads/formulas/dstack-feature.formula.toml"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes((ROOT / "dstack/assets/formulas/dstack-feature.formula.toml").read_bytes())
+
+    with dstack_formula.current_formula_for_pour(type("Client", (), {"root": git_repo})(), "dstack-feature"):
+        assert destination.is_file()
+
+    assert not destination.exists()
+
+
+def test_interrupted_owned_formula_residue_is_recovered(git_repo: Path) -> None:
+    destination = git_repo / ".beads/formulas/dstack-feature.formula.toml"
+    owner = dstack_formula._formula_owner_path(git_repo, "dstack-feature")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes((ROOT / "dstack/assets/formulas/dstack-feature.formula.toml").read_bytes())
+    owner.write_text("remove\n")
+
+    with dstack_formula.current_formula_for_pour(type("Client", (), {"root": git_repo})(), "dstack-feature"):
+        assert destination.is_file()
+        assert owner.is_file()
+
+    assert not destination.exists()
+    assert not owner.exists()
+
+
+@pytest.mark.parametrize("replacement_written", [False, True])
+def test_interrupted_tracked_formula_replacement_restores_original(
+    git_repo: Path, replacement_written: bool
+) -> None:
+    destination = git_repo / ".beads/formulas/dstack-feature.formula.toml"
+    owner = dstack_formula._formula_owner_path(git_repo, "dstack-feature")
+    backup = dstack_formula._formula_backup_path(git_repo, "dstack-feature")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text("legacy tracked formula\n")
+    subprocess.run(["git", "add", ".beads/formulas/dstack-feature.formula.toml"], cwd=git_repo, check=True)
+
+    original = destination.read_bytes()
+    source = (ROOT / "dstack/assets/formulas/dstack-feature.formula.toml").read_bytes()
+    backup.write_bytes(original)
+    owner.write_text("restore\n")
+    if replacement_written:
+        destination.write_bytes(source)
+
+    with dstack_formula.current_formula_for_pour(type("Client", (), {"root": git_repo})(), "dstack-feature"):
+        assert destination.read_bytes() == source
+        assert owner.read_text() == "restore\n"
+        assert backup.read_bytes() == original
+
+    assert destination.read_bytes() == original
+    assert not owner.exists()
+    assert not backup.exists()
 
 
 def test_tracked_legacy_formula_is_not_migrated_and_pour_uses_package_bytes(tmp_path: Path) -> None:

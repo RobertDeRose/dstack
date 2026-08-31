@@ -36,6 +36,21 @@ def test_cli_is_a_normal_importable_python_package() -> None:
     assert cli.main(["--version"]) == 0
 
 
+def test_repository_mutating_controller_commands_are_serialized() -> None:
+    from dstack import delivery, feature
+
+    for command in (
+        feature.cmd_feature_plan,
+        feature.cmd_feature_scaffold_design,
+        feature.cmd_feature_scaffold_reconciliation,
+        delivery.cmd_git_commit,
+        delivery.cmd_git_amend,
+        delivery.cmd_delivery_pr_preflight,
+        delivery.cmd_delivery_finalize_pr,
+    ):
+        assert hasattr(command, "__wrapped__"), command.__name__
+
+
 def test_release_check_validates_installed_wheel_assets() -> None:
     script = (ROOT / "scripts/release-check.sh").read_text()
     assert 'install_skills --agent-dir "$agent_dir"' in script

@@ -135,6 +135,7 @@ def require_unique_open_feature_slug(
         raise DstackError(f"an open feature root already uses slug {slug}: " + ", ".join(conflicts))
 
 
+@serialized_repository_mutation
 def cmd_feature_plan(args: argparse.Namespace) -> int:
     """Create or update one planned feature through the controller."""
 
@@ -617,6 +618,7 @@ def ensure_feature_navigation(
     )
 
 
+@serialized_repository_mutation
 def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)
@@ -657,6 +659,7 @@ def cmd_feature_scaffold_design(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_feature_scaffold_reconciliation(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     view = feature_context(client, args.selector)

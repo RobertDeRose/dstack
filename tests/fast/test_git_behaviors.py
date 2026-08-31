@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -108,6 +109,54 @@ def test_command_timeout_env_must_be_positive(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("DSTACK_COMMAND_TIMEOUT_SECONDS", "0")
     with pytest.raises(DstackError, match="must be positive"):
         dstacklib.command_timeout(["git", "status"])
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_command_timeout_env_must_be_finite(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("DSTACK_COMMAND_TIMEOUT_SECONDS", value)
+    with pytest.raises(DstackError, match="finite"):
+        dstacklib.command_timeout(["git", "status"])
+
+
+@pytest.mark.parametrize("timeout", [float("nan"), float("inf"), float("-inf"), 0.0])
+def test_explicit_command_timeout_must_be_finite_and_positive(git_repo: Path, timeout: float) -> None:
+    with pytest.raises(DstackError, match="positive and finite"):
+        dstacklib.run(["git", "status"], cwd=git_repo, timeout=timeout)
+
+
+def test_repository_mutation_lock_is_reentrant(git_repo: Path) -> None:
+    with dstacklib.repository_mutation_lock(git_repo):
+        with dstacklib.repository_mutation_lock(git_repo):
+            pass
+
+
+def test_repository_mutation_lock_serializes_threads(git_repo: Path) -> None:
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_entered = threading.Event()
+
+    def first() -> None:
+        with dstacklib.repository_mutation_lock(git_repo):
+            first_entered.set()
+            assert release_first.wait(1)
+
+    def second() -> None:
+        assert first_entered.wait(1)
+        with dstacklib.repository_mutation_lock(git_repo):
+            second_entered.set()
+
+    first_thread = threading.Thread(target=first)
+    second_thread = threading.Thread(target=second)
+    first_thread.start()
+    second_thread.start()
+    try:
+        assert first_entered.wait(1)
+        assert not second_entered.wait(0.05)
+    finally:
+        release_first.set()
+    assert second_entered.wait(1)
+    first_thread.join()
+    second_thread.join()
 
 
 def test_clean_worktree_rejects_untracked_files(git_repo: Path) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -26,6 +27,8 @@ def run_command(
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     effective_timeout = timeout or float(os.environ.get("DSTACK_ACCEPTANCE_COMMAND_TIMEOUT", "120"))
+    if not math.isfinite(effective_timeout) or effective_timeout <= 0:
+        raise ValueError("acceptance command timeout must be positive and finite")
     try:
         result = subprocess.run(
             command,

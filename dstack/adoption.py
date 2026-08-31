@@ -52,7 +52,7 @@ RELATIONS = frozenset(
         "duplicates",
     }
 )
-_EXECUTABLE_TYPES = frozenset({"task", "bug", "chore"})
+EXECUTABLE_REPLACEMENT_TYPES = frozenset({"task", "bug", "chore"})
 _SUPPORTED_ISSUE_TYPES = frozenset({"task", "bug", "feature", "epic", "molecule", "gate", "chore", "message"})
 _DESIGN_SECTION = re.compile(r"^(?P<path>[^#]+)#(?P<heading>[^#]+)$")
 
@@ -312,7 +312,7 @@ def _validate_relation_compatibility(
     if not source_kind or not target_kind or not source.get("status") or not target.get("status"):
         raise DstackError(f"relationship endpoint lacks native status/type: {source_id} -> {target_id}")
     if relation == "blocks" and source_id != legacy_root_id and target_id != legacy_root_id:
-        compatible_gate = source_kind in _EXECUTABLE_TYPES and target_kind == "gate"
+        compatible_gate = source_kind in EXECUTABLE_REPLACEMENT_TYPES and target_kind == "gate"
         if source_kind != target_kind and not compatible_gate:
             raise DstackError(
                 f"incompatible blocks relationship: {source_id} ({source_kind}) -> {target_id} ({target_kind})"
@@ -603,7 +603,7 @@ def plan_adoption(
     executable = sorted(
         item_id
         for item_id, item in by_id.items()
-        if item.get("status") not in {"closed", "deferred"} and issue_type(item) in _EXECUTABLE_TYPES
+        if item.get("status") not in {"closed", "deferred"} and issue_type(item) in EXECUTABLE_REPLACEMENT_TYPES
     )
     entry_ids = [str(item["legacy_id"]) for item in entries]
     if len(set(entry_ids)) != len(entry_ids):
@@ -737,13 +737,18 @@ def plan_adoption(
         replacement = entry.get("replacement")
         if replacement is None:
             continue
+        source_type = issue_type(by_id[item_id])
+        if source_type not in EXECUTABLE_REPLACEMENT_TYPES:
+            raise DstackError(
+                f"replacement source must be executable task, bug, or chore: {item_id} ({source_type or 'unknown'})"
+            )
         reject_documentation_work(replacement["title"], stage="implementation")
         parent_id = steps.get(FEATURE_STEPS["implementation"])
         approval_id = steps.get(FEATURE_STEPS["approval"])
         replacements.append(
             {
                 "legacy_id": item_id,
-                "source_type": issue_type(by_id[item_id]),
+                "source_type": source_type,
                 "action": "create-or-reuse",
                 "replacement": dict(replacement),
                 "parent_id": parent_id,

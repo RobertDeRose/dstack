@@ -23,7 +23,9 @@ from .core import (
     alignment_context,
     ancestry,
     blocker_ids,
-    commit_footer_ids,
+    commits_for_bead,
+    commit_records_for_bead,
+    commit_records_for_beads,
     commit_records,
     current_head,
     dependency_records,
@@ -43,6 +45,7 @@ from .core import (
     repository_mutation_lock,
     ref_exists,
     run,
+    serialized_repository_mutation,
     validate_git_branch,
     validate_git_revision,
     verify_worktree_identity,
@@ -73,6 +76,7 @@ class _CommitHistory:
 
     def __init__(self) -> None:
         self._records: dict[tuple[Path, str], list[dict[str, Any]]] = {}
+        self._selected_records: dict[tuple[Path, str, tuple[str, ...]], list[dict[str, Any]]] = {}
 
     def records(self, root: Path, ref_range: str) -> list[dict[str, Any]]:
         key = (root.resolve(), ref_range)
@@ -82,6 +86,21 @@ class _CommitHistory:
 
     def mapping(self, root: Path, ref_range: str) -> dict[str, list[dict[str, Any]]]:
         return footer_mapping(self.records(root, ref_range))
+
+    def for_beads(self, root: Path, ref_range: str, bead_ids: Sequence[str]) -> list[dict[str, Any]]:
+        selected = tuple(dict.fromkeys(str(item) for item in bead_ids if item))
+        key = (root.resolve(), ref_range, selected)
+        if key not in self._selected_records:
+            self._selected_records[key] = commit_records_for_beads(root, ref_range, selected)
+        return self._selected_records[key]
+
+    def mapping_for_beads(
+        self,
+        root: Path,
+        ref_range: str,
+        bead_ids: Sequence[str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        return footer_mapping(self.for_beads(root, ref_range, bead_ids))
 
 
 def read_commit_message(subject: str, body_file: Path | None, bead: str) -> str:
@@ -152,6 +171,7 @@ def commit_with_message(root: Path, message: str, *, amend: bool) -> str:
     return current_head(root)
 
 
+@serialized_repository_mutation
 def cmd_git_commit(args: argparse.Namespace) -> int:
     root = git_root(args.root)
     commit = commit_with_message(
@@ -163,6 +183,7 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_git_amend(args: argparse.Namespace) -> int:
     root = git_root(args.root)
     head_message = run(["git", "log", "-1", "--format=%B"], cwd=root).stdout
@@ -179,8 +200,7 @@ def cmd_git_amend(args: argparse.Namespace) -> int:
 
 def cmd_evidence_commits(args: argparse.Namespace) -> int:
     root = git_root(args.root)
-    mapping = commit_footer_ids(root, args.ref)
-    emit({"status": "ok", "bead": args.bead, "commits": mapping.get(args.bead, [])})
+    emit({"status": "ok", "bead": args.bead, "commits": commits_for_bead(root, args.ref, args.bead)})
     return 0
 
 
@@ -379,7 +399,7 @@ def immutable_candidate_revision(root: Path, search_ref: str, closeout_id: str) 
     """Derive the latest closeout-footer commit without persisting a Git mapping."""
 
     validate_git_revision(root, search_ref, name="candidate search ref")
-    records = commit_records(root, search_ref)
+    records = commit_records_for_bead(root, search_ref, closeout_id)
     revision = _latest_footer_commit(root, records, [closeout_id], name="closeout")
     if revision is None:
         raise DstackError(f"immutable candidate revision is unavailable for {closeout_id} on {search_ref}: found 0")
@@ -422,7 +442,7 @@ def delivered_candidate_revision(
     for ref in refs:
         revision = _latest_footer_commit(
             root,
-            history.records(root, ref),
+            history.for_beads(root, ref, [closeout_id]),
             [closeout_id],
             name=f"closeout {closeout_id}",
         )
@@ -449,8 +469,13 @@ def alignment_candidate_revision(
 
     validate_git_revision(root, search_ref, name="alignment candidate search ref")
     history = history or _CommitHistory()
-    records = history.records(root, search_ref)
     landing_id = str(view["steps"]["landing"]["id"])
+    corrections = list(view["corrections"])
+    changing = [
+        item for item in corrections if not str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
+    ]
+    expected = [str(item["id"]) for item in changing]
+    records = history.for_beads(root, search_ref, [landing_id, *expected])
     landing = _latest_footer_commit(
         root,
         records,
@@ -460,14 +485,9 @@ def alignment_candidate_revision(
     if landing is not None:
         return landing, "latest reachable landing Beads footer"
 
-    corrections = list(view["corrections"])
     open_ids = sorted(str(item["id"]) for item in corrections if item.get("status") != "closed")
     if open_ids:
         raise DstackError("alignment candidate evidence has nonterminal corrections: " + ", ".join(open_ids))
-    changing = [
-        item for item in corrections if not str(item.get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX)
-    ]
-    expected = [str(item["id"]) for item in changing]
     mapping = footer_mapping(records)
     missing = sorted(item for item in expected if not mapping.get(item))
     if missing:
@@ -648,11 +668,11 @@ def _delivered_evidence_audit(client: BeadsClient, view: Mapping[str, Any], *, k
         elif str(steps[terminal].get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX):
             no_repository_change.append(terminal_id)
             no_repository_change.sort()
-    reachable = history.mapping(client.root, candidate)
+    reachable = history.mapping_for_beads(client.root, candidate, sorted(expected))
     missing = sorted(item for item in expected if not reachable.get(item))
     mapping = {item: reachable[item] for item in sorted(expected) if reachable.get(item)}
     multiple, malformed = footer_cardinality(reachable, expected)
-    target_reachable = history.mapping(client.root, search_ref)
+    target_reachable = history.mapping_for_beads(client.root, search_ref, sorted(expected))
     candidate_commits = {item: {str(record["commit"]) for record in reachable.get(item, [])} for item in expected}
     wrong_source = sorted(
         item
@@ -1035,10 +1055,13 @@ def _git_snapshot(root: Path) -> tuple[str, str]:
 def cmd_delivery_inspect(args: argparse.Namespace) -> int:
     client = client_for(args.root, initialize=False)
     if args.fetch:
-        remote = run(["git", "remote", "get-url", "origin"], cwd=client.root, check=False)
-        if remote.returncode == 0:
-            run(["git", "fetch", "origin", "--prune"], cwd=client.root)
-    payload = delivery_inspection(client, args.selector)
+        with repository_mutation_lock(client.root):
+            remote = run(["git", "remote", "get-url", "origin"], cwd=client.root, check=False)
+            if remote.returncode == 0:
+                run(["git", "fetch", "origin", "--prune"], cwd=client.root)
+            payload = delivery_inspection(client, args.selector)
+    else:
+        payload = delivery_inspection(client, args.selector)
     emit({"status": "ok", **payload})
     return 0
 
@@ -1124,6 +1147,7 @@ def validate_pr_copy(
     }
 
 
+@serialized_repository_mutation
 def cmd_delivery_pr_preflight(args: argparse.Namespace) -> int:
     client = client_for(args.root, initialize=False)
     run(["git", "fetch", "origin", "--prune"], cwd=client.root)
@@ -1699,6 +1723,7 @@ def cmd_delivery_merge(args: argparse.Namespace) -> int:
         return _cmd_delivery_merge_unlocked(args)
 
 
+@serialized_repository_mutation
 def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     payload = delivery_view(client, args.selector)

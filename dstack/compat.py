@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from .adoption import (
     SCHEMA as ADOPTION_CLASSIFICATION_SCHEMA,
+    EXECUTABLE_REPLACEMENT_TYPES,
     adoption_graph_snapshot,
     adoption_plan_graph_matches,
     canonicalize_classification,
@@ -40,6 +41,8 @@ from .core import (
     repository_default_branch,
     slugify,
     serialized_repository_mutation,
+    validate_git_branch,
+    validate_git_revision,
 )
 
 from .formula import FEATURE_FORMULA, pour_current_formula, stamp_created_formula_version
@@ -148,13 +151,21 @@ def _classification_from_args(
             raise DstackError(f"adoption item was classified more than once: {issue_id}")
         entries[issue_id] = {"legacy_id": issue_id, **entry}
 
+    def require_executable_replacement(issue_id: str, option: str) -> dict[str, Any]:
+        record = record_for(issue_id)
+        kind = str(record.get("issue_type") or record.get("type") or "")
+        if kind not in EXECUTABLE_REPLACEMENT_TYPES:
+            raise DstackError(f"{option} requires a task, bug, or chore source: {issue_id} ({kind or 'unknown'})")
+        return record
+
     for issue_id in args.remaining:
+        record = require_executable_replacement(issue_id, "--remaining")
         add(
             issue_id,
             {
                 "classification": "remaining-implementation",
                 "reason": "Explicitly selected as remaining implementation work.",
-                "replacement": _replacement_for(record_for(issue_id)),
+                "replacement": _replacement_for(record),
             },
         )
     for issue_id in args.spec_ceremony:
@@ -202,6 +213,7 @@ def _classification_from_args(
             },
         )
     for issue_id in args.recreate:
+        record = require_executable_replacement(issue_id, "--recreate")
         add(
             issue_id,
             {
@@ -209,7 +221,7 @@ def _classification_from_args(
                 "reason": "Explicitly recreated under the current implementation workstream.",
                 "strategy": "recreate",
                 "surviving_parent": None,
-                "replacement": _replacement_for(record_for(issue_id)),
+                "replacement": _replacement_for(record),
             },
         )
     for value in args.incorporated_decision:
@@ -377,6 +389,8 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
         plan,
         legacy_root_id=str(legacy["id"]),
     )
+    validate_git_branch(client.root, base, name="base branch")
+    validate_git_revision(client.root, base, name="base branch")
 
     current = current_feature_for_slug(client, slug, exclude_id=str(legacy["id"]))
     if current is None:

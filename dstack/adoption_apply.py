@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .adoption import (
+    EXECUTABLE_REPLACEMENT_TYPES,
     PLAN_SCHEMA,
     RELATIONS,
     _section,
@@ -728,8 +729,10 @@ def _replacement_for(
 ) -> str:
     old_id = str(old["id"])
     old_kind = issue_type(old)
-    if not old_kind:
-        raise DstackError(f"adoption issue has no native type: {old_id}")
+    if old_kind not in EXECUTABLE_REPLACEMENT_TYPES:
+        raise DstackError(
+            f"replacement source must be executable task, bug, or chore: {old_id} ({old_kind or 'unknown'})"
+        )
     replacement = spec["replacement"]
     reject_documentation_work(replacement["title"], stage="implementation")
     existing = _replacement_association(client, old, implementation_id=implementation_id)
@@ -823,8 +826,11 @@ def validate_adoption_preflight(
                 raise DstackError(f"target {name} step is assigned")
     for spec in plan.get("replacements", []):
         source_type = str(spec.get("source_type") or "")
-        if not source_type:
-            raise DstackError(f"replacement has no native source type: {spec['legacy_id']}")
+        if source_type not in EXECUTABLE_REPLACEMENT_TYPES:
+            raise DstackError(
+                "replacement source must be executable task, bug, or chore: "
+                f"{spec['legacy_id']} ({source_type or 'unknown'})"
+            )
         if target_view is not None:
             _replacement_blocker_id(client, target_view, spec, _step_id(target_view, "approval"))
     inventory = plan.get("inventory")
@@ -885,32 +891,118 @@ def validate_adoption_preflight(
             raise DstackError(f"planned blocker remap is not native-compatible: {source_kind} -> {target_kind}")
 
 
-def validate_target_topology(client: BeadsClient, root_id: str) -> dict[str, Any]:
+def _validate_target_root(client: BeadsClient, root_id: str) -> dict[str, Any]:
     root = client.show(root_id)
     if root.get("status") not in {"open", "claimed", "in_progress"}:
         raise DstackError("new feature root has invalid status")
-    if issue_type(root) not in {"epic", "molecule", "feature"} or root.get("assignee") not in (
-        None,
-        "",
-    ):
+    if issue_type(root) not in {"epic", "molecule", "feature"} or root.get("assignee") not in (None, ""):
         raise DstackError("new feature root has invalid native topology")
-    children = client.children(root_id)
-    expected = {
+    return root
+
+
+def _validate_target_step_ids(
+    client: BeadsClient,
+    root_id: str,
+    step_ids: Mapping[str, str],
+    *,
+    allow_closed_steps: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    root = _validate_target_root(client, root_id)
+    expected_types = {
         "specification": "task",
         "approval": "task",
-        "closeout": "task",
         "implementation": "epic",
+        "closeout": "task",
     }
-    steps = {name: step_by_label(children, label) for name, label in FEATURE_STEPS.items()}
-    for name, expected_type in expected.items():
-        step = steps[name]
+    steps: dict[str, dict[str, Any]] = {}
+    for name, expected_type in expected_types.items():
+        step = client.show(step_ids[name])
         if issue_type(step) != expected_type:
             raise DstackError(f"target {name} step has incompatible native type")
-        if step.get("status") not in {"open", "claimed", "in_progress"}:
+        if issue_parent(step) != root_id or not has_label(step, FEATURE_STEPS[name]):
+            raise DstackError(f"target {name} step drifted outside the current feature topology")
+        allowed = {"open", "claimed", "in_progress"}
+        if name in allow_closed_steps:
+            allowed.add("closed")
+        if step.get("status") not in allowed:
             raise DstackError(f"target {name} step has invalid status")
         if step.get("assignee") not in (None, ""):
             raise DstackError(f"target {name} step is assigned")
+        steps[name] = step
     return {"root": root, "steps": steps}
+
+
+def validate_target_topology(
+    client: BeadsClient,
+    root_id: str,
+    *,
+    allow_closed_steps: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    # Validate the container before deriving lifecycle identity from its children.
+    # Otherwise a malformed/closed root can be masked by a secondary missing-step error.
+    _validate_target_root(client, root_id)
+    children = client.children(root_id)
+    step_ids = {name: str(step_by_label(children, label)["id"]) for name, label in FEATURE_STEPS.items()}
+    return _validate_target_step_ids(
+        client,
+        root_id,
+        step_ids,
+        allow_closed_steps=allow_closed_steps,
+    )
+
+
+def _validate_surviving_parent(
+    client: BeadsClient,
+    parent_id: str,
+    *,
+    legacy_ids: set[str],
+) -> None:
+    if not parent_id:
+        raise DstackError("reparent target is missing")
+    if parent_id in legacy_ids:
+        raise DstackError(f"surviving_parent drifted inside the legacy root: {parent_id}")
+    parent = client.show(parent_id)
+    if parent.get("status") not in {"open", "claimed", "in_progress"}:
+        raise DstackError(f"surviving_parent is not open: {parent_id}")
+    if issue_type(parent) not in {"epic", "molecule"}:
+        raise DstackError(f"surviving_parent is not an open container: {parent_id}")
+
+    # A concurrent native reparent can move the nominated container under the
+    # legacy graph without changing the container itself. Follow the live
+    # ancestry so containment drift is rejected immediately before use.
+    seen = {parent_id}
+    ancestor_id = issue_parent(parent)
+    while ancestor_id:
+        if ancestor_id in legacy_ids:
+            raise DstackError(f"surviving_parent drifted inside the legacy root: {parent_id}")
+        if ancestor_id in seen:
+            raise DstackError(f"surviving_parent has cyclic native parentage: {parent_id}")
+        seen.add(ancestor_id)
+        ancestor = client.show(ancestor_id)
+        ancestor_id = issue_parent(ancestor)
+
+
+def _validate_surviving_parents(
+    client: BeadsClient,
+    entries: list[Mapping[str, Any]],
+    *,
+    legacy_root_id: str,
+) -> set[str]:
+    reparent_entries = [
+        entry
+        for entry in entries
+        if entry.get("classification") == "preserved-unchanged" and entry.get("strategy") == "reparent"
+    ]
+    legacy_ids = {legacy_root_id, *(str(entry["legacy_id"]) for entry in entries)}
+    if not reparent_entries:
+        return legacy_ids
+    legacy_ids.update(str(item["id"]) for item in descendants(client, legacy_root_id))
+    for entry in reparent_entries:
+        parent_id = str(entry.get("surviving_parent") or "")
+        if not parent_id:
+            raise DstackError(f"reparent target is missing for {entry['legacy_id']}")
+        _validate_surviving_parent(client, parent_id, legacy_ids=legacy_ids)
+    return legacy_ids
 
 
 def _validate_prior_supersessions(
@@ -969,15 +1061,25 @@ def execute_adoption_plan(
 ) -> dict[str, Any]:
     if plan.get("schema") != PLAN_SCHEMA or plan.get("legacy_root_id") != legacy_root_id:
         raise DstackError("adoption plan identity does not match the selected root")
-    implementation_id, approval_id, specification_id = (
-        _step_id(view, n) for n in ("implementation", "approval", "specification")
-    )
     entries = plan.get("entries")
     if not isinstance(entries, list):
         raise DstackError("adoption plan entries are invalid")
     replacements = plan.get("replacements", [])
     if not isinstance(replacements, list):
         raise DstackError("adoption plan replacements are invalid")
+    for spec in replacements:
+        old_id = str(spec["legacy_id"])
+        live_type = issue_type(client.show(old_id))
+        planned_type = str(spec.get("source_type") or live_type or "")
+        if live_type not in EXECUTABLE_REPLACEMENT_TYPES or planned_type not in EXECUTABLE_REPLACEMENT_TYPES:
+            raise DstackError(
+                f"replacement source must be executable task, bug, or chore: {old_id} ({live_type or planned_type or 'unknown'})"
+            )
+        if spec.get("source_type") and planned_type != live_type:
+            raise DstackError(f"replacement source type drifted before adoption mutation: {old_id}")
+    implementation_id, approval_id, specification_id = (
+        _step_id(view, n) for n in ("implementation", "approval", "specification")
+    )
     _validate_prior_supersessions(
         client,
         entries,
@@ -996,6 +1098,13 @@ def execute_adoption_plan(
     replacement_ids: dict[str, str] = {}
     reserved: set[str] = set()
     approved_retry = _approved_incorporated_retry(client, plan, view)
+    _validate_target_step_ids(
+        client,
+        new_root_id,
+        {name: _step_id(view, name) for name in FEATURE_STEPS},
+        allow_closed_steps=frozenset({"specification", "approval"}) if approved_retry else frozenset(),
+    )
+    legacy_topology_ids = _validate_surviving_parents(client, entries, legacy_root_id=legacy_root_id)
     for op in plan.get("relationship_operations", []):
         if op.get("decision") in {"redirect", "deferred-redirect"} and op.get("target_step"):
             step_name = str(op["target_step"])
@@ -1139,6 +1248,15 @@ def execute_adoption_plan(
     prior_root_target = superseded_target(client.show(legacy_root_id))
     if prior_root_target and prior_root_target != new_root_id:
         raise DstackError("unexpected legacy root supersession target")
+    # Replacement creation and decision staging are Beads mutations. Reread
+    # the target lifecycle immediately before relationship rewrites so native
+    # parent/label/status drift cannot redirect edges to stale step IDs.
+    _validate_target_step_ids(
+        client,
+        new_root_id,
+        {name: _step_id(view, name) for name in FEATURE_STEPS},
+        allow_closed_steps=frozenset({"specification", "approval"}) if approved_retry else frozenset(),
+    )
     postcondition = (
         _adoption_postcondition(
             expected_graph,
@@ -1189,6 +1307,11 @@ def execute_adoption_plan(
     for entry in entries:
         if entry["classification"] == "preserved-unchanged" and entry["strategy"] == "reparent":
             old_id, parent = str(entry["legacy_id"]), str(entry["surviving_parent"])
+            _validate_surviving_parent(
+                client,
+                parent,
+                legacy_ids=legacy_topology_ids,
+            )
             current = _require_open_unassigned(client, old_id)
             if issue_parent(current) != parent:
                 client.update(old_id, "--parent", parent)

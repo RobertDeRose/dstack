@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import subprocess
 from pathlib import Path
+from typing import Sequence
 
 import pytest
 
@@ -74,6 +76,46 @@ def test_delivery_refuses_new_open_child_after_terminal_closed(monkeypatch, tmp_
     beads.assert_exhausted()
 
 
+def test_delivery_inspect_fetch_holds_repository_mutation_lock(monkeypatch, tmp_path: Path) -> None:
+    active = False
+
+    @contextmanager
+    def locked(root: Path):
+        nonlocal active
+        assert root == tmp_path
+        active = True
+        try:
+            yield
+        finally:
+            active = False
+
+    client = type("Client", (), {"root": tmp_path})()
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: client)
+    monkeypatch.setattr(dstack_delivery, "repository_mutation_lock", locked)
+
+    def run(command, *, cwd, check=True, **kwargs):
+        del check, kwargs
+        assert cwd == tmp_path
+        if command[:4] == ["git", "remote", "get-url", "origin"]:
+            return CommandResult(0, "origin\n", "")
+        if command[:2] == ["git", "fetch"]:
+            assert active
+            return CommandResult(0, "", "")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstack_delivery, "run", run)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "delivery_inspection",
+        lambda client, selector: ({"selector": selector} if active else (_ for _ in ()).throw(AssertionError("unlocked"))),
+    )
+    output: list[dict] = []
+    monkeypatch.setattr(dstack_delivery, "emit", output.append)
+
+    assert dstack_delivery.cmd_delivery_inspect(argparse.Namespace(root=tmp_path, selector="feature", fetch=True)) == 0
+    assert output == [{"status": "ok", "selector": "feature"}]
+
+
 def test_commit_history_reuses_one_parsed_git_range(monkeypatch, tmp_path: Path) -> None:
     calls: list[tuple[Path, str]] = []
 
@@ -86,6 +128,34 @@ def test_commit_history_reuses_one_parsed_git_range(monkeypatch, tmp_path: Path)
     assert history.records(tmp_path, "main..feature") == history.records(tmp_path, "main..feature")
     assert history.mapping(tmp_path, "main..feature")["task-1"][0]["commit"] == "head"
     assert calls == [(tmp_path, "main..feature")]
+
+
+def test_delivered_candidate_revision_filters_history_by_bead(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[Path, str, tuple[str, ...]]] = []
+
+    monkeypatch.setattr(dstack_delivery, "ref_exists", lambda *args: False)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "commit_records",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unbounded history scan must not run")),
+    )
+
+    def targeted(root: Path, ref: str, bead_ids: Sequence[str]) -> list[dict]:
+        selected = tuple(bead_ids)
+        calls.append((root, ref, selected))
+        return [
+            {
+                "commit": "candidate",
+                "subject": "closeout",
+                "body": "closeout\n\nBeads: closeout-1\n",
+                "paths": ["docs/closeout.md"],
+                "footer_ids": ("closeout-1",),
+            }
+        ]
+
+    monkeypatch.setattr(dstack_delivery, "commit_records_for_beads", targeted)
+    assert dstack_delivery.delivered_candidate_revision(tmp_path, "main", "closeout-1") == ("main", "candidate")
+    assert calls == [(tmp_path, "main", ("closeout-1",))]
 
 
 def test_commit_message_adds_one_footer(tmp_path: Path) -> None:

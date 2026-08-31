@@ -13,10 +13,12 @@ from functools import wraps
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO, cast
@@ -64,8 +66,8 @@ def command_timeout(command: Sequence[str]) -> float:
             timeout = float(override)
         except ValueError as exc:
             raise DstackError("DSTACK_COMMAND_TIMEOUT_SECONDS must be numeric") from exc
-        if timeout <= 0:
-            raise DstackError("DSTACK_COMMAND_TIMEOUT_SECONDS must be positive")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise DstackError("DSTACK_COMMAND_TIMEOUT_SECONDS must be positive and finite")
         return timeout
     executable = Path(str(command[0])).name if command else ""
     return COMMAND_TIMEOUT_SECONDS.get(executable, 120.0)
@@ -135,6 +137,8 @@ def run(
     timeout: float | None = None,
 ) -> CommandResult:
     effective_timeout = command_timeout(command) if timeout is None else timeout
+    if not math.isfinite(effective_timeout) or effective_timeout <= 0:
+        raise DstackError("command timeout must be positive and finite")
     try:
         completed = subprocess.run(
             list(command),
@@ -162,6 +166,9 @@ def run(
     return result
 
 
+_repository_lock_state = threading.local()
+
+
 @contextmanager
 def repository_mutation_lock(root: Path):
     """Serialize dstack graph/Git mutations for one repository.
@@ -183,13 +190,23 @@ def repository_mutation_lock(root: Path):
         # Protocol-focused unit tests use lightweight non-Git roots. Real CLI
         # invocations are still rooted by client_for/git_root.
         lock_path = root.resolve() / ".dstack-mutation.lock"
+    key = str(lock_path.resolve(strict=False))
+    held = getattr(_repository_lock_state, "held", None)
+    if held is None:
+        held = set()
+        _repository_lock_state.held = held
+    if key in held:
+        yield
+        return
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with lock_path.open("a+", encoding="utf-8") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            held.add(key)
             try:
                 yield
             finally:
+                held.remove(key)
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     except OSError as exc:
         raise DstackError(f"cannot acquire repository mutation lock: {lock_path}") from exc
@@ -1573,32 +1590,37 @@ def commit_footer_ids(root: Path, ref_range: str) -> dict[str, list[dict[str, An
     return footer_mapping(commit_records(root, ref_range))
 
 
-def commits_for_bead(root: Path, ref_range: str, bead_id: str) -> list[dict[str, Any]]:
-    """Return commits with one exact ``Beads: <id>`` footer.
+def commit_records_for_beads(
+    root: Path,
+    ref_range: str,
+    bead_ids: Sequence[str],
+) -> list[dict[str, Any]]:
+    """Return full commit records matching any requested exact Beads footer.
 
-    Git performs the cheap candidate filtering; dStack still verifies the
-    footer exactly before accepting evidence. This avoids parsing complete
-    repository history for every task transition.
+    Git performs one commit traversal regardless of the number of expected
+    Beads IDs. Only commits whose messages match one fixed-string candidate
+    are expanded with ``--name-only``; dStack then verifies exact footer lines.
     """
 
     validate_git_range(root, ref_range, name="evidence revision")
-    if not bead_id or any(character.isspace() for character in bead_id):
+    requested = tuple(dict.fromkeys(str(item) for item in bead_ids if item))
+    if not requested:
+        return []
+    if any(any(character.isspace() for character in bead_id) for bead_id in requested):
         raise DstackError("Beads evidence ID must be one non-empty token")
     format_string = "%x1e%H%x00%s%x00%B%x00"
-    output = run(
-        [
-            "git",
-            "log",
-            f"--format={format_string}",
-            "--name-only",
-            "--fixed-strings",
-            f"--grep=Beads: {bead_id}",
-            ref_range,
-        ],
-        cwd=root,
-    ).stdout
+    command = [
+        "git",
+        "log",
+        f"--format={format_string}",
+        "--name-only",
+        "--fixed-strings",
+        *(f"--grep=Beads: {bead_id}" for bead_id in requested),
+        ref_range,
+    ]
+    output = run(command, cwd=root).stdout
+    wanted = set(requested)
     result: list[dict[str, Any]] = []
-    footer = re.compile(rf"(?m)^Beads:\s*{re.escape(bead_id)}\s*$")
     for record in output.split("\x1e"):
         if not record.strip():
             continue
@@ -1607,13 +1629,42 @@ def commits_for_bead(root: Path, ref_range: str, bead_id: str) -> list[dict[str,
             raise DstackError("Git evidence query returned a malformed record")
         commit, subject, body, path_text = parts
         commit = commit.strip()
-        if not commit or footer.search(body) is None:
+        footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Beads:\s*([^\s]+)\s*$", body))
+        if not commit or not wanted.intersection(footer_ids):
             continue
         result.append(
             {
                 "commit": commit,
                 "subject": subject.strip(),
+                "body": body,
                 "paths": [line for line in path_text.splitlines() if line.strip()],
+                "footer_ids": footer_ids,
             }
         )
     return result
+
+
+def commit_records_for_bead(root: Path, ref_range: str, bead_id: str) -> list[dict[str, Any]]:
+    """Return full commit records matching one exact ``Beads: <id>`` footer."""
+
+    if not bead_id:
+        raise DstackError("Beads evidence ID must be one non-empty token")
+    return commit_records_for_beads(root, ref_range, [bead_id])
+
+
+def commits_for_bead(root: Path, ref_range: str, bead_id: str) -> list[dict[str, Any]]:
+    """Return compact commits with one exact ``Beads: <id>`` footer.
+
+    Git performs the cheap candidate filtering; dStack still verifies the
+    footer exactly before accepting evidence. This avoids parsing complete
+    repository history for every task transition.
+    """
+
+    return [
+        {
+            "commit": str(record["commit"]),
+            "subject": str(record["subject"]),
+            "paths": list(record.get("paths", [])),
+        }
+        for record in commit_records_for_bead(root, ref_range, bead_id)
+    ]

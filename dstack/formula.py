@@ -24,6 +24,7 @@ from .core import (
     git_common_dir,
     git_root,
     issue_metadata,
+    repository_mutation_lock,
     run,
 )
 
@@ -157,6 +158,29 @@ def _formula_lock_path(root: Path) -> Path:
         return lock_dir / f"{digest}.lock"
 
 
+def _formula_owner_path(root: Path, name: str) -> Path:
+    return _formula_lock_path(root).with_name(f".dstack-formula-{name}.owner")
+
+
+def _formula_backup_path(root: Path, name: str) -> Path:
+    return _formula_lock_path(root).with_name(f".dstack-formula-{name}.original")
+
+
+def _formula_is_tracked(root: Path, destination: Path) -> bool:
+    try:
+        relative = destination.relative_to(root).as_posix()
+    except ValueError:
+        return False
+    return (
+        run(
+            ["git", "ls-files", "--error-unmatch", "--", relative],
+            cwd=root,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
 @contextmanager
 def _formula_lock(root: Path):
     lock_path = _formula_lock_path(root)
@@ -193,14 +217,66 @@ def current_formula_for_pour(client: BeadsClient, name: str):
 
     with _formula_lock(client.root):
         destination = _formula_destination(client.root, name)
+        owner = _formula_owner_path(client.root, name)
+        backup = _formula_backup_path(client.root, name)
         source = formula_path(name).read_bytes()
+
+        # Recover a previous interrupted temporary replacement before deciding
+        # whether an identical formula is intentional repository history. The
+        # marker is written before dStack replaces the formula, and an existing
+        # original is backed up first so recovery is lossless.
+        if owner.exists() or owner.is_symlink():
+            if owner.is_symlink() or not owner.is_file():
+                raise DstackError(f"formula ownership marker is invalid: {owner}")
+            action = owner.read_text(encoding="utf-8").strip()
+            destination_bytes: bytes | None = None
+            if destination.exists() or destination.is_symlink():
+                if destination.is_symlink() or not destination.is_file():
+                    raise DstackError(f"formula path must be a regular file: {destination}")
+                destination_bytes = destination.read_bytes()
+            if action == "restore":
+                if backup.is_symlink() or not backup.is_file():
+                    raise DstackError(f"formula recovery backup is missing or invalid: {backup}")
+                original_bytes = backup.read_bytes()
+                if destination_bytes not in {None, source, original_bytes}:
+                    raise DstackError(f"interrupted formula residue drifted: {destination}")
+                if destination_bytes != original_bytes:
+                    _atomic_replace(destination, original_bytes)
+            elif action == "remove":
+                if destination_bytes not in {None, source}:
+                    raise DstackError(f"interrupted formula residue drifted: {destination}")
+                destination.unlink(missing_ok=True)
+            else:
+                raise DstackError(f"formula ownership marker has invalid action: {owner}")
+            backup.unlink(missing_ok=True)
+            owner.unlink()
+        elif backup.exists() or backup.is_symlink():
+            # A crash after writing the backup but before ownership was marked
+            # cannot have replaced the destination yet. The orphan is therefore
+            # safe to discard without touching repository content.
+            if backup.is_symlink() or not backup.is_file():
+                raise DstackError(f"formula recovery backup is invalid: {backup}")
+            backup.unlink()
+
         existed = destination.exists()
         if existed and (not destination.is_file() or destination.is_symlink()):
             raise DstackError(f"formula path must be a regular file: {destination}")
         original = destination.read_bytes() if existed else None
-        if original == source:
+        if original == source and _formula_is_tracked(client.root, destination):
             yield
             return
+
+        # A legacy untracked byte-identical source is indistinguishable from
+        # residue created by older dStack versions. Do not turn it into a
+        # permanent formula cache.
+        if original == source:
+            original = None
+
+        if original is None:
+            _atomic_replace(owner, b"remove\n")
+        else:
+            _atomic_replace(backup, original)
+            _atomic_replace(owner, b"restore\n")
 
         _atomic_replace(destination, source)
         try:
@@ -210,6 +286,8 @@ def current_formula_for_pour(client: BeadsClient, name: str):
                 destination.unlink(missing_ok=True)
             else:
                 _atomic_replace(destination, original)
+            backup.unlink(missing_ok=True)
+            owner.unlink(missing_ok=True)
 
 
 def pour_current_formula(client: BeadsClient, name: str, variables: Mapping[str, str]) -> dict[str, Any]:
@@ -219,20 +297,21 @@ def pour_current_formula(client: BeadsClient, name: str, variables: Mapping[str,
 
 def ensure_beads_initialized(root_arg: Path) -> tuple[Path, bool]:
     root = git_root(root_arg)
-    beads = root / ".beads"
-    if beads.is_symlink():
-        raise DstackError(".beads must be a repository directory, not a symlink")
-    if beads.exists():
+    with repository_mutation_lock(root):
+        beads = root / ".beads"
+        if beads.is_symlink():
+            raise DstackError(".beads must be a repository directory, not a symlink")
+        if beads.exists():
+            if not beads.is_dir():
+                raise DstackError(".beads must be a repository directory")
+            return root, False
+        run(
+            ["bd", "init", "--quiet", "--stealth", "--skip-agents", "--skip-hooks", "--non-interactive"],
+            cwd=root,
+        )
         if not beads.is_dir():
-            raise DstackError(".beads must be a repository directory")
-        return root, False
-    run(
-        ["bd", "init", "--quiet", "--stealth", "--skip-agents", "--skip-hooks", "--non-interactive"],
-        cwd=root,
-    )
-    if not beads.is_dir():
-        raise DstackError("bd init completed without creating .beads")
-    return root, True
+            raise DstackError("bd init completed without creating .beads")
+        return root, True
 
 
 def ensure_infrastructure(root_arg: Path) -> dict[str, Any]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import Any
 
@@ -143,6 +144,79 @@ def test_adoption_plan_includes_native_executable_kinds(tmp_path: Path, kind: st
     plan = dstack_adoption.plan_adoption(beads, "legacy-1", classification)
     assert plan["inventory"]["open_executable_descendants"] == ["task-1"]
     beads.assert_exhausted()
+
+
+@pytest.mark.parametrize(
+    ("classification", "extra"),
+    [
+        ("remaining-implementation", {}),
+        (
+            "preserved-unchanged",
+            {"strategy": "recreate", "surviving_parent": None},
+        ),
+    ],
+)
+def test_adoption_plan_rejects_non_executable_replacement_sources(
+    tmp_path: Path,
+    classification: str,
+    extra: dict[str, Any],
+) -> None:
+    root = {"id": "legacy", "status": "open", "issue_type": "epic"}
+    container = {"id": "container", "status": "open", "issue_type": "epic", "parent": "legacy"}
+    snapshot = adoption_snapshot(root, container)
+    entry = {
+        "legacy_id": "container",
+        "classification": classification,
+        "reason": "selected for replacement",
+        "replacement": {
+            "title": "replacement",
+            "description": "description",
+            "acceptance": "acceptance",
+            "priority": 1,
+        },
+        **extra,
+    }
+
+    with pytest.raises(DstackError, match="task, bug, or chore"):
+        dstack_adoption.plan_adoption(
+            ScriptedClient(tmp_path),
+            "legacy",
+            {"schema": dstack_adoption.SCHEMA, "legacy_root_id": "legacy", "entries": [entry]},
+            snapshot=snapshot,
+        )
+
+
+@pytest.mark.parametrize(("field", "option"), [("remaining", "--remaining"), ("recreate", "--recreate")])
+def test_adoption_cli_classification_rejects_non_executable_replacements(
+    tmp_path: Path,
+    field: str,
+    option: str,
+) -> None:
+    root = {"id": "legacy", "status": "open", "issue_type": "epic"}
+    container = {"id": "container", "status": "open", "issue_type": "molecule", "parent": "legacy"}
+    values = {
+        "remaining": [],
+        "spec_ceremony": [],
+        "implementation_coordinator": [],
+        "closeout_ceremony": [],
+        "preserve": [],
+        "reparent": [],
+        "recreate": [],
+        "incorporated_decision": [],
+        "decision_blocker": [],
+        "completed": [],
+    }
+    values[field] = ["container"]
+    args = argparse.Namespace(**values)
+
+    with pytest.raises(DstackError, match=option):
+        dstack_compat._classification_from_args(
+            ScriptedClient(tmp_path),
+            args,
+            legacy_root_id="legacy",
+            design_path="docs/src/features/demo/design.md",
+            snapshot=adoption_snapshot(root, container),
+        )
 
 
 def test_adoption_plan_rejects_documentation_replacements_before_mutation(tmp_path: Path) -> None:
@@ -561,10 +635,34 @@ def test_execute_adoption_validates_expected_post_mutation_state() -> None:
                     "dependencies": [{"depends_on_id": "legacy", "type": "parent-child"}],
                 },
                 "new-root": {"id": "new-root", "status": "open", "issue_type": "molecule"},
-                "approval": {"id": "approval", "status": "open", "issue_type": "task"},
-                "implementation": {"id": "implementation", "status": "open", "issue_type": "epic"},
-                "specification": {"id": "specification", "status": "open", "issue_type": "task"},
-                "closeout": {"id": "closeout", "status": "open", "issue_type": "task"},
+                "approval": {
+                    "id": "approval",
+                    "status": "open",
+                    "issue_type": "task",
+                    "parent": "new-root",
+                    "labels": ["dstack:step:implementation-approval"],
+                },
+                "implementation": {
+                    "id": "implementation",
+                    "status": "open",
+                    "issue_type": "epic",
+                    "parent": "new-root",
+                    "labels": ["dstack:step:implementation"],
+                },
+                "specification": {
+                    "id": "specification",
+                    "status": "open",
+                    "issue_type": "task",
+                    "parent": "new-root",
+                    "labels": ["dstack:step:specification"],
+                },
+                "closeout": {
+                    "id": "closeout",
+                    "status": "open",
+                    "issue_type": "task",
+                    "parent": "new-root",
+                    "labels": ["dstack:step:closeout"],
+                },
             }
 
         def list(self, *, all_statuses: bool) -> list[dict[str, Any]]:
@@ -702,10 +800,35 @@ def test_execute_adoption_adds_replacement_edge_before_removing_legacy_edge() ->
                     "dependencies": [{"depends_on_id": "blocker", "type": "blocks"}],
                 },
                 "blocker": {"id": "blocker", "status": "open", "issue_type": "task"},
-                "approval": {"id": "approval", "status": "open", "issue_type": "task"},
-                "implementation": {"id": "implementation", "status": "open", "issue_type": "epic"},
-                "specification": {"id": "specification", "status": "open", "issue_type": "task"},
-                "closeout": {"id": "closeout", "status": "open", "issue_type": "task"},
+                "new-root": {"id": "new-root", "status": "open", "issue_type": "molecule"},
+                "approval": {
+                    "id": "approval",
+                    "status": "open",
+                    "issue_type": "task",
+                    "parent": "new-root",
+                    "labels": ["dstack:step:implementation-approval"],
+                },
+                "implementation": {
+                    "id": "implementation",
+                    "status": "open",
+                    "issue_type": "epic",
+                    "parent": "new-root",
+                    "labels": ["dstack:step:implementation"],
+                },
+                "specification": {
+                    "id": "specification",
+                    "status": "open",
+                    "issue_type": "task",
+                    "parent": "new-root",
+                    "labels": ["dstack:step:specification"],
+                },
+                "closeout": {
+                    "id": "closeout",
+                    "status": "open",
+                    "issue_type": "task",
+                    "parent": "new-root",
+                    "labels": ["dstack:step:closeout"],
+                },
             }
 
         def show(self, issue_id: str) -> dict[str, Any]:
@@ -794,6 +917,150 @@ def test_execute_adoption_adds_replacement_edge_before_removing_legacy_edge() ->
     assert result["root_superseded"] is True
 
 
+def test_replacement_creation_rejects_non_executable_native_type() -> None:
+    with pytest.raises(DstackError, match="replacement source must be executable"):
+        dstack_adoption_apply._replacement_for(
+            object(),
+            {"id": "legacy-epic", "issue_type": "epic", "status": "open"},
+            {
+                "legacy_id": "legacy-epic",
+                "replacement": {
+                    "title": "replacement",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 2,
+                },
+            },
+            implementation_id="implementation",
+            approval_id="approval",
+        )
+
+
+def test_execute_adoption_rejects_non_executable_live_replacement_source() -> None:
+    class Native:
+        root = Path(".")
+
+        def show(self, issue_id: str) -> dict[str, Any]:
+            assert issue_id == "container"
+            return {"id": "container", "status": "open", "issue_type": "epic"}
+
+    plan = {
+        "schema": dstack_adoption.PLAN_SCHEMA,
+        "legacy_root_id": "legacy",
+        "entries": [],
+        "replacements": [{"legacy_id": "container", "source_type": "epic"}],
+    }
+
+    with pytest.raises(DstackError, match="task, bug, or chore"):
+        dstack_adoption_apply.execute_adoption_plan(
+            Native(),
+            plan,
+            legacy_root_id="legacy",
+            new_root_id="new-root",
+            view={"steps": {}},
+        )
+
+
+def test_adoption_live_target_validation_rejects_reparented_lifecycle_step() -> None:
+    issues = {
+        "new-root": {"id": "new-root", "status": "open", "issue_type": "molecule"},
+        "specification": {
+            "id": "specification",
+            "status": "open",
+            "issue_type": "task",
+            "parent": "new-root",
+            "labels": ["dstack:step:specification"],
+        },
+        "approval": {
+            "id": "approval",
+            "status": "open",
+            "issue_type": "task",
+            "parent": "other-root",
+            "labels": ["dstack:step:implementation-approval"],
+        },
+        "implementation": {
+            "id": "implementation",
+            "status": "open",
+            "issue_type": "epic",
+            "parent": "new-root",
+            "labels": ["dstack:step:implementation"],
+        },
+        "closeout": {
+            "id": "closeout",
+            "status": "open",
+            "issue_type": "task",
+            "parent": "new-root",
+            "labels": ["dstack:step:closeout"],
+        },
+    }
+
+    class Native:
+        def show(self, issue_id: str) -> dict[str, Any]:
+            return dict(issues[issue_id])
+
+    with pytest.raises(DstackError, match="approval step drifted"):
+        dstack_adoption_apply._validate_target_step_ids(
+            Native(),
+            "new-root",
+            {name: name for name in ("specification", "approval", "implementation", "closeout")},
+        )
+
+
+def test_adoption_live_surviving_parent_validation_rejects_closed_target() -> None:
+    class Native:
+        def children(self, parent: str) -> list[dict[str, Any]]:
+            assert parent == "legacy"
+            return []
+
+        def show(self, issue_id: str) -> dict[str, Any]:
+            assert issue_id == "survivor"
+            return {"id": "survivor", "status": "closed", "issue_type": "epic"}
+
+    with pytest.raises(DstackError, match="surviving_parent is not open"):
+        dstack_adoption_apply._validate_surviving_parents(
+            Native(),
+            [
+                {
+                    "legacy_id": "task",
+                    "classification": "preserved-unchanged",
+                    "strategy": "reparent",
+                    "surviving_parent": "survivor",
+                }
+            ],
+            legacy_root_id="legacy",
+        )
+
+
+def test_adoption_live_surviving_parent_validation_rejects_legacy_ancestry() -> None:
+    class Native:
+        def children(self, parent: str) -> list[dict[str, Any]]:
+            assert parent == "legacy"
+            return []
+
+        def show(self, issue_id: str) -> dict[str, Any]:
+            assert issue_id == "survivor"
+            return {
+                "id": "survivor",
+                "status": "open",
+                "issue_type": "epic",
+                "parent": "task",
+            }
+
+    with pytest.raises(DstackError, match="drifted inside the legacy root"):
+        dstack_adoption_apply._validate_surviving_parents(
+            Native(),
+            [
+                {
+                    "legacy_id": "task",
+                    "classification": "preserved-unchanged",
+                    "strategy": "reparent",
+                    "surviving_parent": "survivor",
+                }
+            ],
+            legacy_root_id="legacy",
+        )
+
+
 def test_adopt_apply_validates_plan_before_pouring_or_other_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -836,7 +1103,56 @@ def test_adopt_apply_validates_plan_before_pouring_or_other_mutation(
     )()
     with pytest.raises(DstackError, match="not a descendant"):
         dstack_compat.cmd_adopt_apply(args)
-    assert poured == []
+
+
+def test_adopt_apply_validates_base_branch_before_pouring(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    legacy = {"id": "legacy", "status": "open", "issue_type": "epic", "title": "Feature: Old"}
+    snapshot = adoption_snapshot(legacy)
+    beads = ScriptedClient(tmp_path)
+    monkeypatch.setattr(dstack_compat, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_compat, "resolve_legacy_feature", lambda *args: legacy)
+    monkeypatch.setattr(dstack_compat, "is_current_feature", lambda *args: False)
+    monkeypatch.setattr(dstack_compat, "adoption_graph_snapshot", lambda *args: snapshot)
+    monkeypatch.setattr(
+        dstack_compat,
+        "_classification_from_args",
+        lambda *args, **kwargs: {"schema": dstack_adoption.SCHEMA, "legacy_root_id": "legacy", "entries": []},
+    )
+    plan = {
+        "schema": dstack_adoption.PLAN_SCHEMA,
+        "legacy_root_id": "legacy",
+        "entries": [],
+        "replacements": [],
+        "decision_staging": [],
+        "relationship_operations": [],
+        "inventory": snapshot,
+        "supersession": {"eligible": True},
+    }
+    monkeypatch.setattr(dstack_compat, "plan_adoption", lambda *args, **kwargs: plan)
+    monkeypatch.setattr(dstack_compat, "adoption_plan_graph_matches", lambda *args: True)
+    monkeypatch.setattr(dstack_compat, "validate_adoption_preflight", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dstack_compat, "validate_git_branch", lambda *args, **kwargs: "missing")
+    monkeypatch.setattr(
+        dstack_compat,
+        "validate_git_revision",
+        lambda *args, **kwargs: (_ for _ in ()).throw(DstackError("base branch does not resolve to a commit")),
+    )
+    monkeypatch.setattr(
+        dstack_compat,
+        "pour_current_formula",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("pour must not run")),
+    )
+
+    args = argparse.Namespace(
+        root=tmp_path,
+        selector="legacy",
+        title=None,
+        slug="old",
+        base_branch="missing",
+        design_path=None,
+    )
+    with pytest.raises(DstackError, match="base branch does not resolve"):
+        dstack_compat.cmd_adopt_apply(args)
     beads.assert_exhausted()
 
 

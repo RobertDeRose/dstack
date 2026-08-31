@@ -105,13 +105,18 @@ def cmd_alignment_inspect(args: argparse.Namespace) -> int:
 
 @serialized_repository_mutation
 def cmd_alignment_initialize(args: argparse.Namespace) -> int:
-    client = client_for(args.root)
     title = str(args.title).strip()
     scope = str(args.scope).strip()
-    target_branch = str(args.target_branch or repository_default_branch(client.root)).strip()
-    if not title or not scope or not target_branch:
-        raise DstackError("alignment title, scope, and target branch must be non-empty")
+    if not title or not scope:
+        raise DstackError("alignment title and scope must be non-empty")
     slug = str(args.slug).strip() if args.slug else slugify(title)
+    if not slug or slugify(slug) != slug:
+        raise DstackError("alignment slug must already be canonical lowercase kebab-case")
+
+    client = client_for(args.root)
+    target_branch = str(args.target_branch or repository_default_branch(client.root)).strip()
+    if not target_branch:
+        raise DstackError("alignment target branch must be non-empty")
     branch = f"audit/{slug}"
     validate_git_branch(client.root, branch, name="alignment branch")
     validate_git_branch(client.root, target_branch, name="target branch")

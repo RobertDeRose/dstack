@@ -109,6 +109,26 @@ def test_initialize_rejects_option_like_target_before_beads_mutation(monkeypatch
     beads.assert_exhausted()
 
 
+def test_initialize_rejects_noncanonical_slug_before_pour(monkeypatch, git_repo: Path) -> None:
+    monkeypatch.setattr(
+        dstack_alignment,
+        "client_for",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("invalid slug must not initialize Beads")),
+    )
+
+    with pytest.raises(DstackError, match="canonical lowercase kebab-case"):
+        dstack_alignment.cmd_alignment_initialize(
+            argparse.Namespace(
+                root=git_repo,
+                title="Repository Alignment",
+                slug="Repository-Alignment",
+                target_branch="main",
+                scope="repository",
+            )
+        )
+
+
+
 def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(dstack_alignment, "validate_git_branch", lambda *args, **kwargs: "main")
     monkeypatch.setattr(dstack_alignment, "validate_git_revision", lambda *args, **kwargs: "main")
