@@ -321,7 +321,7 @@ def test_replacement_reuse_requires_native_supersession_proof(tmp_path: Path) ->
         )
 
 
-def test_preflight_rejects_bug_replacement_before_mutation(tmp_path: Path) -> None:
+def test_preflight_accepts_bug_replacement_before_target_is_poured(tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
         call("show", "legacy", result={"id": "legacy", "status": "open", "issue_type": "epic"}),
@@ -334,8 +334,7 @@ def test_preflight_rejects_bug_replacement_before_mutation(tmp_path: Path) -> No
         "inventory": {"internal": [], "outgoing_external": [], "incoming_external": []},
         "relationship_operations": [],
     }
-    with pytest.raises(DstackError, match="cannot use the task approval blocker"):
-        dstack_adoption_apply.validate_adoption_preflight(beads, plan, legacy_root_id="legacy")
+    dstack_adoption_apply.validate_adoption_preflight(beads, plan, legacy_root_id="legacy")
     beads.assert_exhausted()
 
 
@@ -1115,3 +1114,133 @@ def test_adoption_postcondition_transforms_native_parent_child_edge_for_reparent
 
     assert postcondition["issue_states"]["task"]["parents"] == ["outside-parent"]
     assert postcondition["legacy_edges"] == [("task", "outside-parent", "parent-child")]
+
+
+def test_adoption_plan_keeps_parent_child_structural_edge_out_of_lifecycle_redirects(tmp_path: Path) -> None:
+    root = {"id": "legacy", "status": "open", "issue_type": "epic"}
+    task = {
+        "id": "task",
+        "status": "open",
+        "issue_type": "task",
+        "parent": "legacy",
+        "dependencies": [{"depends_on_id": "legacy", "type": "parent-child"}],
+    }
+    snapshot = adoption_snapshot(root, task)
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy",
+        "entries": [
+            {
+                "legacy_id": "task",
+                "classification": "remaining-implementation",
+                "reason": "work remains",
+                "replacement": {
+                    "title": "replacement",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+    }
+
+    plan = dstack_adoption.plan_adoption(ScriptedClient(tmp_path), "legacy", classification, snapshot=snapshot)
+
+    operation = plan["relationship_operations"][0]
+    assert operation["decision"] == "preserve"
+    assert operation["target_step"] is None
+    assert operation["target_step_endpoint"] is None
+
+
+def test_adoption_plan_redirects_ceremony_blocker_through_the_matching_current_step(tmp_path: Path) -> None:
+    root = {"id": "legacy", "status": "open", "issue_type": "epic"}
+    ceremony = {"id": "old-closeout", "status": "open", "issue_type": "task", "parent": "legacy"}
+    dependent = {
+        "id": "external",
+        "status": "open",
+        "issue_type": "task",
+        "dependencies": [{"depends_on_id": "old-closeout", "type": "blocks"}],
+    }
+    snapshot = adoption_snapshot(root, ceremony, native_records=[root, ceremony, dependent])
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy",
+        "entries": [
+            {
+                "legacy_id": "old-closeout",
+                "classification": "obsolete-closeout-delivery-ceremony",
+                "reason": "replaced by current closeout",
+            }
+        ],
+    }
+
+    plan = dstack_adoption.plan_adoption(ScriptedClient(tmp_path), "legacy", classification, snapshot=snapshot)
+
+    operation = plan["relationship_operations"][0]
+    assert operation["decision"] == "redirect"
+    assert operation["target_step"] == "closeout"
+    assert operation["target_step_endpoint"] == "old-closeout"
+    assert dstack_adoption_apply._relationship_destination(
+        operation,
+        {},
+        {"steps": {"closeout": {"id": "new-closeout"}}},
+        legacy_root_id="legacy",
+        new_root_id="new-root",
+    ) == ("external", "new-closeout")
+
+
+def test_adoption_plan_ignores_unrelated_native_relationship_types(tmp_path: Path) -> None:
+    root = {
+        "id": "legacy",
+        "status": "open",
+        "issue_type": "epic",
+        "dependencies": [{"depends_on_id": "external", "type": "waits-for"}],
+    }
+    external = {"id": "external", "status": "open", "issue_type": "task"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("list", all_statuses=True, result=[root, external]),
+        call("gates", all_statuses=True, result=[]),
+    )
+
+    plan = dstack_adoption.plan_adoption(
+        beads,
+        "legacy",
+        {"schema": dstack_adoption.SCHEMA, "legacy_root_id": "legacy", "entries": []},
+    )
+
+    assert plan["relationship_operations"] == []
+    beads.assert_exhausted()
+
+
+def test_adoption_retry_reconstructs_replacement_for_already_superseded_work(tmp_path: Path) -> None:
+    root = {"id": "legacy", "status": "open", "issue_type": "epic"}
+    task = {
+        "id": "task",
+        "status": "closed",
+        "issue_type": "task",
+        "dependencies": [{"depends_on_id": "replacement", "type": "superseded-by"}],
+    }
+    replacement = {"id": "replacement", "status": "open", "issue_type": "task"}
+    snapshot = adoption_snapshot(root, task, native_records=[root, task, replacement])
+    classification = {
+        "schema": dstack_adoption.SCHEMA,
+        "legacy_root_id": "legacy",
+        "entries": [
+            {
+                "legacy_id": "task",
+                "classification": "remaining-implementation",
+                "reason": "work remains",
+                "replacement": {
+                    "title": "replacement",
+                    "description": "description",
+                    "acceptance": "acceptance",
+                    "priority": 1,
+                },
+            }
+        ],
+    }
+
+    plan = dstack_adoption.plan_adoption(ScriptedClient(tmp_path), "legacy", classification, snapshot=snapshot)
+
+    assert [replacement["legacy_id"] for replacement in plan["replacements"]] == ["task"]

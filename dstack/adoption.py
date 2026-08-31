@@ -673,7 +673,10 @@ def plan_adoption(
                 raise DstackError(f"invalid relationship record on {source_id}")
             target_id, relation = pair
             if relation not in RELATIONS:
-                raise DstackError(f"unsupported relationship type: {relation}")
+                # Relationship kinds outside dStack's lifecycle contract are
+                # unrelated native topology. Leave them untouched rather than
+                # making adoption depend on every Beads relationship type.
+                continue
             if target_id in internal:
                 _validate_relation_compatibility(
                     source_id,
@@ -703,7 +706,10 @@ def plan_adoption(
                 raise DstackError(f"invalid relationship record on {source_id}")
             target_id, relation = pair
             if relation not in RELATIONS:
-                raise DstackError(f"unsupported relationship type: {relation}")
+                # Relationship kinds outside dStack's lifecycle contract are
+                # unrelated native topology. Leave them untouched rather than
+                # making adoption depend on every Beads relationship type.
+                continue
             if target_id in internal:
                 _validate_relation_compatibility(
                     source_id,
@@ -717,7 +723,13 @@ def plan_adoption(
         collection.sort(key=lambda item: (item["source_id"], item["target_id"], item["relationship_type"]))
     entry_by_id = {str(item["legacy_id"]): item for item in entries}
     replacements: list[dict[str, Any]] = []
-    for item_id in executable:
+    # Include already-superseded executable descendants on retries. Their
+    # classification is the durable user intent needed to reconstruct and
+    # validate the replacement association after a partial apply.
+    replacement_entry_ids = sorted(
+        item_id for item_id, entry in entry_by_id.items() if item_id in by_id and _replacement_ref(entry)
+    )
+    for item_id in replacement_entry_ids:
         entry = entry_by_id[item_id]
         ref = _replacement_ref(entry)
         if ref is None:
@@ -779,7 +791,12 @@ def plan_adoption(
         entry = entry_by_id.get(owner)
         decision = "preserve"
         target_step = None
-        if edge["relationship_type"] in {"superseded-by", "supersedes"}:
+        if edge["relationship_type"] == "parent-child":
+            # Parentage is structural containment. It is handled explicitly by
+            # reparent/supersession logic and must never be translated into a
+            # lifecycle dependency.
+            decision = "preserve"
+        elif edge["relationship_type"] in {"superseded-by", "supersedes"}:
             decision = "preserve-native-supersession"
         elif owner == legacy_root_id and edge["relationship_type"] == "blocks":
             if edge["source_id"] == legacy_root_id:
@@ -803,12 +820,30 @@ def plan_adoption(
             "obsolete-implementation-ceremony",
             "obsolete-closeout-delivery-ceremony",
         }:
-            decision = "lifecycle-only"
+            ceremony_targets = {
+                "obsolete-specification-ceremony": "specification",
+                "obsolete-implementation-ceremony": "implementation",
+                "obsolete-closeout-delivery-ceremony": "closeout",
+            }
+            if edge["relationship_type"] == "blocks":
+                # Preserve blocking semantics by moving the edge onto the
+                # compatible current lifecycle step before removing it from
+                # the obsolete ceremony. This prevents an external dependent
+                # from becoming ready during adoption.
+                decision = "redirect"
+                target_step = ceremony_targets[str(entry["classification"])]
+            else:
+                decision = "lifecycle-only"
         elif entry and _replacement_ref(entry):
             decision = "redirect"
         source_ref = _replacement_ref(entry_by_id[edge["source_id"]]) if edge["source_id"] in entry_by_id else None
         target_ref = _replacement_ref(entry_by_id[edge["target_id"]]) if edge["target_id"] in entry_by_id else None
-        if edge["target_id"] == legacy_root_id and decision == "redirect" and target_step is None:
+        if (
+            edge["relationship_type"] != "parent-child"
+            and edge["target_id"] == legacy_root_id
+            and decision == "redirect"
+            and target_step is None
+        ):
             source_kind = issue_type(all_issues[edge["source_id"]])
             target_step = "closeout" if source_kind in {"task", "bug", "chore"} else "implementation"
         operations.append(
@@ -818,6 +853,7 @@ def plan_adoption(
                 "source_replacement_for": source_ref,
                 "target_replacement_for": target_ref,
                 "target_step": target_step,
+                "target_step_endpoint": owner if target_step is not None else None,
                 "ordering": "add-before-remove" if decision in {"redirect", "deferred-redirect"} else "none",
                 "add_before_remove": decision in {"redirect", "deferred-redirect"},
             }

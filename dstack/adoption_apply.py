@@ -22,6 +22,7 @@ from .core import (
     feature_design_state,
     worktree_for_branch,
     has_label,
+    human_gate_for_step,
     issue_parent,
     issue_type,
     step_by_label,
@@ -109,6 +110,95 @@ def _assert_not_ready(client: BeadsClient, issue_ids: set[str], *, phase: str) -
         raise DstackError(f"external dependent became ready during adoption ({phase}): " + ", ".join(unexpected))
 
 
+def _validate_legacy_parentage_before_destructive_actions(
+    client: BeadsClient,
+    plan: Mapping[str, Any],
+    expected_graph: Mapping[str, Any],
+) -> None:
+    entries = {
+        str(entry.get("legacy_id")): entry
+        for entry in plan.get("entries", [])
+        if isinstance(entry, Mapping) and entry.get("legacy_id")
+    }
+    for raw in expected_graph.get("legacy_records", []):
+        if not isinstance(raw, Mapping) or not raw.get("id"):
+            continue
+        issue_id = str(raw["id"])
+        actual = client.show(issue_id)
+        if superseded_target(actual):
+            # Prior partial supersession is validated separately against its
+            # exact intended replacement/lifecycle target. Beads may detach its
+            # parent projection as part of that native transition.
+            continue
+        entry = entries.get(issue_id)
+        if entry and entry.get("classification") == "preserved-unchanged" and entry.get("strategy") == "reparent":
+            expected_parent = str(entry.get("surviving_parent") or "") or None
+        else:
+            expected_parent = issue_parent(raw)
+        if issue_parent(actual) != expected_parent:
+            raise DstackError(f"adoption legacy parentage drifted before destructive mutation: {issue_id}")
+
+
+def _assert_legacy_generation_boundary(
+    client: BeadsClient,
+    plan: Mapping[str, Any],
+    expected_graph: Mapping[str, Any],
+    *,
+    legacy_root_id: str,
+    replacement_ids: Mapping[str, str],
+    view: Mapping[str, Any],
+) -> None:
+    """Fail closed if native topology appeared outside the planned generation."""
+
+    legacy_ids = {str(item) for item in expected_graph.get("legacy_ids", [])}
+    unexpected_descendants = sorted(
+        str(item.get("id")) for item in descendants(client, legacy_root_id) if str(item.get("id")) not in legacy_ids
+    )
+    if unexpected_descendants:
+        raise DstackError(
+            "adoption graph generation drifted; unexpected legacy descendants: " + ", ".join(unexpected_descendants)
+        )
+
+    allowed_external: set[tuple[str, str, str]] = set()
+    for key in ("outgoing_external", "incoming_external"):
+        for edge in expected_graph.get(key, []):
+            if not isinstance(edge, Mapping):
+                continue
+            relation = str(edge.get("relationship_type") or "")
+            if relation in RELATIONS:
+                allowed_external.add((str(edge.get("source_id")), str(edge.get("target_id")), relation))
+    for legacy_id, replacement_id in replacement_ids.items():
+        allowed_external.add((str(legacy_id), str(replacement_id), "relates-to"))
+    for staged in plan.get("decision_staging", []):
+        if not isinstance(staged, Mapping) or staged.get("action") != "preserve-blocker":
+            continue
+        legacy_id = str(staged.get("legacy_id") or "")
+        name = str(staged.get("blocking_target") or "")
+        if name in FEATURE_STEPS:
+            source = _step_id(view, name)
+        elif name in FEATURE_STEPS.values():
+            source = _step_id(view, next(key for key, label in FEATURE_STEPS.items() if label == name))
+        else:
+            source = name
+        allowed_external.add((source, legacy_id, "blocks"))
+
+    inventory = adoption_native_inventory(client)
+    observed_external: set[tuple[str, str, str]] = set()
+    for source_id, issue in inventory.items():
+        for record in dependency_records(issue):
+            target = record.get("depends_on_id") or record.get("id")
+            relation = str(record.get("type") or record.get("dependency_type") or "blocks")
+            if not isinstance(target, str) or relation not in RELATIONS:
+                continue
+            if (source_id in legacy_ids) == (target in legacy_ids):
+                continue
+            observed_external.add((source_id, target, relation))
+    unexpected_edges = sorted(observed_external - allowed_external)
+    if unexpected_edges:
+        rendered = ", ".join(f"{source}->{target}({relation})" for source, target, relation in unexpected_edges)
+        raise DstackError("adoption graph generation drifted; unexpected external relationships: " + rendered)
+
+
 def _incoming_dependent_ids(plan: Mapping[str, Any]) -> set[str]:
     inventory = plan.get("inventory")
     operations = plan.get("relationship_operations")
@@ -124,7 +214,7 @@ def _incoming_dependent_ids(plan: Mapping[str, Any]) -> set[str]:
         for source, target in incoming
         if any(
             isinstance(operation, Mapping)
-            and operation.get("decision") in {"redirect", "deferred-redirect"}
+            and operation.get("decision") in {"redirect", "deferred-redirect", "lifecycle-only"}
             and operation.get("relationship_type") == "blocks"
             and str(operation.get("source_id")) == source
             and str(operation.get("target_id")) == target
@@ -149,9 +239,10 @@ def _relationship_destination(
     source = replacement_ids.get(source_id, new_root_id if source_id == legacy_root_id else source_id)
     target = replacement_ids.get(target_id, new_root_id if target_id == legacy_root_id else target_id)
     target_step = operation.get("target_step")
-    if target_step and source_id == legacy_root_id:
+    step_endpoint = str(operation.get("target_step_endpoint") or legacy_root_id)
+    if target_step and source_id == step_endpoint:
         source = _step_id(view, str(target_step))
-    if target_step and target_id == legacy_root_id:
+    if target_step and target_id == step_endpoint:
         target = _step_id(view, str(target_step))
     return source, target
 
@@ -184,6 +275,7 @@ def _adoption_postcondition(
     replacement_ids: Mapping[str, str],
     resolved_decisions: set[str],
     supersede_root: bool,
+    client: BeadsClient | None = None,
 ) -> dict[str, Any]:
     """Derive the exact intended legacy-graph state from the reviewed plan."""
 
@@ -340,18 +432,80 @@ def _adoption_postcondition(
             target = name
         expected_edges.add((target, issue_id, "blocks"))
 
+    target_integrity: dict[str, dict[str, Any]] = {}
+    replacement_integrity: list[dict[str, Any]] = []
+    if client is not None:
+        target_ids = {"root": new_root_id, **{name: _step_id(view, name) for name in FEATURE_STEPS}}
+        for name, issue_id in target_ids.items():
+            issue = client.show(issue_id)
+            target_integrity[name] = {
+                "id": issue_id,
+                "type": issue_type(issue),
+                "parent": issue_parent(issue),
+                "labels": sorted(str(label) for label in issue.get("labels", [])),
+                "title": str(issue.get("title") or ""),
+                "status": str(issue.get("status") or ""),
+                "assignee": issue.get("assignee"),
+            }
+        replacement_integrity = [
+            {
+                "target_id": replacement_ids[str(spec["legacy_id"])],
+                "spec": dict(spec),
+                "blocker_id": _replacement_blocker_id(client, view, spec, _step_id(view, "approval")),
+            }
+            for spec in plan.get("replacements", [])
+            if str(spec.get("legacy_id") or "") in replacement_ids
+        ]
+
     return {
         "legacy_root_id": legacy_root_id,
         "legacy_ids": sorted(legacy_ids),
         "issue_states": issue_states,
         "legacy_edges": sorted(expected_edges),
         "required_external_edges": sorted(required_external_edges),
+        "target_integrity": target_integrity,
+        "replacement_integrity": replacement_integrity,
     }
+
+
+def _validate_target_integrity(client: BeadsClient, postcondition: Mapping[str, Any]) -> None:
+    raw_targets = postcondition.get("target_integrity")
+    if not isinstance(raw_targets, Mapping) or not raw_targets:
+        return
+    for name, raw_state in raw_targets.items():
+        if not isinstance(raw_state, Mapping):
+            raise DstackError(f"adoption target integrity is invalid: {name}")
+        issue_id = str(raw_state.get("id") or "")
+        actual = client.show(issue_id)
+        observed = {
+            "id": issue_id,
+            "type": issue_type(actual),
+            "parent": issue_parent(actual),
+            "labels": sorted(str(label) for label in actual.get("labels", [])),
+            "title": str(actual.get("title") or ""),
+            "status": str(actual.get("status") or ""),
+            "assignee": actual.get("assignee"),
+        }
+        if observed != dict(raw_state):
+            raise DstackError(f"adoption target topology/content drifted: {name}")
+    approval_id = str(raw_targets.get("approval", {}).get("id") or "")
+    implementation_id = str(raw_targets.get("implementation", {}).get("id") or "")
+    for replacement in postcondition.get("replacement_integrity", []):
+        if not isinstance(replacement, Mapping) or not isinstance(replacement.get("spec"), Mapping):
+            raise DstackError("adoption replacement integrity snapshot is invalid")
+        _validate_replacement(
+            client,
+            str(replacement.get("target_id") or ""),
+            replacement["spec"],
+            implementation_id=implementation_id,
+            approval_id=str(replacement.get("blocker_id") or approval_id),
+        )
 
 
 def validate_adoption_postcondition(client: BeadsClient, postcondition: Mapping[str, Any]) -> None:
     """Validate the explicitly derived state after all adoption mutations."""
 
+    _validate_target_integrity(client, postcondition)
     inventory = adoption_native_inventory(client)
     raw_states = postcondition.get("issue_states")
     if not isinstance(raw_states, Mapping):
@@ -359,6 +513,22 @@ def validate_adoption_postcondition(client: BeadsClient, postcondition: Mapping[
     legacy_ids = {str(item) for item in postcondition.get("legacy_ids", [])}
     if legacy_ids != {str(item) for item in raw_states}:
         raise DstackError("adoption postcondition legacy issue set is inconsistent")
+
+    # A new descendant can otherwise disappear from the planned topology when
+    # supersession clears parentage. Detect it from the fresh native inventory
+    # before accepting the final state, including descendants nested below an
+    # unexpectedly inserted child.
+    parent_by_id = {issue_id: issue_parent(issue) for issue_id, issue in inventory.items()}
+    for issue_id in inventory:
+        if issue_id in legacy_ids:
+            continue
+        seen: set[str] = set()
+        parent = parent_by_id.get(issue_id)
+        while parent is not None and parent not in seen:
+            if parent in legacy_ids:
+                raise DstackError(f"adoption graph generation drifted; unexpected legacy descendant: {issue_id}")
+            seen.add(parent)
+            parent = parent_by_id.get(parent)
 
     for issue_id, raw_state in raw_states.items():
         if not isinstance(raw_state, Mapping):
@@ -383,7 +553,7 @@ def validate_adoption_postcondition(client: BeadsClient, postcondition: Mapping[
             relation = str(record.get("type") or record.get("dependency_type") or "blocks")
             if not isinstance(target, str) or not target:
                 raise DstackError(f"native adoption postcondition has an invalid edge: {source_id}")
-            if relation in _SUPERSESSION_RELATIONS:
+            if relation in _SUPERSESSION_RELATIONS or relation not in RELATIONS:
                 continue
             if source_id in legacy_ids or target in legacy_ids:
                 actual_legacy_edges.add((source_id, target, relation))
@@ -447,6 +617,22 @@ def _incorporated_decision_authorized(
     except DstackError:
         return False
     return True
+
+
+def _replacement_blocker_id(
+    client: BeadsClient,
+    view: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    approval_id: str,
+) -> str:
+    source_type = str(spec.get("source_type") or "")
+    if source_type not in {"bug", "chore"}:
+        return approval_id
+    approval = client.show(approval_id)
+    gate = human_gate_for_step(client, root_id=str(view["root"]["id"]), step=approval)
+    if not isinstance(gate, Mapping) or not gate.get("id"):
+        raise DstackError(f"{source_type} replacement requires the feature human approval gate")
+    return str(gate["id"])
 
 
 def _validate_replacement(
@@ -639,8 +825,8 @@ def validate_adoption_preflight(
         source_type = str(spec.get("source_type") or "")
         if not source_type:
             raise DstackError(f"replacement has no native source type: {spec['legacy_id']}")
-        if source_type in {"bug", "chore"}:
-            raise DstackError(f"{source_type} replacement cannot use the task approval blocker: {spec['legacy_id']}")
+        if target_view is not None:
+            _replacement_blocker_id(client, target_view, spec, _step_id(target_view, "approval"))
     inventory = plan.get("inventory")
     if not isinstance(inventory, Mapping):
         raise DstackError("adoption plan graph inventory is missing")
@@ -686,11 +872,12 @@ def validate_adoption_preflight(
                 if step.get("status") in {"closed", "deferred"}:
                     if not closed_transfer:
                         raise DstackError(f"planned lifecycle target is not mutable: {step_name}")
+                    step_endpoint = str(operation.get("target_step_endpoint") or legacy_root_id)
                     transfer_source = (
-                        step_id if operation["source_id"] == legacy_root_id else str(operation["source_id"])
+                        step_id if str(operation["source_id"]) == step_endpoint else str(operation["source_id"])
                     )
                     transfer_target = (
-                        step_id if operation["target_id"] == legacy_root_id else str(operation["target_id"])
+                        step_id if str(operation["target_id"]) == step_endpoint else str(operation["target_id"])
                     )
                     if not _edge(client.show(transfer_source), transfer_target, "blocks"):
                         raise DstackError(f"approved lifecycle transfer is not converged: {step_name}")
@@ -759,7 +946,7 @@ def _validate_prior_supersessions(
                 prior,
                 spec,
                 implementation_id=implementation_id,
-                approval_id=approval_id,
+                approval_id=_replacement_blocker_id(client, view, spec, approval_id),
             )
             expected = prior
         elif cls == "unresolved-decision" and entry.get("strategy") == "incorporated":
@@ -817,14 +1004,15 @@ def execute_adoption_plan(
             if step.get("status") in {"closed", "deferred"}:
                 if not closed_transfer:
                     raise DstackError(f"planned lifecycle target is not mutable: {op['target_step']}")
-                if op["source_id"] == legacy_root_id:
+                step_endpoint = str(op.get("target_step_endpoint") or legacy_root_id)
+                if str(op["source_id"]) == step_endpoint:
                     transfer_source = _step_id(view, step_name)
                     transfer_target = str(op["target_id"])
-                elif op["target_id"] == legacy_root_id:
+                elif str(op["target_id"]) == step_endpoint:
                     transfer_source = str(op["source_id"])
                     transfer_target = _step_id(view, step_name)
                 else:
-                    raise DstackError(f"approved lifecycle transfer has no root endpoint: {step_name}")
+                    raise DstackError(f"approved lifecycle transfer has no lifecycle endpoint: {step_name}")
                 if not _edge(client.show(transfer_source), transfer_target, "blocks"):
                     raise DstackError(f"approved lifecycle transfer is not converged: {step_name}")
             if step.get("assignee") not in (None, ""):
@@ -845,11 +1033,12 @@ def execute_adoption_plan(
     preflight_reserved: set[str] = set()
     for spec in plan.get("replacements", []):
         old = client.show(str(spec["legacy_id"]))
+        replacement_blocker = _replacement_blocker_id(client, view, spec, approval_id)
         candidate = _find_existing_replacement(
             client,
             spec,
             implementation_id=implementation_id,
-            approval_id=approval_id,
+            approval_id=replacement_blocker,
             expected_id=_replacement_association(client, old, implementation_id=implementation_id),
             reserved=preflight_reserved,
         )
@@ -870,16 +1059,17 @@ def execute_adoption_plan(
     for spec in plan.get("replacements", []):
         old = client.show(str(spec["legacy_id"]))
         expected = _replacement_association(client, old, implementation_id=implementation_id)
+        replacement_blocker = _replacement_blocker_id(client, view, spec, approval_id)
         existing = _find_existing_replacement(
             client,
             spec,
             implementation_id=implementation_id,
-            approval_id=approval_id,
+            approval_id=replacement_blocker,
             expected_id=expected,
             reserved=reserved,
         )
         target = existing or _replacement_for(
-            client, old, spec, implementation_id=implementation_id, approval_id=approval_id
+            client, old, spec, implementation_id=implementation_id, approval_id=replacement_blocker
         )
         replacement_ids[str(spec["legacy_id"])] = target
         if target in reserved:
@@ -959,6 +1149,7 @@ def execute_adoption_plan(
             replacement_ids=replacement_ids,
             resolved_decisions=resolved,
             supersede_root=effective,
+            client=client,
         )
         if expected_graph is not None
         else None
@@ -1003,6 +1194,18 @@ def execute_adoption_plan(
                 client.update(old_id, "--parent", parent)
             if issue_parent(client.show(old_id)) != parent:
                 raise DstackError(f"preserved work was not reparented: {old_id}")
+    if postcondition is not None:
+        _validate_target_integrity(client, postcondition)
+    if expected_graph is not None:
+        _validate_legacy_parentage_before_destructive_actions(client, plan, expected_graph)
+        _assert_legacy_generation_boundary(
+            client,
+            plan,
+            expected_graph,
+            legacy_root_id=legacy_root_id,
+            replacement_ids=replacement_ids,
+            view=view,
+        )
     mapping = dict(replacement_ids)
     for entry in entries:
         old_id, cls = str(entry["legacy_id"]), entry["classification"]

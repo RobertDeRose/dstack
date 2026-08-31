@@ -37,10 +37,12 @@ from .core import (
     is_current_feature,
     resolve_legacy_feature,
     root_metadata_value,
+    repository_default_branch,
     slugify,
+    serialized_repository_mutation,
 )
 
-from .formula import FEATURE_FORMULA, pour_current_formula
+from .formula import FEATURE_FORMULA, pour_current_formula, stamp_created_formula_version
 from .commands import (
     client_for,
     superseded_target,
@@ -325,6 +327,7 @@ def current_feature_for_slug(
     return matches[0] if matches else None
 
 
+@serialized_repository_mutation
 def cmd_adopt_apply(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     legacy = resolve_legacy_feature(client, args.selector)
@@ -347,7 +350,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
 
     title = args.title or display_title(str(legacy.get("title", "")))
     slug = args.slug or feature_slug(legacy) or slugify(title)
-    base = args.base_branch or root_metadata_value(legacy, "base_branch") or "main"
+    base = args.base_branch or root_metadata_value(legacy, "base_branch") or repository_default_branch(client.root)
     design = canonical_feature_design_path(slug)
     if args.design_path and args.design_path != design:
         raise DstackError(f"feature design path must be {design} for the mdBook layout")
@@ -377,19 +380,38 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
 
     current = current_feature_for_slug(client, slug, exclude_id=str(legacy["id"]))
     if current is None:
+        before_root_ids = {str(root.get("id")) for root in feature_roots(client)}
         reconcile_adoption_graph(client, planned_graph, str(legacy["id"]))
-        pour = pour_current_formula(
-            client,
-            FEATURE_FORMULA,
-            {
-                "feature_title": title,
-                "feature_slug": slug,
-                "design_path": design,
-            },
-        )
-        root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
-        if not root_id:
-            raise DstackError("bd mol pour returned no feature root")
+        try:
+            pour = pour_current_formula(
+                client,
+                FEATURE_FORMULA,
+                {
+                    "feature_title": title,
+                    "feature_slug": slug,
+                    "design_path": design,
+                },
+            )
+            root_id = str(pour.get("root_id") or pour.get("new_epic_id") or "")
+            if not root_id:
+                raise DstackError("bd mol pour returned no feature root")
+        except DstackError as exc:
+            if "may have changed state" not in str(exc):
+                raise
+            observed_roots = feature_roots(client)
+            created_candidates = [root for root in observed_roots if str(root.get("id")) not in before_root_ids]
+            if len(created_candidates) == 1:
+                recovered = created_candidates[0]
+            elif len(created_candidates) > 1:
+                ids = ", ".join(str(root.get("id")) for root in created_candidates)
+                raise DstackError(
+                    f"{exc}; adoption pour may have created multiple roots retained for inspection: {ids}"
+                ) from exc
+            else:
+                recovered = current_feature_for_slug(client, slug, exclude_id=str(legacy["id"]))
+            if recovered is None:
+                raise DstackError(f"{exc}; adoption pour recovery found no identifiable replacement root") from exc
+            root_id = str(recovered["id"])
         validate_target_topology(client, root_id)
         reconcile_adoption_graph(client, planned_graph, str(legacy["id"]))
         update_root_identity(
@@ -400,6 +422,7 @@ def cmd_adopt_apply(args: argparse.Namespace) -> int:
             base_branch=base,
             design_path=design,
         )
+        stamp_created_formula_version(client, root_id, formula_name=FEATURE_FORMULA)
     else:
         root_id = str(current["id"])
     view = feature_context(client, root_id)
