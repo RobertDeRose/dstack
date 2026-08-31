@@ -126,13 +126,11 @@ def test_issue_payload_parser_accepts_a_valid_empty_result() -> None:
 
 
 def test_json_envelope_null_normalizes_to_empty_collection() -> None:
-    assert (
-        dstacklib.parse_json(
-            json.dumps({"schema_version": 1, "data": None}),
-            context="bd gate list",
-        )
-        == []
+    payload = dstacklib.parse_json(
+        json.dumps({"schema_version": 1, "data": None}),
+        context="bd gate list",
     )
+    assert payload == []
 
 
 def test_gate_list_accepts_empty_null_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -29,7 +29,6 @@ from .core import (
     git_root,
     issue_parent,
     issue_type,
-    read_text_file,
     read_utf8_text,
     root_metadata_value,
     run,

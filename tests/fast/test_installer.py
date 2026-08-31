@@ -121,3 +121,15 @@ def test_installer_filesystem_error_uses_json_contract(tmp_path: Path, capsys) -
     payload = json.loads(capsys.readouterr().err)
     assert payload["status"] == "error"
     assert "cannot install dStack agent resources" in payload["error"]
+
+
+def test_install_skills_rejects_symlinked_agent_root(tmp_path: Path) -> None:
+    outside = tmp_path / "outside-agent"
+    outside.mkdir()
+    agent = tmp_path / "agent"
+    agent.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(DstackError, match="symlink"):
+        install_skills(agent)
+
+    assert list(outside.iterdir()) == []

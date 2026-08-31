@@ -207,7 +207,9 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
     source = asset_root()
     skill_source = source / "skills"
     prompt_source = source / "prompts"
-    target = agent_dir.expanduser().resolve()
+    original_target = agent_dir.expanduser()
+    _assert_no_symlink(original_target)
+    target = original_target.resolve()
     skills_target = target / "skills"
     prompts_target = target / "prompts"
     system_path = target / "APPEND_SYSTEM.md"

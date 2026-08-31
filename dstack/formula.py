@@ -228,8 +228,10 @@ def pour_current_formula(client: BeadsClient, name: str, variables: Mapping[str,
 def ensure_beads_initialized(root_arg: Path) -> tuple[Path, bool]:
     root = git_root(root_arg)
     beads = root / ".beads"
+    if beads.is_symlink():
+        raise DstackError(".beads must be a repository directory, not a symlink")
     if beads.exists():
-        if beads.is_symlink() or not beads.is_dir():
+        if not beads.is_dir():
             raise DstackError(".beads must be a repository directory")
         return root, False
     run(

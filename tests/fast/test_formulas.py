@@ -172,3 +172,11 @@ def test_tracked_legacy_formula_is_not_migrated_and_pour_uses_package_bytes(tmp_
     assert destination.read_text() == "legacy tracked formula\n"
     assert pour_current_formula(Client(), "dstack-feature", {"feature_title": "Demo"}) == {"root_id": "feature-1"}
     assert destination.read_text() == "legacy tracked formula\n"
+
+
+def test_ensure_beads_initialized_rejects_dangling_symlink(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(dstack_formula, "git_root", lambda root: tmp_path)
+    (tmp_path / ".beads").symlink_to(tmp_path / "missing-beads", target_is_directory=True)
+
+    with pytest.raises(DstackError, match="symlink"):
+        dstack_formula.ensure_beads_initialized(tmp_path)

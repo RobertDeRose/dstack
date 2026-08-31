@@ -513,7 +513,7 @@ The retained public commands gain narrow data/option changes:
 ```text
 dstackctl alignment finish-plan AUDIT --plan-file PLAN.json
 dstackctl setup doctor --delivery-mode merge|pr
-dstackctl adopt apply LEGACY --classification-file CLASSIFICATION.json
+dstackctl adopt apply LEGACY --remaining ID [--spec-ceremony ID ...] [classification flags ...]
 dstackctl delivery cancel-pr-gate FEATURE --reason REASON
 ```
 
@@ -525,10 +525,11 @@ correction execution mutation independently resolve the configured target ref an
 equal the plan's `baseline_commit`. Approval and execution recreate plan bytes from the description and compare the
 current correction content/graph on every invocation. The temporary input is not authoritative after finish-plan.
 
-Adoption classification flows from one temporary JSON file first into a pure closed-world transformation plan, then into
-a separate native execution boundary. The execution phase creates/reuses replacements, redirects outgoing blockers and
-incoming external dependents in safe order, verifies readiness-preserving postconditions, and only then supersedes.
-Beads receives only native issues, relationships, closure reasons, comments for accepted uncertainty, and supersession.
+Adoption classification flows from explicit repeatable CLI selections first into a pure closed-world transformation
+plan, then into a separate native execution boundary. No classification file is durable or accepted by the controller.
+The execution phase creates/reuses replacements, redirects outgoing blockers and incoming external dependents in safe
+order, verifies readiness-preserving postconditions, and only then supersedes. Beads receives only native issues,
+relationships, closure reasons, comments for accepted uncertainty, and supersession.
 
 Setup plan emits both the human-readable payload and canonical mutation object with `plan_sha256`. Apply retains the
 existing digest-only interface, recomputes and canonicalizes the current complete mutation object exactly once, requires
@@ -777,7 +778,8 @@ and executes the same object; and doctor mode is independent and explicit at eve
 
 Direct `git show`-style blob reads are selected for closed audit because they avoid a second temporary-worktree cleanup
 boundary. Unique correction titles are selected as plan-local dependency keys to avoid generated-ID metadata. The
-classification-file and explicit doctor-mode interfaces are selected as the smallest unambiguous command changes.
+explicit classification flags and explicit doctor-mode interfaces are selected as the smallest unambiguous command
+changes.
 
 Helper extraction remains conditional on concrete duplication exposed during implementation and is not a scope decision.
 If pinned Beads experiments show that a requested preserved-work reparent or nonblocking relationship is not supported,
