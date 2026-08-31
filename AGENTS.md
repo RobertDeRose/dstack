@@ -49,9 +49,10 @@ a formula changed.
 Formulas contain only the stable four-step lifecycle skeleton and a semantic contract version. Dynamic product work is
 ordinary child Beads. Packaged formulas are authoritative; native pours expose the packaged source only for the pour and
 restore any historical tracked formula copy unchanged. No persistent formula cache becomes repository authority. When an approved active feature
-has a missing/stale audited formula version, the controller requests an internal semantic specification audit. A
-no-change audit stamps the current contract version and continues without user involvement; a material design/task delta
-requires renewed user approval before mutation. Compare semantic coverage, not task names or topology.
+has a missing/stale audited formula version, the controller creates or reuses one native formula-audit Bead and blocks
+affected open work through native Beads dependencies. The review skill owns the semantic decision. A no-change audit
+closes that Bead and stamps the current contract version; a material design/task delta requires renewed user approval
+before mutation. Compare semantic coverage, not task names or topology.
 
 Use a task-sized approval milestone and native `children-of(...)` fan-in. Do not encode reviewer seats or delivery
 ceremony. Do not add formula-migration state, historical graph normalization, or setup/recovery workflows.

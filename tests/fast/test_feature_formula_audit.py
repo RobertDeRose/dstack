@@ -8,18 +8,15 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 from dstack import feature as dstack_feature  # noqa: E402
-from dstack.formula import FormulaAuditRequired  # noqa: E402
+from dstack.core import DstackError  # noqa: E402
 
 from scripted import ScriptedClient, call  # noqa: E402
 
 
 def feature_view(*, approved: bool = True) -> dict:
+    metadata = {"dstack.approved_design_sha256": "digest"} if approved else {}
     return {
-        "root": {
-            "id": "feature-1",
-            "status": "open",
-            "metadata": {"dstack.approved_design_sha256": "digest"} if approved else {},
-        },
+        "root": {"id": "feature-1", "status": "open", "metadata": metadata},
         "slug": "feature",
         "current": True,
         "closed": False,
@@ -33,7 +30,23 @@ def feature_view(*, approved: bool = True) -> dict:
     }
 
 
-def test_approved_stale_contract_requests_internal_semantic_audit(tmp_path: Path) -> None:
+def test_formula_contract_state_is_version_facts_not_lifecycle_projection(tmp_path: Path) -> None:
+    view = feature_view(approved=False)
+    root = {"id": "feature-1", "metadata": {"dstack.created_formula_version": 8}}
+    beads = ScriptedClient(tmp_path, call("show", "feature-1", result=root))
+
+    facts = dstack_feature.feature_formula_contract_state(beads, view)
+
+    assert facts == {
+        "formula": "dstack-feature",
+        "current_version": 9,
+        "created_version": 8,
+        "audited_version": None,
+    }
+    beads.assert_exhausted()
+
+
+def test_stale_contract_materializes_native_blocking_audit_bead(tmp_path: Path) -> None:
     view = feature_view()
     root = {
         "id": "feature-1",
@@ -43,48 +56,84 @@ def test_approved_stale_contract_requests_internal_semantic_audit(tmp_path: Path
             "dstack.formula_version": 8,
         },
     }
+    audit = {
+        "id": "audit-1",
+        "status": "open",
+        "labels": [dstack_feature.FORMULA_AUDIT_LABEL],
+        "dependencies": [{"depends_on_id": "approval-1", "type": "blocks"}],
+    }
+    blocked_closeout = {
+        "id": "closeout-1",
+        "status": "open",
+        "dependencies": [{"depends_on_id": "audit-1", "type": "blocks"}],
+    }
     beads = ScriptedClient(
         tmp_path,
         call("show", "feature-1", result=root),
+        call("children", "feature-1", result=[]),
+        call(
+            "create",
+            dstack_feature.FORMULA_AUDIT_TITLE,
+            parent="feature-1",
+            labels=[dstack_feature.FORMULA_AUDIT_LABEL],
+            dependencies=["approval-1"],
+            description="Review the approved feature against the current dStack feature formula contract.",
+            acceptance="Close this Bead only after the semantic compatibility review is complete.",
+            priority=1,
+            result=audit,
+        ),
         call("children", "implementation-1", result=[]),
+        call("show", "closeout-1", result={"id": "closeout-1", "status": "open", "dependencies": []}),
+        call("add_dependency", "closeout-1", "audit-1"),
+        call("show", "closeout-1", result=blocked_closeout),
+        call("show", "audit-1", result=audit),
     )
 
-    with pytest.raises(FormulaAuditRequired) as raised:
+    with pytest.raises(DstackError, match="native Bead audit-1"):
         dstack_feature.require_feature_formula_current(beads, view)
 
-    payload = raised.value.payload
-    assert payload["status"] == "audit_required"
-    assert payload["from_version"] == 8
-    assert payload["to_version"] == 9
-    assert payload["skill"] == "dstack-beads-review-feature-spec"
-    assert "semantically" in payload["user_input"]
-    assert "Do not regenerate or normalize" in payload["user_input"]
     beads.assert_exhausted()
 
 
-def test_unapproved_feature_does_not_require_compatibility_audit(tmp_path: Path) -> None:
-    view = feature_view(approved=False)
-    root = {"id": "feature-1", "metadata": {"dstack.created_formula_version": 8}}
-    beads = ScriptedClient(tmp_path, call("show", "feature-1", result=root))
-
-    state = dstack_feature.feature_formula_contract_state(beads, view)
-
-    assert state["state"] == "pending-review"
-    assert state["audit_required"] is False
-    beads.assert_exhausted()
-
-
-def test_formula_contract_stamp_updates_active_work_not_closed_history(tmp_path: Path) -> None:
+def test_formula_audit_blocks_existing_open_implementation_work(tmp_path: Path) -> None:
     view = feature_view()
-    active = {"id": "task-active", "status": "open"}
-    closed = {"id": "task-closed", "status": "closed"}
+    audit = {
+        "id": "audit-1",
+        "status": "open",
+        "labels": [dstack_feature.FORMULA_AUDIT_LABEL],
+        "dependencies": [{"depends_on_id": "approval-1", "type": "blocks"}],
+    }
+    task = {"id": "task-1", "status": "open", "labels": ["dstack:work:implementation"], "dependencies": []}
+    blocked_task = {
+        **task,
+        "dependencies": [{"depends_on_id": "audit-1", "type": "blocks"}],
+    }
+    closeout = {
+        "id": "closeout-1",
+        "status": "open",
+        "dependencies": [{"depends_on_id": "audit-1", "type": "blocks"}],
+    }
     beads = ScriptedClient(
         tmp_path,
-        call("show", "feature-1", result=view["root"]),
-        call("children", "implementation-1", result=[closed, active]),
+        call("children", "feature-1", result=[audit]),
+        call("children", "implementation-1", result=[task]),
+        call("show", "closeout-1", result=closeout),
+        call("add_dependency", "task-1", "audit-1"),
+        call("show", "task-1", result=blocked_task),
+        call("show", "audit-1", result=audit),
+    )
+
+    assert dstack_feature.ensure_feature_formula_audit(beads, view) == audit
+    beads.assert_exhausted()
+
+
+def test_formula_contract_stamp_updates_only_feature_root(tmp_path: Path) -> None:
+    view = feature_view()
+    beads = ScriptedClient(
+        tmp_path,
         call(
             "update_many",
-            ["feature-1", "spec-1", "approval-1", "implementation-1", "closeout-1", "task-active"],
+            ["feature-1"],
             "--set-metadata",
             "dstack.formula_version=9",
             result=[],
@@ -95,37 +144,17 @@ def test_formula_contract_stamp_updates_active_work_not_closed_history(tmp_path:
     beads.assert_exhausted()
 
 
-def test_current_root_with_stale_active_task_requests_audit(tmp_path: Path) -> None:
+def test_audit_complete_closes_native_bead_then_stamps_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     view = feature_view()
-    current_metadata = {
-        "dstack.approved_design_sha256": "digest",
-        "dstack.created_formula_version": 9,
-        "dstack.formula_version": 9,
-    }
-    view["root"]["metadata"] = dict(current_metadata)
-    for step in view["steps"].values():
-        step["metadata"] = {"dstack.formula_version": 9}
-
-    active = {"id": "task-active", "status": "open", "metadata": {}}
+    audit = {"id": "audit-1", "status": "open", "labels": [dstack_feature.FORMULA_AUDIT_LABEL]}
+    closed_audit = {**audit, "status": "closed"}
     beads = ScriptedClient(
         tmp_path,
-        call("show", "feature-1", result=view["root"]),
-        call("children", "implementation-1", result=[active]),
+        call("close", "audit-1", "Formula compatibility review completed", result=closed_audit),
     )
-
-    with pytest.raises(FormulaAuditRequired) as raised:
-        dstack_feature.require_feature_formula_current(beads, view)
-
-    payload = raised.value.payload
-    assert payload["from_version"] == 9
-    assert payload["to_version"] == 9
-    assert payload["stale_issue_ids"] == ["task-active"]
-    beads.assert_exhausted()
-
-
-def test_audit_complete_is_internal_no_change_cache_transition(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    view = feature_view()
-    beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_feature, "client_for", lambda root: beads)
     monkeypatch.setattr(dstack_feature, "feature_context", lambda client, selector: dict(view))
     monkeypatch.setattr(
@@ -139,19 +168,30 @@ def test_audit_complete_is_internal_no_change_cache_transition(monkeypatch: pyte
         lambda client, current: {"design_approved": True, "approved_design_sha256": "digest"},
     )
     monkeypatch.setattr(dstack_feature, "require_approved_design", lambda current: None)
-    monkeypatch.setattr(dstack_feature, "stamp_feature_formula_contract", lambda client, current: 9)
+    states = iter(
+        [
+            {
+                "formula": "dstack-feature",
+                "current_version": 9,
+                "created_version": 8,
+                "audited_version": 8,
+            },
+            {
+                "formula": "dstack-feature",
+                "current_version": 9,
+                "created_version": 8,
+                "audited_version": 9,
+            },
+        ]
+    )
+    monkeypatch.setattr(dstack_feature, "feature_formula_contract_state", lambda client, current: next(states))
+    monkeypatch.setattr(dstack_feature, "feature_formula_audit_bead", lambda client, current: audit)
     monkeypatch.setattr(
         dstack_feature,
-        "feature_formula_contract_state",
-        lambda client, current: {
-            "formula": "dstack-feature",
-            "current_version": 9,
-            "created_version": 8,
-            "audited_version": 9,
-            "state": "current",
-            "audit_required": False,
-        },
+        "claim_ready_work",
+        lambda client, *, parent_id, label, requested_id=None: audit,
     )
+    monkeypatch.setattr(dstack_feature, "stamp_feature_formula_contract", lambda client, current: 9)
     output: list[dict] = []
     monkeypatch.setattr(dstack_feature, "emit", output.append)
 
@@ -160,13 +200,13 @@ def test_audit_complete_is_internal_no_change_cache_transition(monkeypatch: pyte
         {
             "status": "ok",
             "feature": "feature-1",
+            "audit": closed_audit,
             "formula_contract": {
                 "formula": "dstack-feature",
                 "current_version": 9,
                 "created_version": 8,
                 "audited_version": 9,
-                "state": "current",
-                "audit_required": False,
             },
         }
     ]
+    beads.assert_exhausted()

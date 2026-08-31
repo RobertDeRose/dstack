@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -46,7 +45,6 @@ from .alignment import (
     cmd_alignment_claim_landing,
     cmd_alignment_finish_landing,
 )
-from .formula import FormulaAuditRequired
 from .delivery import (
     cmd_git_commit,
     cmd_git_amend,
@@ -159,7 +157,7 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     resolve = mechanical_parser(feature_sub, "resolve", "resolve a feature selector")
     resolve.add_argument("selector", nargs="?")
     resolve.set_defaults(func=cmd_feature_resolve)
-    inspect = mechanical_parser(feature_sub, "inspect", "inspect the next feature workflow boundary")
+    inspect = mechanical_parser(feature_sub, "inspect", "inspect the feature Bead and deterministic Git/worktree facts")
     inspect.add_argument("selector", nargs="?")
     inspect.add_argument("--verbose", action="store_true", help="emit the full live feature view")
     inspect.set_defaults(func=cmd_feature_inspect)
@@ -239,7 +237,11 @@ def build_ctl_parser() -> argparse.ArgumentParser:
 
     alignment = mechanical_parser(top, "alignment", "project-alignment lifecycle commands")
     alignment_sub = alignment.add_subparsers(dest="command", required=True)
-    alignment_inspect = mechanical_parser(alignment_sub, "inspect", "inspect the next project-alignment boundary")
+    alignment_inspect = mechanical_parser(
+        alignment_sub,
+        "inspect",
+        "inspect the alignment Bead and deterministic Git/worktree facts",
+    )
     alignment_inspect.add_argument("selector")
     alignment_inspect.add_argument("--verbose", action="store_true", help="emit the full live alignment view")
     alignment_inspect.set_defaults(func=cmd_alignment_inspect)
@@ -421,10 +423,6 @@ def ctl_main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.func(args))
-    except FormulaAuditRequired as exc:
-        json.dump(exc.payload, sys.stderr, indent=2, sort_keys=True)
-        sys.stderr.write("\n")
-        return 3
     except DstackError as exc:
         return fail(str(exc))
     except (OSError, UnicodeError) as exc:

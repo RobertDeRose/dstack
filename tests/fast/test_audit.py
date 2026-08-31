@@ -179,25 +179,17 @@ def test_audit_command_uses_a_non_initializing_client(monkeypatch, tmp_path: Pat
     assert seen == {"root": tmp_path, "initialize": False}
 
 
-def test_audit_default_returns_only_compact_feature_boundary(monkeypatch, tmp_path: Path) -> None:
+def test_audit_default_returns_native_feature_and_git_facts(monkeypatch, tmp_path: Path) -> None:
     client = ScriptedClient(tmp_path)
     boundary = {
-        "selected_bead_id": "feature-1",
-        "next_bead_id": "task-1",
+        "root": {"id": "feature-1", "status": "open"},
+        "branch": "feat/feature",
         "worktree": "/tmp/feature",
-        "required_evidence": ["reachable Beads footer"],
-        "blocking_reason": None,
     }
     monkeypatch.setattr(dstack_audit, "feature_view", lambda observed, selector: boundary)
 
     assert dstack_audit.feature_audit(client, "feature-1") == boundary
-    assert set(boundary) == {
-        "selected_bead_id",
-        "next_bead_id",
-        "worktree",
-        "required_evidence",
-        "blocking_reason",
-    }
+    assert set(boundary) == {"root", "branch", "worktree"}
     client.assert_exhausted()
 
 

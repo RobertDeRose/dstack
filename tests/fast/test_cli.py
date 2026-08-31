@@ -8,7 +8,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 from dstack import cli as dstack_cli
 from dstack.commands import required_task_text, task_text
-from dstack.formula import FormulaAuditRequired
 from dstack.core import DstackError
 
 
@@ -155,28 +154,6 @@ def test_main_dispatches_in_process(monkeypatch, capsys) -> None:
     assert dstack_cli.ctl_main(["feature", "resolve", "feature-1"]) == 0
     assert seen["args"].selector == "feature-1"
     assert capsys.readouterr().out == '{"status":"ok"}\n'
-
-
-def test_formula_audit_required_is_machine_readable_exit_three(monkeypatch, capsys) -> None:
-
-    def fake(args):
-        raise FormulaAuditRequired(
-            {
-                "status": "audit_required",
-                "feature": "feature-1",
-                "formula": "dstack-feature",
-                "from_version": 8,
-                "to_version": 9,
-                "skill": "dstack-beads-review-feature-spec",
-                "user_input": "Internal formula compatibility audit.",
-            }
-        )
-
-    monkeypatch.setattr(dstack_cli, "cmd_feature_claim_next", fake)
-    assert dstack_cli.ctl_main(["feature", "claim-next", "feature-1"]) == 3
-    error = capsys.readouterr().err
-    assert '"status": "audit_required"' in error
-    assert '"skill": "dstack-beads-review-feature-spec"' in error
 
 
 def test_adopt_apply_does_not_accept_ignored_note_file_options() -> None:

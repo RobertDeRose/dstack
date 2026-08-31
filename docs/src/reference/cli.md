@@ -14,17 +14,18 @@ Public slash commands are decision-oriented Pi prompt aliases installed by `dsta
 | `/project-alignment-review ...` | Current repository | Alignment review summary and native correction graph | Human gate remains for explicit execution |
 | `/project-alignment-execute ...` | Native ready corrections | Exact claim and evidence-backed close | Requested correction closes or none is ready |
 | `/project-alignment-land ...` | Full correction candidate | Landing and optional delivery | Reviewed candidate or delivered root |
-| `dstack ctl audit feature ... [--verbose] --format json\|markdown` | Current native workflow boundary; `--verbose` also reads full Beads/Git/docs evidence | None | Compact next-boundary facts by default; complete audit facts only on request |
+| `dstack ctl audit feature ... [--verbose] --format json\|markdown` | Native feature Bead and Git/worktree facts; `--verbose` also reads full Beads/Git/docs evidence | None | Native identity/Git facts by default; complete audit facts only on request |
 
 ## Native authority
 
 Beads owns workflow state, correction content, dependencies, gates, and readiness. Git owns repository content and
 history. dStack does not use an external workflow packet, classification file, migration map, or shadow graph.
 
-Default feature/alignment inspection and feature audit output are boundary-oriented: selected Bead ID, next Bead ID,
-worktree, required evidence, and blocking reason. They query native Beads readiness when needed but do not persist or
-emit controller-owned progress, readiness, or delivery dashboards. Use `feature inspect --verbose`,
-`alignment inspect --verbose`, or `audit feature --verbose` only when the complete live records are required.
+Default feature/alignment inspection and feature audit output return the native workflow root Bead plus deterministic
+branch/worktree facts only. They do not project a next task, required evidence, blocker explanation, progress, or
+delivery state. `bd ready` is the ready-work surface; dStack claim commands delegate the atomic claim to native
+`bd ready --claim`. Use `feature inspect --verbose`, `alignment inspect --verbose`, or `audit feature --verbose` only
+when complete diagnostic records are required.
 
 Alignment review stores accepted corrections directly under the native correction workstream. A concise temporary
 Markdown summary records findings, rejected or deferred findings, accepted risks, validation expectations, and
@@ -49,9 +50,11 @@ takes one planning snapshot, rejects omitted, duplicate, foreign, or conflicting
 revalidates the legacy graph at destructive phase boundaries. No classification file is created or accepted.
 
 Before Beads-backed mutation commands, dStack validates the supported Beads binary and uses packaged formula source.
-Approved active features whose `dstack.formula_version` is missing or stale return an internal `audit_required`
-instruction. Pi routes that semantic review automatically. A no-change review uses `feature audit-complete`; a material
-delta requires renewed user approval. Formula drift never normalizes historical graph shape.
+For approved active features whose `dstack.formula_version` is missing or stale, dStack creates or reuses one native
+`dstack:work:formula-audit` Bead and makes affected open implementation work and closeout depend on it. Native
+`bd ready` therefore surfaces the audit without a controller handoff packet. The feature-review skill decides semantic
+compatibility. A no-change review closes the audit through `feature audit-complete`; a material delta requires renewed
+user approval. Formula drift never normalizes historical graph shape.
 
 ## Delivery
 

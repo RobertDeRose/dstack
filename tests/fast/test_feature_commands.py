@@ -24,8 +24,6 @@ def _stable_formula_contract(monkeypatch: pytest.MonkeyPatch) -> None:
         dstack_feature,
         "feature_formula_contract_state",
         lambda *args, **kwargs: {
-            "state": "current",
-            "audit_required": False,
             "formula": "dstack-feature",
             "created_version": 9,
             "audited_version": 9,

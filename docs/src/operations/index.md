@@ -46,10 +46,11 @@ Use the [command contracts](../reference/cli.md) to plan, authorize, implement, 
 the sole authority for readiness, dependencies, gates, claims, and completion. Git is the sole authority for content,
 worktrees, commits, and delivery history.
 
-If a normal feature command detects an older formula contract on approved active work, the controller returns an
-internal semantic-audit instruction. Pi's installed dStack system guidance routes it automatically. A no-change audit is
-cached by updating the audited formula version; a material plan delta is shown to the user and requires renewed
-approval. This is review of current intent, not migration of historical Beads.
+If a normal feature command detects an older formula contract on approved active work, the controller creates or
+reuses a native formula-audit Bead and blocks affected open work with native dependencies. `bd ready` exposes that Bead;
+the feature-review skill handles the semantic comparison. A no-change audit closes the Bead and updates the audited
+formula version; a material plan delta is shown to the user and requires renewed approval. This is review of current
+intent, not migration of historical Beads.
 
 Each feature or alignment uses a conventional native Git worktree. Native Beads claims arbitrate concurrent workers.
 Clean completed worktrees with native Git after delivery and after confirming no uncommitted files remain.

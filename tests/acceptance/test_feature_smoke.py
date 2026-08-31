@@ -363,17 +363,36 @@ External blocker B replaces blocker A.
         "dstack.formula_version=8",
     )
     stale = run_ctl(acceptance_repo, "feature", "claim-next", root_id, check=False)
-    assert stale.returncode == 3
+    assert stale.returncode != 0
     stale_payload = json.loads(stale.stderr)
-    assert stale_payload["status"] == "audit_required"
-    assert stale_payload["from_version"] == 8
-    assert stale_payload["to_version"] == 9
-    assert stale_payload["skill"] == "dstack-beads-review-feature-spec"
+    assert stale_payload["status"] == "error"
+    assert "semantic formula compatibility review" in stale_payload["error"]
+
+    root_children = items(
+        run_json(acceptance_repo, "list", "--all", "--parent", root_id, "--limit", "0")
+    )
+    audit = by_label(root_children, "dstack:work:formula-audit")
+    ready_audits = items(
+        run_json(
+            acceptance_repo,
+            "ready",
+            "--parent",
+            root_id,
+            "--label",
+            "dstack:work:formula-audit",
+            "--limit",
+            "0",
+        )
+    )
+    assert [item["id"] for item in ready_audits] == [audit["id"]]
+    assert audit["id"] in dependency_ids(items(run_json(acceptance_repo, "show", task["id"]))[0])
+    closeout = by_label(root_children, "dstack:step:closeout")
+    assert audit["id"] in dependency_ids(items(run_json(acceptance_repo, "show", closeout["id"]))[0])
+
     run_ctl(acceptance_repo, "feature", "audit-complete", root_id)
+    assert items(run_json(acceptance_repo, "show", audit["id"]))[0]["status"] == "closed"
     audited_root = items(run_json(acceptance_repo, "show", root_id))[0]
     assert int(audited_root["metadata"]["dstack.formula_version"]) == 9
-    audited_task = items(run_json(acceptance_repo, "show", task["id"]))[0]
-    assert int(audited_task["metadata"]["dstack.formula_version"]) == 9
     late_refused = run_ctl(
         acceptance_repo,
         "feature",

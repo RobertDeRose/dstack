@@ -8,7 +8,7 @@ lifecycle roles, not transient execution state.
 | Key | Meaning |
 | --- | --- |
 | `dstack.created_formula_version` | Formula contract version that created/materialized the workflow root; historical provenance |
-| `dstack.formula_version` | Latest formula contract version whose semantics were approved/audited for the active workflow |
+| `dstack.formula_version` | Latest formula contract version whose semantics were approved/audited for the workflow root |
 | `dstack.base_branch` | Feature delivery target |
 | `dstack.design_path` | Canonical tracked design path under `docs/src/features` |
 | `dstack.pending_design_sha256` | Committed design digest for an incomplete approval attempt; never sufficient for implementation |
@@ -29,6 +29,8 @@ reviewed intent only and never stores a Git baseline or external packet.
 - `workflow:project-alignment` and one compatible `audit:<slug>` identity label a parentless alignment molecule.
 - `dstack:work:implementation` marks bounded implementation tasks.
 - `dstack:work:correction` marks bounded alignment corrections.
+- `dstack:work:formula-audit` marks the native semantic compatibility review Bead created only when an approved feature
+  predates the current feature-formula contract.
 
 Stable formula step labels identify specification/analysis, approval, implementation/corrections, and closeout/landing
 roles. Formula validation owns the exact set; dynamic children do not duplicate root identity labels or root metadata.

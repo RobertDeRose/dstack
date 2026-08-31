@@ -181,9 +181,7 @@ def test_feature_design_state_uses_registered_committed_content(git_repo: Path, 
     assert state["current_design_sha256"] is None
 
 
-def test_feature_view_default_stops_at_specification_without_hydrating_work(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_feature_view_default_returns_native_root_without_readiness_projection(tmp_path: Path, monkeypatch) -> None:
     root = {
         "id": "feature-1",
         "issue_type": "molecule",
@@ -230,11 +228,9 @@ def test_feature_view_default_stops_at_specification_without_hydrating_work(
     observed = dstacklib.feature_view(beads, "feature-1")
 
     assert observed == {
-        "selected_bead_id": "feature-1",
-        "next_bead_id": "specification-1",
+        "root": root,
+        "branch": "feat/feature",
         "worktree": str(tmp_path),
-        "required_evidence": ["committed feature design", "explicit human authorization"],
-        "blocking_reason": None,
     }
     beads.assert_exhausted()
 
@@ -302,10 +298,10 @@ def test_feature_view_verbose_projects_real_steps_gate_and_design(git_repo: Path
         git_repo,
         call("show_optional", "feature-1", result=root),
         call("children", "feature-1", result=steps),
-        call("children", "implementation-1", result=[task]),
         call("show", "specification-1", result=steps[0]),
         call("show", "approval-1", result=approval),
         call("show_optional", "gate-1", result=gate),
+        call("children", "implementation-1", result=[task]),
     )
     monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: git_repo)
 
@@ -320,9 +316,7 @@ def test_feature_view_verbose_projects_real_steps_gate_and_design(git_repo: Path
     beads.assert_exhausted()
 
 
-def test_alignment_view_default_stops_at_analysis_without_hydrating_corrections(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_alignment_view_default_returns_native_root_without_readiness_projection(tmp_path: Path, monkeypatch) -> None:
     root = {
         "id": "alignment-1",
         "issue_type": "molecule",
@@ -366,18 +360,14 @@ def test_alignment_view_default_stops_at_analysis_without_hydrating_corrections(
     observed = dstacklib.alignment_view(beads, "alignment-1")
 
     assert observed == {
-        "selected_bead_id": "alignment-1",
-        "next_bead_id": "analysis-1",
+        "root": root,
+        "branch": "audit/repository",
         "worktree": str(tmp_path),
-        "required_evidence": ["review summary", "native correction graph"],
-        "blocking_reason": None,
     }
     beads.assert_exhausted()
 
 
-def test_alignment_view_verbose_projects_real_steps_gate_and_metadata(
-    tmp_path: Path,
-) -> None:
+def test_alignment_view_verbose_projects_real_steps_gate_and_metadata(tmp_path: Path, monkeypatch) -> None:
     root = {
         "id": "alignment-1",
         "issue_type": "molecule",
@@ -413,6 +403,7 @@ def test_alignment_view_verbose_projects_real_steps_gate_and_metadata(
         call("show_optional", "gate-1", result=gate),
         call("children", "corrections-1", result=[correction]),
     )
+    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: tmp_path)
 
     observed = dstacklib.alignment_view(beads, "alignment-1", verbose=True)
     assert observed["steps"]["corrections"]["id"] == "corrections-1"

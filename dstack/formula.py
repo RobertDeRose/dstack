@@ -34,14 +34,6 @@ FORMULA_VERSION_KEY = "dstack.formula_version"
 CREATED_FORMULA_VERSION_KEY = "dstack.created_formula_version"
 
 
-class FormulaAuditRequired(DstackError):
-    """Signal that semantic compatibility review is required before execution."""
-
-    def __init__(self, payload: Mapping[str, Any]):
-        self.payload = dict(payload)
-        super().__init__(str(self.payload.get("message") or "formula compatibility audit required"))
-
-
 def package_root() -> Path:
     return Path(__file__).resolve().parent
 

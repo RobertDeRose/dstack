@@ -361,7 +361,7 @@ def _feature_audit_verbose(client: BeadsClient, selector: str) -> FeatureAuditVi
 
 
 def feature_audit(client: BeadsClient, selector: str, *, verbose: bool = False) -> dict[str, Any]:
-    """Return a compact workflow boundary by default; expose full audit facts explicitly."""
+    """Return native feature identity/Git facts by default; expose full audit facts explicitly."""
 
     if not verbose:
         return feature_view(client, selector)
@@ -374,7 +374,7 @@ def render_markdown(payload: Mapping[str, Any]) -> str:
     if isinstance(root, Mapping):
         title = str(root.get("title") or root.get("id") or "feature")
     else:
-        title = str(payload.get("selected_bead_id") or "feature")
+        title = "feature"
     return f"# Feature audit: {title}\n\n```json\n{facts}\n```\n"
 
 

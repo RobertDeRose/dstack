@@ -84,11 +84,11 @@ authority. Formula source is exposed transiently for native pours; legacy tracke
 unchanged. No setup workflow or migration authority exists.
 
 Formula versions are semantic planning/review contracts. New feature roots record their creation version; approved
-active features record the latest audited version. A stale/missing audited version causes the controller to return one
-compact `audit_required` instruction. The installed dStack system guidance routes that instruction to the
-specification-review skill internally. If the existing design/tasks already satisfy current expectations, dStack stamps
-the current version and resumes. Material gaps produce only a proposed delta and reuse the normal human reauthorization
-boundary.
+active features record the latest audited version. A stale/missing audited version causes the controller to create or
+reuse one native `dstack:work:formula-audit` Bead and add native blockers to affected open work. Beads then exposes that
+work through its normal ready surface. The specification-review skill owns the semantic decision; dStack emits no
+inter-agent packet. If the existing design/tasks already satisfy current expectations, `feature audit-complete` closes
+the Bead and stamps the current version. Material gaps reuse the normal human reauthorization boundary.
 
 **Formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to.**
 Historical labels, task groupings, and closed work are left intact. Current root resolution uses parentless topology,

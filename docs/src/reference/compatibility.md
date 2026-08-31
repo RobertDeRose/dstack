@@ -26,20 +26,23 @@ planning/review expectations materially change.
 
 ## Automatic feature compatibility audit
 
-When an approved active feature has a missing or stale `dstack.formula_version`, a normal lifecycle command returns an
-internal `audit_required` instruction naming the current review skill and the previous/current contract versions. Pi's
-installed dStack system guidance immediately routes that review; users do not invoke an audit mode.
+When an approved active feature has a missing or stale `dstack.formula_version`, a normal lifecycle command creates or
+reuses one native Bead labeled `dstack:work:formula-audit`. The controller adds ordinary Beads blockers from affected
+open implementation tasks and closeout to that Bead, then stops. Native `bd ready` is the routing surface; no skill name,
+resume command, or inter-agent payload is emitted.
 
-The audit compares the accepted design and existing authorized work semantically against current requirements. Different
-task names, grouping, review ceremony, or historical labels are not findings when the same outcomes and validation are
-already covered.
+The feature-review skill compares the accepted design and existing authorized work semantically against current
+requirements. Different task names, grouping, review ceremony, or historical labels are not findings when the same
+outcomes and validation are already covered.
 
-- **No material delta:** run the controller's internal `feature audit-complete` transition, stamp the current contract
-  version on the root/current work, and retry the original command. No user approval is required.
+- **No material delta:** run `feature audit-complete`; it closes the native audit Bead and stamps the current contract
+  version on the feature root. No user approval is required.
 - **Material delta:** present only the minimum design/task/dependency changes and rationale. Do not mutate approved work
-  until the user approves reauthorization. The normal review/approval path then records the current contract version.
+  until the user approves reauthorization. The normal review/approval path records the current contract version, and the
+  audit Bead remains the blocker until the review skill completes it.
 
-The version stamp is the audit cache; no separate audit state, packet, migration map, or compatibility database exists.
+The version stamp is the compatibility cache and the audit itself is ordinary Beads work; no separate audit state,
+packet, migration map, or compatibility database exists.
 
 ## Legacy adoption
 

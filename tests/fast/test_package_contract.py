@@ -388,7 +388,8 @@ def test_installed_system_guidance_is_compact() -> None:
     guidance = (ROOT / "dstack/assets/APPEND_SYSTEM.md").read_text()
     assert len(guidance.split()) <= 350
     assert "Central rule:" in guidance
-    assert "audit_required" in guidance
+    assert "dstack:work:formula-audit" in guidance
+    assert "bd ready" in guidance
     assert "dstack ctl" in guidance
 
 
@@ -491,3 +492,22 @@ def test_json_output_helper_is_neutral() -> None:
     output = (ROOT / "dstack/output.py").read_text()
     assert "from .commands" not in output
     assert "from .core" not in output
+
+
+def test_controller_has_no_next_work_or_formula_audit_packet_protocol() -> None:
+    controller_source = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted((ROOT / "dstack").glob("*.py"))
+    )
+    guidance = (ROOT / "dstack" / "assets" / "APPEND_SYSTEM.md").read_text(encoding="utf-8")
+
+    for token in (
+        "selected_bead_id",
+        "next_bead_id",
+        "required_evidence",
+        "blocking_reason",
+        "FormulaAuditRequired",
+        "audit_required",
+        "user_input",
+    ):
+        assert token not in controller_source
+        assert token not in guidance

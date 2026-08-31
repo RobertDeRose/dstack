@@ -1,9 +1,9 @@
 # dStack workflow reference
 
-Mutation commands return the root identifier and the native objects they touch. `feature inspect` and
-`alignment inspect` default to the current workflow boundary: selected/next Bead ID, worktree, required evidence, and
-blocking reason. Use `--verbose` only when complete live native records are required. `delivery inspect` remains the
-candidate/delivery evidence view.
+Mutation commands return the native Beads objects they touch. `feature inspect` and `alignment inspect` return the
+native root Bead plus deterministic branch/worktree facts; they do not choose the next work item. Use native `bd ready`
+as the ready-work surface and `--verbose` only when complete diagnostic records are required. `delivery inspect` remains
+the candidate/delivery evidence view.
 
 | Boundary | Native operation | Retry contract |
 | --- | --- | --- |
@@ -53,14 +53,15 @@ closed or superseded, and stale blocking dependencies are removed through Beads.
 
 Before implementation or closeout of approved active work, the controller compares the feature's
 `dstack.formula_version` with the current `dstack-feature` semantic contract version. A match continues immediately. A
-missing/stale value returns a compact internal `audit_required` instruction that the installed dStack system guidance
-routes through `/review-feature-spec`; the user does not invoke an audit switch.
+missing/stale value creates or reuses one ordinary Bead labeled `dstack:work:formula-audit`; native blocking dependencies
+prevent affected implementation work and closeout from becoming ready until that Bead closes.
 
-Audit compares the accepted design and authorized tasks semantically with current planning/review expectations. It does
-not regenerate the graph or treat task names/grouping as a schema. If no material gap exists, the internal
-`feature audit-complete` transition stamps the current version on the feature and active work and the original command
-is retried. If a material gap exists, the agent presents only the minimum delta and waits for renewed user authorization
-before reauthorizing or mutating approved work. Historical closed work is never rewritten for version conformity.
+The selected audit Bead is handled by the feature-review skill, which compares accepted design and authorized tasks
+semantically with current planning/review expectations. The controller emits no skill/routing/resume packet and does not
+choose the review outcome. If no material gap exists, `feature audit-complete` closes the audit Bead and stamps the
+current version on the feature root. If a material gap exists, the agent presents only the minimum delta and
+waits for renewed user authorization before reauthorizing or mutating approved work. Historical closed work is never
+rewritten for version conformity.
 
 ### `/implement-feature [feature] [task|--all]`
 
