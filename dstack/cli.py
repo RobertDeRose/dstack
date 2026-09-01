@@ -88,10 +88,6 @@ HELP_BY_DEST = {
     "head": "Candidate Git ref for documentation comparison.",
     "fetch": "Fetch the target remote before inspecting delivery.",
     "pr_number": "External pull-request number for the native gate.",
-    "remaining": "Legacy item representing remaining product work; repeat as needed.",
-    "spec_ceremony": "Legacy specification item to preserve; repeat as needed.",
-    "implementation_coordinator": "Legacy implementation item to preserve; repeat as needed.",
-    "closeout_ceremony": "Legacy closeout item to preserve; repeat as needed.",
 }
 
 
@@ -261,8 +257,9 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     correction = mechanical_parser(alignment_sub, "add-correction", "create a correction through native Beads")
     correction.add_argument("selector")
     correction.add_argument("--title", required=True)
-    correction.add_argument("--description")
-    correction.add_argument("--description-file", type=Path)
+    correction_description = correction.add_mutually_exclusive_group(required=True)
+    correction_description.add_argument("--description")
+    correction_description.add_argument("--description-file", type=Path)
     correction.add_argument("--acceptance")
     correction.add_argument("--acceptance-file", type=Path)
     correction.add_argument("--priority", type=int, default=2)

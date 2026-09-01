@@ -29,6 +29,26 @@ from dstack.core import CommandResult, current_head
 from scripted import ScriptedClient, call
 
 
+_REAL_REQUIRE_TERMINAL_RECORDS = dstack_delivery._require_terminal_records
+_REAL_REQUIRE_OPEN_DELIVERY_ROOT = dstack_delivery._require_open_delivery_root
+
+
+@pytest.fixture(autouse=True)
+def isolate_native_boundary_rereads(monkeypatch):
+    """Keep legacy unit tests focused; dedicated tests exercise fresh native boundaries."""
+
+    monkeypatch.setattr(
+        dstack_delivery,
+        "_require_terminal_records",
+        lambda client, records, **kwargs: [dict(record) for record in records],
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "_require_open_delivery_root",
+        lambda client, root_id: {"id": root_id, "status": "open"},
+    )
+
+
 def payload(**overrides):
     value = {
         "tracked_runtime_beads": [],
@@ -104,11 +124,13 @@ def test_delivery_inspect_fetch_holds_repository_mutation_lock(monkeypatch, tmp_
         raise AssertionError(command)
 
     monkeypatch.setattr(dstack_delivery, "run", run)
-    monkeypatch.setattr(
-        dstack_delivery,
-        "delivery_inspection",
-        lambda client, selector: ({"selector": selector} if active else (_ for _ in ()).throw(AssertionError("unlocked"))),
-    )
+    def inspect(client, selector):
+        del client
+        if not active:
+            raise AssertionError("unlocked")
+        return {"selector": selector}
+
+    monkeypatch.setattr(dstack_delivery, "delivery_inspection", inspect)
     output: list[dict] = []
     monkeypatch.setattr(dstack_delivery, "emit", output.append)
 
@@ -524,16 +546,17 @@ def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(monkeypatch, t
 
 
 def test_active_legacy_alignment_delivery_requires_re_review(monkeypatch, tmp_path: Path) -> None:
+    root = {"id": "alignment-1", "status": "open"}
     context = {
-        "root": {"id": "alignment-1", "status": "open"},
+        "root": root,
         "steps": {"analysis": {"id": "analysis-1"}, "corrections": {"id": "corrections-1"}},
     }
-    beads = ScriptedClient(tmp_path)
+    beads = ScriptedClient(tmp_path, call("show", "alignment-1", result=root))
     monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context)
     monkeypatch.setattr(
         dstack_delivery,
         "require_alignment_authorized",
-        lambda *args: (_ for _ in ()).throw(DstackError("alignment requires re-review")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(DstackError("alignment requires re-review")),
     )
 
     with pytest.raises(DstackError, match="re-review"):
@@ -542,35 +565,34 @@ def test_active_legacy_alignment_delivery_requires_re_review(monkeypatch, tmp_pa
 
 
 def test_alignment_delivery_context_excludes_structural_children(monkeypatch, tmp_path: Path) -> None:
-    context = {
-        "root": {"id": "alignment-1", "status": "closed"},
-        "steps": {
-            "analysis": {"id": "analysis-1"},
-            "corrections": {"id": "corrections-1"},
-        },
+    root = {"id": "alignment-1", "status": "closed"}
+    steps = {
+        "analysis": {"id": "analysis-1", "status": "closed"},
+        "approval": {"id": "approval-1", "status": "closed"},
+        "corrections": {"id": "corrections-1", "status": "closed"},
+        "landing": {"id": "landing-1", "status": "closed"},
     }
+    context = {"root": root, "steps": steps}
     correction = {
         "id": "correction-1",
         "issue_type": "task",
         "labels": ["dstack:work:correction"],
+        "status": "closed",
     }
     beads = ScriptedClient(
         tmp_path,
-        call("show", "analysis-1", result={"id": "analysis-1"}),
-        call(
-            "children",
-            "corrections-1",
-            result=[
-                correction,
-                {"id": "structural-1", "issue_type": "epic", "status": "closed"},
-            ],
-        ),
+        call("show", "alignment-1", result=root),
+        call("show", "correction-1", result=correction),
     )
     monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context.copy())
     monkeypatch.setattr(
         dstack_delivery,
-        "canonical_description",
-        lambda *args: ({"schema": "dstack.alignment-review/v1"}, "", ""),
+        "require_alignment_authorized",
+        lambda client, view, **kwargs: {
+            "steps": steps,
+            "human_gate": {"id": "gate-1", "status": "closed"},
+            "corrections": [{"id": "correction-1"}],
+        },
     )
     observed = dstack_delivery.alignment_delivery_context(beads, "alignment-1")
     assert "baseline_commit" not in observed
@@ -579,33 +601,33 @@ def test_alignment_delivery_context_excludes_structural_children(monkeypatch, tm
 
 
 def test_alignment_delivery_context_revalidates_authorization(monkeypatch, tmp_path: Path) -> None:
-    context = {
-        "root": {"id": "alignment-1", "status": "open"},
-        "steps": {
-            "analysis": {"id": "analysis-1"},
-            "approval": {"id": "approval-1", "status": "closed"},
-            "corrections": {"id": "corrections-1"},
-            "landing": {"id": "landing-1", "status": "closed"},
-        },
+    root = {"id": "alignment-1", "status": "open"}
+    steps = {
+        "analysis": {"id": "analysis-1", "status": "closed"},
+        "approval": {"id": "approval-1", "status": "closed"},
+        "corrections": {"id": "corrections-1", "status": "open"},
+        "landing": {"id": "landing-1", "status": "closed"},
     }
-    beads = ScriptedClient(
-        tmp_path,
-        call("children", "corrections-1", result=[]),
-    )
+    context = {"root": root, "steps": steps}
+    beads = ScriptedClient(tmp_path, call("show", "alignment-1", result=root))
     authorized: list[dict] = []
     monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context.copy())
-    monkeypatch.setattr(
-        dstack_delivery,
-        "require_alignment_authorized",
-        lambda client, view: authorized.append(view) or {},
-    )
 
-    dstack_delivery.alignment_delivery_context(beads, "alignment-1")
+    def authorize(client, view, **kwargs):
+        authorized.append(view)
+        return {
+            "steps": steps,
+            "human_gate": {"id": "gate-1", "status": "closed"},
+            "corrections": [],
+        }
 
-    assert authorized[0]["root"] == context["root"]
-    assert authorized[0]["corrections"] == []
+    monkeypatch.setattr(dstack_delivery, "require_alignment_authorized", authorize)
+
+    observed = dstack_delivery.alignment_delivery_context(beads, "alignment-1")
+
+    assert authorized[0]["root"] == root
+    assert observed["corrections"] == []
     beads.assert_exhausted()
-
 
 def test_evidence_audit_command_returns_controller_owned_result(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
@@ -2143,3 +2165,29 @@ def test_timed_out_delivery_worktree_creation_retains_native_state(
     assert "retained_path=" in message
     assert "registered=true" in message
     assert "git worktree list --porcelain" in message
+
+
+def test_terminal_record_reread_rejects_reopened_work(tmp_path: Path) -> None:
+    client = ScriptedClient(
+        tmp_path,
+        call("show", "task-1", result={"id": "task-1", "status": "open"}),
+    )
+
+    with pytest.raises(DstackError, match="task-1:open"):
+        _REAL_REQUIRE_TERMINAL_RECORDS(
+            client,
+            [{"id": "task-1", "status": "closed"}],
+            name="delivered feature work",
+        )
+    client.assert_exhausted()
+
+
+def test_delivery_root_reread_rejects_closed_root(tmp_path: Path) -> None:
+    client = ScriptedClient(
+        tmp_path,
+        call("show", "feature-1", result={"id": "feature-1", "status": "closed"}),
+    )
+
+    with pytest.raises(DstackError, match="inspect-only"):
+        _REAL_REQUIRE_OPEN_DELIVERY_ROOT(client, "feature-1")
+    client.assert_exhausted()

@@ -4,34 +4,54 @@ import copy
 
 import pytest
 
-from dstack.alignment_authority import (
-    SCHEMA,
-    canonical_authority,
-    correction_graph,
-    normalize_summary,
-    require_alignment_authorized,
-)
-from dstack.core import DstackError
+from dstack.alignment_authority import correction_graph, normalize_summary, require_alignment_authorized
+from dstack.core import ALIGNMENT_STEPS, DstackError
 
 
 class AuthorityClient:
-    def __init__(self, *, approved: bool = False) -> None:
-        self.state = {
-            "alignment-1": {
-                "id": "alignment-1",
-                "status": "open",
-                "metadata": {},
-            },
+    def __init__(self, *, approved: bool = False, root_status: str = "open") -> None:
+        boundary_status = "closed" if approved else "open"
+        self.state: dict[str, dict] = {
+            "alignment-1": {"id": "alignment-1", "status": root_status},
             "analysis-1": {
                 "id": "analysis-1",
-                "status": "closed" if approved else "open",
+                "status": boundary_status,
+                "type": "task",
+                "parent": "alignment-1",
+                "labels": [ALIGNMENT_STEPS["analysis"]],
                 "description": "Finding\n\nCorrection rationale.",
             },
-            "approval-1": {"id": "approval-1", "status": "closed" if approved else "open"},
-            "gate-1": {"id": "gate-1", "status": "closed" if approved else "open", "type": "gate"},
-            "corrections-1": {"id": "corrections-1", "status": "open", "type": "epic"},
+            "approval-1": {
+                "id": "approval-1",
+                "status": boundary_status,
+                "type": "task",
+                "parent": "alignment-1",
+                "labels": [ALIGNMENT_STEPS["approval"]],
+                "dependencies": [{"type": "blocks", "depends_on_id": "gate-1"}],
+            },
+            "gate-1": {
+                "id": "gate-1",
+                "status": boundary_status,
+                "type": "gate",
+                "gate_type": "human",
+            },
+            "corrections-1": {
+                "id": "corrections-1",
+                "status": "open",
+                "type": "epic",
+                "parent": "alignment-1",
+                "labels": [ALIGNMENT_STEPS["corrections"]],
+            },
+            "landing-1": {
+                "id": "landing-1",
+                "status": "open",
+                "type": "task",
+                "parent": "alignment-1",
+                "labels": [ALIGNMENT_STEPS["landing"]],
+            },
             "correction-b": {
                 "id": "correction-b",
+                "status": "open",
                 "title": "Second correction",
                 "description": "Second description",
                 "acceptance_criteria": "Second acceptance",
@@ -47,6 +67,7 @@ class AuthorityClient:
             },
             "correction-a": {
                 "id": "correction-a",
+                "status": "open",
                 "title": "First correction",
                 "description": "First description",
                 "acceptance_criteria": "First acceptance",
@@ -60,12 +81,6 @@ class AuthorityClient:
                 ],
             },
         }
-        if approved:
-            view = self.view()
-            _, _, digest = canonical_authority(self, view, self.state["analysis-1"]["description"])
-            self.state["alignment-1"]["metadata"] = {
-                "dstack.approved_alignment_review_sha256": digest,
-            }
 
     def show(self, issue_id: str) -> dict:
         return copy.deepcopy(self.state[issue_id])
@@ -81,12 +96,11 @@ class AuthorityClient:
     def view(self) -> dict:
         return {
             "root": self.show("alignment-1"),
-            "human_gate": self.show("gate-1"),
             "steps": {
                 "analysis": self.show("analysis-1"),
                 "approval": self.show("approval-1"),
                 "corrections": self.show("corrections-1"),
-                "landing": {"id": "landing-1", "status": "open"},
+                "landing": self.show("landing-1"),
             },
         }
 
@@ -97,23 +111,16 @@ def test_summary_normalization_is_small_and_strict() -> None:
         normalize_summary(" \n\t ")
 
 
-def test_authority_is_derived_from_summary_and_native_corrections() -> None:
+def test_correction_graph_is_derived_from_live_native_records() -> None:
     client = AuthorityClient()
-    view = client.view()
+    graph = correction_graph(client, client.view())
 
-    graph = correction_graph(client, view)
     assert [item["id"] for item in graph] == ["correction-a", "correction-b"]
     assert graph[1]["relationships"][-1] == {"type": "parent-child", "target": "corrections-1"}
 
-    authority, encoded, digest = canonical_authority(client, view, "Review summary")
-    assert authority["schema"] == SCHEMA
-    assert authority["summary"] == "Review summary"
-    assert len(digest) == 64
-    assert encoded == encoded.strip()
-
     client.state["correction-a"]["acceptance_criteria"] = "Changed acceptance"
-    _, _, changed = canonical_authority(client, view, "Review summary")
-    assert changed != digest
+    changed = correction_graph(client, client.view())
+    assert changed[0]["acceptance"] == "Changed acceptance"
 
 
 def test_correction_graph_rejects_non_native_or_malformed_work() -> None:
@@ -123,16 +130,31 @@ def test_correction_graph_rejects_non_native_or_malformed_work() -> None:
         correction_graph(client, client.view())
 
     client = AuthorityClient()
-    client.state["correction-a"]["dependencies"].append({"type": "blocks", "depends_on_id": "approval-1"})
+    client.state["correction-a"]["dependencies"].append(
+        {"type": "blocks", "depends_on_id": "approval-1"}
+    )
     with pytest.raises(DstackError, match="exactly one approval blocker"):
         correction_graph(client, client.view())
 
 
-def test_authorization_recomputes_current_native_authority() -> None:
+def test_authorization_uses_live_beads_without_a_digest_protocol() -> None:
     client = AuthorityClient(approved=True)
     authority = require_alignment_authorized(client, client.view())
-    assert authority["summary"].startswith("Finding")
 
-    client.state["correction-a"]["title"] = "Drifted title"
-    with pytest.raises(DstackError, match="does not match current Beads state"):
+    assert authority["summary"].startswith("Finding")
+    assert [item["id"] for item in authority["corrections"]] == ["correction-a", "correction-b"]
+    assert set(authority) == {"summary", "corrections", "human_gate", "steps"}
+
+    client.state["correction-a"]["description"] = ""
+    with pytest.raises(DstackError, match="description must be a non-empty string"):
         require_alignment_authorized(client, client.view())
+
+
+def test_closed_root_is_inspectable_but_not_executable() -> None:
+    client = AuthorityClient(approved=True, root_status="closed")
+
+    with pytest.raises(DstackError, match="inspect-only"):
+        require_alignment_authorized(client, client.view())
+
+    authority = require_alignment_authorized(client, client.view(), allow_closed_root=True)
+    assert authority["summary"].startswith("Finding")

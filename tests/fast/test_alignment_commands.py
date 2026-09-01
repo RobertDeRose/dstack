@@ -10,7 +10,6 @@ from dstack import alignment as dstack_alignment
 from dstack import delivery as dstack_delivery
 from dstack.commands import DstackError
 from dstack.docs import RECORD_SUBJECTS
-from dstack.core import CommandResult
 
 from scripted import ScriptedClient, call
 
@@ -52,7 +51,7 @@ def approved_alignment_view() -> dict:
     return value
 
 
-def patch_command(monkeypatch, beads, current=None, *, plan_metadata=None):
+def patch_command(monkeypatch, beads, current=None):
     current = current or alignment_view()
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda client, selector: current)
@@ -61,20 +60,30 @@ def patch_command(monkeypatch, beads, current=None, *, plan_metadata=None):
         "alignment_branch_context",
         lambda *args: ("audit/alignment", beads.root, "main"),
     )
+    monkeypatch.setattr(dstack_alignment, "correction_graph", lambda *args, **kwargs: [])
     monkeypatch.setattr(
         dstack_alignment,
-        "canonical_description",
-        lambda *args: (
-            {"schema": "dstack.alignment-review/v1", "summary": "review", "corrections": []},
-            "review",
-            "0" * 64,
+        "create_child_reconciled",
+        lambda client, title, **kwargs: client.create(
+            title,
+            parent=kwargs["parent_id"],
+            labels=kwargs["labels"],
+            dependencies=kwargs["dependencies"],
+            description=kwargs["description"],
+            acceptance=kwargs["acceptance"],
+            priority=kwargs["priority"],
         ),
     )
-    if plan_metadata is None:
-        plan_metadata = ("0" * 64, "0" * 64) if current["steps"]["approval"].get("status") == "closed" else (None, None)
-    monkeypatch.setattr(dstack_alignment, "root_plan_metadata", lambda *args: plan_metadata)
-    if current["steps"]["approval"].get("status") == "closed":
-        monkeypatch.setattr(dstack_alignment, "require_alignment_authorized", lambda *args: {})
+    def require_authorized(*args, **kwargs):
+        del args, kwargs
+        root_status = current["root"].get("status")
+        if root_status != "open":
+            raise DstackError(f"alignment root must be open and is inspect-only: status={root_status!r}")
+        if current["steps"]["approval"].get("status") != "closed":
+            raise DstackError("alignment authorization is not closed")
+        return {}
+
+    monkeypatch.setattr(dstack_alignment, "require_alignment_authorized", require_authorized)
     output = []
     monkeypatch.setattr(dstack_alignment, "emit", output.append)
     return output
@@ -128,7 +137,6 @@ def test_initialize_rejects_noncanonical_slug_before_pour(monkeypatch, git_repo:
         )
 
 
-
 def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(dstack_alignment, "validate_git_branch", lambda *args, **kwargs: "main")
     monkeypatch.setattr(dstack_alignment, "validate_git_revision", lambda *args, **kwargs: "main")
@@ -139,7 +147,7 @@ def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_p
     )
     beads = ScriptedClient(
         tmp_path,
-        call("list", all_statuses=True, result=[]),
+        call("list", all_statuses=True, include_gates=True, result=[]),
         call(
             "pour",
             "dstack-project-alignment",
@@ -181,8 +189,6 @@ def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_p
         return value
 
     monkeypatch.setattr(dstack_alignment, "alignment_context", observed)
-    monkeypatch.setattr(dstack_alignment, "branch_exists", lambda *args: True)
-    monkeypatch.setattr(dstack_alignment, "worktree_for_branch", lambda *args: tmp_path / "worktree")
     output = []
     monkeypatch.setattr(dstack_alignment, "emit", output.append)
     args = argparse.Namespace(
@@ -271,7 +277,7 @@ def test_add_correction_rejects_closed_authorization_without_creation(monkeypatc
                 root=tmp_path,
                 selector="alignment-1",
                 title="Late correction",
-                description=None,
+                description="details",
                 description_file=None,
                 acceptance="observable",
                 acceptance_file=None,
@@ -283,25 +289,35 @@ def test_add_correction_rejects_closed_authorization_without_creation(monkeypatc
 
 
 @pytest.mark.parametrize(
-    ("analysis_status", "plan_metadata"),
+    ("analysis_status", "approval_status", "corrections_status"),
     [
-        ("closed", (None, None)),
-        ("open", ("a" * 64, None)),
-        ("open", (None, "a" * 64)),
+        ("closed", "open", "open"),
+        ("open", "closed", "open"),
+        ("open", "open", "closed"),
     ],
 )
 def test_add_correction_rejects_finalized_review_scope(
     monkeypatch,
     tmp_path: Path,
     analysis_status: str,
-    plan_metadata: tuple[str | None, str | None],
+    approval_status: str,
+    corrections_status: str,
 ) -> None:
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "analysis-1", result={"id": "analysis-1", "status": analysis_status}),
-    )
-    patch_command(monkeypatch, beads, plan_metadata=plan_metadata)
-    with pytest.raises(DstackError, match="review has been finalized"):
+    calls = [call("show", "analysis-1", result={"id": "analysis-1", "status": analysis_status})]
+    if analysis_status != "closed":
+        calls.extend(
+            [
+                call("show", "approval-1", result={"id": "approval-1", "status": approval_status}),
+                call(
+                    "show",
+                    "corrections-1",
+                    result={"id": "corrections-1", "status": corrections_status},
+                ),
+            ]
+        )
+    beads = ScriptedClient(tmp_path, *calls)
+    patch_command(monkeypatch, beads)
+    with pytest.raises(DstackError, match="reauthorization"):
         dstack_alignment.cmd_alignment_add_correction(
             argparse.Namespace(
                 root=tmp_path,
@@ -348,6 +364,7 @@ def test_finish_review_uses_markdown_summary_and_native_corrections(monkeypatch,
     beads.close = lambda issue, reason: state[issue].update(status="closed") or dict(state[issue])
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *args: alignment_view())
+    monkeypatch.setattr(dstack_alignment, "correction_graph", lambda *args, **kwargs: [])
     output = []
     monkeypatch.setattr(dstack_alignment, "emit", output.append)
 
@@ -390,7 +407,12 @@ def test_claim_next_delegates_readiness_and_claim(monkeypatch, tmp_path: Path) -
 def test_claim_next_requires_closed_approval(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
     patch_command(monkeypatch, beads)
-    with pytest.raises(DstackError, match="approval milestone"):
+    monkeypatch.setattr(
+        dstack_alignment,
+        "require_alignment_authorized",
+        lambda *args, **kwargs: (_ for _ in ()).throw(DstackError("alignment authorization is not closed")),
+    )
+    with pytest.raises(DstackError, match="authorization is not closed"):
         dstack_alignment.cmd_alignment_claim_next(argparse.Namespace(root=tmp_path, selector="alignment-1", task=None))
     beads.assert_exhausted()
 
@@ -464,6 +486,7 @@ def test_finish_task_reuses_client_for_workstream_fan_in(monkeypatch, tmp_path: 
         lambda root: client_requests.append(root) or beads,
     )
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda client, selector: current)
+    monkeypatch.setattr(dstack_alignment, "require_alignment_authorized", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         dstack_alignment,
         "alignment_branch_context",
@@ -588,7 +611,12 @@ def test_finish_workstream_requires_authorization(monkeypatch, tmp_path: Path) -
         call("children", "corrections-1", result=[]),
     )
     patch_command(monkeypatch, beads)
-    with pytest.raises(DstackError, match="approval milestone"):
+    monkeypatch.setattr(
+        dstack_alignment,
+        "require_alignment_authorized",
+        lambda *args, **kwargs: (_ for _ in ()).throw(DstackError("alignment authorization is not closed")),
+    )
+    with pytest.raises(DstackError, match="authorization is not closed"):
         dstack_alignment.cmd_alignment_finish_workstream(
             argparse.Namespace(root=tmp_path, selector="alignment-1", quiet=False)
         )
@@ -753,14 +781,14 @@ def test_finish_alignment_workstream_counts_unlabeled_native_children(monkeypatc
     beads.assert_exhausted()
 
 
-def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
+def test_initialize_retains_poured_state_when_worktree_registration_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(dstack_alignment, "validate_git_branch", lambda *args, **kwargs: "main")
     monkeypatch.setattr(dstack_alignment, "validate_git_revision", lambda *args, **kwargs: "main")
     beads = ScriptedClient(
         tmp_path,
-        call("list", all_statuses=True, result=[]),
+        call("list", all_statuses=True, include_gates=True, result=[]),
         call(
             "pour",
             "dstack-project-alignment",
@@ -798,13 +826,6 @@ def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
         "ensure_branch_worktree",
         lambda *args: (_ for _ in ()).throw(DstackError("failed to register worktree")),
     )
-    commands = []
-    monkeypatch.setattr(
-        dstack_alignment,
-        "run",
-        lambda command, **kwargs: commands.append(tuple(command)) or CommandResult(0, "", ""),
-    )
-
     with pytest.raises(DstackError, match="failed to register worktree"):
         dstack_alignment.cmd_alignment_initialize(
             argparse.Namespace(
@@ -816,7 +837,6 @@ def test_initialize_rolls_back_poured_state_when_worktree_registration_fails(
             )
         )
 
-    assert commands == [("bd", "delete", "alignment-1", "--cascade", "--force")]
     beads.assert_exhausted()
 
 
@@ -858,3 +878,26 @@ def test_finish_landing_refuses_failed_evidence_audit_before_claim(
             )
         )
     beads.assert_exhausted()
+
+
+def test_add_correction_rejects_empty_description_before_beads(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        dstack_alignment,
+        "client_for",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Beads must not be opened")),
+    )
+
+    with pytest.raises(DstackError, match="description is required"):
+        dstack_alignment.cmd_alignment_add_correction(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="alignment-1",
+                title="Fix drift",
+                description="   ",
+                description_file=None,
+                acceptance="Observable",
+                acceptance_file=None,
+                priority=2,
+                depends_on=[],
+            )
+        )

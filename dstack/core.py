@@ -551,37 +551,11 @@ def write_temp_text(text: str) -> TextIO:
 class BeadsClient:
     """Thin, stateless adapter around the supported Beads CLI."""
 
-    def __init__(
-        self,
-        root: Path,
-        *,
-        database: Path | None = None,
-        command_hook: Callable[[Sequence[str]], None] | None = None,
-    ):
+    def __init__(self, root: Path):
         self.root = git_root(root)
-        self.database = None if database is None else database.resolve()
-        self.command_hook = command_hook
-
-    def _command(self, command: Sequence[str]) -> builtins.list[str]:
-        result = list(command)
-        database = getattr(self, "database", None)
-        if database is None or not result or Path(result[0]).name != "bd":
-            return result
-        try:
-            index = result.index("--db")
-        except ValueError:
-            result.extend(["--db", str(self.database)])
-            return result
-        if index + 1 >= len(result) or Path(result[index + 1]).resolve() != self.database:
-            raise DstackError("Beads command database differs from the selected database")
-        return result
 
     def _run(self, command: Sequence[str], **kwargs: Any) -> CommandResult:
-        selected = self._command(command)
-        command_hook = getattr(self, "command_hook", None)
-        if command_hook is not None:
-            command_hook(selected)
-        return run(selected, cwd=self.root, **kwargs)
+        return run(command, cwd=self.root, **kwargs)
 
     def json(self, command: Sequence[str], *, check: bool = True) -> Any:
         result = self._run(command, check=check)
@@ -662,19 +636,69 @@ class BeadsClient:
         return as_items(payload, context="bd update many")
 
     def close(self, issue_id: str, reason: str) -> dict[str, Any]:
+        """Close one issue only after native Beads confirms current ownership.
+
+        Beads 1.2.2 permits a direct close of an issue claimed by another actor.
+        Re-claiming first delegates ownership validation to Beads and keeps dStack
+        from inferring actor identity. A failed close is reconciled through a fresh
+        native read because the mutation may already have committed.
+        """
+
         current = self.show(issue_id)
         if current.get("status") == "closed":
             return current
-        payload = self.json(["bd", "close", issue_id, "--reason", reason, "--json"])
-        items = as_items(payload, context=f"bd close {issue_id}")
-        return items[0] if items else self.show(issue_id)
+        status = str(current.get("status") or "")
+        if status not in {"open", "claimed", "in_progress"}:
+            raise DstackError(f"cannot close {issue_id} from status {status!r}")
+        try:
+            claimed = self.update(issue_id, "--claim")
+        except DstackError as exc:
+            observed = self.show_optional(issue_id)
+            if observed is not None and observed.get("status") == "closed":
+                return observed
+            observed_status = observed.get("status") if observed is not None else "missing"
+            observed_assignee = observed.get("assignee") if observed is not None else None
+            raise DstackError(
+                f"cannot close {issue_id}: native ownership could not be confirmed for the current actor; "
+                f"retained status={observed_status!r}, assignee={observed_assignee!r}"
+            ) from exc
+        if claimed.get("status") not in {"claimed", "in_progress"}:
+            raise DstackError(f"native ownership claim did not converge before closing {issue_id}")
+        try:
+            payload = self.json(["bd", "close", issue_id, "--reason", reason, "--json"])
+            as_items(payload, context=f"bd close {issue_id}")
+        except DstackError as exc:
+            observed = self.show_optional(issue_id)
+            if observed is not None and observed.get("status") == "closed":
+                return observed
+            observed_status = observed.get("status") if observed is not None else "missing"
+            raise DstackError(
+                f"close outcome is uncertain for {issue_id}; retained native status={observed_status!r}: {exc}"
+            ) from exc
+        observed = self.show(issue_id)
+        if observed.get("status") != "closed":
+            raise DstackError(f"close did not converge: {issue_id}")
+        return observed
 
     def reopen(self, issue_id: str, reason: str) -> dict[str, Any]:
         current = self.show(issue_id)
         if current.get("status") != "closed":
             return current
-        payload = self.json(["bd", "reopen", issue_id, "--reason", reason, "--json"])
-        return first_item(payload, context=f"bd reopen {issue_id}")
+        try:
+            payload = self.json(["bd", "reopen", issue_id, "--reason", reason, "--json"])
+            first_item(payload, context=f"bd reopen {issue_id}")
+        except DstackError as exc:
+            observed = self.show_optional(issue_id)
+            if observed is not None and observed.get("status") == "open":
+                return observed
+            observed_status = observed.get("status") if observed is not None else "missing"
+            raise DstackError(
+                f"reopen outcome is uncertain for {issue_id}; retained native status={observed_status!r}: {exc}"
+            ) from exc
+        observed = self.show(issue_id)
+        if observed.get("status") != "open":
+            raise DstackError(f"reopen did not converge: {issue_id}")
+        return observed
 
     def resolve_gate(self, gate_id: str, reason: str) -> dict[str, Any]:
         """Resolve a gate, then read its authoritative state."""
@@ -827,10 +851,26 @@ class BeadsClient:
             if new_id not in supersession_targets(old):
                 raise DstackError(f"closed issue {old_id} is not superseded by expected {new_id}")
             return
-        self._run(["bd", "supersede", old_id, "--with", new_id])
+        try:
+            self._run(["bd", "supersede", old_id, "--with", new_id])
+        except DstackError as exc:
+            observed = self.show_optional(old_id)
+            if (
+                observed is not None
+                and observed.get("status") == "closed"
+                and new_id in supersession_targets(observed)
+            ):
+                return
+            observed_status = observed.get("status") if observed is not None else "missing"
+            raise DstackError(
+                f"supersession outcome is uncertain for {old_id} -> {new_id}; "
+                f"retained native status={observed_status!r}: {exc}"
+            ) from exc
         observed = self.show(old_id)
         if observed.get("status") != "closed" or new_id not in supersession_targets(observed):
-            raise DstackError(f"supersession did not converge: {old_id} -> {new_id}")
+            raise DstackError(
+                f"supersession outcome is ambiguous and retained for inspection: {old_id} -> {new_id}"
+            )
 
     def gate_check(self) -> builtins.list[dict[str, Any]]:
         """Evaluate native gates and return their refreshed state."""
@@ -1230,8 +1270,6 @@ def alignment_context(client: BeadsClient, selector: str) -> dict[str, Any]:
         "steps": {name: step_by_label(children, label) for name, label in ALIGNMENT_STEPS.items()},
         "target_branch": root_metadata_value(root, "dstack.target_branch", "target_branch"),
         "scope": root_metadata_value(root, "dstack.scope", "scope"),
-        "pending_alignment_review_sha256": root_metadata_value(root, "dstack.pending_alignment_review_sha256"),
-        "approved_alignment_review_sha256": root_metadata_value(root, "dstack.approved_alignment_review_sha256"),
     }
 
 

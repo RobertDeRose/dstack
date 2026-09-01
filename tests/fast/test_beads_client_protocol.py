@@ -309,3 +309,150 @@ def test_version_check_accepts_supported_beads_version(tmp_path: Path, monkeypat
     )
 
     assert client(tmp_path).check_version() == "bd version 1.2.2 (6c124203e)"
+
+
+def test_close_reclaims_natively_before_closing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    show_states = iter(
+        [
+            {"id": "task-1", "status": "open"},
+            {"id": "task-1", "status": "closed"},
+        ]
+    )
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        del check, kwargs
+        calls.append(tuple(command))
+        if command[:2] == ["bd", "show"]:
+            return dstacklib.CommandResult(0, json.dumps([next(show_states)]), "")
+        if command[:2] == ["bd", "update"]:
+            return dstacklib.CommandResult(
+                0,
+                json.dumps([{"id": "task-1", "status": "in_progress", "assignee": "current"}]),
+                "",
+            )
+        if command[:2] == ["bd", "close"]:
+            return dstacklib.CommandResult(0, json.dumps([{"id": "task-1", "status": "closed"}]), "")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    observed = client(tmp_path).close("task-1", "Completed")
+
+    assert observed["status"] == "closed"
+    assert calls == [
+        ("bd", "show", "task-1", "--json"),
+        ("bd", "update", "task-1", "--claim", "--json"),
+        ("bd", "close", "task-1", "--reason", "Completed", "--json"),
+        ("bd", "show", "task-1", "--json"),
+    ]
+
+
+def test_close_refuses_when_native_reclaim_rejects_current_actor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    states = iter(
+        [
+            {"id": "task-1", "status": "in_progress", "assignee": "owner-a"},
+            {"id": "task-1", "status": "in_progress", "assignee": "owner-a"},
+        ]
+    )
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        del cwd, check, kwargs
+        calls.append(tuple(command))
+        if command[:2] == ["bd", "show"]:
+            return dstacklib.CommandResult(0, json.dumps([next(states)]), "")
+        if command[:2] == ["bd", "update"]:
+            raise dstacklib.DstackError("already claimed by owner-a")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    with pytest.raises(dstacklib.DstackError, match="ownership could not be confirmed.*owner-a"):
+        client(tmp_path).close("task-1", "Completed")
+
+    assert calls.count(("bd", "show", "task-1", "--json")) == 2
+    assert not any(command[:2] == ("bd", "close") for command in calls)
+
+
+def test_close_reconciles_a_committed_mutation_after_native_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    show_states = iter(
+        [
+            {"id": "task-1", "status": "open"},
+            {"id": "task-1", "status": "closed"},
+        ]
+    )
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        del cwd, check, kwargs
+        calls.append(tuple(command))
+        if command[:2] == ["bd", "show"]:
+            return dstacklib.CommandResult(0, json.dumps([next(show_states)]), "")
+        if command[:2] == ["bd", "update"]:
+            return dstacklib.CommandResult(
+                0,
+                json.dumps([{"id": "task-1", "status": "in_progress", "assignee": "current"}]),
+                "",
+            )
+        if command[:2] == ["bd", "close"]:
+            raise dstacklib.DstackError("command timed out and may have changed state")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    observed = client(tmp_path).close("task-1", "Completed")
+    assert observed["status"] == "closed"
+    assert calls[-1] == ("bd", "show", "task-1", "--json")
+
+
+def test_supersede_reconciles_committed_native_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    states = iter(
+        [
+            {"id": "idea-1", "status": "open"},
+            {
+                "id": "idea-1",
+                "status": "closed",
+                "dependencies": [
+                    {"type": "superseded-by", "depends_on_id": "feature-1"}
+                ],
+            },
+        ]
+    )
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        del cwd, check, kwargs
+        if command[:2] == ["bd", "show"]:
+            return dstacklib.CommandResult(0, json.dumps([next(states)]), "")
+        if command[:2] == ["bd", "supersede"]:
+            raise dstacklib.DstackError("command timed out and may have changed state")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    client(tmp_path).supersede("idea-1", "feature-1")
+
+
+def test_supersede_retains_unconfirmed_native_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    states = iter(
+        [
+            {"id": "idea-1", "status": "open"},
+            {"id": "idea-1", "status": "open"},
+        ]
+    )
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        del cwd, check, kwargs
+        if command[:2] == ["bd", "show"]:
+            return dstacklib.CommandResult(0, json.dumps([next(states)]), "")
+        if command[:2] == ["bd", "supersede"]:
+            raise dstacklib.DstackError("command timed out and may have changed state")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    with pytest.raises(dstacklib.DstackError, match="supersession outcome is uncertain"):
+        client(tmp_path).supersede("idea-1", "feature-1")

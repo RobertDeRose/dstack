@@ -15,12 +15,11 @@ lifecycle roles, not transient execution state.
 | `dstack.approved_design_sha256` | Digest of accepted committed design bytes; invalidated before reauthorization |
 | `dstack.target_branch` | Project-alignment delivery target |
 | `dstack.scope` | Durable alignment scope |
-| `dstack.pending_alignment_review_sha256` | Digest of the review summary and native correction graph while approval is incomplete |
-| `dstack.approved_alignment_review_sha256` | Digest of the approved review summary and native correction graph |
 
 Never store task-to-commit, implementation, delivery/finalization, evidence, or bookkeeping commit mappings, worktree
-paths, claims, next commands, repository snapshots, or delivery state in metadata. Alignment review authority contains
-reviewed intent only and never stores a Git baseline or external packet.
+paths, claims, next commands, repository snapshots, or delivery state in metadata. Alignment review authority is
+expressed by the live native analysis, human gate, approval step, and correction graph; it never stores a review digest,
+Git baseline, or external packet.
 
 ## Root and work labels
 

@@ -18,6 +18,7 @@ Tier 1 is read-only for repository source.
    rejected/deferred findings, accepted risks, validation expectations, and documentation impact. Do not repeat complete
    correction definitions already stored in Beads.
 5. Finish the review with `dstack ctl alignment finish-plan AUDIT --summary-file <temporary-summary>`. The controller
-   derives approval authority from the summary and exact native correction graph, then stops with the human gate open.
+   records the summary on the native analysis Bead and validates the live correction graph, then stops with the human
+   gate open. It stores no separate review digest.
 
 Return the findings, correction graph, decisions required, and `/project-alignment-execute <audit>`.

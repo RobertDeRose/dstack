@@ -7,38 +7,62 @@ from pathlib import Path
 import pytest
 
 from dstack import alignment as dstack_alignment
-from dstack.alignment_authority import canonical_authority, require_alignment_authorized
+from dstack.alignment_authority import require_alignment_authorized
 from dstack.commands import DstackError, reopen_authorization_boundary
+from dstack.core import ALIGNMENT_STEPS
 
 
 class BoundaryClient:
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.state = {
-            "alignment-1": {"id": "alignment-1", "status": "open", "metadata": {}},
+        self.state: dict[str, dict] = {
+            "alignment-1": {"id": "alignment-1", "status": "open"},
             "analysis-1": {
                 "id": "analysis-1",
                 "status": "open",
+                "type": "task",
+                "parent": "alignment-1",
+                "labels": [ALIGNMENT_STEPS["analysis"]],
                 "description": "Analyze repository",
             },
-            "approval-1": {"id": "approval-1", "status": "open"},
-            "gate-1": {"id": "gate-1", "status": "open", "type": "gate"},
-            "corrections-1": {"id": "corrections-1", "status": "open", "type": "epic"},
-            "landing-1": {"id": "landing-1", "status": "open"},
+            "approval-1": {
+                "id": "approval-1",
+                "status": "open",
+                "type": "task",
+                "parent": "alignment-1",
+                "labels": [ALIGNMENT_STEPS["approval"]],
+                "dependencies": [{"type": "blocks", "depends_on_id": "gate-1"}],
+            },
+            "gate-1": {
+                "id": "gate-1",
+                "status": "open",
+                "type": "gate",
+                "gate_type": "human",
+            },
+            "corrections-1": {
+                "id": "corrections-1",
+                "status": "open",
+                "type": "epic",
+                "parent": "alignment-1",
+                "labels": [ALIGNMENT_STEPS["corrections"]],
+            },
+            "landing-1": {
+                "id": "landing-1",
+                "status": "open",
+                "type": "task",
+                "parent": "alignment-1",
+                "labels": [ALIGNMENT_STEPS["landing"]],
+            },
         }
         self.fail_at: str | None = None
         self.calls: list[tuple] = []
 
     def view(self) -> dict:
-        metadata = self.state["alignment-1"].get("metadata", {})
         return {
             "root": self.show("alignment-1"),
             "slug": "repository",
             "scope": "repository",
             "target_branch": "main",
-            "human_gate": self.show("gate-1"),
-            "pending_alignment_review_sha256": metadata.get("dstack.pending_alignment_review_sha256"),
-            "approved_alignment_review_sha256": metadata.get("dstack.approved_alignment_review_sha256"),
             "steps": {
                 "analysis": self.show("analysis-1"),
                 "approval": self.show("approval-1"),
@@ -66,28 +90,30 @@ class BoundaryClient:
         return []
 
     def ready_children(self, parent: str, *, label: str, claim: bool = False) -> list[dict]:
-        if parent == "alignment-1" and label == "dstack:step:alignment-analysis" and claim:
+        if parent == "alignment-1" and label == ALIGNMENT_STEPS["analysis"] and claim:
             self._fail("analysis_claim")
             self.state["analysis-1"]["status"] = "in_progress"
+            self.state["analysis-1"]["assignee"] = "current"
             return [self.show("analysis-1")]
+        if parent == "alignment-1" and label == ALIGNMENT_STEPS["approval"] and claim:
+            self._fail("approval_claim")
+            self.state["approval-1"]["status"] = "in_progress"
+            self.state["approval-1"]["assignee"] = "current"
+            return [self.show("approval-1")]
         return []
 
     def update(self, issue_id: str, *args: str) -> dict:
         if "--description" in args:
             self._fail("description")
             self.state[issue_id]["description"] = args[args.index("--description") + 1]
-        if "--set-metadata" in args:
-            key, value = args[args.index("--set-metadata") + 1].split("=", 1)
-            self._fail("pending_metadata" if "pending" in key else "approved_metadata")
-            self.state[issue_id].setdefault("metadata", {})[key] = value
-        if "--unset-metadata" in args:
-            self._fail("pending_clear")
-            self.state[issue_id].setdefault("metadata", {}).pop(args[args.index("--unset-metadata") + 1], None)
         if "--claim" in args:
             self._fail("approval_claim")
             self.state[issue_id]["status"] = "in_progress"
+            self.state[issue_id]["assignee"] = "current"
         if "--status" in args:
             self.state[issue_id]["status"] = args[args.index("--status") + 1]
+        if "--assignee" in args:
+            self.state[issue_id]["assignee"] = args[args.index("--assignee") + 1]
         return self.show(issue_id)
 
     def close(self, issue_id: str, reason: str) -> dict:
@@ -108,11 +134,6 @@ class BoundaryClient:
 def patch_alignment(monkeypatch: pytest.MonkeyPatch, client: BoundaryClient) -> list[dict]:
     monkeypatch.setattr(dstack_alignment, "client_for", lambda root: client)
     monkeypatch.setattr(dstack_alignment, "alignment_context", lambda *_: client.view())
-    monkeypatch.setattr(
-        dstack_alignment,
-        "human_gate_for_step",
-        lambda *args, **kwargs: client.show("gate-1"),
-    )
     output: list[dict] = []
     monkeypatch.setattr(dstack_alignment, "emit", output.append)
     return output
@@ -124,7 +145,7 @@ def summary_file(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.mark.parametrize("point", ["description", "pending_metadata", "analysis_claim", "analysis_close"])
+@pytest.mark.parametrize("point", ["description", "analysis_claim", "analysis_close"])
 def test_finish_review_retries_after_each_transition_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -140,14 +161,11 @@ def test_finish_review_retries_after_each_transition_failure(
     dstack_alignment.cmd_alignment_finish_plan(args)
 
     assert client.state["analysis-1"]["status"] == "closed"
-    _, _, digest = canonical_authority(client, client.view(), "Finding\n\nCorrection rationale.")
-    assert client.state["alignment-1"]["metadata"]["dstack.pending_alignment_review_sha256"] == digest
+    assert client.state["analysis-1"]["description"] == "Finding\n\nCorrection rationale."
+    assert client.state["alignment-1"].get("metadata", {}) == {}
 
 
-@pytest.mark.parametrize(
-    "point",
-    ["gate_resolve", "approval_claim", "approval_close", "approved_metadata", "pending_clear"],
-)
+@pytest.mark.parametrize("point", ["gate_resolve", "approval_close"])
 def test_approval_retries_after_each_transition_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -158,12 +176,6 @@ def test_approval_retries_after_each_transition_failure(
         status="closed",
         description="Finding\n\nCorrection rationale.",
     )
-    _, _, digest = canonical_authority(client, client.view(), client.state["analysis-1"]["description"])
-    client.state["alignment-1"]["metadata"] = {"dstack.pending_alignment_review_sha256": digest}
-    if point == "pending_clear":
-        client.state["alignment-1"]["metadata"]["dstack.approved_alignment_review_sha256"] = digest
-        client.state["approval-1"]["status"] = "closed"
-        client.state["gate-1"]["status"] = "closed"
     patch_alignment(monkeypatch, client)
     client.fail_at = point
 
@@ -171,10 +183,10 @@ def test_approval_retries_after_each_transition_failure(
         dstack_alignment.cmd_alignment_approve(argparse.Namespace(root=tmp_path, selector="alignment-1"))
     dstack_alignment.cmd_alignment_approve(argparse.Namespace(root=tmp_path, selector="alignment-1"))
 
-    metadata = client.state["alignment-1"]["metadata"]
-    assert metadata["dstack.approved_alignment_review_sha256"] == digest
-    assert "dstack.pending_alignment_review_sha256" not in metadata
+    assert client.state["approval-1"]["status"] == "closed"
+    assert client.state["gate-1"]["status"] == "closed"
     assert require_alignment_authorized(client, client.view())
+    assert client.state["alignment-1"].get("metadata", {}) == {}
 
 
 @pytest.mark.parametrize("status", ["claimed", "in_progress", "deferred", "closed", "unknown"])
@@ -191,20 +203,39 @@ def test_shared_reauthorization_rejects_non_open_terminal(tmp_path: Path, status
             workstream_id="corrections-1",
             terminal_id="landing-1",
             reason="scope changed",
-            digest_key="dstack.approved_alignment_review_sha256",
-            pending_digest_key="dstack.pending_alignment_review_sha256",
         )
 
 
-def test_authority_has_no_external_packet_or_git_revision(tmp_path: Path) -> None:
+def test_reauthorization_clears_preserved_assignments(tmp_path: Path) -> None:
+    client = BoundaryClient(tmp_path)
+    for issue_id in ("analysis-1", "approval-1", "gate-1", "corrections-1"):
+        client.state[issue_id].update(status="closed", assignee="other")
+
+    reopen_authorization_boundary(
+        client,
+        root_id="alignment-1",
+        planning_id="analysis-1",
+        approval_id="approval-1",
+        gate_id="gate-1",
+        workstream_id="corrections-1",
+        terminal_id="landing-1",
+        reason="scope changed",
+    )
+
+    for issue_id in ("analysis-1", "approval-1", "gate-1", "corrections-1"):
+        assert client.state[issue_id]["status"] == "open"
+        assert client.state[issue_id].get("assignee") == ""
+
+
+def test_authority_has_no_external_packet_digest_or_git_revision(tmp_path: Path) -> None:
     client = BoundaryClient(tmp_path)
     client.state["analysis-1"].update(status="closed", description="Reviewed current repository semantics.")
     client.state["approval-1"]["status"] = "closed"
     client.state["gate-1"]["status"] = "closed"
-    _, _, digest = canonical_authority(client, client.view(), client.state["analysis-1"]["description"])
-    client.state["alignment-1"]["metadata"] = {"dstack.approved_alignment_review_sha256": digest}
 
     authority = require_alignment_authorized(client, client.view())
-    assert set(authority) == {"schema", "summary", "corrections"}
-    assert "baseline" not in str(authority).casefold()
-    assert "plan_file" not in str(authority).casefold()
+    rendered = str(authority).casefold()
+    assert set(authority) == {"summary", "corrections", "human_gate", "steps"}
+    assert "sha256" not in rendered
+    assert "baseline" not in rendered
+    assert "plan_file" not in rendered

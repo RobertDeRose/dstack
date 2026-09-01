@@ -53,7 +53,7 @@ from .core import (
     worktree_records,
 )
 
-from .alignment_authority import canonical_description, require_alignment_authorized
+from .alignment_authority import require_alignment_authorized
 from .docs import validate_docs
 from .commands import (
     BEADS_RUNTIME_DIR_PREFIXES,
@@ -228,6 +228,30 @@ def footer_cardinality(
     return multiple, malformed
 
 
+def _require_terminal_records(
+    client: BeadsClient,
+    records: Sequence[Mapping[str, Any]],
+    *,
+    name: str,
+    statuses: frozenset[str] = frozenset({"closed"}),
+) -> list[dict[str, Any]]:
+    """Reread workflow records and reject any nonterminal native state."""
+
+    live: list[dict[str, Any]] = []
+    nonterminal: list[str] = []
+    for record in records:
+        issue_id = str(record.get("id") or "")
+        if not issue_id:
+            raise DstackError(f"{name} contains a record without an ID")
+        issue = client.show(issue_id)
+        live.append(issue)
+        if issue.get("status") not in statuses:
+            nonterminal.append(f"{issue_id}:{issue.get('status')}")
+    if nonterminal:
+        raise DstackError(f"{name} contains nonterminal Beads: " + ", ".join(sorted(nonterminal)))
+    return live
+
+
 def evidence_audit(
     client: BeadsClient,
     *,
@@ -280,15 +304,16 @@ def feature_delivery_context(client: BeadsClient, selector: str) -> dict[str, An
 
 def alignment_delivery_context(client: BeadsClient, selector: str) -> dict[str, Any]:
     view = alignment_context(client, selector)
-    if view["root"].get("status") != "closed":
-        require_alignment_authorized(client, view)
-    else:
-        canonical_description(client, view, client.show(str(view["steps"]["analysis"]["id"])))
-    view["corrections"] = [
-        item
-        for item in client.children(str(view["steps"]["corrections"]["id"]))
-        if has_label(item, "dstack:work:correction") or issue_type(item) not in {"epic", "molecule", "gate"}
-    ]
+    root = client.show(str(view["root"]["id"]))
+    view["root"] = root
+    authorized = require_alignment_authorized(
+        client,
+        view,
+        allow_closed_root=root.get("status") == "closed",
+    )
+    view["steps"] = authorized["steps"]
+    view["human_gate"] = authorized["human_gate"]
+    view["corrections"] = [client.show(str(item["id"])) for item in authorized["corrections"]]
     return view
 
 
@@ -621,8 +646,15 @@ def _delivered_evidence_audit(client: BeadsClient, view: Mapping[str, Any], *, k
         raise DstackError(f"delivered {kind} target ref is unavailable: {target!r}")
 
     steps = view["steps"]
+    _require_terminal_records(client, list(steps.values()), name=f"delivered {kind} lifecycle")
     terminal_id = str(steps[terminal]["id"])
-    closed = [item for item in tasks if item.get("status") == "closed"]
+    terminal_work = _require_terminal_records(
+        client,
+        tasks,
+        name=f"delivered {kind} work",
+        statuses=frozenset({"closed", "deferred"}),
+    )
+    closed = [item for item in terminal_work if item.get("status") == "closed"]
     no_repository_change = sorted(
         str(item["id"])
         for item in closed
@@ -875,7 +907,9 @@ def delivery_view(client: BeadsClient, selector: str) -> dict[str, Any]:
                     f"feature lookup: {feature_error}; alignment lookup: {alignment_error}"
                 ) from alignment_error
 
-    root = view["root"]
+    root = _require_open_delivery_root(client, str(view["root"]["id"]))
+    view["root"] = root
+    _require_terminal_records(client, list(view["steps"].values()), name=f"{kind} lifecycle")
     if kind == "alignment":
         terminal = view["steps"]["landing"]
         slug = str(view["slug"])
@@ -1226,7 +1260,16 @@ def incomplete_pr_gate_cancellations(
     return incomplete
 
 
+def _require_open_delivery_root(client: BeadsClient, root_id: str) -> dict[str, Any]:
+    root = client.show(root_id)
+    if root.get("status") != "open":
+        suffix = " and is inspect-only" if root.get("status") == "closed" else ""
+        raise DstackError(f"delivery root must be open{suffix}: status={root.get('status')!r}")
+    return root
+
+
 def _register_pr_gate_unlocked(client: BeadsClient, root_id: str, pr_number: str) -> dict[str, Any]:
+    _require_open_delivery_root(client, root_id)
     pr_number = str(canonical_positive_integer(pr_number, field="PR number"))
     active = pr_gate_state(client, root_id)["active"]
     if not active:
@@ -1256,6 +1299,7 @@ def register_pr_gate(client: BeadsClient, root_id: str, pr_number: str) -> dict[
 def _replace_pr_gates_unlocked(
     client: BeadsClient, root_id: str, pr_number: str, reason: str
 ) -> tuple[dict[str, Any], list[str]]:
+    _require_open_delivery_root(client, root_id)
     pr_number = str(canonical_positive_integer(pr_number, field="PR number"))
     reason = reason.strip()
     if not reason:
@@ -1299,6 +1343,7 @@ def replace_pr_gates(
 
 
 def _cancel_pr_gate_unlocked(client: BeadsClient, root_id: str, reason: str) -> dict[str, Any]:
+    _require_open_delivery_root(client, root_id)
     reason = reason.strip()
     if not reason:
         raise DstackError("PR gate cancellation requires a non-empty reason")

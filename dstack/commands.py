@@ -21,12 +21,14 @@ from .core import (
     DstackError,
     FEATURE_STEPS,
     ancestry,
+    blocker_ids,
     branch_exists,
     commits_for_bead,
     conventional_worktree,
     dependency_records,
     has_label,
     git_root,
+    issue_labels,
     issue_parent,
     issue_type,
     read_utf8_text,
@@ -295,10 +297,198 @@ def required_task_text(path: Path | None, inline: str | None) -> str:
     return text
 
 
-def claim_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any]) -> dict[str, Any]:
-    if issue.get("status") == "closed":
-        return dict(issue)
-    return client.update(str(issue["id"]), "--claim")
+def require_open_workflow_root(view: Mapping[str, Any], *, name: str) -> dict[str, Any]:
+    root = view.get("root")
+    if not isinstance(root, Mapping):
+        raise DstackError(f"{name} has no workflow root")
+    status = root.get("status")
+    if status != "open":
+        suffix = " and is inspect-only" if status == "closed" else ""
+        raise DstackError(f"{name} root must be open{suffix}: status={status!r}")
+    return dict(root)
+
+
+def _created_child_matches(
+    issue: Mapping[str, Any],
+    *,
+    parent_id: str,
+    title: str,
+    issue_type_name: str,
+    labels: Sequence[str],
+    dependencies: Sequence[str],
+    description: str,
+    acceptance: str,
+    priority: int,
+) -> bool:
+    observed_acceptance = str(issue.get("acceptance_criteria") or issue.get("acceptance") or "")
+    return (
+        issue_parent(issue) == parent_id
+        and issue_type(issue) == issue_type_name
+        and str(issue.get("title") or "") == title
+        and str(issue.get("description") or "") == description
+        and observed_acceptance == acceptance
+        and issue.get("priority") == priority
+        and set(labels).issubset(issue_labels(issue))
+        and sorted(blocker_ids(issue)) == sorted(set(dependencies))
+        and issue.get("status") not in {"closed", "deferred"}
+    )
+
+
+def _child_inventory(client: BeadsClient, parent_id: str) -> list[dict[str, Any]]:
+    """Return a fresh, fully inspected direct-child inventory."""
+
+    summaries = client.children(parent_id)
+    ids = [str(item.get("id") or "") for item in summaries]
+    if "" in ids or len(ids) != len(set(ids)):
+        raise DstackError(f"native child inventory is malformed for parent {parent_id}")
+    return [client.show(issue_id) for issue_id in ids]
+
+
+def _matching_created_children(
+    items: Sequence[Mapping[str, Any]],
+    *,
+    parent_id: str,
+    title: str,
+    issue_type_name: str,
+    labels: Sequence[str],
+    dependencies: Sequence[str],
+    description: str,
+    acceptance: str,
+    priority: int,
+) -> list[dict[str, Any]]:
+    return [
+        dict(item)
+        for item in items
+        if _created_child_matches(
+            item,
+            parent_id=parent_id,
+            title=title,
+            issue_type_name=issue_type_name,
+            labels=labels,
+            dependencies=dependencies,
+            description=description,
+            acceptance=acceptance,
+            priority=priority,
+        )
+    ]
+
+
+def create_child_reconciled(
+    client: BeadsClient,
+    title: str,
+    *,
+    parent_id: str,
+    issue_type_name: str = "task",
+    labels: Sequence[str] = (),
+    dependencies: Sequence[str] = (),
+    description: str = "",
+    acceptance: str = "",
+    priority: int = 2,
+) -> dict[str, Any]:
+    """Create one child, reconciling an uncertain native response by exact reread."""
+
+    before_items = _child_inventory(client, parent_id)
+    existing = _matching_created_children(
+        before_items,
+        parent_id=parent_id,
+        title=title,
+        issue_type_name=issue_type_name,
+        labels=labels,
+        dependencies=dependencies,
+        description=description,
+        acceptance=acceptance,
+        priority=priority,
+    )
+    if len(existing) == 1:
+        return existing[0]
+    if len(existing) > 1:
+        ids = ", ".join(sorted(str(item["id"]) for item in existing))
+        raise DstackError(f"multiple matching children already exist under {parent_id}: {ids}")
+
+    before_ids = {str(item["id"]) for item in before_items}
+    try:
+        created = client.create(
+            title,
+            issue_type_name=issue_type_name,
+            parent=parent_id,
+            labels=labels,
+            dependencies=dependencies,
+            description=description,
+            acceptance=acceptance,
+            priority=priority,
+        )
+    except DstackError as exc:
+        try:
+            after_items = _child_inventory(client, parent_id)
+            matches = _matching_created_children(
+                after_items,
+                parent_id=parent_id,
+                title=title,
+                issue_type_name=issue_type_name,
+                labels=labels,
+                dependencies=dependencies,
+                description=description,
+                acceptance=acceptance,
+                priority=priority,
+            )
+        except DstackError as read_error:
+            raise DstackError(
+                f"{exc}; child creation outcome is ambiguous and native reread failed; "
+                f"parent={parent_id}; reread_error={read_error}"
+            ) from exc
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            ids = ", ".join(sorted(str(item["id"]) for item in matches))
+            raise DstackError(
+                f"{exc}; child creation outcome is ambiguous; retained matching children under {parent_id}: {ids}"
+            ) from exc
+        new_ids = sorted(str(item["id"]) for item in after_items if str(item["id"]) not in before_ids)
+        if not new_ids:
+            raise DstackError(
+                f"{exc}; fresh native reread confirms no matching child was created under {parent_id}"
+            ) from exc
+        ids = ", ".join(new_ids)
+        raise DstackError(
+            f"{exc}; child creation outcome is ambiguous; retained new children under {parent_id}: {ids}"
+        ) from exc
+
+    try:
+        created_id = str(created["id"])
+        observed = client.show(created_id)
+    except (DstackError, KeyError) as exc:
+        raise DstackError(
+            f"child creation returned without an inspectable result; retained state under parent {parent_id}"
+        ) from exc
+    if not _created_child_matches(
+        observed,
+        parent_id=parent_id,
+        title=title,
+        issue_type_name=issue_type_name,
+        labels=labels,
+        dependencies=dependencies,
+        description=description,
+        acceptance=acceptance,
+        priority=priority,
+    ):
+        raise DstackError(f"created child did not converge and is retained for inspection: {observed.get('id')}")
+    final_matches = _matching_created_children(
+        _child_inventory(client, parent_id),
+        parent_id=parent_id,
+        title=title,
+        issue_type_name=issue_type_name,
+        labels=labels,
+        dependencies=dependencies,
+        description=description,
+        acceptance=acceptance,
+        priority=priority,
+    )
+    if len(final_matches) != 1 or str(final_matches[0]["id"]) != created_id:
+        ids = ", ".join(sorted(str(item["id"]) for item in final_matches)) or "none"
+        raise DstackError(
+            f"created child outcome is ambiguous and retained under {parent_id}; matching children: {ids}"
+        )
+    return final_matches[0]
 
 
 def release_claim(client: BeadsClient, issue_id: str) -> dict[str, Any]:
@@ -381,10 +571,10 @@ def claim_ready_work(
 
 
 def close_issue_if_needed(client: BeadsClient, issue: Mapping[str, Any], reason: str) -> dict[str, Any]:
-    if issue.get("status") == "closed":
-        return dict(issue)
-    claimed = claim_issue_if_needed(client, issue)
-    return client.close(str(claimed["id"]), reason)
+    # BeadsClient.close performs a fresh native read and is idempotent for an
+    # issue that remains closed. Never trust a caller's point-in-time status at
+    # the mutation boundary.
+    return client.close(str(issue["id"]), reason)
 
 
 def resolve_gate_if_needed(client: BeadsClient, gate: Mapping[str, Any], reason: str) -> dict[str, Any]:
@@ -481,6 +671,9 @@ def reopen_authorization_boundary(
     reason = reason.strip()
     if not reason:
         raise DstackError("reauthorization requires a non-empty reason")
+    root = client.show(root_id)
+    if root.get("status") != "open":
+        raise DstackError(f"cannot reauthorize a non-open workflow root: {root_id}")
     terminal = client.show(terminal_id)
     require_open_unassigned_terminal(terminal, name="terminal reconciliation")
     in_flight = [item for item in client.children(workstream_id) if item.get("status") in {"claimed", "in_progress"}]
@@ -498,9 +691,16 @@ def reopen_authorization_boundary(
         if status == "closed":
             client.reopen(issue_id, f"Reauthorize workflow: {reason}")
         elif status in {"claimed", "in_progress"}:
-            client.update(issue_id, "--status", "open")
+            client.update(issue_id, "--status", "open", "--assignee", "")
         elif status != "open":
             raise DstackError(f"cannot reauthorize {issue_id} from unsupported status {status!r}")
+        observed = client.show(issue_id)
+        if observed.get("status") != "open" or observed.get("assignee"):
+            client.update(issue_id, "--status", "open", "--assignee", "")
+            observed = client.show(issue_id)
+        require_open_unassigned_terminal(observed, name=f"authorization boundary {issue_id}")
+    if client.show(root_id).get("status") != "open":
+        raise DstackError(f"workflow root changed status during reauthorization: {root_id}")
     require_open_unassigned_terminal(client.show(terminal_id), name="terminal reconciliation")
 
 
@@ -618,3 +818,27 @@ def preserve_external_blockers(
         client.add_dependency(destination, blocker_id)
         preserved.append(blocker_id)
     return preserved
+
+
+def refuse_external_dependents(client: BeadsClient, source_id: str) -> None:
+    """Refuse supersession when active work depends on the source graph."""
+
+    source_ids = {source_id, *[str(item["id"]) for item in descendants(client, source_id)]}
+    incoming: list[str] = []
+    for summary in client.list(all_statuses=True, include_gates=True):
+        issue_id = str(summary.get("id") or "")
+        if not issue_id or issue_id in source_ids:
+            continue
+        issue = client.show(issue_id)
+        if issue.get("status") == "closed":
+            continue
+        for record in dependency_records(issue):
+            relation = str(record.get("type") or record.get("dependency_type") or "blocks")
+            target = record.get("depends_on_id") or record.get("id")
+            if relation == "blocks" and isinstance(target, str) and target in source_ids:
+                incoming.append(issue_id)
+                break
+    if incoming:
+        raise DstackError(
+            "cannot supersede planned feature with active external dependents: " + ", ".join(sorted(set(incoming)))
+        )

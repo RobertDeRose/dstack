@@ -11,6 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 from dstack import audit as dstack_audit
+from dstack import delivery as dstack_delivery
 from dstack.docs import RECORD_SUBJECTS
 from dstack.delivery import delivered_candidate_revision, immutable_candidate_revision
 from dstack.core import DstackError, ancestry, current_head
@@ -420,6 +421,11 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
         call("children", "implementation-1", result=[task, no_change]),
     )
     patch_current(monkeypatch, context, worktree=None)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "_require_terminal_records",
+        lambda client, records, **kwargs: [dict(record) for record in records],
+    )
     monkeypatch.setattr(
         dstack_audit,
         "pr_gate_state",

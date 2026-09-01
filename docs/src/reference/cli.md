@@ -34,8 +34,8 @@ three-audience documentation impact without repeating complete correction defini
 dstack ctl alignment finish-plan AUDIT --summary-file /tmp/alignment-review.md
 ```
 
-The controller derives the approval digest from that summary and the exact current correction Beads. Approval recomputes
-the same authority, so a correction or dependency change after review is rejected.
+The controller stores the summary on the native analysis Bead and validates the exact current correction graph before
+closing analysis and approval. It stores no parallel review digest or copied correction graph.
 
 Historical active graphs that do not contain the current molecule are not migrated by dStack. They remain native Beads
 work until completed or retired there, or until the user explicitly plans a new current feature.

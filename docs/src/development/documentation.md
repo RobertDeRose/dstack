@@ -70,11 +70,11 @@ diagnostics before the corresponding authorization or terminal mutation.
 
 Alignment review authority is Beads-native. Accepted corrections, acceptance criteria, priorities, and dependencies live
 in the native correction workstream. Tier 1 writes only a concise temporary Markdown review summary outside the
-repository and finalizes it with `alignment finish-plan --summary-file`. The controller derives the approval digest from
-the summary and exact native correction graph; it does not create an external plan packet or duplicate correction state.
-The final landing retains its separate temporary Markdown reconciliation scaffold. Documentation is deferred to the
-final closeout or landing, and there is never a per-task documentation manifest or reconciliation task. Human review
-remains responsible for truth and content quality.
+repository and finalizes it with `alignment finish-plan --summary-file`. The analysis, human gate, approval step, and
+current correction graph remain the complete live authorization surface. The controller does not create an external
+plan packet, alignment review digest, or duplicate correction state. The final landing retains its separate temporary
+Markdown reconciliation scaffold. Documentation is deferred to the final closeout or landing, and there is never a
+per-task documentation manifest or reconciliation task. Human review remains responsible for truth and content quality.
 
 ## Feature records
 
