@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import DSTACK, ROOT, run_command, run_ctl, run_json
+from conftest import DSTACK, ROOT, run_command, run_json
 
 from dstack.commands import claim_ready_work, reopen_authorization_boundary
 from dstack.delivery import (
@@ -162,82 +162,6 @@ def test_external_dependent_stays_blocked_through_add_before_remove(
 
     run_command(
         ["bd", "close", replacement["id"], "--reason", "replacement delivered"],
-        cwd=beads_repo,
-    )
-    ready = items(run_json(beads_repo, "ready", "--limit", "0"))
-    assert dependent["id"] in {item["id"] for item in ready}
-
-
-def test_real_adoption_keeps_incoming_dependent_blocked(beads_repo: Path) -> None:
-    legacy = items(
-        run_json(
-            beads_repo,
-            "create",
-            "Legacy feature",
-            "--type",
-            "epic",
-            "--labels",
-            "workflow:feature,feature:legacy-feature",
-        )
-    )[0]
-    child = items(
-        run_json(
-            beads_repo,
-            "create",
-            "Remaining work",
-            "--type",
-            "task",
-            "--parent",
-            legacy["id"],
-        )
-    )[0]
-    dependent = items(run_json(beads_repo, "create", "External dependent", "--type", "task"))[0]
-    run_command(
-        ["bd", "dep", "add", dependent["id"], child["id"], "--type", "blocks"],
-        cwd=beads_repo,
-    )
-    result = run_ctl(
-        beads_repo,
-        "adopt",
-        "apply",
-        legacy["id"],
-        "--title",
-        "Adopted feature",
-        "--slug",
-        "adopted-feature",
-        "--remaining",
-        child["id"],
-    )
-    assert result["status"] == "ok"
-    assert result["root_superseded"] is True
-    replacement_id = result["mapping"][child["id"]]
-    legacy_after = items(run_json(beads_repo, "show", legacy["id"]))[0]
-    child_after = items(run_json(beads_repo, "show", child["id"]))[0]
-    assert legacy_after["status"] == "closed"
-    assert child_after["status"] == "closed"
-    assert replacement_id in {
-        str(record.get("depends_on_id") or record.get("id"))
-        for record in child_after.get("dependencies", [])
-        if str(record.get("type") or record.get("dependency_type")) in {"superseded-by", "supersedes"}
-    }
-    dependent_after = items(run_json(beads_repo, "show", dependent["id"]))[0]
-    dependency_ids = {
-        str(record.get("depends_on_id") or record.get("id")) for record in dependent_after.get("dependencies", [])
-    }
-    assert replacement_id in dependency_ids
-    assert child["id"] not in dependency_ids
-    ready = items(run_json(beads_repo, "ready", "--limit", "0"))
-    assert dependent["id"] not in {item["id"] for item in ready}
-
-    run_command(
-        [
-            "bd",
-            "close",
-            replacement_id,
-            "--force",
-            "--reason",
-            "replacement delivered",
-        ],
         cwd=beads_repo,
     )
     ready = items(run_json(beads_repo, "ready", "--limit", "0"))

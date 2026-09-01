@@ -561,7 +561,6 @@ class BeadsClient:
         self.root = git_root(root)
         self.database = None if database is None else database.resolve()
         self.command_hook = command_hook
-        self._read_cache: dict[tuple[Any, ...], Any] = {}
 
     def _command(self, command: Sequence[str]) -> builtins.list[str]:
         result = list(command)
@@ -584,14 +583,6 @@ class BeadsClient:
             command_hook(selected)
         return run(selected, cwd=self.root, **kwargs)
 
-    def _invalidate_reads(self) -> None:
-        self._read_cache.clear()
-
-    def _cached(self, key: tuple[Any, ...], loader: Callable[[], Any]) -> Any:
-        if key not in self._read_cache:
-            self._read_cache[key] = loader()
-        return self._read_cache[key]
-
     def json(self, command: Sequence[str], *, check: bool = True) -> Any:
         result = self._run(command, check=check)
         if result.returncode != 0:
@@ -608,22 +599,16 @@ class BeadsClient:
         return raw
 
     def show_optional(self, issue_id: str) -> dict[str, Any] | None:
-        key = ("show", issue_id)
-        if key in self._read_cache:
-            return self._read_cache[key]
         result = self._run(["bd", "show", issue_id, "--json"], check=False)
         if result.returncode != 0:
             detail = f"{result.stdout}\n{result.stderr}".casefold()
             if "not found" in detail or "no issues found" in detail:
-                self._read_cache[key] = None
                 return None
             raise DstackError(result.stderr.strip() or result.stdout.strip())
-        issue = first_item(
+        return first_item(
             parse_json(result.stdout, context=f"bd show {issue_id}"),
             context=f"bd show {issue_id}",
         )
-        self._read_cache[key] = issue
-        return issue
 
     def show(self, issue_id: str) -> dict[str, Any]:
         issue = self.show_optional(issue_id)
@@ -654,16 +639,7 @@ class BeadsClient:
             command.append("--include-templates")
         if issue_type_filter:
             command.extend(["--type", issue_type_filter])
-        key = (
-            "list",
-            all_statuses,
-            parent,
-            tuple(labels),
-            include_gates,
-            include_templates,
-            issue_type_filter,
-        )
-        return self._cached(key, lambda: as_items(self.json(command), context="bd list"))
+        return as_items(self.json(command), context="bd list")
 
     def children(self, parent: str, *, all_statuses: bool = True) -> builtins.list[dict[str, Any]]:
         return self.list(all_statuses=all_statuses, parent=parent)
@@ -672,73 +648,45 @@ class BeadsClient:
         command = ["bd", "gate", "list", "--limit", "0", "--json"]
         if all_statuses:
             command.append("--all")
-        key = ("gates", all_statuses)
-        return self._cached(key, lambda: as_items(self.json(command), context="bd gate list"))
+        return as_items(self.json(command), context="bd gate list")
 
     def update(self, issue_id: str, *arguments: str) -> dict[str, Any]:
-        self._invalidate_reads()
-        try:
-            payload = self.json(["bd", "update", issue_id, *arguments, "--json"])
-            return first_item(payload, context=f"bd update {issue_id}")
-        finally:
-            self._invalidate_reads()
+        payload = self.json(["bd", "update", issue_id, *arguments, "--json"])
+        return first_item(payload, context=f"bd update {issue_id}")
 
     def update_many(self, issue_ids: Sequence[str], *arguments: str) -> builtins.list[dict[str, Any]]:
         ids = list(issue_ids)
         if not ids:
             return []
-        self._invalidate_reads()
-        try:
-            payload = self.json(["bd", "update", *ids, *arguments, "--json"])
-            return as_items(payload, context="bd update many")
-        finally:
-            self._invalidate_reads()
+        payload = self.json(["bd", "update", *ids, *arguments, "--json"])
+        return as_items(payload, context="bd update many")
 
     def close(self, issue_id: str, reason: str) -> dict[str, Any]:
         current = self.show(issue_id)
         if current.get("status") == "closed":
             return current
-        self._invalidate_reads()
-        try:
-            payload = self.json(["bd", "close", issue_id, "--reason", reason, "--json"])
-            items = as_items(payload, context=f"bd close {issue_id}")
-            if items:
-                return items[0]
-            return self.show(issue_id)
-        finally:
-            self._invalidate_reads()
+        payload = self.json(["bd", "close", issue_id, "--reason", reason, "--json"])
+        items = as_items(payload, context=f"bd close {issue_id}")
+        return items[0] if items else self.show(issue_id)
 
     def reopen(self, issue_id: str, reason: str) -> dict[str, Any]:
         current = self.show(issue_id)
         if current.get("status") != "closed":
             return current
-        self._invalidate_reads()
-        try:
-            payload = self.json(["bd", "reopen", issue_id, "--reason", reason, "--json"])
-            return first_item(payload, context=f"bd reopen {issue_id}")
-        finally:
-            self._invalidate_reads()
+        payload = self.json(["bd", "reopen", issue_id, "--reason", reason, "--json"])
+        return first_item(payload, context=f"bd reopen {issue_id}")
 
     def resolve_gate(self, gate_id: str, reason: str) -> dict[str, Any]:
-        """Resolve a gate, then read its authoritative state.
-
-        Beads 1.2.2 accepts the global ``--json`` flag for ``gate resolve`` but
-        still emits human-readable text. Treat the command as a state-changing
-        operation rather than a JSON endpoint, then query the gate separately.
-        """
+        """Resolve a gate, then read its authoritative state."""
 
         current = self.show(gate_id)
         if current.get("status") == "closed":
             return current
-        self._invalidate_reads()
-        try:
-            self._run(["bd", "gate", "resolve", gate_id, "--reason", reason])
-            resolved = self.show(gate_id)
-            if resolved.get("status") != "closed":
-                raise DstackError(f"gate did not resolve: {gate_id}")
-            return resolved
-        finally:
-            self._invalidate_reads()
+        self._run(["bd", "gate", "resolve", gate_id, "--reason", reason])
+        resolved = self.show(gate_id)
+        if resolved.get("status") != "closed":
+            raise DstackError(f"gate did not resolve: {gate_id}")
+        return resolved
 
     def create_gate(
         self,
@@ -762,11 +710,7 @@ class BeadsClient:
             command.extend(["--await-id", await_id])
         if reason:
             command.extend(["--reason", reason])
-        self._invalidate_reads()
-        try:
-            return first_item(self.json(command), context="bd gate create")
-        finally:
-            self._invalidate_reads()
+        return first_item(self.json(command), context="bd gate create")
 
     def add_comment(self, issue_id: str, text: str) -> None:
         if not text.strip():
@@ -774,11 +718,9 @@ class BeadsClient:
         handle = write_temp_text(text.rstrip() + "\n")
         name = handle.name
         handle.close()
-        self._invalidate_reads()
         try:
             self._run(["bd", "comments", "add", issue_id, "-f", name])
         finally:
-            self._invalidate_reads()
             Path(name).unlink(missing_ok=True)
 
     def create(
@@ -815,11 +757,7 @@ class BeadsClient:
             command.extend(["--description", description])
         if acceptance:
             command.extend(["--acceptance", acceptance])
-        self._invalidate_reads()
-        try:
-            return first_item(self.json(command), context="bd create")
-        finally:
-            self._invalidate_reads()
+        return first_item(self.json(command), context="bd create")
 
     def ready_children(
         self,
@@ -843,38 +781,20 @@ class BeadsClient:
             command.extend(["--label", label])
         if claim:
             command.append("--claim")
-        key = ("ready", parent, label, claim)
-        if claim:
-            self._invalidate_reads()
-        try:
-            result = as_items(self.json(command), context="bd ready")
-        finally:
-            if claim:
-                self._invalidate_reads()
-        if not claim:
-            self._read_cache[key] = result
-        return result
+        return as_items(self.json(command), context="bd ready")
 
     def progress(self, root_id: str) -> Any:
-        key = ("progress", root_id)
-        return self._cached(
-            key,
-            lambda: self.json(["bd", "mol", "progress", root_id, "--json"]),
-        )
+        return self.json(["bd", "mol", "progress", root_id, "--json"])
 
     def pour(self, formula: str, variables: Mapping[str, str]) -> dict[str, Any]:
         command = ["bd", "mol", "pour", formula]
         for key, value in variables.items():
             command.extend(["--var", f"{key}={value}"])
         command.append("--json")
-        self._invalidate_reads()
-        try:
-            payload = self.json(command)
-            if not isinstance(payload, dict):
-                raise DstackError(f"bd mol pour {formula} returned a non-object")
-            return payload
-        finally:
-            self._invalidate_reads()
+        payload = self.json(command)
+        if not isinstance(payload, dict):
+            raise DstackError(f"bd mol pour {formula} returned a non-object")
+        return payload
 
     def add_dependency(
         self,
@@ -883,35 +803,23 @@ class BeadsClient:
         *,
         relation_type: str = "blocks",
     ) -> None:
-        self._invalidate_reads()
-        try:
-            self._run(
-                [
-                    "bd",
-                    "dep",
-                    "add",
-                    issue_id,
-                    depends_on_id,
-                    "--type",
-                    relation_type,
-                ]
-            )
-        finally:
-            self._invalidate_reads()
+        self._run(
+            [
+                "bd",
+                "dep",
+                "add",
+                issue_id,
+                depends_on_id,
+                "--type",
+                relation_type,
+            ]
+        )
 
     def remove_dependency(self, issue_id: str, depends_on_id: str) -> None:
-        self._invalidate_reads()
-        try:
-            self._run(["bd", "dep", "remove", issue_id, depends_on_id])
-        finally:
-            self._invalidate_reads()
+        self._run(["bd", "dep", "remove", issue_id, depends_on_id])
 
     def relate(self, left_id: str, right_id: str) -> None:
-        self._invalidate_reads()
-        try:
-            self._run(["bd", "dep", "relate", left_id, right_id])
-        finally:
-            self._invalidate_reads()
+        self._run(["bd", "dep", "relate", left_id, right_id])
 
     def supersede(self, old_id: str, new_id: str) -> None:
         old = self.show(old_id)
@@ -919,29 +827,16 @@ class BeadsClient:
             if new_id not in supersession_targets(old):
                 raise DstackError(f"closed issue {old_id} is not superseded by expected {new_id}")
             return
-        self._invalidate_reads()
-        try:
-            self._run(["bd", "supersede", old_id, "--with", new_id])
-        finally:
-            self._invalidate_reads()
+        self._run(["bd", "supersede", old_id, "--with", new_id])
         observed = self.show(old_id)
         if observed.get("status") != "closed" or new_id not in supersession_targets(observed):
             raise DstackError(f"supersession did not converge: {old_id} -> {new_id}")
 
     def gate_check(self) -> builtins.list[dict[str, Any]]:
-        """Evaluate native gates and return their refreshed state.
+        """Evaluate native gates and return their refreshed state."""
 
-        Beads 1.2.2 mixes progress text with JSON for ``gate check --json``.
-        dStack needs only the side effect, so run the command in its supported
-        human-output mode and read gates through ``gate list --json`` afterward.
-        """
-
-        self._invalidate_reads()
-        try:
-            self._run(["bd", "gate", "check"])
-            return self.gates(all_statuses=True)
-        finally:
-            self._invalidate_reads()
+        self._run(["bd", "gate", "check"])
+        return self.gates(all_statuses=True)
 
 
 def step_by_label(children: Sequence[Mapping[str, Any]], label: str) -> dict[str, Any]:
@@ -1002,7 +897,7 @@ def _has_one_canonical_identity(values: set[str]) -> bool:
     return len(values) == 1 and slugify(next(iter(values))) == next(iter(values))
 
 
-def is_legacy_feature_root(issue: Mapping[str, Any]) -> bool:
+def _is_feature_root_shape(issue: Mapping[str, Any]) -> bool:
     return (
         issue_parent(issue) is None
         and issue_type(issue) in {"epic", "molecule"}
@@ -1013,7 +908,7 @@ def is_legacy_feature_root(issue: Mapping[str, Any]) -> bool:
 
 
 def is_feature_root(issue: Mapping[str, Any]) -> bool:
-    return is_legacy_feature_root(issue) and (
+    return _is_feature_root_shape(issue) and (
         has_label(issue, "workflow:feature") or has_label(issue, "dstack:feature-idea")
     )
 
@@ -1129,10 +1024,6 @@ def _resolve_feature(
 
 def resolve_feature(client: BeadsClient, selector: str | None) -> dict[str, Any]:
     return _resolve_feature(client, selector, root_predicate=is_feature_root)
-
-
-def resolve_legacy_feature(client: BeadsClient, selector: str) -> dict[str, Any]:
-    return _resolve_feature(client, selector, root_predicate=is_legacy_feature_root)
 
 
 def human_gate_for_step(

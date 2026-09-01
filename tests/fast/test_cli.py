@@ -100,7 +100,6 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
                 "finalize-pr",
             )
         }
-        | {("adopt", command) for command in ("inspect", "apply")}
         | {("audit", "feature")}
         | {("infra", "check")}
     )
@@ -154,13 +153,6 @@ def test_main_dispatches_in_process(monkeypatch, capsys) -> None:
     assert dstack_cli.ctl_main(["feature", "resolve", "feature-1"]) == 0
     assert seen["args"].selector == "feature-1"
     assert capsys.readouterr().out == '{"status":"ok"}\n'
-
-
-def test_adopt_apply_does_not_accept_ignored_note_file_options() -> None:
-    parser = dict(leaves(dstack_cli.build_ctl_parser()))[("adopt", "apply")]
-    help_text = parser.format_help()
-    assert "--spec-note-file" not in help_text
-    assert "--closeout-note-file" not in help_text
 
 
 def test_ctl_normalizes_expected_filesystem_errors(monkeypatch, capsys) -> None:

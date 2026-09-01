@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 from dstack import core as dstacklib
 
 
-def test_beads_read_cache_is_request_local_and_write_invalidated(
+def test_beads_reads_always_query_native_state(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -29,18 +29,17 @@ def test_beads_read_cache_is_request_local_and_write_invalidated(
     monkeypatch.setattr(dstacklib, "run", fake_run)
     client = dstacklib.BeadsClient.__new__(dstacklib.BeadsClient)
     client.root = tmp_path
-    client._read_cache = {}
 
     client.show("bd-1")
     client.show("bd-1")
     client.list()
     client.list()
-    assert calls.count(("bd", "show", "bd-1", "--json")) == 1
-    assert calls.count(("bd", "list", "--limit", "0", "--json", "--all")) == 1
+    assert calls.count(("bd", "show", "bd-1", "--json")) == 2
+    assert calls.count(("bd", "list", "--limit", "0", "--json", "--all")) == 2
 
     client.update("bd-1", "--title", "updated")
     client.show("bd-1")
-    assert calls.count(("bd", "show", "bd-1", "--json")) == 2
+    assert calls.count(("bd", "show", "bd-1", "--json")) == 3
 
 
 def test_footer_audit_reads_commit_paths_with_one_git_log(

@@ -25,7 +25,6 @@ class ScriptedClient:
         self.root = root
         self._expected = list(calls)
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
-        self._read_cache: dict[tuple[Any, ...], Any] = {}
 
     def _call(self, name: str, *args: Any, **kwargs: Any) -> Any:
         self.calls.append((name, args, kwargs))

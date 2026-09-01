@@ -8,7 +8,6 @@ import shutil
 import tempfile
 import tomllib
 from pathlib import Path
-from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from .output import emit
@@ -384,22 +383,6 @@ def validate_record(
                 errors.append(f"record local link is missing: {raw}")
     if errors:
         raise DstackError(f"invalid {kind} record: " + "; ".join(sorted(set(errors))))
-
-
-def _rewrite_markdown_values(
-    text: str,
-    pattern: re.Pattern[str],
-    transform: Any,
-) -> str:
-    if pattern is LINK_PATTERN:
-        for start, end in reversed(_markdown_link_target_spans(text)):
-            text = text[:start] + transform(text[start:end]) + text[end:]
-        return text
-    _, matches = _markdown_matches(text, pattern)
-    for match in reversed(matches):
-        replacement = transform(text[match.start(1) : match.end(1)])
-        text = text[: match.start(1)] + replacement + text[match.end(1) :]
-    return text
 
 
 def foundation_files(project: str) -> dict[str, str]:

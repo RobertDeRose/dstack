@@ -825,14 +825,11 @@ def docs_check(root: Path, base: str, head: str) -> dict[str, Any]:
                     violations.append({"path": current_path, "line": content.strip()})
                     break
 
-    status_only = False
-
     return {
         "status": "ok" if not violations else "violations",
         "paths": paths,
         "documentation_paths": doc_paths,
         "violations": violations,
-        "status_only": status_only,
     }
 
 
@@ -1389,19 +1386,23 @@ def cancel_pr_gate(client: BeadsClient, root_id: str, reason: str) -> dict[str, 
         return _cancel_pr_gate_unlocked(client, root_id, reason)
 
 
+def _pr_gate_mutation_preflight(client: BeadsClient, selector: str) -> str:
+    run(["git", "fetch", "origin", "--prune"], cwd=client.root)
+    payload = delivery_view(client, selector)
+    ensure_clean_candidate(client.root, payload)
+    validate_delivery(payload, require_remote=True)
+    if payload.get("remote_candidate_head") != payload.get("candidate_head"):
+        raise DstackError(
+            "origin candidate branch does not match the inspected candidate; "
+            "push the exact branch before changing PR gates"
+        )
+    return str(payload["root"]["id"])
+
+
 def cmd_delivery_register_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     with repository_mutation_lock(client.root):
-        run(["git", "fetch", "origin", "--prune"], cwd=client.root)
-        payload = delivery_view(client, args.selector)
-        ensure_clean_candidate(client.root, payload)
-        validate_delivery(payload, require_remote=True)
-        if payload.get("remote_candidate_head") != payload.get("candidate_head"):
-            raise DstackError(
-                "origin candidate branch does not match the inspected candidate; "
-                "push the exact branch before registering the PR"
-            )
-        root_id = str(payload["root"]["id"])
+        root_id = _pr_gate_mutation_preflight(client, args.selector)
         gate = _register_pr_gate_unlocked(client, root_id, str(args.pr_number))
     emit({"status": "ok", "root": root_id, "gate": gate, "pr_number": args.pr_number})
     return 0
@@ -1420,17 +1421,7 @@ def cmd_delivery_cancel_pr_gate(args: argparse.Namespace) -> int:
 def cmd_delivery_replace_pr(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     with repository_mutation_lock(client.root):
-        run(["git", "fetch", "origin", "--prune"], cwd=client.root)
-        payload = delivery_view(client, args.selector)
-        ensure_clean_candidate(client.root, payload)
-        validate_delivery(payload, require_remote=True)
-        if payload.get("remote_candidate_head") != payload.get("candidate_head"):
-            raise DstackError(
-                "origin candidate branch does not match the inspected candidate; "
-                "push the exact branch before replacing the PR gate"
-            )
-
-        root_id = str(payload["root"]["id"])
+        root_id = _pr_gate_mutation_preflight(client, args.selector)
         gate, replaced = _replace_pr_gates_unlocked(client, root_id, str(args.pr_number), args.reason)
     emit(
         {

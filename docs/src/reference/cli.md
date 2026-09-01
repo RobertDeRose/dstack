@@ -7,7 +7,6 @@ Public slash commands are decision-oriented Pi prompt aliases installed by `dsta
 | --- | --- | --- | --- |
 | `dstack install_skills` | Packaged Pi resources and existing global Pi guidance | dStack-owned skills/prompts and one managed `APPEND_SYSTEM.md` block | Installed Pi resources match the installed dStack version |
 | `/plan-feature ...` | Repository and planned Beads work | Planned intent in Beads | One lossless planned feature |
-| `/adopt-feature ...` | Legacy and current graph | Narrow explicit compatibility transition | One current native feature |
 | `/review-feature-spec ...` | Design, graph, worktree | Materialization, graph reconciliation, human authorization | Committed design digest and native approval agree |
 | `/implement-feature ...` | Native ready work and Git | Exact claim, repository change, evidence-backed close | Requested task closes or no ready task remains |
 | `/close-feature ...` | Full candidate and delivery authority | Closeout, optional PR/direct delivery | Reviewed candidate or delivered root |
@@ -38,16 +37,8 @@ dstack ctl alignment finish-plan AUDIT --summary-file /tmp/alignment-review.md
 The controller derives the approval digest from that summary and the exact current correction Beads. Approval recomputes
 the same authority, so a correction or dependency change after review is rejected.
 
-Adoption inspection is read-only:
-
-```bash
-dstack ctl adopt inspect LEGACY
-```
-
-Apply classifies open executable descendants through explicit repeatable options such as `--remaining ID`,
-`--spec-ceremony ID`, `--implementation-coordinator ID`, `--closeout-ceremony ID`, and `--preserve ID`. The controller
-takes one planning snapshot, rejects omitted, duplicate, foreign, or conflicting selections before mutation, and
-revalidates the legacy graph at destructive phase boundaries. No classification file is created or accepted.
+Historical active graphs that do not contain the current molecule are not migrated by dStack. They remain native Beads
+work until completed or retired there, or until the user explicitly plans a new current feature.
 
 Before Beads-backed mutation commands, dStack validates the supported Beads binary and uses packaged formula source.
 Formula-version drift does not override native Beads readiness for already approved work. When an approved feature is

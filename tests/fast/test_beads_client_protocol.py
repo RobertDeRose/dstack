@@ -13,7 +13,6 @@ from dstack import core as dstacklib
 def client(tmp_path: Path) -> dstacklib.BeadsClient:
     value = dstacklib.BeadsClient.__new__(dstacklib.BeadsClient)
     value.root = tmp_path
-    value._read_cache = {}
     return value
 
 
@@ -60,7 +59,7 @@ def test_json_envelope_and_create_argv(tmp_path: Path, monkeypatch: pytest.Monke
     ]
 
 
-def test_show_cache_and_write_invalidation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_show_always_reads_native_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     issue = {"id": "task-1", "status": "open"}
 
@@ -78,7 +77,7 @@ def test_show_cache_and_write_invalidation(tmp_path: Path, monkeypatch: pytest.M
     beads.show("task-1")
     beads.update("task-1", "--claim")
     beads.show("task-1")
-    assert calls.count(("bd", "show", "task-1", "--json")) == 2
+    assert calls.count(("bd", "show", "task-1", "--json")) == 3
 
 
 def test_not_found_is_optional_but_other_errors_raise(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

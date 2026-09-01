@@ -78,7 +78,6 @@ After installing or upgrading dStack, rerun `dstack install_skills` and reload P
 ```text
 /plan-feature [id|slug|title|request]
 /plan-features [deprecated alias]
-/adopt-feature <legacy-feature>
 /review-feature-spec [feature]
 /implement-feature [feature] [task|--all]
 /close-feature [feature] [ready|pr|merge]
@@ -109,8 +108,10 @@ newer or unknown contract, the specification-review skill compares the existing 
 - if a material delta is required, show only the minimal design/task/dependency delta and ask for renewed approval
   before mutation.
 
-Closed historical work is not rewritten merely because dStack changed. `/adopt-feature` remains only for genuinely old
-active workflows that cannot execute under the current lifecycle.
+Closed historical work is not rewritten merely because dStack changed. Active historical graphs that do not contain the
+current molecule remain native Beads records; dStack does not migrate or normalize them. Finish them with native Beads,
+or explicitly plan a new current feature. `/review-feature-spec` audits current molecules only and changes approved work
+only after the normal user-authorization boundary.
 
 ## Git and Beads linkage
 

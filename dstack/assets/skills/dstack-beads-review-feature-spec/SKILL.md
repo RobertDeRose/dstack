@@ -17,6 +17,10 @@ gate native-ready implementation work and does not create a Bead, alter dependen
 molecule. Review the existing approved Beads intent in place using only the accepted design/task facts needed by the
 semantic comparison.
 
+This audit applies only to a current molecule. If initialization reports unsupported historical topology, stop: dStack
+does not migrate that graph. The user may finish or retire it with native Beads, or explicitly authorize planning a new
+current feature. Do not silently create replacement work, copy descendants, or rewrite dependencies.
+
 1. Compare semantic coverage with the current requirements in this skill. Different task names/grouping are not findings
    when the existing plan covers the same outcomes.
 2. If there is no material gap, run `dstack ctl feature audit-complete "<feature>"`. This explicit operation updates

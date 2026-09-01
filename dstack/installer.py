@@ -15,10 +15,12 @@ SYSTEM_BEGIN = "<!-- dstack:managed-system-prompt:begin -->"
 SYSTEM_END = "<!-- dstack:managed-system-prompt:end -->"
 MANAGED_KEY = "dstack-managed"
 LEGACY_SKILL_NAMES = (
+    "adopt-feature",
     "audit-project",
     "close-feature",
     "dstack-core",
     "dstack-beads-core",
+    "dstack-beads-adopt-feature",
     "dstack-beads-setup-project",
     "dstack-beads-start-feature",
     "implement-feature",
@@ -34,7 +36,7 @@ LEGACY_SKILL_NAMES = (
     "start-feature",
     "update-project",
 )
-LEGACY_PROMPT_NAMES = ("setup-project.md", "start-feature.md")
+LEGACY_PROMPT_NAMES = ("adopt-feature.md", "setup-project.md", "start-feature.md")
 
 
 def asset_root() -> Path:

@@ -132,16 +132,6 @@ def test_resolve_and_inspect_emit_observed_state(monkeypatch, tmp_path: Path) ->
     assert output[1]["steps"]["implementation"]["id"] == "implementation-1"
 
 
-def test_default_design_path_uses_mdbook_feature_directory(tmp_path: Path) -> None:
-    assert dstack_feature.default_design_path(tmp_path, "feature") == ("docs/src/features/feature/design.md")
-
-
-@pytest.mark.parametrize("slug", ["../../x", "Feature Name", ""])
-def test_default_design_path_rejects_noncanonical_slug(tmp_path: Path, slug: str) -> None:
-    with pytest.raises(DstackError, match="feature slug must be canonical"):
-        dstack_feature.default_design_path(tmp_path, slug)
-
-
 def test_initialize_rejects_option_like_base_before_beads_mutation(monkeypatch, git_repo: Path) -> None:
     beads = ScriptedClient(git_repo)
     monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
@@ -179,6 +169,40 @@ def test_initialize_rejects_design_path_outside_mdbook_features(monkeypatch, tmp
     )
     with pytest.raises(DstackError, match="docs/src/features/feature/design.md"):
         dstack_feature.cmd_feature_initialize(args)
+    beads.assert_exhausted()
+
+
+def test_initialize_rejects_historical_topology_without_mutation(monkeypatch, git_repo: Path) -> None:
+    historical = {
+        "id": "historical-1",
+        "issue_type": "epic",
+        "status": "open",
+        "labels": ["workflow:feature", "feature:historical"],
+        "metadata": {"dstack.feature_slug": "historical"},
+    }
+    beads = ScriptedClient(git_repo)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "resolve_feature", lambda client, selector: historical)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_context",
+        lambda client, selector: {"root": historical, "current": False, "closed": False},
+    )
+
+    with pytest.raises(DstackError, match="unsupported historical topology"):
+        dstack_feature.cmd_feature_initialize(
+            argparse.Namespace(
+                root=git_repo,
+                selector="historical",
+                title=None,
+                slug=None,
+                base_branch="main",
+                design_path=None,
+            )
+        )
+
     beads.assert_exhausted()
 
 

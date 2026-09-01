@@ -1,8 +1,8 @@
 # Compatibility and formula audits
 
 dStack compatibility is read-oriented. Historical Beads are execution evidence, not a schema to migrate. Current
-controllers accept supported historical feature roots/graphs when they can be resolved unambiguously; they do not
-rewrite closed tasks, old labels, metadata aliases, or lifecycle topology merely to match today's formula.
+controllers operate on current molecules and do not rewrite closed tasks, old labels, metadata aliases, or lifecycle
+topology merely to match today's formula.
 
 ## Supported runtime
 
@@ -45,8 +45,8 @@ outcomes and validation are already covered.
 The root version stamp is only a compatibility cache. There is no audit Bead, fifth lifecycle role, dependency rewrite,
 packet, migration map, or compatibility database.
 
-## Legacy adoption
+## Historical topology
 
-`/adopt-feature` remains an explicit compatibility boundary only for genuinely old active workflows that cannot execute
-under the current lifecycle at all. It does not run on routine formula upgrades and is not used to clean historical
-metadata. Retries derive identity from native Beads/Git evidence; no migration map is stored.
+Active historical graphs that do not contain the current dStack molecule are left untouched. dStack has no setup,
+adoption, or topology-migration command. Such work remains directly manageable through native Beads; moving it into a
+new current feature is an explicit user planning decision, not an automatic compatibility operation.

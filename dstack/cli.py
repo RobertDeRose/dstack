@@ -59,12 +59,11 @@ from .delivery import (
     cmd_delivery_merge,
     cmd_delivery_finalize_pr,
 )
-from .compat import cmd_adopt_inspect, cmd_adopt_apply
 from .installer import main as install_skills_main
 
 HELP_BY_DEST = {
     "root": "Repository root; defaults to the current directory.",
-    "selector": "Feature, alignment, or legacy selector (ID, slug, or title).",
+    "selector": "Feature or alignment selector (ID, slug, or title).",
     "title": "Human-readable title for the created or submitted item.",
     "slug": "Stable slug used for derived paths and branch names.",
     "base_branch": "Git branch from which the feature is based.",
@@ -390,29 +389,6 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     finalize = mechanical_parser(delivery_sub, "finalize-pr", "finalize Beads after a merged pull request")
     finalize.add_argument("selector")
     finalize.set_defaults(func=cmd_delivery_finalize_pr)
-
-    adopt = mechanical_parser(top, "adopt", "explicitly inspect or adopt legacy workflow data")
-    adopt_sub = adopt.add_subparsers(dest="command", required=True)
-    adopt_inspect = mechanical_parser(adopt_sub, "inspect", "inspect legacy workflow data without mutation")
-    adopt_inspect.add_argument("selector")
-    adopt_inspect.set_defaults(func=cmd_adopt_inspect)
-    adopt_apply = mechanical_parser(adopt_sub, "apply", "adopt selected legacy work through native Beads")
-    adopt_apply.add_argument("selector")
-    adopt_apply.add_argument("--title")
-    adopt_apply.add_argument("--slug")
-    adopt_apply.add_argument("--base-branch")
-    adopt_apply.add_argument("--design-path")
-    adopt_apply.add_argument("--remaining", action="append", default=[])
-    adopt_apply.add_argument("--spec-ceremony", action="append", default=[])
-    adopt_apply.add_argument("--implementation-coordinator", action="append", default=[])
-    adopt_apply.add_argument("--closeout-ceremony", action="append", default=[])
-    adopt_apply.add_argument("--preserve", action="append", default=[])
-    adopt_apply.add_argument("--reparent", action="append", default=[])
-    adopt_apply.add_argument("--recreate", action="append", default=[])
-    adopt_apply.add_argument("--incorporated-decision", action="append", default=[])
-    adopt_apply.add_argument("--decision-blocker", action="append", default=[])
-    adopt_apply.add_argument("--completed", action="append", default=[])
-    adopt_apply.set_defaults(func=cmd_adopt_apply)
 
     fill_argument_help(parser)
     return parser

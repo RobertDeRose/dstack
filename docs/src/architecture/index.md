@@ -66,7 +66,6 @@ Documentation is not an execution dashboard.
 - create/reuse conventional Git branches and worktrees;
 - enforce Git footer, aggregate PR-summary, and delivery safety rules;
 - compute a content digest for an approved design;
-- perform narrow, explicit legacy adoption.
 
 It may not:
 
@@ -81,7 +80,7 @@ Every invocation derives truth from the current repository and Beads database. `
 `PATH`; controller modules live in the installed Python package rather than under Pi skills. Before Beads-backed work,
 the controller validates the supported Beads binary, initializes Beads when needed, and uses packaged dStack formulas as
 authority. Formula source is exposed transiently for native pours; legacy tracked copies are tolerated and restored
-unchanged. No setup workflow or migration authority exists.
+unchanged. No setup or adoption workflow or migration authority exists.
 
 Formula versions are semantic planning/review contracts. New feature roots record their creation version; approved
 active features record the latest audited version. A stale/missing audited version does not override Beads readiness or
@@ -93,10 +92,10 @@ reauthorization.
 
 **Formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to.**
 Historical labels, task groupings, and closed work are left intact. Current root resolution uses parentless topology,
-root type, and compatible identity; supported historical roots are read for compatibility/adoption but are not
-normalized on upgrade. `/adopt-feature` remains isolated for genuinely old active workflows that cannot execute under
-the current lifecycle. No compatibility database, migration map, setup ledger, or historical normalization state is
-stored.
+root type, compatible identity, and the current workflow marker. Historical active graphs that do not contain the current
+molecule remain native Beads records rather than controller-managed workflows. dStack neither migrates nor normalizes
+them; users may complete them with native Beads or explicitly plan a new current feature. No compatibility database,
+migration map, setup ledger, or historical normalization state is stored.
 
 ### Pi integration
 

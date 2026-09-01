@@ -97,14 +97,27 @@ def test_install_skills_removes_only_owned_legacy_dstack_resources(tmp_path: Pat
     stale_prompt.write_text(
         "---\nname: setup-project\ndstack-managed: true\n---\nLoad the old dStack setup workflow.\n"
     )
+    stale_adopt = agent / "skills/dstack-beads-adopt-feature"
+    stale_adopt.mkdir(parents=True)
+    (stale_adopt / "SKILL.md").write_text(
+        "---\nname: dstack-beads-adopt-feature\ndstack-managed: true\n---\nOld adoption workflow\n"
+    )
+    stale_adopt_prompt = agent / "prompts/adopt-feature.md"
+    stale_adopt_prompt.write_text(
+        "---\nname: adopt-feature\ndstack-managed: true\n---\nLoad the old adoption workflow.\n"
+    )
 
     payload = install_skills(agent)
 
     assert not stale.exists()
     assert unrelated.exists()
     assert not stale_prompt.exists()
+    assert not stale_adopt.exists()
+    assert not stale_adopt_prompt.exists()
     assert "skills/start-feature" in payload["removed_stale"]
+    assert "skills/dstack-beads-adopt-feature" in payload["removed_stale"]
     assert "prompts/setup-project.md" in payload["removed_stale"]
+    assert "prompts/adopt-feature.md" in payload["removed_stale"]
 
 
 def test_default_agent_dir_honors_environment(monkeypatch, tmp_path: Path) -> None:

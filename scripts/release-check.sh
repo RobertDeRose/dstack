@@ -37,7 +37,6 @@ python -m venv "$tmp/venv"
 agent_dir="$tmp/pi-agent"
 "$tmp/venv/bin/dstack" install_skills --agent-dir "$agent_dir" >"$tmp/install-skills.json"
 for skill in \
-  dstack-beads-adopt-feature \
   dstack-beads-close-feature \
   dstack-beads-implement-feature \
   dstack-beads-plan-feature \
@@ -48,7 +47,6 @@ for skill in \
   test -f "$agent_dir/skills/$skill/SKILL.md"
 done
 for prompt in \
-  adopt-feature.md \
   close-feature.md \
   implement-feature.md \
   plan-feature.md \

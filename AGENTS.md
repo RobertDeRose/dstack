@@ -38,7 +38,7 @@ architecture.
   approval is a content digest.
 - Do not claim independent review without a separate reviewer session.
 - No finite review counter may override explicit user authorization.
-- Normal workflow commands never run legacy repair or rewrite old topology.
+- There is no setup or adoption repair workflow; normal commands never rewrite historical topology.
 
 ## Formula constraints
 

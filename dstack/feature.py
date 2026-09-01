@@ -281,15 +281,11 @@ def cmd_feature_audit_complete(args: argparse.Namespace) -> int:
     return 0
 
 
-def is_planned_legacy_feature(issue: Mapping[str, Any]) -> bool:
+def _is_planned_feature_intent(issue: Mapping[str, Any]) -> bool:
     metadata = issue_metadata(issue)
     classification = str(metadata.get("migration_classification") or "").casefold()
     roadmap = str(metadata.get("legacy_roadmap_status") or "").casefold()
     return classification == "planned" or "planned" in roadmap or has_label(issue, "dstack:feature-idea")
-
-
-def default_design_path(_root: Path, slug: str) -> str:
-    return canonical_feature_design_path(slug)
 
 
 @serialized_repository_mutation
@@ -352,9 +348,10 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
                 }
             )
             return 0
-        if not is_planned_legacy_feature(existing):
+        if not _is_planned_feature_intent(existing):
             raise DstackError(
-                f"feature {existing['id']} uses the active legacy workflow; run /adopt-feature {existing['id']}"
+                f"feature {existing['id']} uses unsupported historical topology; "
+                "dStack does not rewrite active Beads graphs automatically"
             )
         planned_source = existing
 
@@ -367,7 +364,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     if args.slug and planned_slug and args.slug != planned_slug:
         raise DstackError(f"planned feature slug is immutable: {planned_slug}")
     slug = planned_slug or args.slug or slugify(title)
-    design_path = default_design_path(client.root, slug)
+    design_path = canonical_feature_design_path(slug)
     if args.design_path and args.design_path != design_path:
         raise DstackError(f"feature design path must be {design_path} for the mdBook layout")
     require_unique_open_feature_slug(

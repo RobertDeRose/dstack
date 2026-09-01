@@ -135,20 +135,12 @@ After a stable boundary, prefer a fresh agent session before starting another su
 session must resume from Beads, Git, and durable repository documentation alone; no handoff packet or session state is
 required.
 
-### `/adopt-feature` compatibility boundary
+### Historical feature graphs
 
-Legacy adoption is an explicit native compatibility transition, never a normal feature claim. The agent first inspects
-the legacy graph, then supplies explicit classifications in one `dstack ctl adopt apply` invocation. The controller
-validates those selections against one coherent native snapshot before mutation; no classification packet or separate
-plan file exists. It creates or reuses exact replacement tasks before changing old work. Every compatible outgoing
-blocker and incoming dependent edge is added and verified before its legacy edge is removed; unsupported incoming
-translation fails closed. Planned nonblocking context remains native. Readiness is reread around each translation so
-unrelated external work cannot become ready early.
-
-Retries reconstruct replacement identity from native parentage, labels, content, relationships, and supersession; no
-migration map is stored. Incorporated unresolved decisions keep their blocker and the legacy root unsuperseded until an
-approved committed-design retry verifies the exact section. Only after graph, readiness, reachability, and supersession
-postconditions converge may old work and the legacy root be superseded.
+Active historical graphs that do not contain the current four-step molecule remain native Beads records. dStack does
+not inspect-and-rewrite them, migrate their children, or translate their dependencies. Complete or retire that work with
+native Beads, or explicitly plan a new current feature. Formula compatibility review applies only to a current molecule
+and never runs as a hidden eligibility mutation.
 
 ## Project-alignment lifecycle
 

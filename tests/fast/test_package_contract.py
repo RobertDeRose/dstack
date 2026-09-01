@@ -362,8 +362,13 @@ def test_no_git_sha_mapping_or_shadow_state_contract() -> None:
     assert "tasks.md" not in text or "Do not create `tasks.md`" in text
     assert not (ROOT / "dstack/git_evidence.py").exists()
     assert not (ROOT / "dstack/setup.py").exists()
+    assert not (ROOT / "dstack/adoption.py").exists()
+    assert not (ROOT / "dstack/adoption_apply.py").exists()
+    assert not (ROOT / "dstack/compat.py").exists()
     assert not (ROOT / "dstack/assets/prompts/setup-project.md").exists()
     assert not (ROOT / "dstack/assets/skills/dstack-beads-setup-project").exists()
+    assert not (ROOT / "dstack/assets/prompts/adopt-feature.md").exists()
+    assert not (ROOT / "dstack/assets/skills/dstack-beads-adopt-feature").exists()
 
 
 def test_public_help_is_mechanical_and_side_effect_free() -> None:
@@ -447,14 +452,15 @@ def test_documented_runtime_support_matches_installable_cli() -> None:
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
 
 
-def test_setup_workflow_is_removed_and_formula_sync_is_controller_owned() -> None:
+def test_setup_and_adoption_workflows_are_removed() -> None:
     readme = " ".join((ROOT / "README.md").read_text().split())
     architecture = " ".join((ROOT / "docs/src/architecture/index.md").read_text().split())
     agents = " ".join((ROOT / "AGENTS.md").read_text().split())
     assert "/setup-project" not in readme
+    assert "/adopt-feature" not in readme
     assert "formulas define how dStack creates and reviews new work".casefold() in readme.casefold()
     assert "Closed historical work is not rewritten" in readme
-    assert "No setup workflow" in architecture
+    assert "No setup or adoption workflow" in architecture
     central = "formulas define how dStack creates and reviews new work; they are not schemas that existing work must migrate to"
     assert central.casefold() in agents.casefold()
 

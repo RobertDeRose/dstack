@@ -4,8 +4,8 @@ Use the `dstack` CLI for deterministic workflow mechanics, Beads as the sole rea
 `dstack-beads-*` skills for engineering decisions.
 
 **Central rule:** formulas define how dStack creates and reviews new work; they are not schemas that existing work must
-migrate to. Historical Beads remain execution evidence. Never rewrite closed historical work merely because dStack or a
-formula changed.
+migrate to. Historical Beads remain execution evidence. Never rewrite historical topology merely because dStack or a
+formula changed; there is no setup or adoption migration workflow.
 
 Use native `bd ready`/claims to select work. dStack inspection may add deterministic Git/worktree facts, but it does not
 project the next task, required evidence, or lifecycle state. Formula drift never creates workflow work or rewires the

@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-from dstack import compat as dstack_compat
 from dstack import delivery as dstack_delivery
 from dstack import core as dstacklib
 from dstack.core import DstackError
@@ -82,53 +81,18 @@ def test_alignment_roots_ignore_nested_pollution(tmp_path: Path) -> None:
     beads.assert_exhausted()
 
 
-def test_adoption_accepts_parentless_metadata_only_legacy_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_metadata_only_historical_root_is_not_a_controller_input(tmp_path: Path) -> None:
     legacy = {
         "id": "legacy",
         "issue_type": "epic",
         "status": "open",
         "metadata": {"feature_slug": "legacy"},
     }
-    strict = ScriptedClient(tmp_path, call("show_optional", "legacy", result=legacy))
+    beads = ScriptedClient(tmp_path, call("show_optional", "legacy", result=legacy))
     with pytest.raises(DstackError, match="not a feature workflow root"):
-        dstacklib.resolve_feature(strict, "legacy")
-    strict.assert_exhausted()
-
-    beads = ScriptedClient(
-        tmp_path,
-        call("show_optional", "legacy", result=legacy),
-        call("children", "legacy", result=[]),
-    )
-    monkeypatch.setattr(dstack_compat, "client_for", lambda root, **kwargs: beads)
-    monkeypatch.setattr(
-        dstack_compat,
-        "adoption_graph_snapshot",
-        lambda *args: {
-            "legacy_root_id": "legacy",
-            "legacy_ids": ["legacy"],
-            "legacy_records": [legacy],
-            "native_records": [legacy],
-            "internal": [],
-            "outgoing_external": [],
-            "incoming_external": [],
-        },
-    )
-    output = []
-    monkeypatch.setattr(dstack_compat, "emit", output.append)
-
-    args = type("Args", (), {"root": tmp_path, "selector": "legacy"})()
-    assert dstack_compat.cmd_adopt_inspect(args) == 0
-    assert output[0]["legacy_root"] == legacy
+        dstacklib.resolve_feature(beads, "legacy")
     beads.assert_exhausted()
 
-
-def test_adoption_replacement_lookup_ignores_nested_pollution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    root = feature("root")
-    nested = feature("nested", parent="root")
-    beads = ScriptedClient(tmp_path, call("list", all_statuses=True, result=[root, nested]))
-    monkeypatch.setattr(dstack_compat, "feature_context", lambda client, selector: {"current": True})
-    assert dstack_compat.current_feature_for_slug(beads, "demo", exclude_id="legacy") == root
-    beads.assert_exhausted()
 
 
 def test_delivery_exact_nested_workflow_id_is_rejected(tmp_path: Path) -> None:

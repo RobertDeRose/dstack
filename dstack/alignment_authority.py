@@ -153,16 +153,6 @@ def canonical_description(
     return payload, summary, digest
 
 
-def verify_correction_graph(
-    client: BeadsClient,
-    view: Mapping[str, Any],
-    authority: Mapping[str, Any],
-) -> None:
-    expected = authority.get("corrections")
-    if not isinstance(expected, list) or expected != correction_graph(client, view):
-        raise DstackError("alignment correction graph changed after review")
-
-
 def require_alignment_authorized(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
     steps = view.get("steps")
     if not isinstance(steps, Mapping):
