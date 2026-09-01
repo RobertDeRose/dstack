@@ -25,5 +25,6 @@ Guardrails:
   work; do not broaden scope mechanically.
 - A review supplies evidence, not workflow authority. Another review is allowed when the user authorizes it; call it
   independent only when a separate read-only agent/session performed it.
-- Implementation/correction tasks do not update durable documentation. Feature closeout or alignment landing is the
-  final reconciliation boundary.
+- Implementation tasks do not update durable documentation. Feature closeout is the final reconciliation boundary.
+- `/project-audit` is read-only agent analysis: compare current code with current documentation, report contradictions,
+  drift, and ambiguity, and present ordinary feature work. Do not create an audit workflow or packet.

@@ -106,6 +106,15 @@ def test_install_skills_removes_only_owned_legacy_dstack_resources(tmp_path: Pat
     stale_adopt_prompt.write_text(
         "---\nname: adopt-feature\ndstack-managed: true\n---\nLoad the old adoption workflow.\n"
     )
+    stale_alignment = agent / "skills/dstack-beads-project-alignment-review"
+    stale_alignment.mkdir(parents=True)
+    (stale_alignment / "SKILL.md").write_text(
+        "---\nname: dstack-beads-project-alignment-review\ndstack-managed: true\n---\nOld alignment workflow\n"
+    )
+    stale_alignment_prompt = agent / "prompts/project-alignment-review.md"
+    stale_alignment_prompt.write_text(
+        "---\nname: project-alignment-review\ndstack-managed: true\n---\nOld alignment prompt\n"
+    )
 
     payload = install_skills(agent)
 
@@ -114,10 +123,14 @@ def test_install_skills_removes_only_owned_legacy_dstack_resources(tmp_path: Pat
     assert not stale_prompt.exists()
     assert not stale_adopt.exists()
     assert not stale_adopt_prompt.exists()
+    assert not stale_alignment.exists()
+    assert not stale_alignment_prompt.exists()
     assert "skills/start-feature" in payload["removed_stale"]
     assert "skills/dstack-beads-adopt-feature" in payload["removed_stale"]
     assert "prompts/setup-project.md" in payload["removed_stale"]
     assert "prompts/adopt-feature.md" in payload["removed_stale"]
+    assert "skills/dstack-beads-project-alignment-review" in payload["removed_stale"]
+    assert "prompts/project-alignment-review.md" in payload["removed_stale"]
 
 
 def test_default_agent_dir_honors_environment(monkeypatch, tmp_path: Path) -> None:

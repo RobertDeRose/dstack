@@ -8,7 +8,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 from dstack import core as dstacklib
-from dstack.core import ALIGNMENT_STEPS, FEATURE_STEPS
+from dstack.core import FEATURE_STEPS
 
 from scripted import ScriptedClient, call
 
@@ -95,36 +95,6 @@ def test_noncurrent_feature_context_does_not_expose_child_inventory(
     observed = dstacklib.feature_context(beads, "legacy-1")
     assert observed["current"] is False
     assert "children" not in observed
-    beads.assert_exhausted()
-
-
-def test_alignment_context_reads_only_root_and_stable_steps(tmp_path: Path) -> None:
-    root = {
-        "id": "alignment-1",
-        "issue_type": "molecule",
-        "status": "open",
-        "labels": ["workflow:project-alignment", "audit:repository"],
-        "metadata": {"dstack.target_branch": "main", "dstack.scope": "repository"},
-    }
-    steps = [
-        {"id": f"{name}-1", "issue_type": kind, "labels": [label]}
-        for name, label, kind in (
-            ("analysis", ALIGNMENT_STEPS["analysis"], "task"),
-            ("approval", ALIGNMENT_STEPS["approval"], "task"),
-            ("corrections", ALIGNMENT_STEPS["corrections"], "epic"),
-            ("landing", ALIGNMENT_STEPS["landing"], "task"),
-        )
-    ]
-    beads = ScriptedClient(
-        tmp_path,
-        call("show_optional", "alignment-1", result=root),
-        call("children", "alignment-1", result=steps),
-    )
-    observed = dstacklib.alignment_context(beads, "alignment-1")
-    assert observed["steps"]["corrections"]["id"] == "corrections-1"
-    assert observed["target_branch"] == "main"
-    assert "ready_work" not in observed
-    assert "progress" not in observed
     beads.assert_exhausted()
 
 
@@ -310,106 +280,6 @@ def test_feature_view_verbose_projects_real_steps_gate_and_design(git_repo: Path
     assert observed["human_gate"] == gate
     assert observed["native_approved"] is True
     assert observed["design_approved"] is True
-    assert "ready_work_ids" not in observed
-    assert "progress" not in observed
-    assert "delivery_ready" not in observed
-    beads.assert_exhausted()
-
-
-def test_alignment_view_default_returns_native_root_without_readiness_projection(tmp_path: Path, monkeypatch) -> None:
-    root = {
-        "id": "alignment-1",
-        "issue_type": "molecule",
-        "status": "open",
-        "labels": ["workflow:project-alignment", "audit:repository"],
-        "metadata": {"dstack.target_branch": "main", "dstack.scope": "repository"},
-    }
-    steps = [
-        {
-            "id": "analysis-1",
-            "issue_type": "task",
-            "status": "open",
-            "labels": [ALIGNMENT_STEPS["analysis"]],
-        },
-        {
-            "id": "approval-1",
-            "issue_type": "task",
-            "status": "open",
-            "labels": [ALIGNMENT_STEPS["approval"]],
-        },
-        {
-            "id": "corrections-1",
-            "issue_type": "epic",
-            "status": "open",
-            "labels": [ALIGNMENT_STEPS["corrections"]],
-        },
-        {
-            "id": "landing-1",
-            "issue_type": "task",
-            "status": "open",
-            "labels": [ALIGNMENT_STEPS["landing"]],
-        },
-    ]
-    beads = ScriptedClient(
-        tmp_path,
-        call("show_optional", "alignment-1", result=root),
-        call("children", "alignment-1", result=steps),
-    )
-    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: tmp_path)
-
-    observed = dstacklib.alignment_view(beads, "alignment-1")
-
-    assert observed == {
-        "root": root,
-        "branch": "audit/repository",
-        "worktree": str(tmp_path),
-    }
-    beads.assert_exhausted()
-
-
-def test_alignment_view_verbose_projects_real_steps_gate_and_metadata(tmp_path: Path, monkeypatch) -> None:
-    root = {
-        "id": "alignment-1",
-        "issue_type": "molecule",
-        "status": "open",
-        "labels": ["workflow:project-alignment", "audit:repository"],
-        "metadata": {
-            "dstack.target_branch": "main",
-            "dstack.scope": "whole repository",
-        },
-    }
-    steps = [
-        {"id": "analysis-1", "issue_type": "task", "labels": [ALIGNMENT_STEPS["analysis"]]},
-        {"id": "approval-1", "issue_type": "task", "labels": [ALIGNMENT_STEPS["approval"]]},
-        {"id": "corrections-1", "issue_type": "epic", "labels": [ALIGNMENT_STEPS["corrections"]]},
-        {
-            "id": "landing-1",
-            "issue_type": "task",
-            "status": "open",
-            "labels": [ALIGNMENT_STEPS["landing"]],
-        },
-    ]
-    approval = {
-        **steps[1],
-        "dependencies": [{"depends_on_id": "gate-1", "type": "blocks"}],
-    }
-    gate = {"id": "gate-1", "issue_type": "gate", "await_type": "human"}
-    correction = {"id": "correction-1", "issue_type": "task"}
-    beads = ScriptedClient(
-        tmp_path,
-        call("show_optional", "alignment-1", result=root),
-        call("children", "alignment-1", result=steps),
-        call("show", "approval-1", result=approval),
-        call("show_optional", "gate-1", result=gate),
-        call("children", "corrections-1", result=[correction]),
-    )
-    monkeypatch.setattr(dstacklib, "worktree_for_branch", lambda *args: tmp_path)
-
-    observed = dstacklib.alignment_view(beads, "alignment-1", verbose=True)
-    assert observed["steps"]["corrections"]["id"] == "corrections-1"
-    assert observed["human_gate"] == gate
-    assert observed["target_branch"] == "main"
-    assert observed["scope"] == "whole repository"
     assert "ready_work_ids" not in observed
     assert "progress" not in observed
     assert "delivery_ready" not in observed

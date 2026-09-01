@@ -59,7 +59,7 @@ Documentation is not an execution dashboard.
 `dstack` is an installable Python tool. `dstack ctl` is its stateless deterministic adapter. It may:
 
 - query and validate Beads JSON;
-- resolve exact feature/audit selectors and stable steps;
+- resolve exact feature selectors and stable steps;
 - run idempotent native Beads transitions;
 - initialize and validate the canonical mdBook foundation without storing a second navigation manifest or validation
   state;
@@ -138,24 +138,16 @@ closeout waits for children-of(implementation)
 The approval task exists because normal Beads blocking relationships must connect like issue kinds. The implementation
 workstream remains an epic and the closeout uses native dynamic fan-in.
 
-## Minimal project-alignment molecule
+## Project audit
 
-```text
-analysis/plan task
-        |
-        v
-approval task <---- human gate
-        |
-        +----> dynamic correction task
-        +----> dynamic correction task
+`/project-audit` is a read-only Pi command. The agent compares current source,
+tests, Beads, Git, and governing documentation, then reports evidence-backed
+contradictions, drift, and consequential ambiguity. It presents a proposed
+corrective feature epic but creates no audit Bead, packet, ledger, or snapshot.
 
-corrections epic owns dynamic tasks
-        |
-        v
-landing waits for children-of(corrections)
-```
-
-The three authority tiers remain separate: analyze, execute, deliver.
+After explicit acceptance, the proposal becomes ordinary planned feature intent.
+`/review-feature-spec` obtains authorization and `/implement-feature` handles its
+implementation children; feature closeout reconciles durable documentation.
 
 ## Minimal metadata
 
@@ -181,9 +173,8 @@ graph, not duplicated in metadata.
 Never store Git commit identities in Beads as implementation, delivery, task, evidence, or bookkeeping mappings. Those
 relationships remain one-way `Beads: <id>` footers and are reconstructed from reachable Git history.
 
-The project-alignment audit records reviewed findings, accepted corrections, and user decisions only. It does not store
-a Git revision or other snapshot of repository state. Execution and delivery revalidate the current repository and
-reconstruct work evidence from reachable Git history.
+Project audits do not persist reviewed findings or repository snapshots in dStack state. Accepted corrective work is
+represented by ordinary Beads feature intent and Git history, with evidence reconstructed at delivery boundaries.
 
 ## Design approval without Git coupling
 
@@ -199,8 +190,8 @@ affect approval.
 
 ## Delivery invariant
 
-Before delivery, all durable code/docs changes are already in the candidate. The final closeout or landing is the sole
-reconciliation boundary; implementation and correction tasks do not update durable documentation. A candidate may be
+Before delivery, all durable code/docs changes are already in the candidate. Feature closeout is the sole
+reconciliation boundary; implementation tasks do not update durable documentation. A candidate may be
 amended, fixed up, or rebased before delivery when its history remains linear and final terminal evidence stays
 reachable. After delivery starts, Beads may be finalized but Git may not change.
 
@@ -214,11 +205,9 @@ rewrite after a failed or incorrect delivery is a separate native Git operation,
 
 ### Immutable delivered-candidate audit
 
-A closed feature inspection searches the configured target ref for the latest reachable closeout `Beads:` footer. A
-project alignment uses the latest reachable landing footer when landing changed the repository, otherwise the latest
-reachable correction footer. Sequential fixups and rebases are valid; repeated identical footers in one commit and
-nonlinear evidence remain errors. An alignment with no repository changes has no Git candidate revision. Before
-delivery, the clean candidate HEAD must contain the final terminal footer and any later commits must retain that
+A closed feature inspection searches the configured target ref for the latest reachable closeout `Beads:` footer.
+Sequential fixups and rebases are valid; repeated identical footers in one commit and nonlinear evidence remain errors.
+Before delivery, the clean candidate HEAD must contain the final terminal footer and any later commits must retain that
 terminal footer; this prevents unreviewed commits from silently extending the candidate while allowing fixups and
 rebases.
 

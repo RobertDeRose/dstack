@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .core import (
-    ALIGNMENT_STEPS,
     FEATURE_STEPS,
     BeadsClient,
     DstackError,
@@ -28,9 +27,8 @@ from .core import (
     run,
 )
 
-FORMULA_NAMES = ("dstack-feature", "dstack-project-alignment")
+FORMULA_NAMES = ("dstack-feature",)
 FEATURE_FORMULA = "dstack-feature"
-ALIGNMENT_FORMULA = "dstack-project-alignment"
 FORMULA_VERSION_KEY = "dstack.formula_version"
 CREATED_FORMULA_VERSION_KEY = "dstack.created_formula_version"
 
@@ -91,14 +89,6 @@ def validate_formula_contract(name: str, formula: Mapping[str, Any]) -> None:
             "closeout": ("task", FEATURE_STEPS["closeout"]),
         }
         planning, approval, workstream, terminal = "specification", "approval", "implementation", "closeout"
-    elif name == ALIGNMENT_FORMULA:
-        expected = {
-            "analysis": ("task", ALIGNMENT_STEPS["analysis"]),
-            "approval": ("task", ALIGNMENT_STEPS["approval"]),
-            "corrections": ("epic", ALIGNMENT_STEPS["corrections"]),
-            "landing": ("task", ALIGNMENT_STEPS["landing"]),
-        }
-        planning, approval, workstream, terminal = "analysis", "approval", "corrections", "landing"
     else:  # guarded by load_formula callers, kept explicit for direct tests
         raise DstackError(f"unknown dStack formula: {name}")
 

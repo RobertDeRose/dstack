@@ -30,16 +30,14 @@ FEATURE_STEPS = {
     "implementation": "dstack:step:implementation",
     "closeout": "dstack:step:closeout",
 }
-ALIGNMENT_STEPS = {
-    "analysis": "dstack:step:alignment-analysis",
-    "approval": "dstack:step:alignment-approval",
-    "corrections": "dstack:step:alignment-corrections",
-    "landing": "dstack:step:alignment-landing",
-}
 
 
 class DstackError(RuntimeError):
     """Raised when a stateless dstack operation cannot proceed safely."""
+
+
+class FeatureNotFound(DstackError):
+    """Raised when a feature selector has no matching native root."""
 
 
 @dataclass(frozen=True)
@@ -927,14 +925,6 @@ def feature_slug(issue: Mapping[str, Any]) -> str | None:
     return next(iter(values)) if len(values) == 1 else None
 
 
-def alignment_identity_values(issue: Mapping[str, Any]) -> set[str]:
-    return _workflow_identity_values(
-        issue,
-        label_prefix="audit:",
-        metadata_keys=("dstack.audit_slug", "audit_slug"),
-    )
-
-
 def _has_one_canonical_identity(values: set[str]) -> bool:
     return len(values) == 1 and slugify(next(iter(values))) == next(iter(values))
 
@@ -944,8 +934,7 @@ def _is_feature_root_shape(issue: Mapping[str, Any]) -> bool:
         issue_parent(issue) is None
         and issue_type(issue) in {"epic", "molecule"}
         and _has_one_canonical_identity(feature_identity_values(issue))
-        and not alignment_identity_values(issue)
-        and not has_label(issue, "workflow:project-alignment")
+        and not any(label.startswith("audit:") for label in issue_labels(issue))
     )
 
 
@@ -955,24 +944,8 @@ def is_feature_root(issue: Mapping[str, Any]) -> bool:
     )
 
 
-def is_alignment_root(issue: Mapping[str, Any]) -> bool:
-    return (
-        issue_parent(issue) is None
-        and issue_type(issue) in {"epic", "molecule"}
-        and _has_one_canonical_identity(alignment_identity_values(issue))
-        and not feature_identity_values(issue)
-        and not has_label(issue, "workflow:feature")
-        and not has_label(issue, "dstack:feature-idea")
-        and has_label(issue, "workflow:project-alignment")
-    )
-
-
 def feature_roots_from_inventory(issues: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [dict(item) for item in issues if is_feature_root(item)]
-
-
-def alignment_roots_from_inventory(issues: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    return [dict(item) for item in issues if is_alignment_root(item)]
 
 
 def canonical_feature_design_path(slug: str) -> str:
@@ -1051,7 +1024,7 @@ def _resolve_feature(
             candidates.append(root)
 
     if not candidates:
-        raise DstackError(f"no feature matches selector: {selector}")
+        raise FeatureNotFound(f"no feature matches selector: {selector}")
 
     open_current = [item for item in candidates if item.get("status") != "closed" and is_current_feature(client, item)]
     if len(open_current) == 1:

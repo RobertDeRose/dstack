@@ -2,9 +2,8 @@
 
 Put documentation where a reader would look based on the question they are trying to answer.
 
-The accepted design is prepared before implementation; current-product documentation ships from the final closeout or
-alignment landing. Tests prove outcomes; documentation explains those outcomes, constraints, contracts, and intended
-use.
+The accepted design is prepared before implementation; current-product documentation ships from the final closeout.
+Tests prove outcomes; documentation explains those outcomes, constraints, contracts, and intended use.
 
 ## Audiences
 
@@ -62,19 +61,16 @@ Feature documentation impact explicitly considers operator usage and configurati
 operations and recovery, developer architecture and contracts, and future audit evidence. Concrete affected pages use
 inline local Markdown links; an inapplicable subject is `Not applicable — <specific reason>`.
 
-Feature design/reconciliation and alignment reconciliation records use one fixed ATX-heading contract shared by their
-scaffolds and validators. Every required section contains substantive authored content or the explicit applicability
-form. Code examples do not create headings or satisfy prose. Duplicate/missing headings, untouched scaffolds,
-TODOs/placeholders, reference-style local links, missing targets, and repository escapes fail with section-specific
-diagnostics before the corresponding authorization or terminal mutation.
+Feature design and reconciliation records use one fixed ATX-heading contract shared by their scaffolds and validators.
+Every required section contains substantive authored content or the explicit applicability form. Code examples do not
+create headings or satisfy prose. Duplicate/missing headings, untouched scaffolds, TODOs/placeholders, reference-style
+local links, missing targets, and repository escapes fail with section-specific diagnostics before the corresponding
+authorization or terminal mutation.
 
-Alignment review authority is Beads-native. Accepted corrections, acceptance criteria, priorities, and dependencies live
-in the native correction workstream. Tier 1 writes only a concise temporary Markdown review summary outside the
-repository and finalizes it with `alignment finish-plan --summary-file`. The analysis, human gate, approval step, and
-current correction graph remain the complete live authorization surface. The controller does not create an external
-plan packet, alignment review digest, or duplicate correction state. The final landing retains its separate temporary
-Markdown reconciliation scaffold. Documentation is deferred to the final closeout or landing, and there is never a
-per-task documentation manifest or reconciliation task. Human review remains responsible for truth and content quality.
+Project audits are read-only. The agent compares current source, tests, Beads, Git, and documentation, then presents a
+corrective feature proposal. It does not create an audit record, review packet, correction graph, or reconciliation
+scaffold. Once accepted, the ordinary feature lifecycle owns authorization, implementation, and final documentation.
+Human review remains responsible for truth and content quality.
 
 ## Feature records
 

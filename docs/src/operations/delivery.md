@@ -37,13 +37,11 @@ finalization.
 
 ## Inspection, retry, and finalization
 
-Before delivery, `delivery inspect` validates the active feature or alignment candidate range and requires clean
-worktrees, current target ancestry, and reachable final terminal evidence. Candidates may be amended, fixed up, or
-rebased before delivery; post-terminal commits must retain the closeout or landing footer. After delivery and root
-closure, it derives the latest reachable evidence from the configured target without requiring the candidate branch or
-worktree. Features use the latest closeout footer. Alignments use the latest landing footer when present, otherwise the
-latest correction footer. Alignments with no repository change have no Git candidate revision. Later target commits do
-not create a stored Beads mapping; `audit feature` uses the same feature-evidence derivation.
+Before delivery, `delivery inspect` validates the active feature candidate range and requires clean worktrees, current
+target ancestry, and reachable final terminal evidence. Candidates may be amended, fixed up, or rebased before delivery;
+post-terminal commits must retain the closeout footer. After delivery and root closure, it derives the latest reachable
+evidence from the configured target without requiring the candidate branch or worktree. Later target commits do not
+create a stored Beads mapping; `audit feature` uses the same feature-evidence derivation.
 
 Read-only preflight and matching registration are retry-safe. Retry only after observing current Git, Beads, remote, and
 GitHub state; never assume a timed-out mutation failed. If a PR already exists, inspect it before registering or

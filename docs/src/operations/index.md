@@ -52,7 +52,7 @@ current semantic contract without changing topology. A no-change audit updates o
 plan delta is shown to the user and requires renewed approval through the existing specification/approval boundary. This
 is review of current intent, not migration or normalization of historical Beads.
 
-Each feature or alignment uses a conventional native Git worktree. Native Beads claims arbitrate concurrent workers.
+Each feature uses a conventional native Git worktree. Native Beads claims arbitrate concurrent workers.
 Clean completed worktrees with native Git after delivery and after confirming no uncommitted files remain.
 
 ## Upgrade and uninstall
@@ -65,7 +65,8 @@ dstack install_skills
 ```
 
 Formula contract changes audit active approved work only when needed. Existing historical work is never repository-wide
-migrated to a newer formula shape.
+migrated to a newer formula shape. `/project-audit` is read-only and proposes ordinary feature work when current code
+and documentation diverge.
 
 To uninstall, remove the uv tool and delete the dStack-owned skills/prompts and managed APPEND_SYSTEM block if desired.
 Repository-owned documentation, Beads history, and Git history remain project data.

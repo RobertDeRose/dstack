@@ -171,30 +171,17 @@ def test_external_dependent_stays_blocked_through_add_before_remove(
 def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
     acceptance_repo = beads_repo
     feature = run_json(acceptance_repo, "formula", "show", "dstack-feature")
-    alignment = run_json(acceptance_repo, "formula", "show", "dstack-project-alignment")
     assert {step["id"] for step in feature["steps"]} == {
         "specification",
         "approval",
         "implementation",
         "closeout",
     }
-    assert {step["id"] for step in alignment["steps"]} == {
-        "analysis",
-        "approval",
-        "corrections",
-        "landing",
-    }
     assert {step["id"]: step["type"] for step in feature["steps"]} == {
         "specification": "task",
         "approval": "task",
         "implementation": "epic",
         "closeout": "task",
-    }
-    assert {step["id"]: step["type"] for step in alignment["steps"]} == {
-        "analysis": "task",
-        "approval": "task",
-        "corrections": "epic",
-        "landing": "task",
     }
     assert next(step for step in feature["steps"] if step["id"] == "approval")["gate"]["type"] == "human"
 
@@ -210,27 +197,12 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
         "--var",
         "design_path=docs/src/features/contract-feature/design.md",
     )
-    poured_alignment = run_json(
-        acceptance_repo,
-        "mol",
-        "pour",
-        "dstack-project-alignment",
-        "--var",
-        "audit_title=Contract Alignment",
-        "--var",
-        "audit_slug=contract-alignment",
-        "--var",
-        "scope=contract",
-    )
     feature_root = str(poured_feature.get("root_id") or poured_feature["new_epic_id"])
-    alignment_root = str(poured_alignment.get("root_id") or poured_alignment["new_epic_id"])
     feature_children = items(run_json(acceptance_repo, "list", "--all", "--parent", feature_root, "--limit", "0"))
-    alignment_children = items(run_json(acceptance_repo, "list", "--all", "--parent", alignment_root, "--limit", "0"))
     implementation = by_label(feature_children, "dstack:step:implementation")
     approval = by_label(feature_children, "dstack:step:implementation-approval")
     closeout_step = next(step for step in feature["steps"] if step["id"] == "closeout")
     assert closeout_step["waits_for"] == "children-of(implementation)"
-    assert by_label(alignment_children, "dstack:step:alignment-corrections")["issue_type"] == "epic"
 
     gates = items(run_json(acceptance_repo, "gate", "list", "--all", "--limit", "0"))
     approval_full = items(run_json(acceptance_repo, "show", approval["id"]))[0]
@@ -452,77 +424,6 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
         cwd=acceptance_repo,
     )
 
-    corrections = by_label(alignment_children, "dstack:step:alignment-corrections")
-    alignment_approval = by_label(alignment_children, "dstack:step:alignment-approval")
-    alignment_analysis = by_label(alignment_children, "dstack:step:alignment-analysis")
-    alignment_gate_ids = {
-        str(record.get("depends_on_id") or record.get("id"))
-        for record in items(run_json(acceptance_repo, "show", alignment_approval["id"]))[0].get("dependencies", [])
-    }
-    alignment_gate = next(item for item in gates if str(item["id"]) in alignment_gate_ids)
-    correction = items(
-        run_json(
-            acceptance_repo,
-            "create",
-            "native correction",
-            "--type",
-            "task",
-            "--parent",
-            corrections["id"],
-            "--deps",
-            alignment_approval["id"],
-            "--acceptance",
-            "correction completes",
-        )
-    )[0]
-    run_command(
-        ["bd", "close", alignment_analysis["id"], "--reason", "analyzed"],
-        cwd=acceptance_repo,
-    )
-    run_command(
-        ["bd", "gate", "resolve", alignment_gate["id"], "--reason", "approved"],
-        cwd=acceptance_repo,
-    )
-    run_command(
-        ["bd", "close", alignment_approval["id"], "--reason", "approved"],
-        cwd=acceptance_repo,
-    )
-    assert (
-        items(
-            run_json(
-                acceptance_repo,
-                "ready",
-                "--parent",
-                alignment_root,
-                "--label",
-                "dstack:step:alignment-landing",
-                "--claim",
-                "--json",
-            )
-        )
-        == []
-    )
-    run_command(
-        ["bd", "close", correction["id"], "--reason", "complete"],
-        cwd=acceptance_repo,
-    )
-    claimed_landing = items(
-        run_json(
-            acceptance_repo,
-            "ready",
-            "--parent",
-            alignment_root,
-            "--label",
-            "dstack:step:alignment-landing",
-            "--claim",
-            "--json",
-        )
-    )
-    assert by_label(claimed_landing, "dstack:step:alignment-landing")["status"] in {
-        "in_progress",
-        "claimed",
-    }
-
     old = items(run_json(acceptance_repo, "create", "old item", "--type", "task"))[0]
     new = items(run_json(acceptance_repo, "create", "replacement item", "--type", "task"))[0]
     run_command(["bd", "supersede", old["id"], "--with", new["id"]], cwd=acceptance_repo)
@@ -673,24 +574,3 @@ def test_bd_contract_covers_native_primitives(beads_repo: Path) -> None:
         requested_id=revision["id"],
     )
     assert claimed_revision and claimed_revision["id"] == revision["id"]
-
-    client.update(claimed_landing[0]["id"], "--status", "open", "--assignee", "")
-    reopen_authorization_boundary(
-        client,
-        root_id=alignment_root,
-        planning_id=alignment_analysis["id"],
-        approval_id=alignment_approval["id"],
-        gate_id=alignment_gate["id"],
-        workstream_id=corrections["id"],
-        terminal_id=claimed_landing[0]["id"],
-        reason="contract alignment revision",
-    )
-    assert all(
-        client.show(issue_id)["status"] == "open"
-        for issue_id in (
-            alignment_analysis["id"],
-            alignment_approval["id"],
-            alignment_gate["id"],
-            corrections["id"],
-        )
-    )

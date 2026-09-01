@@ -8,7 +8,7 @@
 
 Persisting commit identities in Beads as task, implementation, delivery, evidence, or bookkeeping mappings couples
 workflow records to rewriteable Git object names and creates reconciliation work after rebases or amends. A project
-alignment must compare current code, docs, Beads intent, and Git history; it must not promote a historical repository
+audit must compare current code, docs, Beads intent, and Git history; it must not promote a historical repository
 snapshot into a second authority.
 
 ## Decision
@@ -17,8 +17,8 @@ Commits reference work through a `Beads: <id>` footer. dStack discovers current 
 Beads never stores task-to-commit, implementation, delivery/finalization, worktree/branch, or reconstructible
 audit-result mappings or a mirror of Git history.
 
-No Git revision is stored in Beads. Alignment plans contain reviewed findings, accepted corrections, and user decisions;
-execution and delivery revalidate current repository evidence.
+No Git revision is stored in Beads. Project-audit findings are read-only agent analysis; accepted corrections become
+ordinary feature intent, and execution and delivery revalidate current repository evidence.
 
 ## Consequences
 

@@ -81,10 +81,7 @@ After installing or upgrading dStack, rerun `dstack install_skills` and reload P
 /review-feature-spec [feature]
 /implement-feature [feature] [task|--all]
 /close-feature [feature] [ready|pr|merge]
-
-/project-alignment-review [scope]
-/project-alignment-execute <audit> [task|--all]
-/project-alignment-land <audit> [ready|pr|merge]
+/project-audit [scope]
 ```
 
 Skills call the installed CLI as `dstack ctl ...`; they contain policy and decision boundaries rather than
@@ -128,7 +125,8 @@ from current reachable Git history, so amend/rebase/cherry-pick operations requi
 
 mdBook is canonical for managed-project durable documentation. Documentation describes accepted product/design intent
 and planned vs implemented behavior; it does not mirror transient workflow state. Implementation tasks do not create
-durable documentation work. Feature closeout or alignment landing performs the single final reconciliation.
+durable documentation work. Feature closeout performs the single final reconciliation. `/project-audit` is read-only: it compares current code
+with current documentation and proposes ordinary feature work; accepted corrections use `/implement-feature`.
 
 ## Development
 

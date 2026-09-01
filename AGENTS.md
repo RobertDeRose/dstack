@@ -20,15 +20,14 @@ architecture.
   use native operations, be idempotent, and persist no custom state.
 - Never store Git commit identities in Beads as implementation, delivery, task, evidence, or
   bookkeeping mappings. Commits reference work only through `Beads: <id>` footers.
-- Do not store Git revisions or repository snapshots in Beads. Alignment review stores human intent in the analysis
-  Bead and correction mechanics in native child Beads, then revalidates current repository evidence at execution and
-  delivery boundaries.
+- Do not store Git revisions or repository snapshots in Beads. Project audits are read-only agent analysis; accepted
+  corrections use ordinary feature intent and implementation children.
 - Do not store branch/worktree paths or Git-history mirrors in Beads.
 - Do not duplicate feature identity on children when parentage/root labels already establish it.
 - Do not put transient lifecycle state, Beads IDs, branches, commits, gates, or next commands in
   user/developer documentation.
-- Implementation and correction tasks do not create documentation or reconciliation work; each
-  feature/alignment has one final closeout/landing reconciliation.
+- Implementation tasks do not create documentation or reconciliation work; each feature has one final closeout
+  reconciliation.
 - Durable `planned`, `implemented`, and `deprecated` product classification is allowed. It must be
   part of the candidate before delivery.
 - During normal delivery, Beads finalization must not mutate the delivered Git state or create a
@@ -68,7 +67,8 @@ into Pi. The stable cross-workflow guardrails are installed as a managed block i
 Public slash commands are prompt aliases. Decision skills stay under the `dstack-beads-*` namespace and call `dstack ctl
 ...` from `PATH`. Keep skills short and decision-oriented; exact mechanical choreography belongs in the tested CLI.
 The installer may overwrite dStack-owned prompt/skill names and its own marked system-prompt block, but must preserve
-unrelated user Pi configuration and system-prompt content.
+unrelated user Pi configuration and system-prompt content. `/project-audit` is a read-only prompt alias; it presents a
+corrective feature proposal and never creates an audit workflow.
 
 ## Release checks
 

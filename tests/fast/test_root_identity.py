@@ -23,17 +23,6 @@ def feature(issue_id: str, *, parent: str | None = None, slug: str = "demo", lab
     }
 
 
-def alignment(issue_id: str, *, parent: str | None = None, slug: str = "audit", **extra):
-    return {
-        "id": issue_id,
-        "issue_type": extra.pop("issue_type", "molecule"),
-        "status": extra.pop("status", "open"),
-        "labels": ["workflow:project-alignment", f"audit:{slug}"],
-        **({"parent": parent} if parent else {}),
-        **extra,
-    }
-
-
 @pytest.mark.parametrize(
     ("resolver", "issue", "message"),
     [
@@ -43,7 +32,6 @@ def alignment(issue_id: str, *, parent: str | None = None, slug: str = "audit", 
             feature("nested", labels=["workflow:feature", "feature:demo", "audit:other"]),
             "not a feature workflow root",
         ),
-        (dstacklib.resolve_alignment, alignment("nested", parent="root"), "not a project-alignment workflow root"),
     ],
 )
 def test_exact_nested_workflow_ids_are_rejected(tmp_path: Path, resolver, issue: dict, message: str) -> None:
@@ -69,18 +57,6 @@ def test_root_lists_require_parentless_unambiguous_identity(tmp_path: Path) -> N
     beads.assert_exhausted()
 
 
-def test_alignment_roots_ignore_nested_pollution(tmp_path: Path) -> None:
-    root = alignment("root")
-    nested = alignment("nested", parent="root")
-    cross_kind = alignment(
-        "cross-kind",
-        labels=["workflow:project-alignment", "audit:audit", "dstack:feature-idea"],
-    )
-    beads = ScriptedClient(tmp_path, call("list", all_statuses=True, result=[root, nested, cross_kind]))
-    assert dstacklib.alignment_roots(beads) == [root]
-    beads.assert_exhausted()
-
-
 def test_metadata_only_historical_root_is_not_a_controller_input(tmp_path: Path) -> None:
     legacy = {
         "id": "legacy",
@@ -94,10 +70,9 @@ def test_metadata_only_historical_root_is_not_a_controller_input(tmp_path: Path)
     beads.assert_exhausted()
 
 
-
 def test_delivery_exact_nested_workflow_id_is_rejected(tmp_path: Path) -> None:
     nested = feature("nested", parent="root")
     beads = ScriptedClient(tmp_path, call("show_optional", "nested", result=nested))
-    with pytest.raises(DstackError, match="not a workflow root"):
+    with pytest.raises(DstackError, match="not a feature workflow root"):
         dstack_delivery._delivery_root(beads, "nested")
     beads.assert_exhausted()

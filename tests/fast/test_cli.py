@@ -68,23 +68,6 @@ def test_every_public_leaf_has_dispatch_handler() -> None:
                 "finish-closeout",
             )
         }
-        | {
-            ("alignment", command)
-            for command in (
-                "inspect",
-                "scaffold-record",
-                "initialize",
-                "add-correction",
-                "finish-plan",
-                "approve",
-                "reauthorize",
-                "claim-next",
-                "finish-task",
-                "finish-workstream",
-                "claim-landing",
-                "finish-landing",
-            )
-        }
         | {("git", command) for command in ("commit", "amend")}
         | {("evidence", command) for command in ("commits", "audit-feature")}
         | {("docs", command) for command in ("check", "validate")}

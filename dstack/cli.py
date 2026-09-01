@@ -31,20 +31,6 @@ from .feature import (
     cmd_feature_claim_closeout,
     cmd_feature_finish_closeout,
 )
-from .alignment import (
-    cmd_alignment_inspect,
-    cmd_alignment_initialize,
-    cmd_alignment_scaffold_record,
-    cmd_alignment_add_correction,
-    cmd_alignment_finish_plan,
-    cmd_alignment_approve,
-    cmd_alignment_reauthorize,
-    cmd_alignment_claim_next,
-    cmd_alignment_finish_task,
-    cmd_alignment_finish_workstream,
-    cmd_alignment_claim_landing,
-    cmd_alignment_finish_landing,
-)
 from .delivery import (
     cmd_git_commit,
     cmd_git_amend,
@@ -63,7 +49,7 @@ from .installer import main as install_skills_main
 
 HELP_BY_DEST = {
     "root": "Repository root; defaults to the current directory.",
-    "selector": "Feature or alignment selector (ID, slug, or title).",
+    "selector": "Feature selector (ID, slug, or title).",
     "title": "Human-readable title for the created or submitted item.",
     "slug": "Stable slug used for derived paths and branch names.",
     "base_branch": "Git branch from which the feature is based.",
@@ -79,7 +65,7 @@ HELP_BY_DEST = {
     "reason": "Native Beads close reason.",
     "no_repository_change": "Close without Git evidence using an explicit reason.",
     "target_branch": "Git branch being audited or targeted for delivery.",
-    "scope": "Human-readable project-alignment scope.",
+    "scope": "Human-readable project scope.",
     "bead": "Beads ID to reference in the Git footer.",
     "subject": "One-line Git commit subject.",
     "body_file": "Read the Git or PR body from this file.",
@@ -229,81 +215,6 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     finish_closeout.add_argument("--reason", default="Closeout completed")
     finish_closeout.add_argument("--summary-file", type=Path)
     finish_closeout.set_defaults(func=cmd_feature_finish_closeout)
-
-    alignment = mechanical_parser(top, "alignment", "project-alignment lifecycle commands")
-    alignment_sub = alignment.add_subparsers(dest="command", required=True)
-    alignment_inspect = mechanical_parser(
-        alignment_sub,
-        "inspect",
-        "inspect the alignment Bead and deterministic Git/worktree facts",
-    )
-    alignment_inspect.add_argument("selector")
-    alignment_inspect.add_argument("--verbose", action="store_true", help="emit the full live alignment view")
-    alignment_inspect.set_defaults(func=cmd_alignment_inspect)
-    alignment_scaffold = mechanical_parser(
-        alignment_sub,
-        "scaffold-record",
-        "create an alignment reconciliation scaffold without overwriting",
-    )
-    alignment_scaffold.add_argument("kind", choices=("reconciliation",))
-    alignment_scaffold.add_argument("--path", type=Path, required=True)
-    alignment_scaffold.set_defaults(func=cmd_alignment_scaffold_record)
-    alignment_init = mechanical_parser(alignment_sub, "initialize", "create a project-alignment workstream")
-    alignment_init.add_argument("--title", required=True)
-    alignment_init.add_argument("--slug")
-    alignment_init.add_argument("--target-branch")
-    alignment_init.add_argument("--scope", default="whole repository")
-    alignment_init.set_defaults(func=cmd_alignment_initialize)
-    correction = mechanical_parser(alignment_sub, "add-correction", "create a correction through native Beads")
-    correction.add_argument("selector")
-    correction.add_argument("--title", required=True)
-    correction_description = correction.add_mutually_exclusive_group(required=True)
-    correction_description.add_argument("--description")
-    correction_description.add_argument("--description-file", type=Path)
-    correction.add_argument("--acceptance")
-    correction.add_argument("--acceptance-file", type=Path)
-    correction.add_argument("--priority", type=int, default=2)
-    correction.add_argument("--depends-on", action="append", default=[])
-    correction.set_defaults(func=cmd_alignment_add_correction)
-    finish_plan = mechanical_parser(alignment_sub, "finish-plan", "finish the alignment review before execution")
-    finish_plan.add_argument("selector")
-    finish_plan.add_argument("--summary-file", type=Path, required=True)
-    finish_plan.set_defaults(func=cmd_alignment_finish_plan)
-    alignment_approve = mechanical_parser(alignment_sub, "approve", "approve the alignment review and resolve its gate")
-    alignment_approve.add_argument("selector")
-    alignment_approve.set_defaults(func=cmd_alignment_approve)
-    alignment_reauthorize = mechanical_parser(
-        alignment_sub, "reauthorize", "reopen alignment authorization before scope changes"
-    )
-    alignment_reauthorize.add_argument("selector")
-    alignment_reauthorize.add_argument("--reason", required=True)
-    alignment_reauthorize.set_defaults(func=cmd_alignment_reauthorize)
-    alignment_claim = mechanical_parser(alignment_sub, "claim-next", "claim one native ready correction")
-    alignment_claim.add_argument("selector")
-    alignment_claim.add_argument("--task")
-    alignment_claim.set_defaults(func=cmd_alignment_claim_next)
-    alignment_finish = mechanical_parser(alignment_sub, "finish-task", "finish one correction after evidence checks")
-    alignment_finish.add_argument("selector")
-    alignment_finish.add_argument("--task", required=True)
-    alignment_finish.add_argument("--reason")
-    alignment_finish.add_argument("--summary-file", type=Path)
-    alignment_finish.add_argument("--no-repository-change", action="store_true")
-    alignment_finish.set_defaults(func=cmd_alignment_finish_task)
-    alignment_workstream = mechanical_parser(
-        alignment_sub, "finish-workstream", "close the correction epic when children are complete"
-    )
-    alignment_workstream.add_argument("selector")
-    alignment_workstream.set_defaults(func=cmd_alignment_finish_workstream)
-    claim_landing = mechanical_parser(alignment_sub, "claim-landing", "claim alignment landing after correction fan-in")
-    claim_landing.add_argument("selector")
-    claim_landing.set_defaults(func=cmd_alignment_claim_landing)
-    finish_landing = mechanical_parser(
-        alignment_sub, "finish-landing", "finish alignment landing and record its summary"
-    )
-    finish_landing.add_argument("selector")
-    finish_landing.add_argument("--reason", default="Alignment landing completed")
-    finish_landing.add_argument("--summary-file", type=Path)
-    finish_landing.set_defaults(func=cmd_alignment_finish_landing)
 
     git_parser = mechanical_parser(top, "git", "create or amend commits with Beads footers")
     git_sub = git_parser.add_subparsers(dest="command", required=True)

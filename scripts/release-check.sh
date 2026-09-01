@@ -40,9 +40,7 @@ for skill in \
   dstack-beads-close-feature \
   dstack-beads-implement-feature \
   dstack-beads-plan-feature \
-  dstack-beads-project-alignment-execute \
-  dstack-beads-project-alignment-land \
-  dstack-beads-project-alignment-review \
+  dstack-beads-project-audit \
   dstack-beads-review-feature-spec; do
   test -f "$agent_dir/skills/$skill/SKILL.md"
 done
@@ -51,9 +49,7 @@ for prompt in \
   implement-feature.md \
   plan-feature.md \
   plan-features.md \
-  project-alignment-execute.md \
-  project-alignment-land.md \
-  project-alignment-review.md \
+  project-audit.md \
   review-feature-spec.md; do
   test -f "$agent_dir/prompts/$prompt"
 done
@@ -61,10 +57,9 @@ test -f "$agent_dir/APPEND_SYSTEM.md"
 "$tmp/venv/bin/python" - <<'PYFORMULA'
 from dstack.formula import load_formula
 
-for name in ("dstack-feature", "dstack-project-alignment"):
-    formula = load_formula(name)
-    assert formula["formula"] == name
-    assert isinstance(formula["version"], int) and formula["version"] > 0
+formula = load_formula("dstack-feature")
+assert formula["formula"] == "dstack-feature"
+assert isinstance(formula["version"], int) and formula["version"] > 0
 PYFORMULA
 
 if [[ -n $(git status --porcelain=v1 --untracked-files=all) ]]; then

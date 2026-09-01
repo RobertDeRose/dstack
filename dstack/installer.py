@@ -31,12 +31,22 @@ LEGACY_SKILL_NAMES = (
     "project-alignment-execute",
     "project-alignment-land",
     "project-alignment-review",
+    "dstack-beads-project-alignment-execute",
+    "dstack-beads-project-alignment-land",
+    "dstack-beads-project-alignment-review",
     "review-feature-spec",
     "setup-project",
     "start-feature",
     "update-project",
 )
-LEGACY_PROMPT_NAMES = ("adopt-feature.md", "setup-project.md", "start-feature.md")
+LEGACY_PROMPT_NAMES = (
+    "adopt-feature.md",
+    "project-alignment-execute.md",
+    "project-alignment-land.md",
+    "project-alignment-review.md",
+    "setup-project.md",
+    "start-feature.md",
+)
 
 
 def asset_root() -> Path:

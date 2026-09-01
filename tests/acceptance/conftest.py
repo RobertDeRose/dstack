@@ -112,8 +112,7 @@ def acceptance_repo(real_repo: Path) -> Path:
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
     assert Path(payload["root"]) == real_repo.resolve()
-    assert payload["formula_versions"]["dstack-feature"] == 9
-    assert payload["formula_versions"]["dstack-project-alignment"] == 8
+    assert payload["formula_versions"] == {"dstack-feature": 9}
     # Automatic infrastructure must not create a repository setup boundary.
     assert run_command(["git", "status", "--porcelain=v1"], cwd=real_repo).stdout == ""
     return real_repo

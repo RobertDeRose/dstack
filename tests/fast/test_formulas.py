@@ -46,21 +46,6 @@ def test_feature_formula_is_minimal_and_uses_native_fan_in() -> None:
     validate_formula_contract("dstack-feature", formula)
 
 
-def test_alignment_formula_is_minimal_and_uses_native_fan_in() -> None:
-    formula = load("dstack-project-alignment")
-    assert formula["version"] == 8
-    assert set(formula["vars"]) == {"audit_title", "audit_slug", "scope"}
-    steps = {step["id"]: step for step in formula["steps"]}
-    assert set(steps) == {"analysis", "approval", "corrections", "landing"}
-    assert steps["approval"]["gate"]["type"] == "human"
-    assert steps["corrections"]["type"] == "epic"
-    assert steps["landing"]["waits_for"] == "children-of(corrections)"
-    assert sum(step["id"] == "landing" for step in formula["steps"]) == 1
-    assert "single final reconciliation" in formula["description"]
-    assert all("metadata" not in step for step in formula["steps"])
-    validate_formula_contract("dstack-project-alignment", formula)
-
-
 def test_formula_contract_rejects_extra_stable_step() -> None:
     formula = load("dstack-feature")
     formula["steps"].append({"id": "review", "type": "task", "labels": []})
@@ -101,7 +86,7 @@ def test_infrastructure_checks_beads_before_initializing(monkeypatch, tmp_path: 
 
     infrastructure = dstack_formula.ensure_infrastructure(tmp_path)
 
-    assert events == ["version", "dstack-feature", "dstack-project-alignment", "init"]
+    assert events == ["version", "dstack-feature", "init"]
     assert infrastructure["beads_version"] == "bd version 1.2.2 (6c124203e)"
 
 
@@ -220,9 +205,7 @@ def test_interrupted_owned_formula_residue_is_recovered(git_repo: Path) -> None:
 
 
 @pytest.mark.parametrize("replacement_written", [False, True])
-def test_interrupted_tracked_formula_replacement_restores_original(
-    git_repo: Path, replacement_written: bool
-) -> None:
+def test_interrupted_tracked_formula_replacement_restores_original(git_repo: Path, replacement_written: bool) -> None:
     destination = git_repo / ".beads/formulas/dstack-feature.formula.toml"
     owner = dstack_formula._formula_owner_path(git_repo, "dstack-feature")
     backup = dstack_formula._formula_backup_path(git_repo, "dstack-feature")
@@ -277,9 +260,7 @@ def test_formula_pour_rejects_beads_symlink(git_repo: Path, tmp_path: Path) -> N
     (git_repo / ".beads").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(DstackError, match="symlink"):
-        with dstack_formula.current_formula_for_pour(
-            type("Client", (), {"root": git_repo})(), "dstack-feature"
-        ):
+        with dstack_formula.current_formula_for_pour(type("Client", (), {"root": git_repo})(), "dstack-feature"):
             raise AssertionError("formula pour should not run")
     assert not (outside / "formulas").exists()
 

@@ -1,8 +1,8 @@
 # dStack workflow reference
 
-Mutation commands return the native Beads objects they touch. `feature inspect` and `alignment inspect` return the
-native root Bead plus deterministic branch/worktree facts; they do not choose the next work item. Use native `bd ready`
-as the ready-work surface and `--verbose` only when complete diagnostic records are required. `delivery inspect` remains
+Mutation commands return the native Beads objects they touch. `feature inspect` returns the native root Bead plus
+deterministic branch/worktree facts; it does not choose the next work item. Use native `bd ready` as the ready-work surface
+and `--verbose` only when complete diagnostic records are required. `delivery inspect` remains
 the candidate/delivery evidence view.
 
 | Boundary | Native operation | Retry contract |
@@ -78,9 +78,8 @@ coverage, the agent reports the exact check and stops before commit or completio
 `--all` repeats only over native ready implementation tasks and stops when none remain. It never closes the
 implementation workstream, claims closeout, or starts delivery. If a task intentionally changes no repository content,
 finish it with `--no-repository-change --reason "..."`; the native close reason records that outcome for delivery audit.
-Ordinary completed tasks still require a reachable Bead footer. Feature and alignment transitions validate the exact
-direct parent and work label, delegate open claims to native `ready --claim`, and use native re-claiming to verify
-ownership. Feature specification and alignment analysis use the same exact native-ready claim boundary. If a native
+Ordinary completed tasks still require a reachable Bead footer. Feature transitions validate the exact direct parent and
+work label, delegate open claims to native `ready --claim`, and use native re-claiming to verify ownership. If a native
 claim returns an unexpected issue or a terminal fan-in race appears, dStack restores both open status and an empty
 assignee and verifies the reread before reporting recovery. Completion requires a wholly clean worktree, including
 untracked files. Empty workstreams close only after their native approval milestone is closed.
@@ -142,31 +141,18 @@ not inspect-and-rewrite them, migrate their children, or translate their depende
 native Beads, or explicitly plan a new current feature. Formula compatibility review applies only to a current molecule
 and never runs as a hidden eligibility mutation.
 
-## Project-alignment lifecycle
+## Project audit
 
-### `/project-alignment-review`
+### `/project-audit [scope]`
 
-Analyze the current target, decide bounded corrections, and create them beneath the correction workstream. Tier 1 is
-read-only for repository source; the plan stores no Git baseline. Finish the plan and leave the human gate open.
+Run a read-only comparison of current source, tests, Beads, Git, and governing documentation. Report evidence-backed
+contradictions, behavioral drift, and consequential ambiguity with paths and line ranges. Present a proposed corrective
+feature epic with bounded subtasks, acceptance criteria, dependencies, and validation, but create no audit Bead, packet,
+correction graph, or repository file.
 
-### `/project-alignment-execute`
-
-Approved correction scope is immutable. `alignment reauthorize` reopens the native approval, gate, analysis, and
-corrections boundary before new corrections can be added; terminal or claimed work requires a superseding workflow
-instead. Explicit invocation approves the plan through a convergent native gate and milestone transition, then claims
-native ready corrections. Corrections modify code and tests only; the one final landing reconciliation owns durable
-documentation. Completing one correction never closes the correction workstream implicitly; after every required
-correction is closed or deferred, the explicit finish-workstream step closes the container. The agent uses the same
-commit-footer and review rules as feature work, including fixups and rebases before delivery.
-
-### `/project-alignment-land`
-
-Revalidate current repository reality, perform the one final documentation reconciliation, and use the same delivery
-controller as features. Landing refuses a dirty worktree and mechanically requires the current mdBook, documentation
-policy, and reachable correction evidence audit to pass before the native ready landing step closes. Fixups and rebases
-are allowed before delivery when the candidate remains linear and final landing evidence stays reachable. The same
-pinned-version compatibility guard used by feature closeout keeps the root open until confirmed delivery. Obsolete or
-already-corrected findings are updated or closed based on current evidence; no Git baseline is stored.
+After explicit acceptance, carry the lossless proposal through `/plan-feature` and `/review-feature-spec`. Approved
+implementation subtasks are ordinary feature children handled by `/implement-feature`; `/close-feature` owns the final
+documentation reconciliation.
 
 ## Discovery
 

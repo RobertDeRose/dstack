@@ -174,30 +174,45 @@ def test_core_principles_and_architecture_are_first_class_docs() -> None:
         normalized = " ".join(contract.split()).casefold()
         assert "formulas define how dstack creates" in normalized
     assert "Git owns code" in system_additive
-    assert "project-alignment audit" in architecture
+    assert "project audit" in architecture.casefold()
     assert "baseline_commit" not in " ".join(architecture.split())
     assert "docs/src/development/index.md" in agents
     assert "post-merge bookkeeping commit" in agents
 
 
-def test_alignment_review_skill_uses_beads_native_authority() -> None:
-    skill = (ROOT / "dstack/assets/skills/dstack-beads-project-alignment-review/SKILL.md").read_text()
+def test_project_audit_is_read_only_and_proposes_normal_feature_work() -> None:
+    skill = (ROOT / "dstack/assets/skills/dstack-beads-project-audit/SKILL.md").read_text()
+    prompt = (ROOT / "dstack/assets/prompts/project-audit.md").read_text()
     documentation = (ROOT / "docs/src/development/documentation.md").read_text()
     compact = " ".join(skill.split())
     for required in (
-        "current specifications",
-        "alignment add-correction",
-        "documentation impact",
-        "alignment finish-plan AUDIT --summary-file",
-        "do not create a packet",
+        "read-only",
+        "current code",
+        "current documentation",
+        "contradictions",
+        "drift",
+        "ambiguity",
+        "proposed corrective feature epic",
+        "subtasks",
+        "/plan-feature",
+        "/implement-feature",
     ):
         assert required.casefold() in compact.casefold()
-    for obsolete in ("dstack.alignment-plan/", "PLAN.json", "--plan-file", "accepted_corrections"):
-        assert obsolete not in skill
-    normalized_docs = " ".join(documentation.split())
-    assert "Alignment review authority is Beads-native" in documentation
-    assert "does not create an external plan packet" in normalized_docs
-    assert "Documentation is deferred to the final closeout or landing".casefold() in normalized_docs.casefold()
+    assert "dstack-beads-project-audit" in prompt
+    assert "do not create or mutate beads" in compact.casefold()
+    assert "project-alignment" not in compact.casefold()
+    assert "Project audits are read-only" in documentation
+
+
+def test_alignment_workflows_are_not_packaged() -> None:
+    assets = ROOT / "dstack/assets"
+    assert not (assets / "formulas/dstack-project-alignment.formula.toml").exists()
+    assert not (assets / "skills/dstack-beads-project-alignment-review").exists()
+    assert not (assets / "skills/dstack-beads-project-alignment-execute").exists()
+    assert not (assets / "skills/dstack-beads-project-alignment-land").exists()
+    assert not (assets / "prompts/project-alignment-review.md").exists()
+    assert not (assets / "prompts/project-alignment-execute.md").exists()
+    assert not (assets / "prompts/project-alignment-land.md").exists()
 
 
 def test_active_instructions_preserve_explicit_delivery_recovery() -> None:
@@ -205,12 +220,13 @@ def test_active_instructions_preserve_explicit_delivery_recovery() -> None:
         ROOT / "AGENTS.md",
         ROOT / "dstack/assets/APPEND_SYSTEM.md",
         ROOT / "dstack/assets/skills/dstack-beads-close-feature/SKILL.md",
-        ROOT / "dstack/assets/skills/dstack-beads-project-alignment-land/SKILL.md",
+        ROOT / "dstack/assets/skills/dstack-beads-project-audit/SKILL.md",
     ]
     combined = " ".join(path.read_text() for path in paths)
     assert "During normal delivery" in combined
     assert "bookkeeping commit" in combined
     assert "user-authorized recovery" in combined
+    assert "/project-audit" in combined
 
 
 def test_feature_quality_contract_is_shared_across_docs_and_skills() -> None:
@@ -431,8 +447,7 @@ def test_delivery_policy_has_no_planned_features_ledger_special_case() -> None:
 def test_packaged_formulas_are_authoritative_without_tracked_beads_copies() -> None:
     tracked = subprocess.check_output(["git", "ls-files", ".beads/formulas"], cwd=ROOT, text=True)
     assert tracked.strip() == ""
-    for name in ("dstack-feature", "dstack-project-alignment"):
-        assert (ROOT / "dstack/assets/formulas" / f"{name}.formula.toml").is_file()
+    assert (ROOT / "dstack/assets/formulas/dstack-feature.formula.toml").is_file()
     helper = (ROOT / "dstack/formula.py").read_text()
     assert "destination.unlink(missing_ok=True)" in helper
 
