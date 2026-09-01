@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from .core import (
     BeadsClient,
     DstackError,
+    FeatureNotFound,
     _assert_no_symlink_components,
     branch_exists,
     canonical_feature_design_path,
@@ -167,9 +168,8 @@ def cmd_feature_plan(args: argparse.Namespace) -> int:
     if selector:
         try:
             existing = resolve_feature(client, selector)
-        except DstackError as exc:
-            if "no feature matches selector" not in str(exc):
-                raise
+        except FeatureNotFound:
+            pass
     if existing is not None:
         if existing.get("status") == "closed":
             raise DstackError(f"planned feature is already closed: {existing['id']}")
@@ -178,7 +178,7 @@ def cmd_feature_plan(args: argparse.Namespace) -> int:
         if is_current_feature(client, existing):
             raise DstackError("current feature scope must be changed through review and reauthorization")
         if (
-            issue_type(existing) not in {"epic", "molecule"}
+            issue_type(existing) != "epic"
             or issue_parent(existing) is not None
             or not has_label(existing, "dstack:feature-idea")
         ):
@@ -309,6 +309,18 @@ def _is_planned_feature_intent(issue: Mapping[str, Any]) -> bool:
     return has_label(issue, "dstack:feature-idea")
 
 
+def _is_current_planned_feature_source(issue: Mapping[str, Any]) -> bool:
+    feature_labels = [label for label in issue.get("labels", []) if str(label).startswith("feature:")]
+    return (
+        _is_planned_feature_intent(issue)
+        and issue_type(issue) == "epic"
+        and issue_parent(issue) is None
+        and not has_label(issue, "workflow:feature")
+        and len(feature_labels) == 1
+        and feature_slug(issue) == str(feature_labels[0]).removeprefix("feature:")
+    )
+
+
 @serialized_repository_mutation
 def cmd_feature_initialize(args: argparse.Namespace) -> int:
     if args.slug:
@@ -324,15 +336,13 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     existing: dict[str, Any] | None = None
     try:
         existing = resolve_feature(client, selector)
-    except DstackError as exc:
-        if "no feature matches selector" not in str(exc):
-            raise
+    except FeatureNotFound:
+        pass
 
     planned_source: dict[str, Any] | None = None
     if existing is None:
         raise DstackError(
-            "feature materialization requires an open dstack:feature-idea; "
-            "plan the feature explicitly before review"
+            "feature materialization requires an open dstack:feature-idea; plan the feature explicitly before review"
         )
     if existing is not None:
         view = feature_context(client, str(existing["id"]))
@@ -378,11 +388,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
                 }
             )
             return 0
-        if (
-            not _is_planned_feature_intent(existing)
-            or issue_type(existing) not in {"epic", "molecule"}
-            or issue_parent(existing) is not None
-        ):
+        if not _is_current_planned_feature_source(existing):
             raise DstackError(
                 f"feature {existing['id']} uses unsupported historical topology; "
                 "dStack does not rewrite active Beads graphs automatically"
@@ -410,6 +416,11 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
         slug,
         exclude_ids={str(planned_source["id"])} if planned_source else frozenset(),
     )
+    if planned_source is not None and client.children(str(planned_source["id"])):
+        raise DstackError(
+            f"planned feature {planned_source['id']} has children; "
+            "materialization refuses to supersede an already-shaped graph"
+        )
     inherited_base = root_metadata_value(planned_source, "base_branch") if planned_source else None
     base_branch = inherited_base or requested_base
     validate_git_branch(client.root, base_branch, name="base branch")
@@ -422,10 +433,7 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
         )
     if planned_source is not None:
         refuse_external_dependents(client, str(planned_source["id"]))
-    before_issue_ids = {
-        str(item["id"])
-        for item in client.list(all_statuses=True, include_gates=True)
-    }
+    before_issue_ids = {str(item["id"]) for item in client.list(all_statuses=True, include_gates=True)}
     try:
         pour = pour_current_formula(
             client,
@@ -442,31 +450,21 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
     except DstackError as exc:
         try:
             observed = client.list(all_statuses=True, include_gates=True)
-            new_ids = sorted(
-                str(item["id"])
-                for item in observed
-                if str(item["id"]) not in before_issue_ids
-            )
+            new_ids = sorted(str(item["id"]) for item in observed if str(item["id"]) not in before_issue_ids)
             candidates = [
                 root
                 for root in feature_roots_from_inventory(observed)
-                if str(root.get("id")) in new_ids
-                and root.get("status") != "closed"
-                and feature_slug(root) == slug
+                if str(root.get("id")) in new_ids and root.get("status") != "closed" and feature_slug(root) == slug
             ]
         except DstackError as read_error:
             raise DstackError(
                 f"{exc}; feature pour outcome is ambiguous and native reread failed: {read_error}"
             ) from exc
         if not new_ids:
-            raise DstackError(
-                f"{exc}; fresh native inventory confirms no new Beads issue was created"
-            ) from exc
+            raise DstackError(f"{exc}; fresh native inventory confirms no new Beads issue was created") from exc
         if len(candidates) != 1:
             ids = ", ".join(new_ids)
-            raise DstackError(
-                f"{exc}; feature pour outcome is ambiguous; retained new Beads issues: {ids}"
-            ) from exc
+            raise DstackError(f"{exc}; feature pour outcome is ambiguous; retained new Beads issues: {ids}") from exc
         candidate = candidates[0]
         try:
             current = is_current_feature(client, candidate)
@@ -726,6 +724,43 @@ def cmd_feature_scaffold_reconciliation(args: argparse.Namespace) -> int:
     return 0
 
 
+def _feature_task_scope_is_open(
+    client: BeadsClient,
+    *,
+    root_id: str,
+    specification_id: str,
+    approval_id: str,
+    implementation_id: str,
+) -> bool:
+    root = client.show(root_id)
+    specification = client.show(specification_id)
+    approval = client.show(approval_id)
+    implementation = client.show(implementation_id)
+    active = {"open", "claimed", "in_progress"}
+    return (
+        root.get("status") in active
+        and not root_metadata_value(root, "dstack.approved_design_sha256")
+        and not root_metadata_value(root, "dstack.pending_design_sha256")
+        and specification.get("status") in active
+        and approval.get("status") in active
+        and implementation.get("status") in active
+    )
+
+
+def _defer_task_after_scope_change(client: BeadsClient, item: Mapping[str, Any]) -> None:
+    task_id = str(item.get("id") or "")
+    if not task_id:
+        raise DstackError("feature authorization changed during task creation; created task has no ID")
+    try:
+        deferred = client.update(task_id, "--status", "deferred")
+    except DstackError as exc:
+        raise DstackError(
+            f"feature authorization changed during task creation; could not defer created task {task_id}"
+        ) from exc
+    if deferred.get("status") != "deferred":
+        raise DstackError(f"feature authorization changed during task creation; created task {task_id} did not defer")
+
+
 @serialized_repository_mutation
 def cmd_feature_add_task(args: argparse.Namespace) -> int:
     client = client_for(args.root)
@@ -762,6 +797,15 @@ def cmd_feature_add_task(args: argparse.Namespace) -> int:
         acceptance=acceptance,
         priority=args.priority,
     )
+    if not _feature_task_scope_is_open(
+        client,
+        root_id=str(view["root"]["id"]),
+        specification_id=str(specification["id"]),
+        approval_id=str(approval["id"]),
+        implementation_id=str(implementation["id"]),
+    ):
+        _defer_task_after_scope_change(client, item)
+        raise DstackError("feature authorization changed during task creation; created task was deferred")
     emit({"status": "ok", "task": item})
     return 0
 
@@ -1059,9 +1103,7 @@ def finish_feature_workstream(
         implementation = final_view["steps"]["implementation"]
         open_items = open_workstream_children(client, str(implementation["id"]))
         if implementation.get("status") not in {"open", "claimed", "in_progress"}:
-            raise DstackError(
-                f"feature implementation changed status before close: {implementation.get('status')!r}"
-            )
+            raise DstackError(f"feature implementation changed status before close: {implementation.get('status')!r}")
         if not open_items:
             client.close(str(implementation["id"]), "All implementation work completed")
             closed = True

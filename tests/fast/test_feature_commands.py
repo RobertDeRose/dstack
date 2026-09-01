@@ -10,6 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 from dstack import feature as dstack_feature
 from dstack.commands import DstackError, create_child_reconciled, refuse_external_dependents, release_claim
+from dstack.core import FeatureNotFound
 from dstack.docs import RECORD_SUBJECTS
 
 from scripted import ScriptedClient, call
@@ -202,7 +203,7 @@ def test_initialize_requires_explicit_planned_feature(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(
         dstack_feature,
         "resolve_feature",
-        lambda client, selector: (_ for _ in ()).throw(DstackError("no feature matches selector")),
+        lambda client, selector: (_ for _ in ()).throw(FeatureNotFound("no feature matches selector")),
     )
 
     with pytest.raises(DstackError, match="requires an open dstack:feature-idea"):
@@ -252,6 +253,71 @@ def test_initialize_rejects_deferred_planned_feature(monkeypatch, tmp_path: Path
     beads.assert_exhausted()
 
 
+def test_initialize_rejects_legacy_planned_metadata_shape_without_mutation(monkeypatch, git_repo: Path) -> None:
+    historical = {
+        "id": "historical-planned-1",
+        "issue_type": "epic",
+        "status": "open",
+        "labels": ["dstack:feature-idea", "feature:historical", "workflow:feature"],
+        "metadata": {"feature_slug": "historical", "migration_classification": "planned"},
+    }
+    beads = ScriptedClient(git_repo)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "resolve_feature", lambda client, selector: historical)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_context",
+        lambda client, selector: {"root": historical, "current": False, "closed": False},
+    )
+
+    with pytest.raises(DstackError, match="unsupported historical topology"):
+        dstack_feature.cmd_feature_initialize(
+            argparse.Namespace(
+                root=git_repo,
+                selector="historical-planned-1",
+                title=None,
+                slug=None,
+                base_branch="main",
+                design_path=None,
+            )
+        )
+    beads.assert_exhausted()
+
+
+def test_plan_rejects_molecule_planned_source_without_mutation(monkeypatch, tmp_path: Path) -> None:
+    body = tmp_path / "body.md"
+    body.write_text("Durable intent\n")
+    planned = {
+        "id": "planned-1",
+        "issue_type": "molecule",
+        "status": "open",
+        "labels": ["dstack:feature-idea", "feature:feature"],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show_optional", "planned-1", result=planned),
+        call("children", "planned-1", result=[]),
+    )
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+
+    with pytest.raises(DstackError, match="parentless planned feature"):
+        dstack_feature.cmd_feature_plan(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="planned-1",
+                title="Feature",
+                slug="feature",
+                body_file=body,
+                acceptance="Observable outcome",
+                priority=1,
+                depends_on=[],
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_initialize_rejects_historical_topology_without_mutation(monkeypatch, git_repo: Path) -> None:
     historical = {
         "id": "historical-1",
@@ -290,6 +356,42 @@ def test_initialize_rejects_historical_topology_without_mutation(monkeypatch, gi
     beads.assert_exhausted()
 
 
+def test_initialize_rejects_planned_feature_with_children_before_mutation(monkeypatch, tmp_path: Path) -> None:
+    planned = {
+        "id": "planned-1",
+        "issue_type": "epic",
+        "status": "open",
+        "title": "Feature",
+        "labels": ["dstack:feature-idea", "feature:feature"],
+    }
+    child = {"id": "child-1", "parent": "planned-1", "status": "open"}
+    beads = ScriptedClient(tmp_path, call("children", "planned-1", result=[child]))
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "resolve_feature", lambda client, selector: planned)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_context",
+        lambda client, selector: {"root": planned, "current": False, "closed": False},
+    )
+    monkeypatch.setattr(dstack_feature, "require_unique_open_feature_slug", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dstack_feature, "branch_exists", lambda *args: False)
+
+    with pytest.raises(DstackError, match="children"):
+        dstack_feature.cmd_feature_initialize(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="planned-1",
+                title=None,
+                slug=None,
+                base_branch="main",
+                design_path=None,
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, tmp_path: Path) -> None:
     planned = {
         "id": "planned-1",
@@ -306,6 +408,7 @@ def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, 
     beads = ScriptedClient(
         tmp_path,
         call("list", all_statuses=True, result=[planned]),
+        call("children", "planned-1", result=[]),
         call("list", all_statuses=True, include_gates=True, result=[planned]),
         call(
             "pour",
@@ -373,6 +476,7 @@ def test_initialize_pours_formula_and_records_only_stable_identity(monkeypatch, 
     assert output[0]["branch"] == "feat/feature"
     beads.assert_exhausted()
 
+
 def test_add_task_delegates_acceptance_and_dependencies(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
@@ -395,6 +499,10 @@ def test_add_task_delegates_acceptance_and_dependencies(monkeypatch, tmp_path: P
             priority=1,
             result={"id": "task-1"},
         ),
+        call("show", "feature-1", result={"id": "feature-1", "status": "open", "metadata": {}}),
+        call("show", "specification-1", result={"id": "specification-1", "status": "open"}),
+        call("show", "approval-1", result={"id": "approval-1", "status": "open"}),
+        call("show", "implementation-1", result={"id": "implementation-1", "status": "open"}),
     )
     output = patch_command(monkeypatch, dstack_feature, beads)
     args = argparse.Namespace(
@@ -423,6 +531,55 @@ def test_add_task_rejects_documentation_or_reconciliation_work(monkeypatch, tmp_
                 root=tmp_path,
                 selector="feature-1",
                 title=title,
+                description="details",
+                description_file=None,
+                acceptance="observable result",
+                acceptance_file=None,
+                priority=1,
+                depends_on=[],
+            )
+        )
+    beads.assert_exhausted()
+
+
+def test_add_task_defers_created_child_when_authorization_closes_during_create(monkeypatch, tmp_path: Path) -> None:
+    task = {
+        "id": "task-1",
+        "parent": "implementation-1",
+        "status": "open",
+        "labels": ["dstack:work:implementation"],
+    }
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "feature-1", result={"id": "feature-1", "metadata": {}}),
+        call("show", "specification-1", result={"id": "specification-1", "status": "open"}),
+        call("show", "approval-1", result={"id": "approval-1", "status": "open"}),
+        call("show", "implementation-1", result={"id": "implementation-1", "status": "open"}),
+        call(
+            "create",
+            "Raced outcome",
+            parent="implementation-1",
+            labels=["dstack:work:implementation"],
+            dependencies=["approval-1"],
+            description="details",
+            acceptance="observable result",
+            priority=1,
+            result=task,
+        ),
+        call("show", "feature-1", result={"id": "feature-1", "metadata": {}}),
+        call("show", "specification-1", result={"id": "specification-1", "status": "open"}),
+        call("show", "approval-1", result={"id": "approval-1", "status": "closed"}),
+        call("show", "implementation-1", result={"id": "implementation-1", "status": "open"}),
+        call("update", "task-1", "--status", "deferred", result={"id": "task-1", "status": "deferred"}),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+
+    with pytest.raises(DstackError, match="authorization changed"):
+        dstack_feature.cmd_feature_add_task(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="feature-1",
+                title="Raced outcome",
                 description="details",
                 description_file=None,
                 acceptance="observable result",
@@ -1936,6 +2093,16 @@ def test_safe_design_file_rejects_escape(tmp_path: Path) -> None:
         dstack_feature.safe_design_file(tmp_path, "../outside.md")
 
 
+def test_safe_design_file_rejects_symlinked_root_ancestor(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(DstackError, match="symlink"):
+        dstack_feature.safe_design_file(link / "worktree", "docs/design.md")
+
+
 def test_closeout_validation_rejects_untouched_reconciliation_scaffold(monkeypatch, tmp_path: Path) -> None:
     from dstack import docs as dstack_docs
     from dstack.docs import RECONCILIATION_SCAFFOLD
@@ -2151,6 +2318,7 @@ def test_feature_initialize_rejects_duplicate_open_current_slug(monkeypatch, tmp
         )
     beads.assert_exhausted()
 
+
 def test_reconciliation_symlink_is_rejected_for_scaffold_and_validation(
     monkeypatch,
     tmp_path: Path,
@@ -2255,10 +2423,7 @@ class _CreateReconciliationClient:
                 "type": kwargs["issue_type_name"],
                 "parent": kwargs["parent"],
                 "labels": list(kwargs["labels"]),
-                "dependencies": [
-                    {"type": "blocks", "depends_on_id": item}
-                    for item in kwargs["dependencies"]
-                ],
+                "dependencies": [{"type": "blocks", "depends_on_id": item} for item in kwargs["dependencies"]],
                 "description": kwargs["description"],
                 "acceptance_criteria": kwargs["acceptance"],
                 "priority": kwargs["priority"],
