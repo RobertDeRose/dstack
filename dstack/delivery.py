@@ -598,9 +598,18 @@ def feature_evidence_audit(
         history=history,
     )
     specification_id = str(steps["specification"]["id"])
+    specification_no_repository_change = str(steps["specification"].get("close_reason") or "").startswith(
+        NO_REPOSITORY_CHANGE_PREFIX
+    )
+    if specification_no_repository_change and steps["specification"].get("status") == "closed":
+        audit["no_repository_change"] = sorted([*audit["no_repository_change"], specification_id])
     mapping = history.mapping(client.root, f"{base}..{branch}")
-    specification_missing = steps["specification"].get("status") == "closed" and not mapping.get(specification_id)
-    required_lifecycle_ids = {specification_id}
+    specification_missing = (
+        steps["specification"].get("status") == "closed"
+        and not specification_no_repository_change
+        and not mapping.get(specification_id)
+    )
+    required_lifecycle_ids = set() if specification_no_repository_change else {specification_id}
     if require_terminal:
         required_lifecycle_ids.add(closeout_id)
         if not mapping.get(closeout_id) and closeout_id not in audit["missing"]:
@@ -671,7 +680,12 @@ def _delivered_evidence_audit(client: BeadsClient, view: Mapping[str, Any], *, k
         derivation = "latest reachable closeout Beads footer"
         expected.add(terminal_id)
         if initial:
-            expected.add(str(steps[initial]["id"]))
+            initial_id = str(steps[initial]["id"])
+            if str(steps[initial].get("close_reason") or "").startswith(NO_REPOSITORY_CHANGE_PREFIX):
+                no_repository_change.append(initial_id)
+                no_repository_change.sort()
+            else:
+                expected.add(initial_id)
     else:
         derived = delivered_alignment_candidate_revision(client.root, target, view)
         if derived is None:
@@ -1722,6 +1736,9 @@ def _cmd_delivery_merge_unlocked(args: argparse.Namespace) -> int:
         incomplete = incomplete_pr_gate_cancellations(client, root_id, final_gates)
         if incomplete:
             raise DstackError("direct merge rejects incomplete PR gate cancellation: " + ", ".join(incomplete))
+        final_candidate_revision = ensure_clean_candidate(client.root, final_payload)
+        if final_candidate_revision != candidate_revision:
+            raise DstackError("delivery candidate HEAD changed immediately before merge")
         final_target_head = final_payload.get("target_head")
         if final_target_head is not None and str(final_target_head) != before_head:
             raise DstackError("target HEAD drifted immediately before merge")
@@ -1788,6 +1805,18 @@ def cmd_delivery_finalize_pr(args: argparse.Namespace) -> int:
             raise DstackError("PR gate closed but origin target does not contain the candidate commit")
         before_head = current_head(observed_target)
         before_status = run(["git", "status", "--short", "--untracked-files=all"], cwd=observed_target).stdout
+        final_candidate_revision = ensure_clean_candidate(client.root, payload)
+        if final_candidate_revision != candidate_revision:
+            raise DstackError("candidate HEAD changed before finalization")
+        _require_open_delivery_root(client, root_id)
+        client.gate_check()
+        final_gate = unique_pr_gate(client, root_id)
+        if (
+            final_gate.get("status") != "closed"
+            or str(final_gate.get("id")) != str(gate.get("id"))
+            or str(final_gate.get("await_id") or "") != str(gate.get("await_id") or "")
+        ):
+            raise DstackError("PR gate changed before finalization")
         finalize_beads_without_git_mutation(
             client,
             root_id=root_id,

@@ -95,8 +95,6 @@ def correction_graph(
         raise DstackError("alignment correction graph has missing or duplicate issue IDs")
     items = [client.show(issue_id) for issue_id in ids]
     titles = [normalize_summary(item.get("title"), field="alignment correction title") for item in items]
-    if len(set(titles)) != len(titles):
-        raise DstackError("alignment correction graph has duplicate titles")
 
     result: list[dict[str, Any]] = []
     for item, title in zip(items, titles, strict=True):

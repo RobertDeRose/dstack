@@ -36,6 +36,7 @@ from .core import (
     issue_parent,
     issue_type,
     git_blob_text,
+    git_file_sha256,
     ref_exists,
     safe_repository_path,
     worktree_for_branch,
@@ -114,6 +115,13 @@ def record_fact(path: Path, kind: str, root: Path) -> dict[str, Any]:
     return record_fact_text(relative, text, kind, source=safe, source_root=root)
 
 
+_MARKDOWN_SUFFIXES = {".md", ".mdx", ".markdown", ".rst"}
+
+
+def _is_markdown_path(path: str) -> bool:
+    return Path(path).suffix.casefold() in _MARKDOWN_SUFFIXES
+
+
 def revision_records(
     root: Path, revision: str, paths: Mapping[str, str | None]
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
@@ -125,6 +133,17 @@ def revision_records(
     while pending:
         path, kind = pending.popleft()
         if path in records:
+            continue
+        if not _is_markdown_path(path):
+            if git_file_sha256(root, path, revision) is None:
+                missing.append(path)
+            else:
+                records[path] = {
+                    "path": path,
+                    "status": "asset",
+                    "links": [],
+                    "validation_and_limitations": None,
+                }
             continue
         text = git_blob_text(root, path, revision)
         record = record_fact_text(path, text, kind)

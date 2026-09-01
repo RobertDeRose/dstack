@@ -191,6 +191,19 @@ def test_untracked_identical_formula_residue_is_cleaned(git_repo: Path) -> None:
     assert not destination.exists()
 
 
+def test_tracked_identical_formula_is_preserved(git_repo: Path) -> None:
+    destination = git_repo / ".beads/formulas/dstack-feature.formula.toml"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    source = (ROOT / "dstack/assets/formulas/dstack-feature.formula.toml").read_bytes()
+    destination.write_bytes(source)
+    subprocess.run(["git", "add", str(destination.relative_to(git_repo))], cwd=git_repo, check=True)
+
+    with dstack_formula.current_formula_for_pour(type("Client", (), {"root": git_repo})(), "dstack-feature"):
+        assert destination.read_bytes() == source
+
+    assert destination.read_bytes() == source
+
+
 def test_interrupted_owned_formula_residue_is_recovered(git_repo: Path) -> None:
     destination = git_repo / ".beads/formulas/dstack-feature.formula.toml"
     owner = dstack_formula._formula_owner_path(git_repo, "dstack-feature")
@@ -256,6 +269,19 @@ def test_tracked_legacy_formula_is_not_migrated_and_pour_uses_package_bytes(tmp_
     assert destination.read_text() == "legacy tracked formula\n"
     assert pour_current_formula(Client(), "dstack-feature", {"feature_title": "Demo"}) == {"root_id": "feature-1"}
     assert destination.read_text() == "legacy tracked formula\n"
+
+
+def test_formula_pour_rejects_beads_symlink(git_repo: Path, tmp_path: Path) -> None:
+    outside = tmp_path / "outside-beads"
+    outside.mkdir()
+    (git_repo / ".beads").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(DstackError, match="symlink"):
+        with dstack_formula.current_formula_for_pour(
+            type("Client", (), {"root": git_repo})(), "dstack-feature"
+        ):
+            raise AssertionError("formula pour should not run")
+    assert not (outside / "formulas").exists()
 
 
 def test_ensure_beads_initialized_rejects_dangling_symlink(monkeypatch, tmp_path: Path) -> None:

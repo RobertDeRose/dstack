@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from .core import (
     BeadsClient,
     DstackError,
+    _assert_no_symlink_components,
     branch_exists,
     canonical_feature_design_path,
     conventional_worktree,
@@ -69,6 +70,7 @@ from .commands import (
     claim_ready_step,
     claim_ready_step_with_fan_in,
     claim_ready_work,
+    require_complete_fan_in,
     close_issue_if_needed,
     create_child_reconciled,
     resolve_gate_if_needed,
@@ -123,6 +125,16 @@ def approved_feature_context(client: BeadsClient, selector: str | None) -> dict[
     return context
 
 
+def _recheck_feature_before_close(client: BeadsClient, view: Mapping[str, Any]) -> dict[str, Any]:
+    refreshed = approved_feature_context(client, str(view["root"]["id"]))
+    for name in ("implementation", "closeout"):
+        expected = view["steps"][name]
+        observed = refreshed["steps"][name]
+        if str(expected["id"]) != str(observed["id"]):
+            raise DstackError(f"feature {name} scope changed before close")
+    return refreshed
+
+
 def require_unique_open_feature_slug(
     client: BeadsClient,
     slug: str,
@@ -161,6 +173,8 @@ def cmd_feature_plan(args: argparse.Namespace) -> int:
     if existing is not None:
         if existing.get("status") == "closed":
             raise DstackError(f"planned feature is already closed: {existing['id']}")
+        if existing.get("status") != "open":
+            raise DstackError(f"planned feature must be open: status={existing.get('status')!r}")
         if is_current_feature(client, existing):
             raise DstackError("current feature scope must be changed through review and reauthorization")
         if (
@@ -344,6 +358,10 @@ def cmd_feature_initialize(args: argparse.Namespace) -> int:
                     )
                     return 0
             raise DstackError(f"feature is already closed: {existing['id']}")
+        if existing.get("status") != "open":
+            raise DstackError(
+                f"feature materialization requires an open dstack:feature-idea; status={existing.get('status')!r}"
+            )
         if view["current"]:
             branch, worktree, _, _ = ensure_feature_worktree(
                 client,
@@ -531,6 +549,7 @@ def ensure_feature_navigation(
     title: str,
     reconciled: bool = False,
 ) -> None:
+    _assert_no_symlink_components(Path(worktree), purpose="worktree")
     safe_title = title.replace("[", "").replace("]", "") or slug
     feature_source = safe_repository_path(worktree, "docs/src/features", purpose="feature documentation directory")
     feature_source.mkdir(parents=True, exist_ok=True)
@@ -1002,8 +1021,15 @@ def cmd_feature_finish_task(args: argparse.Namespace) -> int:
     summary = read_text_file(args.summary_file)
     if summary:
         client.add_comment(args.task, summary)
+    final_view = _recheck_feature_before_close(client, view)
+    live_task = client.show(args.task)
+    implementation_id = str(final_view["steps"]["implementation"]["id"])
+    if issue_parent(live_task) != implementation_id or not has_label(live_task, "dstack:work:implementation"):
+        raise DstackError(f"task {args.task} is outside the approved implementation workstream")
+    if live_task.get("status") not in {"open", "claimed", "in_progress"}:
+        raise DstackError(f"task {args.task} changed status before close: {live_task.get('status')!r}")
     task = client.close(args.task, reason)
-    workstream = finish_feature_workstream(client, view, close=False)
+    workstream = finish_feature_workstream(client, final_view, close=False)
     emit(
         {
             "status": "ok",
@@ -1029,8 +1055,16 @@ def finish_feature_workstream(
         require_approved_design(view)
         _, worktree, _ = feature_branch_context(client, view)
         ensure_clean_worktree(worktree)
-        client.close(str(implementation["id"]), "All implementation work completed")
-        closed = True
+        final_view = _recheck_feature_before_close(client, view)
+        implementation = final_view["steps"]["implementation"]
+        open_items = open_workstream_children(client, str(implementation["id"]))
+        if implementation.get("status") not in {"open", "claimed", "in_progress"}:
+            raise DstackError(
+                f"feature implementation changed status before close: {implementation.get('status')!r}"
+            )
+        if not open_items:
+            client.close(str(implementation["id"]), "All implementation work completed")
+            closed = True
     return {
         "workstream": client.show(str(implementation["id"])),
         "open_items": [item["id"] for item in open_items],
@@ -1132,6 +1166,19 @@ def cmd_feature_finish_closeout(args: argparse.Namespace) -> int:
                 raise DstackError("feature closeout documentation policy check failed")
         if args.summary_file:
             client.add_comment(closeout_id, read_text_file(args.summary_file))
+        final_view = _recheck_feature_before_close(client, view)
+        require_complete_fan_in(
+            client,
+            parent_id=str(final_view["steps"]["implementation"]["id"]),
+            name="feature implementation",
+        )
+        live_closeout = client.show(closeout_id)
+        if issue_parent(live_closeout) != str(final_view["root"]["id"]) or not has_label(
+            live_closeout, "dstack:step:closeout"
+        ):
+            raise DstackError(f"feature closeout {closeout_id} is outside the workflow root")
+        if live_closeout.get("status") not in {"open", "claimed", "in_progress"}:
+            raise DstackError(f"feature closeout changed status before close: {live_closeout.get('status')!r}")
         closeout = client.close(closeout_id, args.reason)
     keep_root_open_for_delivery(client, str(view["root"]["id"]))
     emit(

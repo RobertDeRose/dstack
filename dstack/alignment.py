@@ -125,12 +125,15 @@ def cmd_alignment_initialize(args: argparse.Namespace) -> int:
         if "resolved to 0 roots" not in str(exc):
             raise
     else:
-        if existing["root"].get("status") != "closed":
-            existing_target = str(existing.get("target_branch") or target_branch)
-            _, worktree, _, _ = ensure_branch_worktree(client, branch, existing_target)
-            emit({"status": "ok", "created": False, "worktree": str(worktree), **existing})
-            return 0
-        raise DstackError(f"project alignment is already closed: {existing['root']['id']}")
+        status = existing["root"].get("status")
+        if status == "closed":
+            raise DstackError(f"project alignment is already closed: {existing['root']['id']}")
+        if status != "open":
+            raise DstackError(f"project alignment root must be open: status={status!r}")
+        existing_target = str(existing.get("target_branch") or target_branch)
+        _, worktree, _, _ = ensure_branch_worktree(client, branch, existing_target)
+        emit({"status": "ok", "created": False, "worktree": str(worktree), **existing})
+        return 0
 
     before_issue_ids = {
         str(item["id"])

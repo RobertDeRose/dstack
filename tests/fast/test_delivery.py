@@ -342,6 +342,52 @@ def delivered_evidence_view() -> dict:
     }
 
 
+def test_pre_delivery_evidence_allows_no_repository_change_specification(
+    monkeypatch, git_repo: Path
+) -> None:
+    view = delivered_evidence_view()
+    view["steps"].update(
+        {
+            "implementation": {"id": "implementation-1", "status": "closed"},
+            "specification": {
+                "id": "specification-1",
+                "status": "closed",
+                "close_reason": "no-repository-change: already documented",
+            },
+        }
+    )
+    view["work_items"] = []
+    monkeypatch.setattr(
+        dstack_delivery,
+        "feature_branch_context",
+        lambda *args: ("main", git_repo, "main"),
+    )
+
+    audit = dstack_delivery.feature_evidence_audit(ScriptedClient(git_repo), view)
+
+    assert audit["status"] == "ok"
+    assert audit["no_repository_change"] == ["specification-1"]
+    assert audit["missing"] == []
+
+
+def test_delivered_evidence_allows_no_repository_change_specification(git_repo: Path) -> None:
+    commit_with_footer(git_repo, "feature.py", "implementation", "task-1")
+    candidate = commit_with_footer(git_repo, "close.md", "closeout", "closeout-1")
+    view = delivered_evidence_view()
+    view["steps"]["specification"] = {
+        "id": "specification-1",
+        "status": "closed",
+        "close_reason": "no-repository-change: already documented",
+    }
+
+    audit = delivered_feature_evidence_audit(ScriptedClient(git_repo), view)
+
+    assert audit["status"] == "ok"
+    assert audit["candidate_revision"] == candidate
+    assert "specification-1" not in audit["mapping"]
+    assert audit["no_repository_change"] == ["specification-1"]
+
+
 def test_delivered_evidence_accepts_reachable_fixup_commits(git_repo: Path) -> None:
     commit_with_footer(git_repo, "spec.md", "specification", "specification-1")
     commit_with_footer(git_repo, "feature.py", "implementation", "task-1")
@@ -1673,6 +1719,52 @@ def test_delivery_merge_rechecks_candidate_after_target_preparation(monkeypatch,
     beads.assert_exhausted()
 
 
+def test_delivery_merge_rechecks_candidate_immediately_before_git_mutation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    target = tmp_path / "target"
+    candidate = tmp_path / "candidate"
+    target.mkdir()
+    candidate.mkdir()
+    first = payload(
+        root={"id": "feature-1"},
+        target_worktree=str(target),
+        candidate_worktree=str(candidate),
+        candidate_branch="feat/feature",
+        candidate_head="candidate-head",
+    )
+    second = {**first, "candidate_head": "changed-head"}
+    beads = ScriptedClient(tmp_path)
+    views = iter([first, second])
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: next(views))
+    monkeypatch.setattr(
+        dstack_delivery,
+        "pr_gate_state",
+        lambda *args: {"all": [], "active": []},
+    )
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
+    candidate_heads = iter(["candidate-head", "changed-head"])
+    monkeypatch.setattr(
+        dstack_delivery,
+        "current_head",
+        lambda root, *args: next(candidate_heads) if Path(root) == candidate else "target-head",
+    )
+    merge_calls: list[list[str]] = []
+
+    def run(command, **kwargs):
+        if command[:2] == ["git", "merge"]:
+            merge_calls.append(command)
+        return CommandResult(0, "", "")
+
+    monkeypatch.setattr(dstack_delivery, "run", run)
+
+    with pytest.raises(DstackError, match="candidate HEAD changed"):
+        dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    assert merge_calls == []
+    beads.assert_exhausted()
+
+
 def test_delivery_merge_checks_post_delivery_git_invariant(monkeypatch, tmp_path: Path) -> None:
     target = tmp_path / "target"
     candidate = tmp_path / "candidate"
@@ -1702,7 +1794,7 @@ def test_delivery_merge_checks_post_delivery_git_invariant(monkeypatch, tmp_path
         lambda *args: {"all": [], "active": []},
     )
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
-    heads = iter(["candidate-head", "target-head", "candidate-head", "candidate-head"])
+    heads = iter(["candidate-head", "target-head", "candidate-head", "candidate-head", "candidate-head"])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     monkeypatch.setattr(
         dstack_delivery,
@@ -1757,7 +1849,7 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
         lambda *args: {"all": [], "active": []},
     )
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
-    heads = iter(["candidate-head", "target-head", "candidate-head", after_head])
+    heads = iter(["candidate-head", "target-head", "candidate-head", "candidate-head", after_head])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     statuses = iter(["", after_status])
 
@@ -1768,6 +1860,87 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
     monkeypatch.setattr(dstack_delivery, "run", run)
     with pytest.raises(DstackError, match="delivery completed but Beads finalization changed Git state"):
         dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
+def test_finalize_pr_rechecks_candidate_before_beads_finalization(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    candidate = tmp_path / "candidate"
+    target.mkdir()
+    candidate.mkdir()
+    gate = {"id": "gate-1", "status": "closed", "await_id": "41", "await_type": "gh:pr"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("gate_check", result=[gate]),
+        call(
+            "show",
+            "feature-1",
+            result={"id": "feature-1", "dependencies": [{"type": "blocks", "depends_on_id": "gate-1"}]},
+        ),
+        call("gates", all_statuses=True, result=[gate]),
+        call("show", "gate-1", result=gate),
+    )
+    observed = payload(
+        root={"id": "feature-1"},
+        target_branch="main",
+        target_head="target-head",
+        target_worktree=str(target),
+        candidate_worktree=str(candidate),
+        candidate_branch="feat/feature",
+        candidate_head="candidate-head",
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(dstack_delivery, "worktree_for_branch", lambda *args: target)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
+    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: "target-head")
+    candidate_revisions = iter(["candidate-head", "changed-head"])
+    monkeypatch.setattr(
+        dstack_delivery,
+        "ensure_clean_candidate",
+        lambda *args: next(candidate_revisions),
+    )
+    monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
+    monkeypatch.setattr(dstack_delivery, "run", lambda *args, **kwargs: CommandResult(0, "", ""))
+
+    with pytest.raises(DstackError, match="candidate HEAD changed before finalization"):
+        dstack_delivery.cmd_delivery_finalize_pr(
+            argparse.Namespace(root=tmp_path, selector="feature-1")
+        )
+    beads.assert_exhausted()
+
+
+def test_finalize_pr_rechecks_gate_before_beads_finalization(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    candidate = tmp_path / "candidate"
+    target.mkdir()
+    candidate.mkdir()
+    gate = {"id": "gate-1", "status": "closed", "await_id": "41"}
+    reopened = {**gate, "status": "open"}
+    beads = ScriptedClient(tmp_path, call("gate_check", result=[]), call("gate_check", result=[]))
+    payload_value = payload(
+        root={"id": "feature-1"},
+        target_branch="main",
+        target_worktree=str(target),
+        candidate_worktree=str(candidate),
+        candidate_branch="feat/feature",
+        candidate_head="candidate-head",
+    )
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: payload_value)
+    monkeypatch.setattr(dstack_delivery, "worktree_for_branch", lambda *args: target)
+    gates = iter([gate, reopened])
+    monkeypatch.setattr(dstack_delivery, "unique_pr_gate", lambda *args: next(gates))
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_candidate", lambda *args: "candidate-head")
+    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: "target-head")
+    monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
+    monkeypatch.setattr(dstack_delivery, "run", lambda *args, **kwargs: CommandResult(0, "", ""))
+
+    with pytest.raises(DstackError, match="PR gate changed before finalization"):
+        dstack_delivery.cmd_delivery_finalize_pr(
+            argparse.Namespace(root=tmp_path, selector="feature-1")
+        )
     beads.assert_exhausted()
 
 
@@ -1973,6 +2146,10 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
         call("show", "feature-1", result=root),
         call("gates", all_statuses=True, result=[gate]),
         call("show", "gate-1", result=gate),
+        call("gate_check", result=[gate]),
+        call("show", "feature-1", result=root),
+        call("gates", all_statuses=True, result=[gate]),
+        call("show", "gate-1", result=gate),
         call(
             "close",
             "feature-1",
@@ -2002,7 +2179,7 @@ def test_finalize_pr_rejects_git_mutation_during_finalization(
         "worktree_for_branch",
         lambda *args: target,
     )
-    heads = iter(["remote-delivered-head", "candidate-head", "target-head", after_head])
+    heads = iter(["remote-delivered-head", "candidate-head", "target-head", "candidate-head", after_head])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     statuses = iter(["", after_status])
 

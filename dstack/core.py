@@ -318,6 +318,8 @@ def git_root(path: Path) -> Path:
 def safe_repository_path(root: Path, relative: str | Path, *, purpose: str = "repository path") -> Path:
     """Return a contained repository path without following symlink components."""
 
+    if Path(root).is_symlink():
+        raise DstackError(f"{purpose} must not use a symlinked root: {root}")
     repository = root.resolve()
     candidate_relative = Path(relative)
     if not str(relative).strip() or candidate_relative.is_absolute() or ".." in candidate_relative.parts:
@@ -1330,7 +1332,7 @@ def worktree_for_branch(root: Path, branch: str) -> Path | None:
     expected = f"refs/heads/{branch}"
     for item in worktree_records(root):
         if item.get("branch") == expected and isinstance(item.get("worktree"), str):
-            return Path(str(item["worktree"])).resolve()
+            return Path(str(item["worktree"]))
     return None
 
 
@@ -1401,6 +1403,16 @@ def validate_git_range(root: Path, value: str, *, name: str = "revision") -> str
     return value
 
 
+def _assert_no_symlink_components(path: Path, *, purpose: str) -> None:
+    current = Path(path)
+    while True:
+        if current.is_symlink():
+            raise DstackError(f"{purpose} must not be a symlink: {path}")
+        if current.parent == current:
+            return
+        current = current.parent
+
+
 def verify_worktree_identity(
     root: Path,
     worktree: Path,
@@ -1409,7 +1421,10 @@ def verify_worktree_identity(
     conventional: bool = True,
 ) -> Path:
     validate_git_branch(root, branch)
-    expected = conventional_worktree(root, branch).resolve()
+    _assert_no_symlink_components(worktree, purpose="worktree")
+    expected_path = conventional_worktree(root, branch)
+    _assert_no_symlink_components(expected_path, purpose="conventional worktree")
+    expected = expected_path.resolve()
     resolved = worktree.resolve()
     if conventional and resolved != expected:
         raise DstackError(f"worktree for {branch} must use conventional path {expected}: {resolved}")

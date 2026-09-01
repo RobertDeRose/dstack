@@ -198,6 +198,23 @@ def test_worktree_identity_rejects_wrong_branch_at_conventional_path(
         verify_worktree_identity(git_repo, path, "topic")
 
 
+def test_worktree_identity_rejects_symlinked_conventional_path(
+    git_repo: Path, tmp_path: Path
+) -> None:
+    path = conventional_worktree(git_repo, "topic")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    path.symlink_to(outside, target_is_directory=True)
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", "topic", str(path), "HEAD"],
+        cwd=git_repo,
+        check=True,
+    )
+
+    with pytest.raises(DstackError, match="worktree must not be a symlink"):
+        verify_worktree_identity(git_repo, path, "topic")
+
+
 def test_reused_worktree_rejects_invalid_base_ancestry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root = tmp_path / "repo"
     worktree = tmp_path / "worktree"

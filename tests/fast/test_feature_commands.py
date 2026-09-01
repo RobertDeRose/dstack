@@ -219,6 +219,39 @@ def test_initialize_requires_explicit_planned_feature(monkeypatch, tmp_path: Pat
     beads.assert_exhausted()
 
 
+def test_initialize_rejects_deferred_planned_feature(monkeypatch, tmp_path: Path) -> None:
+    planned = {
+        "id": "planned-1",
+        "issue_type": "epic",
+        "status": "deferred",
+        "title": "Feature",
+        "labels": ["dstack:feature-idea", "feature:feature"],
+    }
+    beads = ScriptedClient(tmp_path)
+    monkeypatch.setattr(dstack_feature, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_feature, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "validate_git_revision", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_feature, "resolve_feature", lambda client, selector: planned)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_context",
+        lambda client, selector: {"root": planned, "current": False, "closed": False},
+    )
+
+    with pytest.raises(DstackError, match="requires an open dstack:feature-idea"):
+        dstack_feature.cmd_feature_initialize(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="Feature",
+                title=None,
+                slug=None,
+                base_branch="main",
+                design_path=None,
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_initialize_rejects_historical_topology_without_mutation(monkeypatch, git_repo: Path) -> None:
     historical = {
         "id": "historical-1",
@@ -1227,6 +1260,7 @@ def test_finish_task_accepts_explicit_clean_no_change(monkeypatch, tmp_path: Pat
         tmp_path,
         call("show", "task-1", result=task),
         call("update", "task-1", "--claim", result=task),
+        call("show", "task-1", result=task),
         call(
             "close",
             "task-1",
@@ -1303,6 +1337,51 @@ def test_finish_task_rejects_invalid_no_change_evidence(
     beads.assert_exhausted()
 
 
+def test_finish_task_rechecks_approval_before_close(monkeypatch, tmp_path: Path) -> None:
+    task = {
+        "id": "task-1",
+        "parent": "implementation-1",
+        "status": "in_progress",
+        "labels": ["dstack:work:implementation"],
+    }
+    initial = view()
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "task-1", result=task),
+        call("update", "task-1", "--claim", result=task),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_branch_context",
+        lambda *args: ("feat/feature", tmp_path, "main"),
+    )
+    monkeypatch.setattr(dstack_feature, "ensure_clean_worktree", lambda *args: None)
+    monkeypatch.setattr(dstack_feature, "evidence_for_bead", lambda *args: [])
+    contexts = iter([initial, DstackError("feature approval has been revoked")])
+
+    def approved_context(*args):
+        observed = next(contexts)
+        if isinstance(observed, Exception):
+            raise observed
+        return observed
+
+    monkeypatch.setattr(dstack_feature, "approved_feature_context", approved_context)
+
+    with pytest.raises(DstackError, match="revoked"):
+        dstack_feature.cmd_feature_finish_task(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="feature-1",
+                task="task-1",
+                reason="already done",
+                summary_file=None,
+                no_repository_change=True,
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_finish_task_leaves_workstream_and_closeout_open(monkeypatch, tmp_path: Path) -> None:
     task = {
         "id": "task-1",
@@ -1329,6 +1408,7 @@ def test_finish_task_leaves_workstream_and_closeout_open(monkeypatch, tmp_path: 
             claim=True,
             result=[claimed_task],
         ),
+        call("show", "task-1", result=claimed_task),
         call("close", "task-1", "Implementation completed", result=closed_task),
         call(
             "show",
@@ -1464,6 +1544,37 @@ def test_finish_task_requires_git_evidence(monkeypatch, tmp_path: Path) -> None:
     beads.assert_exhausted()
 
 
+def test_finish_workstream_rechecks_approval_before_close(monkeypatch, tmp_path: Path) -> None:
+    implementation = {"id": "implementation-1", "status": "open"}
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "implementation-1", result=implementation),
+        call("children", "implementation-1", result=[]),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+    monkeypatch.setattr(
+        dstack_feature,
+        "feature_branch_context",
+        lambda *args: ("feat/feature", tmp_path, "main"),
+    )
+    monkeypatch.setattr(dstack_feature, "ensure_clean_worktree", lambda *args: None)
+    contexts = iter([view(), DstackError("feature approval has been revoked")])
+
+    def approved_context(*args):
+        observed = next(contexts)
+        if isinstance(observed, Exception):
+            raise observed
+        return observed
+
+    monkeypatch.setattr(dstack_feature, "approved_feature_context", approved_context)
+
+    with pytest.raises(DstackError, match="revoked"):
+        dstack_feature.cmd_feature_finish_workstream(
+            argparse.Namespace(root=tmp_path, selector="feature-1", quiet=False)
+        )
+    beads.assert_exhausted()
+
+
 def test_finish_workstream_closes_only_after_all_children(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         dstack_feature,
@@ -1475,6 +1586,7 @@ def test_finish_workstream_closes_only_after_all_children(monkeypatch, tmp_path:
     beads = ScriptedClient(
         tmp_path,
         call("show", "implementation-1", result=implementation),
+        call("children", "implementation-1", result=[]),
         call("children", "implementation-1", result=[]),
         call(
             "close",
@@ -1723,6 +1835,43 @@ def test_finish_closeout_refuses_when_beads_does_not_mark_it_ready(monkeypatch, 
     beads.assert_exhausted()
 
 
+def test_finish_closeout_rechecks_approval_before_close(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(
+        tmp_path,
+        call("show", "closeout-1", result={"id": "closeout-1", "status": "open"}),
+        call("children", "implementation-1", result=[]),
+        call(
+            "ready_children",
+            "feature-1",
+            label="dstack:step:closeout",
+            claim=True,
+            result=[{"id": "closeout-1", "status": "in_progress"}],
+        ),
+        call("children", "implementation-1", result=[]),
+    )
+    patch_command(monkeypatch, dstack_feature, beads)
+    contexts = iter([view(), DstackError("feature approval has been revoked")])
+
+    def approved_context(*args):
+        observed = next(contexts)
+        if isinstance(observed, Exception):
+            raise observed
+        return observed
+
+    monkeypatch.setattr(dstack_feature, "approved_feature_context", approved_context)
+
+    with pytest.raises(DstackError, match="revoked"):
+        dstack_feature.cmd_feature_finish_closeout(
+            argparse.Namespace(
+                root=tmp_path,
+                selector="feature-1",
+                reason="Closeout completed",
+                summary_file=None,
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_finish_closeout_closes_once(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(
         tmp_path,
@@ -1736,6 +1885,17 @@ def test_finish_closeout_closes_once(monkeypatch, tmp_path: Path) -> None:
             result=[{"id": "closeout-1", "status": "in_progress"}],
         ),
         call("children", "implementation-1", result=[]),
+        call("children", "implementation-1", result=[]),
+        call(
+            "show",
+            "closeout-1",
+            result={
+                "id": "closeout-1",
+                "status": "in_progress",
+                "parent": "feature-1",
+                "labels": ["dstack:step:closeout"],
+            },
+        ),
         call(
             "close",
             "closeout-1",
@@ -1855,6 +2015,18 @@ def test_feature_navigation_rejects_symlinked_destination(tmp_path: Path, relati
         dstack_feature.ensure_feature_navigation(tmp_path, slug="feature", title="Feature")
 
     assert outside.read_text() == "outside\n"
+
+
+def test_feature_navigation_rejects_symlinked_worktree_root(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    worktree = tmp_path / "worktree"
+    worktree.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(DstackError, match="worktree must not be a symlink"):
+        dstack_feature.ensure_feature_navigation(worktree, slug="feature", title="Feature")
+
+    assert not (outside / "docs").exists()
 
 
 def test_feature_plan_rejects_noncanonical_slug_before_beads(monkeypatch, tmp_path: Path) -> None:

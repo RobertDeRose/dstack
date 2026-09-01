@@ -456,6 +456,29 @@ def test_delivered_audit_recovers_footer_evidence_after_branch_cleanup(
     client.assert_exhausted()
 
 
+def test_revision_records_accepts_binary_linked_assets(git_repo: Path) -> None:
+    design = git_repo / "docs/src/features/audit/design.md"
+    design.parent.mkdir(parents=True)
+    design.write_text(record("feature-design") + "\n[Diagram](diagram.png)\n")
+    (design.parent / "diagram.png").write_bytes(bytes([0, 255]) + b"binary asset")
+    subprocess.run(["git", "add", "docs"], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "docs: add linked asset"], cwd=git_repo, check=True)
+
+    records, missing = dstack_audit.revision_records(
+        git_repo,
+        "HEAD",
+        {"docs/src/features/audit/design.md": "feature-design"},
+    )
+
+    assert missing == []
+    assert records["docs/src/features/audit/diagram.png"] == {
+        "path": "docs/src/features/audit/diagram.png",
+        "status": "asset",
+        "links": [],
+        "validation_and_limitations": None,
+    }
+
+
 def test_audit_reports_malformed_record(monkeypatch, tmp_path: Path) -> None:
     context = current_context()
     design = tmp_path / context["design_path"]

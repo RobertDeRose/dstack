@@ -119,8 +119,10 @@ def test_correction_graph_is_derived_from_live_native_records() -> None:
     assert graph[1]["relationships"][-1] == {"type": "parent-child", "target": "corrections-1"}
 
     client.state["correction-a"]["acceptance_criteria"] = "Changed acceptance"
+    client.state["correction-a"]["title"] = "Cafe\u0301 correction"
     changed = correction_graph(client, client.view())
     assert changed[0]["acceptance"] == "Changed acceptance"
+    assert changed[0]["title"] == "Café correction"
 
 
 def test_correction_graph_rejects_non_native_or_malformed_work() -> None:
@@ -135,6 +137,15 @@ def test_correction_graph_rejects_non_native_or_malformed_work() -> None:
     )
     with pytest.raises(DstackError, match="exactly one approval blocker"):
         correction_graph(client, client.view())
+
+
+def test_correction_graph_allows_distinct_corrections_with_same_title() -> None:
+    client = AuthorityClient()
+    client.state["correction-b"]["title"] = client.state["correction-a"]["title"]
+
+    graph = correction_graph(client, client.view())
+
+    assert [item["id"] for item in graph] == ["correction-a", "correction-b"]
 
 
 def test_authorization_uses_live_beads_without_a_digest_protocol() -> None:

@@ -127,10 +127,20 @@ def validate_formula_contract(name: str, formula: Mapping[str, Any]) -> None:
         raise DstackError(f"{name} terminal must use native dynamic child fan-in")
 
 
+def _assert_no_symlink(path: Path) -> None:
+    current = path
+    while True:
+        if current.is_symlink():
+            raise DstackError(f"formula path must not be a symlink: {path}")
+        if current.parent == current:
+            return
+        current = current.parent
+
+
 def _atomic_replace(path: Path, content: bytes) -> None:
+    _assert_no_symlink(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.parent.is_symlink() or (path.exists() and path.is_symlink()):
-        raise DstackError(f"formula path must not be a symlink: {path}")
+    _assert_no_symlink(path)
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
     fd, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
@@ -152,7 +162,7 @@ def _formula_lock_path(root: Path) -> Path:
     try:
         return git_common_dir(root) / ".dstack-formula.lock"
     except DstackError:
-        lock_dir = Path(tempfile.gettempdir()) / "dstack-formula-locks"
+        lock_dir = Path(tempfile.gettempdir()).resolve() / "dstack-formula-locks"
         lock_dir.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()
         return lock_dir / f"{digest}.lock"
@@ -217,6 +227,7 @@ def current_formula_for_pour(client: BeadsClient, name: str):
 
     with _formula_lock(client.root):
         destination = _formula_destination(client.root, name)
+        _assert_no_symlink(destination)
         owner = _formula_owner_path(client.root, name)
         backup = _formula_backup_path(client.root, name)
         source = formula_path(name).read_bytes()

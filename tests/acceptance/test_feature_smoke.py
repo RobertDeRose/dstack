@@ -561,24 +561,15 @@ External blocker B replaces blocker A.
         "--summary-file",
         str(alignment_review),
     )
+    # Alignment authorization is intentionally live: native correction content and
+    # dependencies are read from Beads when approval runs, rather than copied into
+    # a second review digest or packet.
     run_command(
         ["bd", "dep", "add", native_correction["id"], unrelated["id"], "--type", "related"],
         cwd=acceptance_repo,
     )
-    drifted = run_ctl(
-        acceptance_repo,
-        "alignment",
-        "approve",
-        alignment_root,
-        check=False,
-    )
-    assert drifted.returncode != 0
-    assert "review identity" in drifted.stderr
-    run_command(
-        ["bd", "dep", "remove", native_correction["id"], unrelated["id"]],
-        cwd=acceptance_repo,
-    )
-    run_ctl(acceptance_repo, "alignment", "approve", alignment_root)
+    approved_alignment = run_ctl(acceptance_repo, "alignment", "approve", alignment_root)
+    assert approved_alignment["approval"]["status"] == "closed"
     late_correction_refused = run_ctl(
         acceptance_repo,
         "alignment",

@@ -137,6 +137,34 @@ def test_initialize_rejects_noncanonical_slug_before_pour(monkeypatch, git_repo:
         )
 
 
+def test_initialize_rejects_deferred_alignment(monkeypatch, tmp_path: Path) -> None:
+    beads = ScriptedClient(tmp_path)
+    monkeypatch.setattr(dstack_alignment, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_alignment, "validate_git_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(dstack_alignment, "validate_git_revision", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(
+        dstack_alignment,
+        "alignment_context",
+        lambda client, selector: {
+            "root": {"id": "alignment-1", "status": "deferred"},
+            "slug": selector,
+            "target_branch": "main",
+        },
+    )
+
+    with pytest.raises(DstackError, match="must be open"):
+        dstack_alignment.cmd_alignment_initialize(
+            argparse.Namespace(
+                root=tmp_path,
+                title="Alignment",
+                slug="alignment",
+                target_branch="main",
+                scope="repository",
+            )
+        )
+    beads.assert_exhausted()
+
+
 def test_initialize_pours_formula_and_records_stable_identity(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(dstack_alignment, "validate_git_branch", lambda *args, **kwargs: "main")
     monkeypatch.setattr(dstack_alignment, "validate_git_revision", lambda *args, **kwargs: "main")
