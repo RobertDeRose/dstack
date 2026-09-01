@@ -10,7 +10,7 @@ if [[ -n "$before" ]]; then
   exit 1
 fi
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/dstack-release-check.XXXXXX")
+tmp="$(realpath "$(mktemp -d "${TMPDIR:-/tmp}/dstack-release-check.XXXXXX")")"
 trap 'rm -rf "$tmp"' EXIT
 
 uv build --out-dir "$tmp/dist"

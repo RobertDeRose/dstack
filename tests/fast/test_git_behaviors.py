@@ -198,9 +198,7 @@ def test_worktree_identity_rejects_wrong_branch_at_conventional_path(
         verify_worktree_identity(git_repo, path, "topic")
 
 
-def test_worktree_identity_rejects_symlinked_conventional_path(
-    git_repo: Path, tmp_path: Path
-) -> None:
+def test_worktree_identity_rejects_symlinked_conventional_path(git_repo: Path, tmp_path: Path) -> None:
     path = conventional_worktree(git_repo, "topic")
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -213,6 +211,50 @@ def test_worktree_identity_rejects_symlinked_conventional_path(
 
     with pytest.raises(DstackError, match="worktree must not be a symlink"):
         verify_worktree_identity(git_repo, path, "topic")
+
+
+def test_worktree_identity_rejects_independent_repository_at_conventional_path(
+    git_repo: Path,
+) -> None:
+    path = conventional_worktree(git_repo, "topic")
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "--initial-branch=topic"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=path, check=True)
+    (path / "independent.txt").write_text("independent\n")
+    subprocess.run(["git", "add", "independent.txt"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-qm", "independent"], cwd=path, check=True)
+
+    with pytest.raises(DstackError, match="repository identity"):
+        verify_worktree_identity(git_repo, path, "topic")
+
+
+def test_worktree_creation_rejects_symlinked_parent_before_native_mutation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    link = tmp_path / "link"
+    root.mkdir()
+    outside.mkdir()
+    link.symlink_to(outside, target_is_directory=True)
+    expected = link / "worktree"
+    calls: list[tuple[str, ...]] = []
+
+    monkeypatch.setattr(dstack_commands, "validate_git_branch", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(dstack_commands, "validate_git_revision", lambda *args, **kwargs: "ok")
+    monkeypatch.setattr(dstack_commands, "worktree_for_branch", lambda *args: None)
+    monkeypatch.setattr(dstack_commands, "conventional_worktree", lambda *args: expected)
+    monkeypatch.setattr(dstack_commands, "branch_exists", lambda *args: False)
+    monkeypatch.setattr(
+        dstack_commands,
+        "run",
+        lambda command, **kwargs: calls.append(tuple(command)) or pytest.fail("native mutation ran"),
+    )
+
+    with pytest.raises(DstackError, match="worktree must not be a symlink"):
+        dstack_commands.ensure_branch_worktree(SimpleNamespace(root=root), "topic", "main")
+    assert calls == []
 
 
 def test_reused_worktree_rejects_invalid_base_ancestry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

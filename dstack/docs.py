@@ -11,7 +11,13 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from .output import emit
-from .core import DstackError, read_utf8_text, replace_text_if_unchanged, run
+from .core import (
+    DstackError,
+    _assert_no_symlink_components,
+    read_utf8_text,
+    replace_text_if_unchanged,
+    run,
+)
 
 
 DESIGN_SCAFFOLD = """# Feature design
@@ -50,19 +56,6 @@ RECONCILIATION_SCAFFOLD = """# {title}
 ## Remaining limitations
 """
 
-ALIGNMENT_RECONCILIATION_SCAFFOLD = """# Alignment reconciliation
-
-## Delivered outcome
-
-## Material deviations
-
-## Validation
-
-## Documentation links
-
-## Remaining limitations
-"""
-
 RECORD_SUBJECTS = {
     "feature-design": (
         "Outcome",
@@ -73,13 +66,6 @@ RECORD_SUBJECTS = {
         "Documentation impact",
     ),
     "feature-reconciliation": (
-        "Delivered outcome",
-        "Material deviations",
-        "Validation",
-        "Documentation links",
-        "Remaining limitations",
-    ),
-    "alignment-reconciliation": (
         "Delivered outcome",
         "Material deviations",
         "Validation",
@@ -114,13 +100,6 @@ RECORD_SUBJECT_ALTERNATIVES: dict[str, dict[str, tuple[tuple[str, ...], ...]]] =
         "Validation": (("Validation",), ("Validation and limitations",)),
         "Documentation links": (("Documentation links",), ("Documentation",)),
         "Remaining limitations": (("Remaining limitations",), ("Validation and limitations",)),
-    },
-    "alignment-reconciliation": {
-        "Delivered outcome": (("Delivered outcome",), ("Delivered corrections",)),
-        "Material deviations": (("Material deviations",), ("Architecture integration",)),
-        "Validation": (("Validation",), ("Validation evidence",)),
-        "Documentation links": (("Documentation links",), ("Documentation and operator effects",)),
-        "Remaining limitations": (("Remaining limitations",), ("Remaining findings and limitations",)),
     },
 }
 
@@ -451,8 +430,11 @@ def _book_source_value(book: Path) -> str:
 
 
 def configured_source(root: Path) -> tuple[str, Path]:
+    _assert_no_symlink_components(root, purpose="documentation root")
     root = root.resolve()
-    docs = _inside(root / "docs", root, "documentation directory escapes repository")
+    docs = root / "docs"
+    _assert_no_symlink_components(docs, purpose="documentation directory")
+    docs = _inside(docs, root, "documentation directory escapes repository")
     book = docs / "book.toml"
     if not book.is_file() or book.is_symlink():
         raise DstackError("docs/book.toml must be a regular file")
@@ -487,8 +469,10 @@ def _summary_link_target(raw: str) -> str | None:
 def ensure_core_navigation(root: Path) -> list[str]:
     """Add missing canonical pages without rewriting project-owned navigation."""
 
+    _assert_no_symlink_components(root, purpose="documentation root")
     root = root.resolve()
     summary = root / "docs/src/SUMMARY.md"
+    _assert_no_symlink_components(summary, purpose="mdBook summary")
     if summary.is_symlink() or not summary.is_file():
         raise DstackError("documentation foundation path is not a regular file: docs/src/SUMMARY.md")
 
@@ -531,11 +515,16 @@ def ensure_core_navigation(root: Path) -> list[str]:
 
 
 def create_foundation(root: Path) -> list[str]:
+    _assert_no_symlink_components(root, purpose="documentation root")
     root = root.resolve()
-    created: list[str] = []
-    for relative, content in foundation_files(root.name).items():
+    files = foundation_files(root.name)
+    for relative in files:
         path = root / relative
+        _assert_no_symlink_components(path, purpose="documentation foundation path")
         _inside(path.parent, root, "documentation foundation path escapes repository")
+    created: list[str] = []
+    for relative, content in files.items():
+        path = root / relative
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("x", encoding="utf-8") as handle:
@@ -620,6 +609,7 @@ def validate_decision_records(source: Path) -> list[str]:
 
 
 def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]:
+    _assert_no_symlink_components(root, purpose="documentation root")
     root = root.resolve()
     docs = _inside(root / "docs", root, "documentation directory escapes repository")
     source = _inside(docs / "src", root, "documentation source escapes repository")

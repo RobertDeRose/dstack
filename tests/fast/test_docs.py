@@ -9,7 +9,6 @@ from dstack import docs as dstack_docs
 from dstack.core import CommandResult
 from dstack.commands import DstackError
 from dstack.docs import (
-    ALIGNMENT_RECONCILIATION_SCAFFOLD,
     DESIGN_SCAFFOLD,
     RECORD_SUBJECTS,
     RECONCILIATION_SCAFFOLD,
@@ -71,6 +70,34 @@ def test_foundation_creates_only_missing_required_files_and_is_idempotent(
     assert existing.read_text() == "authored\n"
     assert {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()} == REQUIRED
     assert dstack_docs.create_foundation(root) == []
+
+
+def test_foundation_rejects_symlinked_root_before_any_write(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root = tmp_path / "repo"
+    root.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(DstackError, match="symlink"):
+        dstack_docs.create_foundation(root)
+
+    assert list(outside.iterdir()) == []
+
+
+def test_foundation_rejects_symlinked_component_before_any_write(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    source = root / "docs/src"
+    source.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (source / "architecture").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(DstackError, match="symlink"):
+        dstack_docs.create_foundation(root)
+
+    assert not (root / "docs/book.toml").exists()
+    assert not (source / "SUMMARY.md").exists()
+    assert not (source / "index.md").exists()
 
 
 def test_foundation_extends_existing_summary_without_rewriting_project_navigation(
@@ -146,7 +173,7 @@ def test_record_accepts_specific_applicability_reason(kind: str) -> None:
 def test_record_rejects_placeholders_duplicates_and_reference_links(
     placeholder: str,
 ) -> None:
-    kind = "alignment-reconciliation"
+    kind = "feature-reconciliation"
     text = complete_record(kind)
     with pytest.raises(DstackError, match="placeholder"):
         dstack_docs.validate_record(text + placeholder, kind)
@@ -183,7 +210,6 @@ def test_record_local_links_and_scaffolds_share_the_contract(tmp_path: Path) -> 
     scaffolds = {
         "feature-design": DESIGN_SCAFFOLD.format(planned_intent="Intent.", planned_acceptance="Acceptance."),
         "feature-reconciliation": RECONCILIATION_SCAFFOLD.format(title="Feature"),
-        "alignment-reconciliation": ALIGNMENT_RECONCILIATION_SCAFFOLD,
     }
     for kind, scaffold in scaffolds.items():
         headings = {match.group(2).strip() for match in dstack_docs.HEADING_PATTERN.finditer(scaffold)}

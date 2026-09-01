@@ -4,7 +4,7 @@ import argparse
 from contextlib import contextmanager
 import subprocess
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import pytest
 
@@ -13,7 +13,6 @@ from dstack import delivery as dstack_delivery
 from dstack.commands import DstackError
 from dstack.delivery import (
     commit_with_message,
-    delivered_alignment_evidence_audit,
     delivered_feature_evidence_audit,
     docs_check,
     ensure_clean_candidate,
@@ -124,6 +123,7 @@ def test_delivery_inspect_fetch_holds_repository_mutation_lock(monkeypatch, tmp_
         raise AssertionError(command)
 
     monkeypatch.setattr(dstack_delivery, "run", run)
+
     def inspect(client, selector):
         del client
         if not active:
@@ -342,9 +342,7 @@ def delivered_evidence_view() -> dict:
     }
 
 
-def test_pre_delivery_evidence_allows_no_repository_change_specification(
-    monkeypatch, git_repo: Path
-) -> None:
+def test_pre_delivery_evidence_allows_no_repository_change_specification(monkeypatch, git_repo: Path) -> None:
     view = delivered_evidence_view()
     view["steps"].update(
         {
@@ -591,90 +589,6 @@ def test_delivery_context_keeps_unlabeled_tasks_for_compatibility(monkeypatch, t
     beads.assert_exhausted()
 
 
-def test_active_legacy_alignment_delivery_requires_re_review(monkeypatch, tmp_path: Path) -> None:
-    root = {"id": "alignment-1", "status": "open"}
-    context = {
-        "root": root,
-        "steps": {"analysis": {"id": "analysis-1"}, "corrections": {"id": "corrections-1"}},
-    }
-    beads = ScriptedClient(tmp_path, call("show", "alignment-1", result=root))
-    monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context)
-    monkeypatch.setattr(
-        dstack_delivery,
-        "require_alignment_authorized",
-        lambda *args, **kwargs: (_ for _ in ()).throw(DstackError("alignment requires re-review")),
-    )
-
-    with pytest.raises(DstackError, match="re-review"):
-        dstack_delivery.alignment_delivery_context(beads, "alignment-1")
-    beads.assert_exhausted()
-
-
-def test_alignment_delivery_context_excludes_structural_children(monkeypatch, tmp_path: Path) -> None:
-    root = {"id": "alignment-1", "status": "closed"}
-    steps = {
-        "analysis": {"id": "analysis-1", "status": "closed"},
-        "approval": {"id": "approval-1", "status": "closed"},
-        "corrections": {"id": "corrections-1", "status": "closed"},
-        "landing": {"id": "landing-1", "status": "closed"},
-    }
-    context = {"root": root, "steps": steps}
-    correction = {
-        "id": "correction-1",
-        "issue_type": "task",
-        "labels": ["dstack:work:correction"],
-        "status": "closed",
-    }
-    beads = ScriptedClient(
-        tmp_path,
-        call("show", "alignment-1", result=root),
-        call("show", "correction-1", result=correction),
-    )
-    monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context.copy())
-    monkeypatch.setattr(
-        dstack_delivery,
-        "require_alignment_authorized",
-        lambda client, view, **kwargs: {
-            "steps": steps,
-            "human_gate": {"id": "gate-1", "status": "closed"},
-            "corrections": [{"id": "correction-1"}],
-        },
-    )
-    observed = dstack_delivery.alignment_delivery_context(beads, "alignment-1")
-    assert "baseline_commit" not in observed
-    assert observed["corrections"] == [correction]
-    beads.assert_exhausted()
-
-
-def test_alignment_delivery_context_revalidates_authorization(monkeypatch, tmp_path: Path) -> None:
-    root = {"id": "alignment-1", "status": "open"}
-    steps = {
-        "analysis": {"id": "analysis-1", "status": "closed"},
-        "approval": {"id": "approval-1", "status": "closed"},
-        "corrections": {"id": "corrections-1", "status": "open"},
-        "landing": {"id": "landing-1", "status": "closed"},
-    }
-    context = {"root": root, "steps": steps}
-    beads = ScriptedClient(tmp_path, call("show", "alignment-1", result=root))
-    authorized: list[dict] = []
-    monkeypatch.setattr(dstack_delivery, "alignment_context", lambda client, selector: context.copy())
-
-    def authorize(client, view, **kwargs):
-        authorized.append(view)
-        return {
-            "steps": steps,
-            "human_gate": {"id": "gate-1", "status": "closed"},
-            "corrections": [],
-        }
-
-    monkeypatch.setattr(dstack_delivery, "require_alignment_authorized", authorize)
-
-    observed = dstack_delivery.alignment_delivery_context(beads, "alignment-1")
-
-    assert authorized[0]["root"] == root
-    assert observed["corrections"] == []
-    beads.assert_exhausted()
-
 def test_evidence_audit_command_returns_controller_owned_result(monkeypatch, tmp_path: Path) -> None:
     beads = ScriptedClient(tmp_path)
     monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
@@ -787,342 +701,6 @@ def test_delivery_inspection_switches_to_delivered_target_after_cleanup(
     audited = delivered_feature_evidence_audit(ScriptedClient(git_repo), view)
     for key in ("search_ref", "candidate_revision", "derivation", "evidence_source"):
         assert unrelated["evidence"][key] == audited[key]
-
-
-def alignment_evidence_view(
-    root: dict | None = None,
-    *,
-    corrections: list[dict] | None = None,
-    landing: dict | None = None,
-) -> dict:
-    return {
-        "root": root or {"id": "alignment-1"},
-        "slug": "alignment-audit",
-        "target_branch": "main",
-        "steps": {
-            "analysis": {"id": "analysis-1"},
-            "corrections": {"id": "corrections-1"},
-            "landing": landing or {"id": "landing-1", "status": "closed"},
-        },
-        "corrections": corrections if corrections is not None else [{"id": "correction-1", "status": "closed"}],
-    }
-
-
-def test_alignment_delivery_inspection_uses_target_after_delivery_and_cleanup(
-    monkeypatch: pytest.MonkeyPatch, git_repo: Path
-) -> None:
-    candidate_worktree = git_repo.parent / f"{git_repo.name}.audit-alignment-audit"
-    subprocess.run(
-        [
-            "git",
-            "worktree",
-            "add",
-            "-qb",
-            "audit/alignment-audit",
-            str(candidate_worktree),
-        ],
-        cwd=git_repo,
-        check=True,
-    )
-    commit_with_footer(candidate_worktree, "analysis.md", "analysis", "analysis-1")
-    commit_with_footer(candidate_worktree, "fix.py", "correction", "correction-1")
-    candidate = commit_with_footer(candidate_worktree, "landing.md", "landing", "landing-1")
-    root = {
-        "id": "alignment-1",
-        "issue_type": "molecule",
-        "status": "open",
-        "labels": ["workflow:project-alignment", "audit:alignment-audit"],
-    }
-    view = alignment_evidence_view(root)
-    monkeypatch.setattr(dstack_delivery, "alignment_delivery_context", lambda *args: view)
-    monkeypatch.setattr(dstack_delivery, "require_complete_fan_in", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        dstack_delivery,
-        "docs_check",
-        lambda *args: {"status": "ok", "paths": [], "documentation_paths": []},
-    )
-    monkeypatch.setattr(dstack_delivery, "validate_docs", lambda *args: {"status": "ok"})
-
-    before = dstack_delivery.delivery_inspection(
-        ScriptedClient(
-            git_repo,
-            call("show_optional", "alignment-1", result=root),
-            call("show_optional", "alignment-1", result=root),
-        ),
-        "alignment-1",
-    )
-    assert before["evidence"]["range"] == "main..audit/alignment-audit"
-    assert before["candidate_revision"] == candidate
-
-    subprocess.run(
-        ["git", "merge", "--ff-only", "audit/alignment-audit"],
-        cwd=git_repo,
-        check=True,
-    )
-    root["status"] = "closed"
-    delivered_with_branch = dstack_delivery.delivery_inspection(
-        ScriptedClient(git_repo, call("show_optional", "alignment-1", result=root)),
-        "alignment-1",
-    )
-    assert delivered_with_branch["delivery_state"] == "delivered"
-    assert delivered_with_branch["candidate_revision"] == candidate
-    assert delivered_with_branch["evidence"]["candidate_branch_present"] is True
-
-    subprocess.run(
-        ["git", "worktree", "remove", str(candidate_worktree)],
-        cwd=git_repo,
-        check=True,
-    )
-    subprocess.run(
-        ["git", "branch", "-d", "audit/alignment-audit"],
-        cwd=git_repo,
-        check=True,
-    )
-    delivered_without_branch = dstack_delivery.delivery_inspection(
-        ScriptedClient(git_repo, call("show_optional", "alignment-1", result=root)),
-        "alignment-1",
-    )
-    assert delivered_without_branch["candidate_worktree"] is None
-    assert delivered_without_branch["evidence"]["candidate_branch_present"] is False
-    assert delivered_without_branch["evidence"]["worktree_present"] is False
-
-    subprocess.run(["git", "checkout", "-qb", "unrelated"], cwd=git_repo, check=True)
-    unrelated = dstack_delivery.delivery_inspection(
-        ScriptedClient(git_repo, call("show_optional", "alignment-1", result=root)),
-        "alignment-1",
-    )
-    audited = delivered_alignment_evidence_audit(ScriptedClient(git_repo), view)
-    for key in ("search_ref", "candidate_revision", "derivation", "evidence_source"):
-        assert unrelated["evidence"][key] == audited[key]
-    assert unrelated["evidence"]["search_ref"] == "main"
-    assert unrelated["evidence"]["derivation"] == ("latest reachable landing Beads footer")
-
-
-def test_alignment_without_landing_commit_uses_latest_correction_after_cleanup(
-    monkeypatch: pytest.MonkeyPatch, git_repo: Path
-) -> None:
-    worktree = git_repo.parent / f"{git_repo.name}.audit-alignment-audit"
-    subprocess.run(
-        ["git", "worktree", "add", "-qb", "audit/alignment-audit", str(worktree)],
-        cwd=git_repo,
-        check=True,
-    )
-    candidate = commit_with_footer(worktree, "fix.py", "correction", "correction-1")
-    root = {
-        "id": "alignment-1",
-        "issue_type": "molecule",
-        "status": "open",
-        "labels": ["workflow:project-alignment", "audit:alignment-audit"],
-    }
-    view = alignment_evidence_view(root)
-    monkeypatch.setattr(dstack_delivery, "alignment_delivery_context", lambda *args: view)
-    monkeypatch.setattr(dstack_delivery, "require_complete_fan_in", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        dstack_delivery,
-        "docs_check",
-        lambda *args: {"status": "ok", "paths": [], "documentation_paths": []},
-    )
-    monkeypatch.setattr(dstack_delivery, "validate_docs", lambda *args: {"status": "ok"})
-
-    before = dstack_delivery.delivery_inspection(
-        ScriptedClient(
-            git_repo,
-            call("show_optional", "alignment-1", result=root),
-            call("show_optional", "alignment-1", result=root),
-        ),
-        "alignment-1",
-    )
-    assert before["candidate_revision"] == candidate
-    assert before["evidence"]["derivation"] == ("candidate HEAD with reachable correction Beads footer")
-    (worktree / "unreviewed.py").write_text("unreviewed = True\n")
-    subprocess.run(["git", "add", "unreviewed.py"], cwd=worktree, check=True)
-    subprocess.run(["git", "commit", "-qm", "chore: unreviewed"], cwd=worktree, check=True)
-    with pytest.raises(DstackError, match="post-alignment correction"):
-        dstack_delivery.delivery_inspection(
-            ScriptedClient(
-                git_repo,
-                call("show_optional", "alignment-1", result=root),
-                call("show_optional", "alignment-1", result=root),
-            ),
-            "alignment-1",
-        )
-    subprocess.run(["git", "reset", "--hard", candidate], cwd=worktree, check=True)
-
-    subprocess.run(
-        ["git", "merge", "--ff-only", "audit/alignment-audit"],
-        cwd=git_repo,
-        check=True,
-    )
-    root["status"] = "closed"
-    subprocess.run(["git", "worktree", "remove", str(worktree)], cwd=git_repo, check=True)
-    subprocess.run(["git", "branch", "-d", "audit/alignment-audit"], cwd=git_repo, check=True)
-    (git_repo / "later.py").write_text("later = True\n")
-    subprocess.run(["git", "add", "later.py"], cwd=git_repo, check=True)
-    subprocess.run(["git", "commit", "-qm", "chore: advance target"], cwd=git_repo, check=True)
-
-    after = dstack_delivery.delivery_inspection(
-        ScriptedClient(git_repo, call("show_optional", "alignment-1", result=root)),
-        "alignment-1",
-    )
-    assert after["candidate_revision"] == candidate
-    assert after["evidence"]["candidate_branch_present"] is False
-    assert after["evidence"]["evidence_source"] == candidate
-
-
-def test_no_repository_change_alignment_has_no_git_candidate(monkeypatch: pytest.MonkeyPatch, git_repo: Path) -> None:
-    worktree = git_repo.parent / f"{git_repo.name}.audit-alignment-audit"
-    subprocess.run(
-        ["git", "worktree", "add", "-qb", "audit/alignment-audit", str(worktree)],
-        cwd=git_repo,
-        check=True,
-    )
-    root = {
-        "id": "alignment-1",
-        "issue_type": "molecule",
-        "status": "open",
-        "labels": ["workflow:project-alignment", "audit:alignment-audit"],
-    }
-    view = alignment_evidence_view(
-        root,
-        corrections=[
-            {
-                "id": "correction-1",
-                "status": "closed",
-                "close_reason": "no-repository-change: analysis only",
-            }
-        ],
-        landing={
-            "id": "landing-1",
-            "status": "closed",
-            "close_reason": "Alignment landing completed",
-        },
-    )
-    monkeypatch.setattr(dstack_delivery, "alignment_delivery_context", lambda *args: view)
-    monkeypatch.setattr(dstack_delivery, "require_complete_fan_in", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        dstack_delivery,
-        "docs_check",
-        lambda *args: {"status": "ok", "paths": [], "documentation_paths": []},
-    )
-    monkeypatch.setattr(dstack_delivery, "validate_docs", lambda *args: {"status": "ok"})
-
-    before = dstack_delivery.delivery_inspection(
-        ScriptedClient(
-            git_repo,
-            call("show_optional", "alignment-1", result=root),
-            call("show_optional", "alignment-1", result=root),
-        ),
-        "alignment-1",
-    )
-    assert before["candidate_revision"] is None
-    assert before["candidate_head"] == current_head(git_repo)
-    assert before["evidence"]["candidate_revision"] is None
-    assert before["evidence"]["evidence_source"] is None
-    assert before["evidence"]["derivation"] == "no repository change"
-
-    (worktree / "unexpected.py").write_text("unexpected = True\n")
-    subprocess.run(["git", "add", "unexpected.py"], cwd=worktree, check=True)
-    subprocess.run(["git", "commit", "-qm", "chore: unexpected"], cwd=worktree, check=True)
-    with pytest.raises(DstackError, match="no-repository-change"):
-        dstack_delivery.delivery_inspection(
-            ScriptedClient(
-                git_repo,
-                call("show_optional", "alignment-1", result=root),
-                call("show_optional", "alignment-1", result=root),
-            ),
-            "alignment-1",
-        )
-    subprocess.run(["git", "reset", "--hard", "main"], cwd=worktree, check=True)
-
-    root["status"] = "closed"
-    subprocess.run(["git", "worktree", "remove", str(worktree)], cwd=git_repo, check=True)
-    subprocess.run(["git", "branch", "-d", "audit/alignment-audit"], cwd=git_repo, check=True)
-    after = delivered_alignment_evidence_audit(ScriptedClient(git_repo), view)
-    assert after["candidate_revision"] is None
-    assert after["no_repository_change"] == ["correction-1"]
-
-
-def test_delivered_alignment_rejects_missing_correction_evidence(
-    git_repo: Path,
-) -> None:
-    commit_with_footer(git_repo, "fix.py", "correction", "correction-1")
-    view = alignment_evidence_view(
-        corrections=[
-            {"id": "correction-1", "status": "closed"},
-            {"id": "correction-2", "status": "closed"},
-        ],
-    )
-
-    with pytest.raises(DstackError, match="unavailable.*correction-2"):
-        delivered_alignment_evidence_audit(ScriptedClient(git_repo), view)
-
-
-def test_delivered_alignment_accepts_sequential_landing_fixups(
-    git_repo: Path,
-) -> None:
-    commit_with_footer(git_repo, "fix.py", "correction", "correction-1")
-    commit_with_footer(git_repo, "landing.md", "landing", "landing-1")
-    latest = commit_with_footer(git_repo, "landing-fix.md", "landing fix", "landing-1")
-
-    audit = delivered_alignment_evidence_audit(ScriptedClient(git_repo), alignment_evidence_view())
-
-    assert audit["status"] == "ok"
-    assert audit["candidate_revision"] == latest
-
-
-def test_delivered_alignment_rejects_nonlinear_correction_evidence(
-    git_repo: Path,
-) -> None:
-    subprocess.run(["git", "checkout", "-qb", "side"], cwd=git_repo, check=True)
-    commit_with_footer(git_repo, "side.py", "side correction", "correction-1")
-    subprocess.run(["git", "checkout", "main"], cwd=git_repo, check=True)
-    commit_with_footer(git_repo, "main.py", "main correction", "correction-2")
-    subprocess.run(["git", "merge", "--no-ff", "side", "-m", "merge corrections"], cwd=git_repo, check=True)
-    view = alignment_evidence_view(
-        corrections=[
-            {"id": "correction-1", "status": "closed"},
-            {"id": "correction-2", "status": "closed"},
-        ],
-    )
-
-    with pytest.raises(DstackError, match="nonlinear"):
-        delivered_alignment_evidence_audit(ScriptedClient(git_repo), view)
-
-
-def test_delivered_alignment_rejects_footer_after_landing_candidate(
-    git_repo: Path,
-) -> None:
-    commit_with_footer(git_repo, "analysis.md", "analysis", "analysis-1")
-    commit_with_footer(git_repo, "fix.py", "correction", "correction-1")
-    commit_with_footer(git_repo, "landing.md", "landing", "landing-1")
-    commit_with_footer(git_repo, "later.py", "wrong source", "correction-1")
-
-    audit = delivered_alignment_evidence_audit(ScriptedClient(git_repo), alignment_evidence_view())
-
-    assert audit["status"] == "issues"
-    assert audit["wrong_source_footer_ids"] == ["correction-1"]
-
-
-def test_delivered_alignment_rejects_inconsistent_target_histories(
-    git_repo: Path,
-) -> None:
-    commit_with_footer(git_repo, "analysis.md", "analysis", "analysis-1")
-    commit_with_footer(git_repo, "fix.py", "correction", "correction-1")
-    commit_with_footer(git_repo, "landing.md", "landing", "landing-1")
-    subprocess.run(["git", "checkout", "-qb", "other", "HEAD~1"], cwd=git_repo, check=True)
-    other = commit_with_footer(git_repo, "other.md", "other landing", "landing-1")
-    subprocess.run(
-        ["git", "update-ref", "refs/remotes/origin/main", other],
-        cwd=git_repo,
-        check=True,
-    )
-    subprocess.run(["git", "checkout", "main"], cwd=git_repo, check=True)
-
-    with pytest.raises(DstackError, match="unavailable or inconsistent"):
-        delivered_alignment_evidence_audit(
-            ScriptedClient(git_repo),
-            alignment_evidence_view(),
-        )
 
 
 def test_delivery_inspect_and_preflight_validate_observed_candidate(monkeypatch, tmp_path: Path) -> None:
@@ -1719,9 +1297,62 @@ def test_delivery_merge_rechecks_candidate_after_target_preparation(monkeypatch,
     beads.assert_exhausted()
 
 
-def test_delivery_merge_rechecks_candidate_immediately_before_git_mutation(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_delivery_merge_checks_pr_gate_after_final_git_snapshot(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    candidate = tmp_path / "candidate"
+    target.mkdir()
+    candidate.mkdir()
+    observed = payload(
+        root={"id": "feature-1"},
+        target_worktree=str(target),
+        candidate_worktree=str(candidate),
+        candidate_branch="feat/feature",
+        candidate_head="candidate-head",
+        target_head="target-head",
+    )
+    events: list[str] = []
+    beads = ScriptedClient(tmp_path)
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
+
+    @contextmanager
+    def unlocked(root):
+        del root
+        yield
+
+    monkeypatch.setattr(dstack_delivery, "repository_mutation_lock", unlocked)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: observed)
+    monkeypatch.setattr(dstack_delivery, "validate_delivery", lambda *args, **kwargs: None)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: events.append("clean"))
+    monkeypatch.setattr(
+        dstack_delivery,
+        "ensure_clean_candidate",
+        lambda *args: events.append("candidate") or "candidate-head",
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "pr_gate_state",
+        lambda *args: events.append("gate") or {"all": [], "active": []},
+    )
+    heads = iter(["target-head", "target-head", "candidate-head"])
+    monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
+    monkeypatch.setattr(
+        dstack_delivery,
+        "finalize_beads_without_git_mutation",
+        lambda *args, **kwargs: events.append("finalize") or ("candidate-head", ""),
+    )
+
+    def run(command, **kwargs):
+        del kwargs
+        if command[:2] == ["git", "merge"]:
+            assert events[-1] == "gate"
+            events.append("merge")
+        return CommandResult(0, "", "")
+
+    monkeypatch.setattr(dstack_delivery, "run", run)
+    assert dstack_delivery.cmd_delivery_merge(argparse.Namespace(root=tmp_path, selector="feature-1")) == 0
+
+
+def test_delivery_merge_rechecks_candidate_immediately_before_git_mutation(monkeypatch, tmp_path: Path) -> None:
     target = tmp_path / "target"
     candidate = tmp_path / "candidate"
     target.mkdir()
@@ -1794,7 +1425,7 @@ def test_delivery_merge_checks_post_delivery_git_invariant(monkeypatch, tmp_path
         lambda *args: {"all": [], "active": []},
     )
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
-    heads = iter(["candidate-head", "target-head", "candidate-head", "candidate-head", "candidate-head"])
+    heads = iter(["candidate-head", "target-head", "candidate-head", "target-head", "candidate-head", "candidate-head"])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
     monkeypatch.setattr(
         dstack_delivery,
@@ -1849,9 +1480,9 @@ def test_delivery_merge_rejects_git_mutation_during_finalization(
         lambda *args: {"all": [], "active": []},
     )
     monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda path: None)
-    heads = iter(["candidate-head", "target-head", "candidate-head", "candidate-head", after_head])
+    heads = iter(["candidate-head", "target-head", "candidate-head", "target-head", "candidate-head", after_head])
     monkeypatch.setattr(dstack_delivery, "current_head", lambda *args: next(heads))
-    statuses = iter(["", after_status])
+    statuses = iter(["", "", after_status])
 
     def run(command, **kwargs):
         output = next(statuses) if command[1:3] == ["status", "--short"] else ""
@@ -1904,9 +1535,7 @@ def test_finalize_pr_rechecks_candidate_before_beads_finalization(monkeypatch, t
     monkeypatch.setattr(dstack_delivery, "run", lambda *args, **kwargs: CommandResult(0, "", ""))
 
     with pytest.raises(DstackError, match="candidate HEAD changed before finalization"):
-        dstack_delivery.cmd_delivery_finalize_pr(
-            argparse.Namespace(root=tmp_path, selector="feature-1")
-        )
+        dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1"))
     beads.assert_exhausted()
 
 
@@ -1938,9 +1567,7 @@ def test_finalize_pr_rechecks_gate_before_beads_finalization(monkeypatch, tmp_pa
     monkeypatch.setattr(dstack_delivery, "run", lambda *args, **kwargs: CommandResult(0, "", ""))
 
     with pytest.raises(DstackError, match="PR gate changed before finalization"):
-        dstack_delivery.cmd_delivery_finalize_pr(
-            argparse.Namespace(root=tmp_path, selector="feature-1")
-        )
+        dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1"))
     beads.assert_exhausted()
 
 
@@ -2040,6 +1667,65 @@ def test_finalize_pr_rechecks_candidate_after_fetch_and_target_preparation(monke
     )
     with pytest.raises(DstackError, match="candidate HEAD changed"):
         dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1"))
+    beads.assert_exhausted()
+
+
+def test_finalize_pr_rebuilds_and_revalidates_view_after_fetch(monkeypatch, tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    target = tmp_path / "target"
+    candidate.mkdir()
+    target.mkdir()
+    gate = {"id": "gate-1", "status": "closed", "await_type": "gh:pr"}
+    first = payload(
+        root={"id": "feature-1"},
+        target_head="remote",
+        candidate_head="stale",
+        candidate_worktree=str(candidate),
+    )
+    fresh = payload(
+        root={"id": "feature-1"},
+        target_head="remote",
+        candidate_head="fresh",
+        candidate_worktree=str(candidate),
+    )
+    beads = ScriptedClient(
+        tmp_path,
+        call("gate_check", result=[]),
+        call("gate_check", result=[]),
+        call("show", "feature-1", result={"id": "feature-1", "status": "closed"}),
+    )
+    views = iter([first, fresh])
+    validated: list[Mapping[str, object]] = []
+    monkeypatch.setattr(dstack_delivery, "client_for", lambda root, **kwargs: beads)
+    monkeypatch.setattr(dstack_delivery, "delivery_view", lambda *args: next(views))
+    monkeypatch.setattr(
+        dstack_delivery,
+        "validate_delivery",
+        lambda observed, **kwargs: validated.append(observed),
+    )
+    monkeypatch.setattr(dstack_delivery, "unique_pr_gate", lambda *args: gate)
+    monkeypatch.setattr(dstack_delivery, "worktree_for_branch", lambda *args: target)
+    monkeypatch.setattr(dstack_delivery, "ensure_clean_worktree", lambda *args: None)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "ensure_clean_candidate",
+        lambda _root, observed: "fresh" if observed is fresh else pytest.fail("stale view used"),
+    )
+    monkeypatch.setattr(dstack_delivery, "ancestry", lambda *args: True)
+    monkeypatch.setattr(
+        dstack_delivery,
+        "current_head",
+        lambda root, ref="HEAD": "remote" if ref != "HEAD" else "remote",
+    )
+    monkeypatch.setattr(
+        dstack_delivery,
+        "finalize_beads_without_git_mutation",
+        lambda *args, **kwargs: ("remote", ""),
+    )
+    monkeypatch.setattr(dstack_delivery, "run", lambda *args, **kwargs: CommandResult(0, "", ""))
+
+    assert dstack_delivery.cmd_delivery_finalize_pr(argparse.Namespace(root=tmp_path, selector="feature-1")) == 0
+    assert validated == [first, fresh]
     beads.assert_exhausted()
 
 

@@ -20,6 +20,7 @@ from .core import (
     BeadsClient,
     DstackError,
     FEATURE_STEPS,
+    _assert_no_symlink_components,
     ancestry,
     blocker_ids,
     branch_exists,
@@ -184,6 +185,7 @@ def ensure_branch_worktree(
         return branch, resolved, created_branch, created_worktree
 
     worktree = conventional_worktree(client.root, branch)
+    _assert_no_symlink_components(worktree, purpose="worktree")
     if worktree.exists():
         raise DstackError(f"conventional worktree path exists but is not registered for {branch}: {worktree}")
 

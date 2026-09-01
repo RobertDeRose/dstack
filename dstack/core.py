@@ -316,8 +316,7 @@ def git_root(path: Path) -> Path:
 def safe_repository_path(root: Path, relative: str | Path, *, purpose: str = "repository path") -> Path:
     """Return a contained repository path without following symlink components."""
 
-    if Path(root).is_symlink():
-        raise DstackError(f"{purpose} must not use a symlinked root: {root}")
+    _assert_no_symlink_components(root, purpose=f"{purpose} root")
     repository = root.resolve()
     candidate_relative = Path(relative)
     if not str(relative).strip() or candidate_relative.is_absolute() or ".." in candidate_relative.parts:
@@ -500,6 +499,7 @@ def replace_text_if_unchanged(
 ) -> bool:
     """Atomically replace UTF-8 text only when its observed bytes are unchanged."""
 
+    _assert_no_symlink_components(path, purpose=purpose)
     try:
         if path.is_symlink():
             raise DstackError(f"{purpose} must not be a symlink: {path}")
@@ -515,6 +515,7 @@ def replace_text_if_unchanged(
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        _assert_no_symlink_components(path, purpose=purpose)
         if path.is_symlink():
             raise DstackError(f"{purpose} must not be a symlink: {path}")
         mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
@@ -854,23 +855,28 @@ class BeadsClient:
         try:
             self._run(["bd", "supersede", old_id, "--with", new_id])
         except DstackError as exc:
-            observed = self.show_optional(old_id)
-            if (
-                observed is not None
-                and observed.get("status") == "closed"
-                and new_id in supersession_targets(observed)
-            ):
+            try:
+                observed = self.show_optional(old_id)
+            except DstackError as reread_error:
+                raise DstackError(
+                    f"supersession outcome is uncertain for {old_id} -> {new_id}; native reread failed: {reread_error}"
+                ) from reread_error
+            if observed is not None and observed.get("status") == "closed" and new_id in supersession_targets(observed):
                 return
             observed_status = observed.get("status") if observed is not None else "missing"
             raise DstackError(
                 f"supersession outcome is uncertain for {old_id} -> {new_id}; "
                 f"retained native status={observed_status!r}: {exc}"
             ) from exc
-        observed = self.show(old_id)
-        if observed.get("status") != "closed" or new_id not in supersession_targets(observed):
+        try:
+            observed = self.show(old_id)
+        except DstackError as reread_error:
             raise DstackError(
-                f"supersession outcome is ambiguous and retained for inspection: {old_id} -> {new_id}"
-            )
+                f"supersession outcome is uncertain for {old_id} -> {new_id}; "
+                f"verification reread failed: {reread_error}"
+            ) from reread_error
+        if observed.get("status") != "closed" or new_id not in supersession_targets(observed):
+            raise DstackError(f"supersession outcome is ambiguous and retained for inspection: {old_id} -> {new_id}")
 
     def gate_check(self) -> builtins.list[dict[str, Any]]:
         """Evaluate native gates and return their refreshed state."""
@@ -1203,85 +1209,6 @@ def feature_view(client: BeadsClient, selector: str | None, *, verbose: bool = F
     result["worktree"] = str(worktree) if worktree is not None else None
     return result
 
-def alignment_slug(issue: Mapping[str, Any]) -> str | None:
-    values = alignment_identity_values(issue)
-    return next(iter(values)) if len(values) == 1 else None
-
-
-def alignment_roots(client: BeadsClient) -> list[dict[str, Any]]:
-    return alignment_roots_from_inventory(client.list(all_statuses=True))
-
-
-def resolve_alignment(client: BeadsClient, selector: str) -> dict[str, Any]:
-    exact = client.show_optional(selector)
-    if exact is not None:
-        if is_alignment_root(exact):
-            return exact
-        if has_label(exact, "workflow:project-alignment") or alignment_identity_values(exact):
-            raise DstackError(f"Bead {selector} is not a project-alignment workflow root")
-    normalized = normalize_title(selector)
-    candidates = [
-        item
-        for item in alignment_roots(client)
-        if (alignment_slug(item) or "").casefold() == selector.casefold()
-        or normalize_title(str(item.get("title", ""))) == normalized
-    ]
-    if len(candidates) != 1:
-        raise DstackError(
-            f"alignment selector resolved to {len(candidates)} roots: "
-            + ", ".join(str(item.get("id")) for item in candidates)
-        )
-    return candidates[0]
-
-
-def alignment_context(client: BeadsClient, selector: str) -> dict[str, Any]:
-    """Return stable alignment identity and steps without dashboard queries."""
-
-    root = resolve_alignment(client, selector)
-    children = client.children(str(root["id"]))
-    return {
-        "root": root,
-        "slug": alignment_slug(root),
-        "steps": {name: step_by_label(children, label) for name, label in ALIGNMENT_STEPS.items()},
-        "target_branch": root_metadata_value(root, "dstack.target_branch", "target_branch"),
-        "scope": root_metadata_value(root, "dstack.scope", "scope"),
-    }
-
-
-def alignment_view(client: BeadsClient, selector: str, *, verbose: bool = False) -> dict[str, Any]:
-    """Return native alignment records plus deterministic Git/worktree facts.
-
-    Beads owns readiness and selection; this function deliberately does not
-    infer a next correction or lifecycle boundary.
-    """
-
-    result = alignment_context(client, selector)
-    root = result["root"]
-    branch = f"audit/{result['slug']}" if result.get("slug") else None
-    worktree = worktree_for_branch(client.root, branch) if branch is not None else None
-
-    if not verbose:
-        return {
-            "root": root,
-            "branch": branch,
-            "worktree": str(worktree) if worktree is not None else None,
-        }
-
-    steps = result["steps"]
-    human_gate = human_gate_for_step(
-        client,
-        root_id=str(root["id"]),
-        step=steps["approval"],
-    )
-    result.update(
-        {
-            "human_gate": human_gate,
-            "corrections": client.children(str(steps["corrections"]["id"])),
-            "branch": branch,
-            "worktree": str(worktree) if worktree is not None else None,
-        }
-    )
-    return result
 
 def worktree_records(root: Path) -> list[dict[str, str | bool]]:
     output = run(["git", "worktree", "list", "--porcelain"], cwd=root).stdout
@@ -1401,6 +1328,15 @@ def verify_worktree_identity(
     resolved = worktree.resolve()
     if conventional and resolved != expected:
         raise DstackError(f"worktree for {branch} must use conventional path {expected}: {resolved}")
+    try:
+        expected_common = git_common_dir(root)
+        actual_common = git_common_dir(resolved)
+    except DstackError as exc:
+        raise DstackError(f"worktree repository identity is unavailable for {branch}: {resolved}") from exc
+    if actual_common != expected_common:
+        raise DstackError(
+            f"worktree repository identity mismatch for {branch}: expected={expected_common}, actual={actual_common}"
+        )
     top = run(["git", "rev-parse", "--show-toplevel"], cwd=resolved, check=False)
     actual_branch = run(
         ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],

@@ -407,18 +407,14 @@ def test_close_reconciles_a_committed_mutation_after_native_error(
     assert calls[-1] == ("bd", "show", "task-1", "--json")
 
 
-def test_supersede_reconciles_committed_native_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_supersede_reconciles_committed_native_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     states = iter(
         [
             {"id": "idea-1", "status": "open"},
             {
                 "id": "idea-1",
                 "status": "closed",
-                "dependencies": [
-                    {"type": "superseded-by", "depends_on_id": "feature-1"}
-                ],
+                "dependencies": [{"type": "superseded-by", "depends_on_id": "feature-1"}],
             },
         ]
     )
@@ -435,9 +431,27 @@ def test_supersede_reconciles_committed_native_error(
     client(tmp_path).supersede("idea-1", "feature-1")
 
 
-def test_supersede_retains_unconfirmed_native_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_supersede_reports_uncertain_verification_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(command, *, cwd, check=True, **kwargs):
+        del cwd, check, kwargs
+        calls.append(tuple(command))
+        if command[:2] == ["bd", "show"]:
+            if len([item for item in calls if item[:2] == ("bd", "show")]) == 1:
+                return dstacklib.CommandResult(0, json.dumps([{"id": "idea-1", "status": "open"}]), "")
+            return dstacklib.CommandResult(1, "", "database unavailable")
+        if command[:2] == ["bd", "supersede"]:
+            return dstacklib.CommandResult(0, "", "")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(dstacklib, "run", fake_run)
+    with pytest.raises(dstacklib.DstackError, match="supersession outcome is uncertain.*verification"):
+        client(tmp_path).supersede("idea-1", "feature-1")
+    assert not any(command[:2] in {("bd", "delete"), ("bd", "reopen")} for command in calls)
+
+
+def test_supersede_retains_unconfirmed_native_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     states = iter(
         [
             {"id": "idea-1", "status": "open"},
