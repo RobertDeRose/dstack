@@ -53,6 +53,8 @@ def _step_map(formula: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
 def validate_formula_contract(formula: Mapping[str, Any]) -> None:
     if formula.get("formula") != FORMULA_NAME:
         raise DstackError(f"formula must be named {FORMULA_NAME}")
+    if formula.get("version") != 2:
+        raise DstackError("dstack-feature formula version must be 2")
     if formula.get("type") != "workflow" or formula.get("phase") != "liquid" or formula.get("pour") is not True:
         raise DstackError("dstack-feature must be a persistent poured workflow")
     steps = _step_map(formula)
@@ -65,8 +67,13 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
     gate = steps["approval"].get("gate")
     if not isinstance(gate, dict) or gate.get("type") != "human":
         raise DstackError("approval must use a native human gate")
-    if list(steps["implementation"].get("needs") or []) != ["approval"]:
-        raise DstackError("implementation must depend on approval")
+    if steps["implementation"].get("type") != "epic":
+        raise DstackError("implementation must be a structural epic")
+    if steps["implementation"].get("needs") or steps["implementation"].get("depends_on"):
+        raise DstackError(
+            "implementation epic must not use blocking dependencies; "
+            "reviewed child tasks depend on approval"
+        )
     if list(steps["audit"].get("needs") or []) != ["approval"]:
         raise DstackError("audit must depend on approval")
     if steps["audit"].get("waits_for") != "children-of(implementation)":

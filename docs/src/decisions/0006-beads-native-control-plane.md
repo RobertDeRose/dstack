@@ -17,6 +17,10 @@ One persistent Beads molecule owns planning, independent review, human approval,
 implementation tasks, and final audit. Native dependencies, gates, claims, and
 ready-work output are authoritative.
 
+The implementation epic is structural. Beads enforces same-kind `blocks` edges,
+so the task-shaped approval milestone blocks each implementation task directly;
+it does not block the epic container.
+
 dStack is limited to deterministic formula installation, branch/worktree policy,
 plan/task validation, commit formatting, reachable evidence checks, documentation
 validation, and read-only audit evidence. Skills ask questions and make semantic

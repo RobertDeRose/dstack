@@ -28,10 +28,11 @@ One persistent Beads molecule represents a feature:
 plan -> review -> human approval -> implementation tasks -> audit
 ```
 
-The formula creates five fixed steps. Review creates ordinary implementation
-Beads under the implementation epic. Every implementation task explicitly
-blocks the audit, so Beads remains authoritative even when dynamic formula
-fan-in is unavailable or incomplete in a supported Beads release.
+The formula creates five fixed steps. The implementation epic is only a
+structural container: Beads does not permit a task-shaped approval milestone to
+block an epic. Review therefore makes every implementation child depend directly
+on approval and explicitly block the audit. Beads remains authoritative even
+when dynamic formula fan-in is unavailable or incomplete in a supported release.
 
 The four installed skills are:
 

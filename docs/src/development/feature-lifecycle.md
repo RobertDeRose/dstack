@@ -8,9 +8,11 @@
 plan -> review -> approval -> implementation -> audit
 ```
 
-Approval has a native human gate. The implementation step is an epic containing
-dynamic tasks. The audit uses formula fan-in and each reviewed task also has an
-explicit native blocker to the audit.
+Approval has a native human gate. The implementation step is a structural epic
+containing dynamic tasks. It intentionally has no blocking dependency on the
+task-shaped approval milestone because Beads 1.2.2 rejects task/epic `blocks`
+edges. Each reviewed child task depends directly on approval and explicitly
+blocks audit; the audit also retains formula fan-in over those children.
 
 ## Planning
 

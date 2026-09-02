@@ -12,8 +12,11 @@ from dstack.core import CommandResult, DstackError
 def test_packaged_formula_has_one_native_five_step_graph() -> None:
     formula = subject.load_formula()
     assert formula["formula"] == "dstack-feature"
+    assert formula["version"] == 2
     assert [step["id"] for step in formula["steps"]] == list(subject.EXPECTED_STEPS)
     assert formula["steps"][2]["gate"]["type"] == "human"
+    assert formula["steps"][3]["type"] == "epic"
+    assert "needs" not in formula["steps"][3]
     assert formula["steps"][4]["waits_for"] == "children-of(implementation)"
 
 
@@ -21,6 +24,13 @@ def test_formula_contract_rejects_controller_owned_phase() -> None:
     formula = deepcopy(subject.load_formula())
     formula["steps"].append({"id": "delivery", "title": "Implicit controller phase"})
     with pytest.raises(DstackError, match="steps must be exactly"):
+        subject.validate_formula_contract(formula)
+
+
+def test_formula_contract_rejects_cross_type_implementation_blocker() -> None:
+    formula = deepcopy(subject.load_formula())
+    formula["steps"][3]["needs"] = ["approval"]
+    with pytest.raises(DstackError, match="must not use blocking dependencies"):
         subject.validate_formula_contract(formula)
 
 

@@ -6,7 +6,7 @@ Beads owns every durable workflow transition. The molecule records planning,
 independent plan review, human approval, implementation work, and final drift
 audit. dStack supplies only deterministic repository mechanics and validators.
 """
-version = 1
+version = 2
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -87,13 +87,13 @@ id = "implementation"
 title = "Implementation work for {{feature_title}}"
 type = "epic"
 priority = 1
-needs = ["approval"]
 labels = ["dstack:step:implementation"]
 description = """
-Container for reviewed implementation tasks. Each task is a native child Bead,
-is blocked by the approval milestone, explicitly blocks the final audit, and
-owns any code, tests, configuration, and current documentation needed for its
-accepted outcome.
+Structural container for reviewed implementation tasks. Beads 1.2.2 rejects
+blocking dependencies between task and epic issue types, so this epic has no
+approval dependency. Each native child task is blocked by the task-shaped
+approval milestone, explicitly blocks the final audit, and owns any code,
+tests, configuration, and current documentation needed for its accepted outcome.
 """
 
 [[steps]]

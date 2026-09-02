@@ -89,6 +89,10 @@ explicit audit blockers keep Beads authoritative even on versions where dynamic
 `children-of(...)` fan-in is incomplete. Reuse matching existing tasks when
 resuming; do not duplicate them after interruption.
 
+Do not add a blocking dependency between the approval task and the implementation
+epic. Beads 1.2.2 rejects task/epic `blocks` edges; approval belongs on each
+task-shaped implementation child as shown above.
+
 Close the review step after the plan and task graph are internally consistent.
 Then present the reviewed plan, task graph, risks, and decisions to the user.
 Invocation is not approval.
