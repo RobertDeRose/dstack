@@ -1,80 +1,87 @@
-# dStack repository contract
+# dStack agent contract
 
-Read `docs/src/development/index.md` and `docs/src/architecture/index.md` before changing workflow
-architecture.
+## Authority
 
-## Authorities
+Beads is the sole authority for workflow state, questions, decisions, tasks,
+dependencies, gates, claims, readiness, and completion. Git is the authority for
+repository content and history. Current repository documentation is the
+published description of current behavior.
 
-- Beads: work, dependencies, gates, ready/blocked/closed state, decisions.
-- Git: code, tests, configuration, durable docs, commits, delivery history.
-- Documentation: stable product and architecture intent.
-- `dstack` CLI: stateless deterministic orchestration only.
-- Pi skills/agents: engineering judgment and user interaction.
+dStack is not a workflow engine. Do not add a task database, lifecycle enum,
+phase detector, ready-work calculation, branch registry, worktree registry,
+commit-SHA map, handoff packet, migration ledger, or custom coordination
+protocol.
 
-## Non-negotiable constraints
+## Workflow
 
-- KISS and YAGNI are release requirements.
-- Do not add a dStack database, state file, packet protocol, scheduler, ready calculation,
-  dependency graph, ownership ledger, reviewer topology, or CI/PR poller.
-- Stateless helpers are encouraged for repeatable mechanics. They must query Beads/Git each time,
-  use native operations, be idempotent, and persist no custom state.
-- Never store Git commit identities in Beads as implementation, delivery, task, evidence, or
-  bookkeeping mappings. Commits reference work only through `Beads: <id>` footers.
-- Do not store Git revisions or repository snapshots in Beads. Project audits are read-only agent analysis; accepted
-  corrections use ordinary feature intent and implementation children.
-- Do not store branch/worktree paths or Git-history mirrors in Beads.
-- Do not duplicate feature identity on children when parentage/root labels already establish it.
-- Do not put transient lifecycle state, Beads IDs, branches, commits, gates, or next commands in
-  user/developer documentation.
-- Implementation tasks do not create documentation or reconciliation work; each feature has one final closeout
-  reconciliation.
-- Durable `planned`, `implemented`, and `deprecated` product classification is allowed. It must be
-  part of the candidate before delivery.
-- During normal delivery, Beads finalization must not mutate the delivered Git state or create a
-  post-merge bookkeeping commit. Explicit user-authorized recovery after a failed or incorrect
-  delivery is a separate native Git operation.
-- Do not require a Git commit when specification review changes no repository content; design
-  approval is a content digest.
-- Do not claim independent review without a separate reviewer session.
-- No finite review counter may override explicit user authorization.
-- There is no setup or adoption repair workflow; normal commands never rewrite historical topology.
+Use the native `dstack-feature` molecule:
 
-## Formula constraints
+```text
+plan -> review -> human approval -> implementation children -> audit
+```
 
-**Central rule:** formulas define how dStack creates and reviews new work; they are not schemas that existing work must
-migrate to. Historical feature graphs remain valid execution records and are never normalized merely because dStack or
-a formula changed.
+Start and resume work from native Beads queries. A skill may filter the ready
+queue by parent and label, but it must not recalculate readiness or override a
+native blocker.
 
-Formulas contain only the stable four-step lifecycle skeleton and a semantic contract version. Dynamic product work is
-ordinary child Beads. Packaged formulas are authoritative; native pours expose the packaged source only for the pour and
-restore any historical tracked formula copy unchanged. No persistent formula cache becomes repository authority.
-Formula-version drift never makes native-ready work in an already approved graph ineligible. When an approved active
-feature is explicitly reviewed under a newer or unknown contract, the review skill compares the existing approved intent
-with the current semantic contract without creating, reopening, relabeling, or rewiring Beads. A no-change audit only
-stamps the permitted contract version on the feature root; a material design/task/dependency delta requires renewed user
-approval and reuses the existing specification/approval boundary. Compare semantic coverage, not task names or topology.
+Planning must perform an explicit ambiguity pass and ask the user material
+product, architecture, compatibility, operational, or security questions before
+closing the plan. Questions, answers, decisions, rationale, and acceptance
+criteria belong in Beads.
 
-Use a task-sized approval milestone and native `children-of(...)` fan-in. Do not encode reviewer seats or delivery
-ceremony. Do not add formula-migration state, historical graph normalization, or setup/recovery workflows.
+Review compares the plan against current code, tests, documentation, and prior
+decisions. It creates bounded native implementation tasks and explicit `blocks`
+dependencies. Invocation is not approval; the formula-generated human gate is
+resolved only after explicit user approval.
 
-## Installed CLI and Pi resource constraints
+Implementation claims one native ready task. Code, tests, configuration, and the
+current documentation describing the changed behavior belong to the same task.
+The audit step detects implementation, documentation, plan, and decision drift.
+Ambiguous authority requires a human gate and a targeted user question.
 
-`dstack` is a normal Python tool installed with `uv tool install`; controller code lives in the top-level `dstack/`
-package, never inside a skill. `dstack install_skills` owns installation of dStack prompt templates and decision skills
-into Pi. The stable cross-workflow guardrails are installed as a managed block in Pi's `APPEND_SYSTEM.md`; there is no
-`dstack-beads-core` skill.
+## Deterministic mechanics
 
-Public slash commands are prompt aliases. Decision skills stay under the `dstack-beads-*` namespace and call `dstack ctl
-...` from `PATH`. Keep skills short and decision-oriented; exact mechanical choreography belongs in the tested CLI.
-The installer may overwrite dStack-owned prompt/skill names and its own marked system-prompt block, but must preserve
-unrelated user Pi configuration and system-prompt content. `/project-audit` is a read-only prompt alias; it presents a
-corrective feature proposal and never creates an audit workflow.
+`dstack ctl` may:
 
-## Release checks
+- install and verify the project formula;
+- enforce branch and worktree naming/path policy using native Beads worktrees;
+- validate plan and task structure;
+- generate Conventional Commit messages and one `Beads: <id>` footer;
+- inspect reachable Git evidence;
+- validate current documentation; and
+- collect read-only audit evidence.
 
-- YAML/TOML/JSON metadata parses.
-- Python compiles and tests pass.
-- Installed skills/system guidance do not reintroduce prohibited state or SHA mappings.
-- `uv build` includes the CLI, formulas, prompts, skills, and system-prompt additive; `dstack install_skills` is idempotent.
-- Required CI jobs run fast tests and each real-Beads acceptance scenario separately.
-- `git diff --check`, `git fsck`, bundle verification, and clean-clone tests pass.
+It must not claim, close, reopen, approve, or select Beads work on behalf of the
+agent. Those are explicit native Beads operations in the targeted skills.
+
+## Documentation
+
+Every implementation task must classify impact on:
+
+- end users: behavior, configuration, deployment, operations, migration, and
+  troubleshooting;
+- developers: architecture, interfaces, data flow, extension points, and tests;
+- future agents: current invariants plus searchable decision rationale.
+
+Repository documentation describes current truth. Decision Beads preserve why.
+Do not require feature-history Markdown, duplicate task lists, transcripts, live
+workflow status, commit identities, worktree paths, or next-command bookkeeping
+in documentation.
+
+## Git and validation
+
+Use `dstack ctl git commit` or `dstack ctl git amend`; do not hand-write the
+subject. A commit references its task with exactly one `Beads: <id>` footer.
+Never store Git SHAs in Beads.
+
+Run focused tests while working and `hk check -a` before closing an implementation
+task. Beads lifecycle hooks are chained through hk. Keep generated or runtime
+Beads database content out of implementation commits.
+
+## Engineering constraints
+
+- Python baseline: 3.14 with complete type hints.
+- Keep functions focused and interfaces narrow.
+- Prefer native Beads and Git operations over adapters.
+- Preserve deterministic JSON output for agent-facing commands.
+- Add real-Beads acceptance coverage for every relied-upon native behavior.

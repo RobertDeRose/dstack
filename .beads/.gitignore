@@ -76,5 +76,5 @@ bd.db
 # Config files (metadata.json, config.yaml) are tracked by git by default
 # since no pattern above ignores them.
 
-# dStack: local Beads audit state (not repository history)
+# Optional local Beads interaction audit output (not repository history)
 interactions.jsonl

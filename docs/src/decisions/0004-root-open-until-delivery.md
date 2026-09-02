@@ -1,8 +1,8 @@
 # 0004: Root open until delivery
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Supersedes:** None
-- **Superseded by:** None
+- **Superseded by:** [0006](0006-beads-native-control-plane.md)
 
 ## Context
 

@@ -1,141 +1,155 @@
 <!-- rumdl-disable-file MD041 -->
 
 <p align="center">
-  <img src="docs/src/assets/img/dstack_logo.png" alt="dstack logo">
+  <img src="docs/src/assets/img/dstack_logo.png" alt="dStack logo">
 </p>
 
-`dStack` is a small installable workflow controller for software engineering with Pi, Beads, and Git. It provides a
-`dstack` command for deterministic mechanics and installs short Pi skills for engineering judgment. It is not a workflow
-engine and owns no task database, migration store, scheduler, or shadow state.
+`dStack` is a small deterministic control plane for software-engineering agents.
+It does not own a workflow state machine.
 
-## Architecture
+- **Beads** owns plans, questions, decisions, tasks, dependencies, gates, claims,
+  readiness, and completion.
+- **Git** owns repository history and branches.
+- **Git worktrees** isolate implementation work.
+- **hk** runs repeatable repository checks and chains Beads lifecycle hooks.
+- **dStack skills** guide planning, review, implementation, and drift analysis.
+- **`dstack ctl`** performs only deterministic repository mechanics and
+  structural validation.
+
+The core invariant is simple: an agent finds its next unit of work through the
+native Beads ready queue, never through a Markdown task list or dStack-owned
+lifecycle state.
+
+## Workflow
+
+One persistent Beads molecule represents a feature:
 
 ```text
-Pi slash command -> short decision skill -> dstack ctl -> Beads / Git
-                    ^
-                    |
-          compact dStack system guidance
+plan -> review -> human approval -> implementation tasks -> audit
 ```
 
-- **Beads** owns work, dependencies, gates, readiness, claims, and completion.
-- **Git** owns code, tests, durable documentation, commits, and delivery history.
-- **dStack CLI** performs deterministic native transitions without storing workflow state.
-- **Pi skills/agent** own architecture, implementation, review judgment, and user interaction.
+The formula creates five fixed steps. Review creates ordinary implementation
+Beads under the implementation epic. Every implementation task explicitly
+blocks the audit, so Beads remains authoritative even when dynamic formula
+fan-in is unavailable or incomplete in a supported Beads release.
 
-**Central rule:** formulas define how dStack creates and reviews new work; they are not schemas that existing work must
-migrate to. Historical Beads remain execution evidence and native readiness remains authoritative. When an approved
-feature is explicitly reviewed under a newer formula contract, dStack compares it semantically and asks the user only
-when a material design/task delta is actually required.
+The four installed skills are:
 
-See the [architecture](docs/src/architecture/index.md), [core principles](docs/src/development/index.md),
-[workflow reference](docs/src/development/feature-lifecycle.md), and
-[compatibility reference](docs/src/reference/compatibility.md).
+```text
+/plan-feature   Ask material questions and record the plan in Beads
+/review-plan    Review the plan against code/docs and create native tasks
+/implement      Claim and complete the next native ready task
+/audit-feature  Detect implementation/documentation/intent drift
+```
+
+Planning records questions, answers, decisions, rationale, repository evidence,
+non-goals, compatibility concerns, acceptance criteria, and documentation
+impact in native Beads fields. Current repository documentation describes how
+the system works. Decision Beads preserve why material choices were made. Git
+records what changed.
+
+The plan validator requires paired `Question:`/`Answer:` entries or an
+evidence-based `No material questions: <reason>` declaration; an agent cannot
+silently omit the ambiguity pass and still close planning.
 
 ## Install
 
 Requirements:
 
 - Git
-- Pi
+- Pi or another shell-capable coding agent
 - `uv`
-- Python 3.14 (the `uv tool` environment is constrained by `pyproject.toml`)
-- Beads 1.2.2 exactly; `bd --version` must print `bd version 1.2.2 (6c124203e)`
-- mdBook 0.5.3 exactly on `PATH` when documentation validation is required
+- Python 3.14
+- Beads 1.2.2 or a compatible 1.x release
+- hk for project validation
+- mdBook 0.5.3 when documentation validation is enabled
 
-Install dStack as a normal Python tool from a checkout:
+Install the CLI:
 
 ```bash
 uv tool install --python 3.14 /path/to/dstack
 ```
 
-The `dstack` executable is then available on `PATH`. The first dStack command to run is:
+Install the four targeted Pi skills and prompts:
 
 ```bash
 dstack install_skills
 ```
 
-`install_skills` idempotently installs/updates:
-
-- dStack decision skills in `~/.pi/agent/skills/`;
-- dStack slash-command prompts in `~/.pi/agent/prompts/`; and
-- a compact managed dStack block in `~/.pi/agent/APPEND_SYSTEM.md`.
-
-The former `dstack-beads-core` skill is intentionally **not** installed. Its stable CLI guidance, formula-compatibility
-behavior, and guardrails live in the system-prompt additive so workflow skills do not spend context rereading the same
-core instructions.
-
-Use an alternate Pi agent directory either explicitly or through the environment:
+Initialize a repository and install the project-local formula:
 
 ```bash
-dstack install_skills --agent-dir /path/to/pi-agent
-PI_CODING_AGENT_DIR=/path/to/pi-agent dstack install_skills
+dstack ctl infra install
 ```
 
-After installing or upgrading dStack, rerun `dstack install_skills` and reload Pi.
+The formula is copied to `.beads/formulas/dstack-feature.formula.toml` as
+versioned project configuration. dStack does not use a formula swap journal,
+formula cache, or recovery ledger.
 
-## Commands
+## Deterministic commands
 
 ```text
-/plan-feature [id|slug|title|request]
-/plan-features [deprecated alias]
-/review-feature-spec [feature]
-/implement-feature [feature] [task|--all]
-/close-feature [feature] [ready|pr|merge]
-/project-audit [scope]
+dstack ctl infra install [--update-formula]
+dstack ctl infra check
+dstack ctl plan check <plan-bead>
+dstack ctl worktree ensure <feature-or-descendant>
+dstack ctl git commit --bead <task> [--body-file <path>]
+dstack ctl git amend --bead <task> [--body-file <path>]
+dstack ctl evidence commits --bead <task> --ref <range>
+dstack ctl task check <task> [--run-validation]
+dstack ctl audit evidence <feature> [--include-history] [--run-validation]
+dstack ctl docs validate
 ```
 
-Skills call the installed CLI as `dstack ctl ...`; they contain policy and decision boundaries rather than
-package-relative script paths or shell choreography.
+These commands do not decide which workflow step is ready and do not advance
+Beads state. Skills perform native `bd` mutations after the deterministic checks
+succeed.
 
-The four feature stages are:
+## Commit contract
 
-- `/plan-feature` — discover what to build and why, preserving planned intent in Beads without changing Git;
-- `/review-feature-spec` — materialize/reconcile the design, build the implementation graph, and obtain authorization;
-- `/implement-feature` — implement authorized outcomes in code and tests;
-- `/close-feature` — perform final reconciliation of intent, implementation, tests, durable documentation, and delivery.
-
-## Formula compatibility
-
-Formula versions are semantic planning/review contract versions, not dStack package versions and not persistent graph
-schemas. New work records the current contract version. When an approved active feature is explicitly reviewed under a
-newer or unknown contract, the specification-review skill compares the existing design/tasks semantically:
-
-- if current design/tasks already satisfy the contract, run `feature audit-complete` to stamp the current audited
-  version;
-- if a material delta is required, show only the minimal design/task/dependency delta and ask for renewed approval
-  before mutation.
-
-Closed historical work is not rewritten merely because dStack changed. Active historical graphs that do not contain the
-current molecule remain native Beads records; dStack does not migrate or normalize them. Finish them with native Beads,
-or explicitly plan a new current feature. `/review-feature-spec` audits current molecules only and changes approved work
-only after the normal user-authorization boundary.
-
-## Git and Beads linkage
-
-Git commits reference work with one rewrite-safe footer:
+Implementation task labels define the commit prefix:
 
 ```text
-Beads: <bead-id>
+dstack:commit:<type>
+dstack:scope:<optional-scope>
 ```
 
-Beads does not store task, implementation, delivery, evidence, or bookkeeping Git SHAs. dStack reconstructs evidence
-from current reachable Git history, so amend/rebase/cherry-pick operations require no Beads remapping.
+`dstack ctl git commit` derives the subject from the task title and adds exactly
+one one-way evidence footer:
 
-## Documentation policy
+```text
+feat(parser): preserve source locations
 
-mdBook is canonical for managed-project durable documentation. Documentation describes accepted product/design intent
-and planned vs implemented behavior; it does not mirror transient workflow state. Implementation tasks do not create
-durable documentation work. Feature closeout performs the single final reconciliation. `/project-audit` is read-only: it compares current code
-with current documentation and proposes ordinary feature work; accepted corrections use `/implement-feature`.
+Beads: project-abc.3
+```
+
+No commit SHA is stored in Beads. dStack reconstructs evidence from reachable
+Git history, so amend, rebase, and cherry-pick do not require a mapping update.
+
+## Documentation contract
+
+Each implementation task classifies its effect on all three audiences:
+
+```markdown
+## Documentation impact
+
+- End-user: required - <behavior, configuration, operations, or migration docs>
+- Developer: required - <architecture, interfaces, tests, or extension docs>
+- Future-agent: required - <current invariant or decision record>
+```
+
+`not affected` is valid only with a specific reason. Documentation that explains
+the changed behavior belongs in the same task as the code and tests. The final
+audit compares approved intent, tasks, commits, observable behavior, current
+documentation, and decision history. When authority is ambiguous, it creates a
+native human gate and asks the user rather than silently choosing code or docs.
 
 ## Development
-
-The repository keeps `mise.toml`/`mise.lock` for contributor tooling and CI; they are not the installed dStack CLI
-launcher.
 
 ```bash
 uv run pytest
 uv run pytest tests/acceptance
+hk check -a
 ```
 
-Real-Beads acceptance requires the supported `bd` binary on `PATH`.
+Real-Beads acceptance tests require the supported `bd` binary on `PATH`.

@@ -1,14 +1,9 @@
-# Feature Records
+# Historical feature records
 
-Feature records preserve accepted change intent and reconcile it with delivered behavior. Current product guidance
-remains in the sections where readers look for that behavior.
+These records preserve earlier accepted implementation intent. They are archive
+material, not a task queue and not the authority for current workflow status.
 
-- [Controller correctness and auditability](dstack-controller-correctness-auditability/index.md)
-- [Engineering quality contract](dstack-engineering-quality-contract/index.md)
-- [Test and mechanical-layer hardening](dstack-test-mechanical-hardening/index.md)
-- [Workflow boundary hardening](dstack-workflow-boundary-hardening/index.md)
-- [Decision-oriented dStack feature workflow](decision-oriented-feature-workflow/index.md)
-- [Canonical mdBook Documentation System](canonical-mdbook-documentation-system/index.md)
-- [Harden workflow authority and auditability](harden-workflow-authority-auditability/index.md)
-- [Resolve remaining workflow authority findings](resolve-remaining-workflow-authority-findings/index.md)
-- [Complete dStack workflow authority, adoption, and recovery hardening](complete-workflow-authority-adoption-recovery-hardening/index.md)
+For new planning, query current decision Beads and current architecture,
+operations, development, security, and reference documentation first. Consult a
+historical feature record only when those sources link to it or a specific
+historical comparison is required.

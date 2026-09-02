@@ -1,19 +1,15 @@
 # Environment and defaults
 
-| Setting | Default | Contract |
+| Setting | Default | Purpose |
 | --- | --- | --- |
-| `DSTACK_COMMAND_TIMEOUT_SECONDS` | Per-tool values below | Positive numeric override applied uniformly to external commands |
-| Feature base branch | `dev` when present, otherwise `main` | Planning and initialization use this only when no explicit base branch is supplied |
-| Formula source | Package-owned TOML | Installed bytes must match exactly |
-| Documentation source | `docs/src` | `docs/book.toml` must remain contained and canonical |
-| Beads JSON envelope | Enabled internally | Controller parses the supported structured envelope |
+| `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Target for installed prompts and skills |
+| `DSTACK_COMMAND_TIMEOUT_SECONDS` | command-specific | Positive finite timeout override |
+| `DSTACK_VALIDATION_COMMAND` | `hk check -a` | Project validation run by task/audit checks |
+| `BD_JSON_ENVELOPE` | set to `1` by dStack | Stable Beads JSON envelope |
 
-Default command timeouts are 120 seconds for Git, 180 seconds for Beads and GitHub CLI, and 300 seconds for mdBook and
-Python. A timeout says whether the operation may have mutated state and never claims rollback.
+The default base branch is recorded on each feature root during planning. The
+skills choose `dev` when it exists, otherwise `main`; dStack does not maintain a
+project branch registry.
 
-Beads chooses its actor through its native configuration and environment. Git uses native user, credential, remote, and
-signing configuration. GitHub CLI uses its native authentication sources. dStack does not copy those credentials into
-Beads or documentation and does not define a second credential store.
-
-Repository configuration is durable only when it belongs to the project. Machine-local Beads runtime files and
-`interactions.jsonl` remain untracked. Unknown environment overrides are not a supported dStack API.
+The conventional feature branch is `feat/<slug>`. Its worktree is a sibling of
+the primary checkout named `<repository>.feat-<slug>`.
