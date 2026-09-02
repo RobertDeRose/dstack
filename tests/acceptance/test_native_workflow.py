@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .conftest import pour_feature, requires_bd, run_dstack, run_json
+from .conftest import pour_feature, requires_bd, run_command, run_dstack, run_json
 
 
 PLAN = """## Goal
@@ -126,7 +126,13 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
 
     gates = run_json(real_repo, "list", "--parent", root, "--all", "--include-gates", "--limit", "0")
     gate = next(issue for issue in gates if issue.get("issue_type") == "gate")
-    run_json(real_repo, "gate", "resolve", gate["id"], "--reason", "User approved reviewed scope")
+    # Beads 1.2.2 accepts the global --json flag for gate resolution but still
+    # emits human-readable output. Treat it as a state-changing command; the
+    # following native ready claim verifies that the gate actually closed.
+    run_command(
+        ["bd", "gate", "resolve", gate["id"], "--reason", "User approved reviewed scope"],
+        cwd=real_repo,
+    )
 
     approval_claim = run_json(
         real_repo,
