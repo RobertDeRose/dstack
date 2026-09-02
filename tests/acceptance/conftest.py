@@ -116,7 +116,6 @@ def pour_feature(repo: Path, *, slug: str = "native-workflow") -> tuple[str, dic
         "audit": "dstack:step:audit",
     }
     steps = {
-        name: next(issue for issue in children if label in issue.get("labels", []))
-        for name, label in labels.items()
+        name: next(issue for issue in children if label in issue.get("labels", [])) for name, label in labels.items()
     }
     return root, steps

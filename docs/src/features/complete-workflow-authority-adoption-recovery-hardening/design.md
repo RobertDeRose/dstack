@@ -592,7 +592,7 @@ destructive Git operation, or secret-bearing persistent state is added. Current
 
 ## Compatibility and migration implications
 
-The supported native boundary remains `bd version 1.2.2 (6c124203e)` and mdBook 0.5.3 as documented in
+The supported native boundary remains `bd version 1.2.2 (6c124203e)` and mdBook 0.5.4 as documented in
 [compatibility](../../reference/compatibility.md). New alignment metadata keys are namespaced and affect only current
 alignment molecules using the hardened approval commands. An alignment with closed authorization state and no canonical
 identity fails closed and requires explicit reauthorization; normal commands do not repair it silently.

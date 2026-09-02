@@ -27,9 +27,7 @@ dstack:commit:<type>
 dstack:scope:<optional-scope>
 ```
 
-Decision Beads use the native `decision` type and searchable feature/area/concern
-labels.
+Decision Beads use the native `decision` type and searchable feature/area/concern labels.
 
-Do not store phase, readiness, current task, pending approval, worktree path,
-commit SHA, validation cache, audit result, or next-command metadata. These facts
-are native or reconstructible.
+Do not store phase, readiness, current task, pending approval, worktree path, commit SHA, validation cache, audit
+result, or next-command metadata. These facts are native or reconstructible.

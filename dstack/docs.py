@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlsplit
 from .core import DstackError, _assert_no_symlink_components, read_utf8_text, run
 from .output import emit
 
-SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.3"
+SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.4"
 LINK_PATTERN = re.compile(r"!?\[[^]]*\]\((.+)\)")
 INCLUDE_PATTERN = re.compile(r"\{\{#include\s+([^}\s]+)[^}]*\}\}")
 FENCE_PATTERN = re.compile(r"^( {0,3})(`{3,}|~{3,})")
@@ -309,9 +309,7 @@ def require_mdbook() -> str:
         raise DstackError("mdbook is unavailable on PATH")
     observed = run([executable, "--version"], cwd=Path.cwd()).stdout.strip()
     if observed != SUPPORTED_MDBOOK_VERSION_OUTPUT:
-        raise DstackError(
-            f"dStack requires {SUPPORTED_MDBOOK_VERSION_OUTPUT}; found {observed or '<empty output>'}"
-        )
+        raise DstackError(f"dStack requires {SUPPORTED_MDBOOK_VERSION_OUTPUT}; found {observed or '<empty output>'}")
     return executable
 
 

@@ -71,8 +71,7 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
         raise DstackError("implementation must be a structural epic")
     if steps["implementation"].get("needs") or steps["implementation"].get("depends_on"):
         raise DstackError(
-            "implementation epic must not use blocking dependencies; "
-            "reviewed child tasks depend on approval"
+            "implementation epic must not use blocking dependencies; reviewed child tasks depend on approval"
         )
     if list(steps["audit"].get("needs") or []) != ["approval"]:
         raise DstackError("audit must depend on approval")

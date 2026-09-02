@@ -53,7 +53,7 @@ wheels = [
 [[package]]
 name = "dstack"
 version = "0.6.0"
-source = { editable = "." }
+source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [

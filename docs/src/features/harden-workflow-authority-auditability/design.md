@@ -260,7 +260,7 @@ truth; ADRs explain durable reasons and consequences.
 - Apply repeats cleanliness/version/invariant preflight, uses atomic file writes, and compensates internally created
   objects where possible. Irreversible or uncertain partial failures report observed facts and recovery commands without
   claiming rollback.
-- Doctor verifies exact Beads build, mdBook 0.5.3, formula identity/validity, documentation, interaction-log policy,
+- Doctor verifies exact Beads build, mdBook 0.5.4, formula identity/validity, documentation, interaction-log policy,
   missing reconciliations, worktree anomalies, tracked runtime paths, remotes, and GitHub prerequisites.
 - Every compatibility shim has a pinned-version reproducer, smallest compensating behavior, upstream reference when
   available, and retirement condition. The like-kind dependency claim and dynamic-child fan-in shim are retained only if
@@ -467,7 +467,7 @@ access-control system is introduced.
 
 - Beads remains pinned to exact output `bd version 1.2.2 (6c124203e)` until a separately reviewed compatibility change
   updates the boundary.
-- mdBook remains pinned to 0.5.3; doctor verifies the executable version rather than merely its presence.
+- mdBook remains pinned to 0.5.4; doctor verifies the executable version rather than merely its presence.
 - Existing current molecules are not rewritten by normal commands. New guards apply on their next attempted transition.
 - Existing approved workflows cannot gain children silently. Reauthorization is explicit and native, or the work moves
   to a new superseding workflow.

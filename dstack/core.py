@@ -7,6 +7,7 @@ provides small, verifiable adapters over their native command-line interfaces.
 
 from __future__ import annotations
 
+import builtins
 import fcntl
 import json
 import math
@@ -238,7 +239,8 @@ def parse_beads_version(raw: str) -> tuple[int, int, int]:
     match = BEADS_VERSION_PATTERN.search(raw)
     if match is None:
         raise DstackError(f"cannot parse Beads version output: {raw or '<empty>'}")
-    return tuple(int(part) for part in match.groups())
+    major, minor, patch = (int(g) for g in match.groups())
+    return major, minor, patch
 
 
 def git_root(path: Path) -> Path:
@@ -400,7 +402,7 @@ class BeadsClient:
         issue_type_filter: str | None = None,
         include_gates: bool = False,
         include_templates: bool = False,
-    ) -> list[dict[str, Any]]:
+    ) -> builtins.list[dict[str, Any]]:
         command = ["bd", "list", "--limit", "0", "--json"]
         if all_statuses:
             command.append("--all")
@@ -416,7 +418,7 @@ class BeadsClient:
             command.append("--include-templates")
         return as_items(self.json(command), context="bd list")
 
-    def children(self, parent: str, *, all_statuses: bool = True) -> list[dict[str, Any]]:
+    def children(self, parent: str, *, all_statuses: bool = True) -> builtins.list[dict[str, Any]]:
         return self.list(all_statuses=all_statuses, parent=parent)
 
     def history(self, issue_id: str) -> Any:
@@ -428,7 +430,7 @@ class BeadsClient:
             }
         return parse_json(result.stdout, context=f"bd history {issue_id}")
 
-    def worktrees(self) -> list[dict[str, Any]]:
+    def worktrees(self) -> builtins.list[dict[str, Any]]:
         payload = self.json(["bd", "worktree", "list", "--json"])
         if not isinstance(payload, list):
             raise DstackError("bd worktree list returned an unknown JSON shape")

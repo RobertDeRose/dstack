@@ -25,14 +25,10 @@ COMMIT_SUBJECT_MAX = 100
 
 _HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 _PLACEHOLDER = re.compile(r"(?i)\b(?:todo|tbd|fixme|lorem ipsum)\b|<[^>\n]+>|\?\?\?|^\s*[-*]\s*\[ \]", re.MULTILINE)
-_OPEN_QUESTION = re.compile(
-    r"(?im)^\s*(?:[-*]\s*)?(?:status\s*:\s*)?(?:open|unresolved|pending|unknown)(?:\s|$|:)"
-)
+_OPEN_QUESTION = re.compile(r"(?im)^\s*(?:[-*]\s*)?(?:status\s*:\s*)?(?:open|unresolved|pending|unknown)(?:\s|$|:)")
 _QUESTION_LINE = re.compile(r"(?i)^\s*(?:[-*]\s*)?Question(?:\s+\d+)?\s*:\s*(\S.+?)\s*$")
 _ANSWER_LINE = re.compile(r"(?i)^\s*(?:[-*]\s*)?Answer(?:\s+\d+)?\s*:\s*(\S.+?)\s*$")
-_NO_MATERIAL_QUESTIONS = re.compile(
-    r"(?i)^\s*(?:[-*]\s*)?No material questions(?: remain)?\s*:\s*(\S.+?)\s*$"
-)
+_NO_MATERIAL_QUESTIONS = re.compile(r"(?i)^\s*(?:[-*]\s*)?No material questions(?: remain)?\s*:\s*(\S.+?)\s*$")
 _UNRESOLVED_ANSWER = re.compile(r"(?i)^(?:open|unresolved|pending|unknown|not decided)\b")
 _DOC_LINE = re.compile(
     r"(?im)^\s*[-*]\s*"
@@ -182,23 +178,19 @@ def question_ledger_errors(content: str) -> list[str]:
         errors.append("Questions and answers duplicates the no-material-questions declaration")
     if no_question_reasons and pairs:
         errors.append(
-            "Questions and answers cannot combine answered questions with "
-            "a no-material-questions declaration"
+            "Questions and answers cannot combine answered questions with a no-material-questions declaration"
         )
     if no_question_reasons and len(no_question_reasons[0]) < 12:
         errors.append("no-material-questions declaration must explain why no user decision was required")
     if not no_question_reasons and pairs == 0:
         errors.append(
-            "Questions and answers must contain paired `Question:`/`Answer:` lines or "
-            "`No material questions: <reason>`"
+            "Questions and answers must contain paired `Question:`/`Answer:` lines or `No material questions: <reason>`"
         )
     return errors
 
 
 def documentation_impact(issue: Mapping[str, Any]) -> tuple[dict[str, dict[str, str]], list[str]]:
-    text = "\n\n".join(
-        value for field in ("description", "design", "notes") if (value := _issue_text(issue, field))
-    )
+    text = "\n\n".join(value for field in ("description", "design", "notes") if (value := _issue_text(issue, field)))
     found: dict[str, dict[str, str]] = {}
     duplicates: set[str] = set()
     aliases = {
@@ -298,9 +290,7 @@ def _lower_initial(value: str) -> str:
 def commit_subject(issue: Mapping[str, Any]) -> str:
     validation = validate_task_issue(issue)
     commit_errors = [
-        error
-        for error in validation["errors"]
-        if "commit" in error or "scope" in error or "title" in error
+        error for error in validation["errors"] if "commit" in error or "scope" in error or "title" in error
     ]
     if commit_errors:
         raise DstackError("cannot derive commit subject: " + "; ".join(commit_errors))

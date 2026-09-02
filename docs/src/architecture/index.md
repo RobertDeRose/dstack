@@ -19,21 +19,17 @@ Targeted skill ---- semantic judgment and user questions
 
 ### Beads
 
-Beads owns feature molecules, plans, questions, answers, decisions, task
-decomposition, dependencies, gates, claims, readiness, and completion. Native
-`blocks` edges determine availability. dStack never calculates positive
-readiness.
+Beads owns feature molecules, plans, questions, answers, decisions, task decomposition, dependencies, gates, claims,
+readiness, and completion. Native `blocks` edges determine availability. dStack never calculates positive readiness.
 
 ### Skills
 
-Skills own reasoning that cannot be made deterministic: finding ambiguities,
-reviewing plans, interpreting implementation behavior, assessing documentation,
-and deciding whether drift is clear or requires user authority.
+Skills own reasoning that cannot be made deterministic: finding ambiguities, reviewing plans, interpreting
+implementation behavior, assessing documentation, and deciding whether drift is clear or requires user authority.
 
 ### dStack CLI
 
-The CLI is stateless with respect to workflow. It reads current Beads and Git
-facts on every invocation and may enforce:
+The CLI is stateless with respect to workflow. It reads current Beads and Git facts on every invocation and may enforce:
 
 - formula installation and contract validation;
 - feature branch and conventional worktree policy;
@@ -43,8 +39,8 @@ facts on every invocation and may enforce:
 - mdBook navigation, links, and build validity; and
 - compact audit evidence collection.
 
-The repository mutation lock serializes local dStack Git/worktree operations. It
-is synchronization, not durable workflow state.
+The repository mutation lock serializes local dStack Git/worktree operations. It is synchronization, not durable
+workflow state.
 
 ## Persistent information
 
@@ -56,5 +52,5 @@ is synchronization, not durable workflow state.
 | Project formatting/testing policy | hk and repository configuration |
 | Formula and dStack policy | Versioned project configuration |
 
-No dStack database, readiness cache, phase file, approval journal, formula-swap
-journal, worktree registry, or task-to-commit map exists.
+No dStack database, readiness cache, phase file, approval journal, formula-swap journal, worktree registry, or
+task-to-commit map exists.

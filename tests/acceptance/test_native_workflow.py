@@ -115,14 +115,17 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
     run_json(real_repo, "dep", "add", steps["audit"]["id"], task_id, "--type", "blocks")
     run_json(real_repo, "close", steps["review"]["id"], "--reason", "Reviewed graph created")
 
-    assert run_json(
-        real_repo,
-        "ready",
-        "--parent",
-        root,
-        "--label",
-        "dstack:step:approval",
-    ) == []
+    assert (
+        run_json(
+            real_repo,
+            "ready",
+            "--parent",
+            root,
+            "--label",
+            "dstack:step:approval",
+        )
+        == []
+    )
 
     gates = run_json(real_repo, "list", "--parent", root, "--all", "--include-gates", "--limit", "0")
     gate = next(issue for issue in gates if issue.get("issue_type") == "gate")
@@ -156,14 +159,17 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         "--claim",
     )
     assert task_claim[0]["id"] == task_id
-    assert run_json(
-        real_repo,
-        "ready",
-        "--parent",
-        root,
-        "--label",
-        "dstack:step:audit",
-    ) == []
+    assert (
+        run_json(
+            real_repo,
+            "ready",
+            "--parent",
+            root,
+            "--label",
+            "dstack:step:audit",
+        )
+        == []
+    )
 
     run_json(real_repo, "close", task_id, "--reason", "Implemented")
     audit_ready = run_json(

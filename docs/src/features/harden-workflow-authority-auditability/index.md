@@ -37,7 +37,7 @@ remains the bounded-command control.
 
 Existing active workflows are not rewritten. Their next guarded transition may surface previously tolerated ambiguous or
 incomplete state, with explicit repair or supersession guidance. The supported boundary remains Beads 1.2.2, mdBook
-0.5.3, and Python 3.13 at the time of that historical validation. The current installable package requires Python 3.14.
+0.5.4, and Python 3.13 at the time of that historical validation. The current installable package requires Python 3.14.
 
 ## Architecture integration
 
@@ -114,7 +114,7 @@ limitations without mirroring transient workflow state.
 ## Validation and limitations
 
 Historical validation completed on 2026-08-24 on macOS with `uv 0.11.7`, Python 3.13.13 (the current package requires
-Python 3.14), `bd version 1.2.2 (6c124203e)`, mdBook 0.5.3, and Git 2.55.0. The following commands passed with no
+Python 3.14), `bd version 1.2.2 (6c124203e)`, mdBook 0.5.4, and Git 2.55.0. The following commands passed with no
 skipped required scenarios:
 
 ```bash

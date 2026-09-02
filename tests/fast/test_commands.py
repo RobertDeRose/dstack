@@ -17,9 +17,7 @@ class WorktreeClient:
         return []
 
 
-def test_worktree_ensure_delegates_creation_to_beads(
-    git_repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_worktree_ensure_delegates_creation_to_beads(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = WorktreeClient(git_repo)
     original_run = subject.run
     observed: list[list[str]] = []
@@ -36,7 +34,9 @@ def test_worktree_ensure_delegates_creation_to_beads(
 
     monkeypatch.setattr(subject, "run", fake_run)
     worktree, created_branch, created_worktree = subject.ensure_branch_worktree(
-        client, "feat/native-control-plane", "main"  # type: ignore[arg-type]
+        client,
+        "feat/native-control-plane",
+        "main",  # type: ignore[arg-type]
     )
     try:
         assert created_branch is True
