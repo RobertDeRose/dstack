@@ -28,10 +28,10 @@ jobs:
       fail-fast: false
       matrix:
         suite:
-          - name: Contract
-            test: test_bd_contract.py
-          - name: Smoke
-            test: test_feature_smoke.py
+          - name: Native workflow
+            test: test_native_workflow.py
+          - name: Repository mechanics
+            test: test_repository_mechanics.py
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1

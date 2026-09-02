@@ -10,7 +10,7 @@ if [[ -n "$before" ]]; then
   exit 1
 fi
 
-tmp="$(realpath "$(mktemp -d "${TMPDIR:-/tmp}/dstack-release-check.XXXXXX")")"
+tmp=$(realpath "$(mktemp -d "${TMPDIR:-/tmp}/dstack-release-check.XXXXXX")")
 trap 'rm -rf "$tmp"' EXIT
 
 uv build --out-dir "$tmp/dist"
@@ -21,7 +21,7 @@ git bundle create "$tmp/dstack.bundle" HEAD
 git bundle verify "$tmp/dstack.bundle"
 git clone --quiet "$tmp/dstack.bundle" "$tmp/clone"
 git -C "$tmp/clone" fsck --full
-uv run --project "$tmp/clone" pytest -q "$tmp/clone/tests/fast/test_package_contract.py"
+uv run --project "$tmp/clone" pytest
 
 wheel=$(find "$tmp/dist" -maxdepth 1 -type f -name '*.whl' -print -quit)
 if [[ -z "$wheel" ]]; then
@@ -29,37 +29,31 @@ if [[ -z "$wheel" ]]; then
   exit 1
 fi
 
-python -m venv "$tmp/venv"
-"$tmp/venv/bin/python" -m pip install --quiet "$wheel"
+uv venv --python 3.14 "$tmp/venv"
+uv pip install --python "$tmp/venv/bin/python" "$wheel"
 "$tmp/venv/bin/dstack" --version >/dev/null
 "$tmp/venv/bin/dstack" ctl --help >/dev/null
 
 agent_dir="$tmp/pi-agent"
 "$tmp/venv/bin/dstack" install_skills --agent-dir "$agent_dir" >"$tmp/install-skills.json"
 for skill in \
-  dstack-beads-close-feature \
-  dstack-beads-implement-feature \
+  dstack-beads-audit-feature \
+  dstack-beads-implement \
   dstack-beads-plan-feature \
-  dstack-beads-project-audit \
-  dstack-beads-review-feature-spec; do
+  dstack-beads-review-plan; do
   test -f "$agent_dir/skills/$skill/SKILL.md"
 done
-for prompt in \
-  close-feature.md \
-  implement-feature.md \
-  plan-feature.md \
-  plan-features.md \
-  project-audit.md \
-  review-feature-spec.md; do
+for prompt in audit-feature.md implement.md plan-feature.md review-plan.md; do
   test -f "$agent_dir/prompts/$prompt"
 done
 test -f "$agent_dir/APPEND_SYSTEM.md"
-"$tmp/venv/bin/python" - <<'PYFORMULA'
-from dstack.formula import load_formula
 
-formula = load_formula("dstack-feature")
+"$tmp/venv/bin/python" - <<'PYFORMULA'
+from dstack.formula import EXPECTED_STEPS, load_formula
+
+formula = load_formula()
 assert formula["formula"] == "dstack-feature"
-assert isinstance(formula["version"], int) and formula["version"] > 0
+assert tuple(step["id"] for step in formula["steps"]) == EXPECTED_STEPS
 PYFORMULA
 
 if [[ -n $(git status --porcelain=v1 --untracked-files=all) ]]; then

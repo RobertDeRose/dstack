@@ -1,22 +1,21 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-DSTACK = "dstack"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-
-def pytest_sessionstart(session: pytest.Session) -> None:
-    if shutil.which("bd") is None:
-        pytest.exit("real Beads is required: install bd on PATH", returncode=1)
+BD_AVAILABLE = shutil.which("bd") is not None
+requires_bd = pytest.mark.skipif(not BD_AVAILABLE, reason="real Beads binary is not available on PATH")
 
 
 def run_command(
@@ -24,95 +23,100 @@ def run_command(
     *,
     cwd: Path,
     check: bool = True,
-    timeout: float | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    effective_timeout = timeout or float(os.environ.get("DSTACK_ACCEPTANCE_COMMAND_TIMEOUT", "120"))
-    if not math.isfinite(effective_timeout) or effective_timeout <= 0:
-        raise ValueError("acceptance command timeout must be positive and finite")
-    try:
-        result = subprocess.run(
-            command,
-            cwd=cwd,
-            check=False,
-            text=True,
-            capture_output=True,
-            timeout=effective_timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else exc.stdout or ""
-        stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else exc.stderr or ""
-        raise AssertionError(
-            f"command timed out after {effective_timeout:g}s ({' '.join(command)}) in {cwd}:\n"
-            f"stdout={stdout}\nstderr={stderr}"
-        ) from exc
+    effective_env = dict(os.environ)
+    effective_env["PYTHONPATH"] = str(ROOT)
+    effective_env["BD_JSON_ENVELOPE"] = "1"
+    if env:
+        effective_env.update(env)
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        check=False,
+        text=True,
+        capture_output=True,
+        timeout=180,
+        env=effective_env,
+    )
     if check and result.returncode:
         raise AssertionError(f"command failed ({' '.join(command)}):\nstdout={result.stdout}\nstderr={result.stderr}")
     return result
 
 
-def unwrap(value: Any) -> Any:
-    if isinstance(value, dict) and value.get("schema_version") == 1:
-        return value.get("data")
-    return value
+def unwrap(payload: Any) -> Any:
+    if isinstance(payload, dict) and payload.get("schema_version") == 1 and "data" in payload:
+        return payload["data"]
+    return payload
 
 
 def run_json(cwd: Path, *args: str) -> Any:
     result = run_command(["bd", *args, "--json"], cwd=cwd)
-    try:
-        return unwrap(json.loads(result.stdout))
-    except json.JSONDecodeError as exc:
-        raise AssertionError(f"bd returned non-JSON for {' '.join(args)}: {result.stdout}") from exc
+    return unwrap(json.loads(result.stdout))
 
 
-def run_ctl(cwd: Path, *args: str, check: bool = True) -> Any:
-    result = run_command([DSTACK, "ctl", "--root", str(cwd), *args], cwd=cwd, check=check)
-    if not result.returncode:
-        try:
-            return unwrap(json.loads(result.stdout))
-        except json.JSONDecodeError as exc:
-            raise AssertionError(f"controller returned non-JSON: {result.stdout}") from exc
-    return result
+def run_dstack(cwd: Path, *args: str, check: bool = True) -> Any:
+    result = run_command([sys.executable, "-m", "dstack", "ctl", "--root", str(cwd), *args], cwd=cwd, check=check)
+    if not check and result.returncode:
+        return result
+    return json.loads(result.stdout)
 
 
 @pytest.fixture
-def real_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("BD_JSON_ENVELOPE", "1")
-    repo = tmp_path / "repo"
+def real_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "project"
     repo.mkdir()
-    run_command(["git", "init", "--initial-branch=main", "-q"], cwd=repo)
+    run_command(["git", "init", "--initial-branch", "main", "-q"], cwd=repo)
     run_command(["git", "config", "user.name", "Acceptance Test"], cwd=repo)
     run_command(["git", "config", "user.email", "acceptance@example.com"], cwd=repo)
-    (repo / "README.md").write_text("acceptance\n")
+    (repo / "README.md").write_text("acceptance\n", encoding="utf-8")
     run_command(["git", "add", "README.md"], cwd=repo)
     run_command(["git", "commit", "-qm", "initial"], cwd=repo)
-    from dstack.docs import create_foundation
-
-    create_foundation(repo)
-    run_command(["git", "add", "docs"], cwd=repo)
-    run_command(["git", "commit", "-qm", "docs: add acceptance foundation"], cwd=repo)
     return repo
 
 
-@pytest.fixture
-def beads_repo(real_repo: Path) -> Path:
-    run_command(
-        ["bd", "init", "--quiet", "--stealth", "--skip-agents", "--skip-hooks", "--non-interactive"],
-        cwd=real_repo,
+def pour_feature(repo: Path, *, slug: str = "native-workflow") -> tuple[str, dict[str, dict[str, Any]]]:
+    run_dstack(repo, "infra", "install")
+    payload = run_json(
+        repo,
+        "mol",
+        "pour",
+        "dstack-feature",
+        "--var",
+        "title=Feature: Native workflow",
+        "--var",
+        "desc=Use Beads as the workflow authority",
+        "--var",
+        "feature_title=Native workflow",
+        "--var",
+        f"feature_slug={slug}",
+        "--var",
+        "base_branch=main",
     )
-    formula_dir = real_repo / ".beads/formulas"
-    formula_dir.mkdir(parents=True, exist_ok=True)
-    for source in (ROOT / "dstack/assets/formulas").glob("*.formula.toml"):
-        shutil.copyfile(source, formula_dir / source.name)
-    return real_repo
-
-
-@pytest.fixture
-def acceptance_repo(real_repo: Path) -> Path:
-    result = run_command([str(DSTACK), "ctl", "infra", "check"], cwd=real_repo)
-    payload = json.loads(result.stdout)
-    assert payload["status"] == "ok"
-    assert Path(payload["root"]) == real_repo.resolve()
-    assert payload["formula_versions"] == {"dstack-feature": 9}
-    # Automatic infrastructure must not create a repository setup boundary.
-    assert run_command(["git", "status", "--porcelain=v1"], cwd=real_repo).stdout == ""
-    return real_repo
+    root = str(payload["new_epic_id"])
+    run_json(
+        repo,
+        "update",
+        root,
+        "--add-label",
+        "workflow:feature",
+        "--add-label",
+        f"feature:{slug}",
+        "--set-metadata",
+        f"dstack.feature_slug={slug}",
+        "--set-metadata",
+        "dstack.base_branch=main",
+    )
+    children = run_json(repo, "list", "--parent", root, "--all", "--include-gates", "--limit", "0")
+    labels = {
+        "plan": "dstack:step:plan",
+        "review": "dstack:step:review",
+        "approval": "dstack:step:approval",
+        "implementation": "dstack:step:implementation",
+        "audit": "dstack:step:audit",
+    }
+    steps = {
+        name: next(issue for issue in children if label in issue.get("labels", []))
+        for name, label in labels.items()
+    }
+    return root, steps
