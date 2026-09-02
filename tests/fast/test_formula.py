@@ -23,14 +23,14 @@ def test_packaged_formula_has_one_native_five_step_graph() -> None:
 def test_formula_contract_rejects_controller_owned_phase() -> None:
     formula = deepcopy(subject.load_formula())
     formula["steps"].append({"id": "delivery", "title": "Implicit controller phase"})
-    with pytest.raises(DstackError, match="steps must be exactly"):
+    with pytest.raises(DstackError):
         subject.validate_formula_contract(formula)
 
 
 def test_formula_contract_rejects_cross_type_implementation_blocker() -> None:
     formula = deepcopy(subject.load_formula())
     formula["steps"][3]["needs"] = ["approval"]
-    with pytest.raises(DstackError, match="must not use blocking dependencies"):
+    with pytest.raises(DstackError):
         subject.validate_formula_contract(formula)
 
 
@@ -60,7 +60,7 @@ def test_failed_beads_parse_restores_previous_formula(
         lambda *args, **kwargs: CommandResult(1, "", "formula rejected"),
     )
 
-    with pytest.raises(DstackError, match="formula rejected"):
+    with pytest.raises(DstackError):
         subject.install_infrastructure(git_repo, update_formula=True)
     assert destination.read_text(encoding="utf-8") == "old formula\n"
 

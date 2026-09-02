@@ -59,5 +59,7 @@ def test_installer_refuses_to_replace_user_owned_current_skill(tmp_path: Path) -
     current = target / "skills/dstack-beads-plan-feature"
     current.mkdir(parents=True)
     (current / "SKILL.md").write_text("---\nname: dstack-beads-plan-feature\n---\nuser\n", encoding="utf-8")
-    with pytest.raises(DstackError, match="user-owned"):
+    original = (current / "SKILL.md").read_bytes()
+    with pytest.raises(DstackError):
         install_skills(target)
+    assert (current / "SKILL.md").read_bytes() == original

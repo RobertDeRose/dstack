@@ -31,15 +31,33 @@ def test_validate_docs_accepts_complete_book(tmp_path: Path) -> None:
     assert "getting-started/index.md" in result["chapters"]
 
 
-def test_validate_docs_rejects_orphan_and_missing_link(tmp_path: Path) -> None:
+def test_validate_docs_tracks_navigation_and_local_targets_by_behavior(tmp_path: Path) -> None:
     create_foundation(tmp_path)
-    (tmp_path / "docs/src/orphan.md").write_text("# Orphan\n", encoding="utf-8")
-    summary = tmp_path / "docs/src/SUMMARY.md"
-    summary.write_text(summary.read_text(encoding="utf-8") + "- [Missing](missing.md)\n", encoding="utf-8")
-    with pytest.raises(DstackError) as error:
-        validate_docs(tmp_path, mdbook=str(fake_mdbook(tmp_path)))
-    assert "orphan" in str(error.value)
-    assert "missing" in str(error.value)
+    mdbook = str(fake_mdbook(tmp_path))
+    source = tmp_path / "docs/src"
+    summary = source / "SUMMARY.md"
+
+    orphan = source / "orphan.md"
+    orphan.write_text("# Orphan\n", encoding="utf-8")
+    with pytest.raises(DstackError):
+        validate_docs(tmp_path, mdbook=mdbook)
+
+    summary.write_text(
+        summary.read_text(encoding="utf-8") + "- [Additional](orphan.md)\n",
+        encoding="utf-8",
+    )
+    assert "orphan.md" in validate_docs(tmp_path, mdbook=mdbook)["chapters"]
+
+    summary.write_text(
+        summary.read_text(encoding="utf-8") + "- [Pending](pending.md)\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(DstackError):
+        validate_docs(tmp_path, mdbook=mdbook)
+
+    (source / "pending.md").write_text("# Pending\n", encoding="utf-8")
+    result = validate_docs(tmp_path, mdbook=mdbook)
+    assert set(result["chapters"]) >= {"orphan.md", "pending.md"}
 
 
 def test_markdown_links_ignore_code_and_keep_balanced_parentheses() -> None:

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Sequence
+
+import pytest
 
 from dstack import cli
 
@@ -14,11 +17,26 @@ def test_parser_exposes_only_targeted_control_plane_areas() -> None:
     assert args.bead == "ds-plan"
 
 
-def test_root_help_describes_two_entry_points(capsys) -> None:  # type: ignore[no-untyped-def]
-    assert cli.main([]) == 0
-    output = capsys.readouterr().out
-    assert "install_skills" in output
-    assert "ctl" in output
+def test_root_dispatches_both_supported_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, list[str]]] = []
+
+    def install(values: Sequence[str] | None = None) -> int:
+        calls.append(("install_skills", list(values or [])))
+        return 11
+
+    def control(values: Sequence[str] | None = None) -> int:
+        calls.append(("ctl", list(values or [])))
+        return 12
+
+    monkeypatch.setattr(cli, "install_skills_main", install)
+    monkeypatch.setattr(cli, "ctl_main", control)
+
+    assert cli.main(["install_skills", "--agent-dir", "/tmp/agent"]) == 11
+    assert cli.main(["ctl", "plan", "check", "ds-plan"]) == 12
+    assert calls == [
+        ("install_skills", ["--agent-dir", "/tmp/agent"]),
+        ("ctl", ["plan", "check", "ds-plan"]),
+    ]
 
 
 def test_ctl_failure_is_compact_json(git_repo: Path, capsys) -> None:  # type: ignore[no-untyped-def]

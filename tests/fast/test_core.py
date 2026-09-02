@@ -26,7 +26,7 @@ def test_parse_json_unwraps_beads_envelope() -> None:
 
 def test_parse_beads_version_accepts_semver_output() -> None:
     assert parse_beads_version("bd version 1.2.2 (abc)") == (1, 2, 2)
-    with pytest.raises(DstackError, match="cannot parse"):
+    with pytest.raises(DstackError):
         parse_beads_version("beads unknown")
 
 

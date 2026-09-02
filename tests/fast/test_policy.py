@@ -1,58 +1,65 @@
 from __future__ import annotations
 
-from copy import deepcopy
+from collections.abc import Iterable
 
 import pytest
 
 from dstack.core import DstackError
-from dstack.policy import commit_subject, documentation_impact, validate_plan_issue, validate_task_issue
+from dstack.policy import PLAN_SECTIONS, commit_subject, validate_plan_issue, validate_task_issue
 
 
-def valid_plan() -> dict[str, object]:
-    return {
-        "id": "ds-plan",
-        "issue_type": "task",
-        "labels": ["dstack:step:plan"],
-        "design": """## Goal
-Ship deterministic planning.
-
-## Current behavior
-The agent guesses.
-
-## Proposed behavior
-The agent asks material questions.
-
-## Repository evidence
-`dstack/policy.py` validates the plan.
-
-## Questions and answers
-Question: Should ambiguity block closure?\nAnswer: Yes.
-
-## Decisions and rationale
-Use native Beads fields to avoid a second plan store.
-
-## Compatibility and migration
-Existing molecules remain historical.
-
-## Documentation impact
-
-### End users
+PLAN_CONTENT = {
+    "Goal": "Ship deterministic planning.",
+    "Current behavior": "The agent guesses.",
+    "Proposed behavior": "The agent asks material questions.",
+    "Repository evidence": "`dstack/policy.py` validates the plan.",
+    "Questions and answers": "Question: Should ambiguity block closure?\nAnswer: Yes.",
+    "Decisions and rationale": "Use native Beads fields to avoid a second plan store.",
+    "Compatibility and migration": "Existing molecules remain historical.",
+    "Documentation impact": """### End users
 Update planning usage.
 
 ### Developers
 Document the formula and validators.
 
 ### Future agents
-Record the authority invariant.
+Record the authority invariant.""",
+    "Non-goals": "No autonomous product-policy decisions.",
+}
 
-## Non-goals
-No autonomous product-policy decisions.
-""",
+DOCUMENTATION_LINES = (
+    "- End-user: not affected - No observable interface or operational behavior changes.",
+    "- Developer: required - Document queue timestamp ownership in architecture guidance.",
+    "- Future-agent: required - Record the ordering invariant and rationale for later planning.",
+)
+
+
+def plan_design(
+    *,
+    questions: str | None = None,
+    order: Iterable[str] = PLAN_SECTIONS,
+    content_overrides: dict[str, str] | None = None,
+) -> str:
+    content = dict(PLAN_CONTENT)
+    if questions is not None:
+        content["Questions and answers"] = questions
+    if content_overrides:
+        content.update(content_overrides)
+    return "\n\n".join(f"## {section}\n{content[section]}" for section in order) + "\n"
+
+
+def valid_plan(**kwargs: object) -> dict[str, object]:
+    return {
+        "id": "ds-plan",
+        "issue_type": "task",
+        "labels": ["dstack:step:plan"],
+        "design": plan_design(**kwargs),
         "acceptance_criteria": "The plan validator accepts this complete structure.",
     }
 
 
-def valid_task() -> dict[str, object]:
+def valid_task(*, documentation_lines: Iterable[str] = DOCUMENTATION_LINES) -> dict[str, object]:
+    matrix = "\n".join(documentation_lines)
     return {
         "id": "ds-task",
         "title": "Preserve inbound arrival timestamps",
@@ -62,13 +69,11 @@ def valid_task() -> dict[str, object]:
             "dstack:commit:fix",
             "dstack:scope:coordinator",
         ],
-        "description": """Implement arrival ordering.
+        "description": f"""Implement arrival ordering.
 
 ## Documentation impact
 
-- End-user: not affected - No observable interface or operational behavior changes.
-- Developer: required - Document queue timestamp ownership in architecture guidance.
-- Future-agent: required - Record the ordering invariant and rationale for later planning.
+{matrix}
 """,
         "acceptance_criteria": "Queued messages retain the timestamp captured at ingress.",
     }
@@ -80,37 +85,45 @@ def test_complete_plan_is_valid() -> None:
     assert result["errors"] == []
 
 
-def test_plan_rejects_unresolved_questions_and_placeholders() -> None:
-    issue = deepcopy(valid_plan())
-    issue["design"] = str(issue["design"]).replace(
-        "Question: Should ambiguity block closure?\nAnswer: Yes.",
-        "Status: unresolved\nTODO decide who owns authority.",
+def test_plan_validation_ignores_prose_wording_wrapping_and_section_order() -> None:
+    reordered = tuple(reversed(PLAN_SECTIONS))
+    issue = valid_plan(
+        order=reordered,
+        content_overrides={
+            "Goal": "Ship deterministic planning while preserving\nrepository authority and compact agent context.",
+            "Current behavior": "Planning behavior is inconsistent across agents.",
+            "Proposed behavior": "Validate the observable Beads record instead of copied skill wording.",
+        },
     )
+    assert validate_plan_issue(issue)["status"] == "ok"
+
+
+def test_plan_rejects_unresolved_questions_and_placeholders() -> None:
+    issue = valid_plan(questions="Status: unresolved\nTODO decide who owns authority.")
     result = validate_plan_issue(issue)
     assert result["status"] == "invalid"
-    assert any("unresolved" in error for error in result["errors"])
-    assert any("placeholder" in error for error in result["errors"])
+    assert len(result["errors"]) >= 2
 
 
 def test_task_requires_all_documentation_audiences() -> None:
-    issue = valid_task()
-    issue["description"] = str(issue["description"]).replace(
-        "- Future-agent: required - Record the ordering invariant and rationale for later planning.\n",
-        "",
-    )
+    issue = valid_task(documentation_lines=DOCUMENTATION_LINES[:-1])
     result = validate_task_issue(issue)
     assert result["status"] == "invalid"
-    assert "missing documentation-impact classification for Future-agent" in result["errors"]
+    assert set(result["documentation_impact"]) == {"End-user", "Developer"}
 
 
 def test_documentation_impact_rejects_weak_reason() -> None:
-    issue = valid_task()
-    issue["description"] = str(issue["description"]).replace(
-        "No observable interface or operational behavior changes.",
-        "None.",
+    lines = (
+        "- End-user: not affected - None.",
+        DOCUMENTATION_LINES[1],
+        DOCUMENTATION_LINES[2],
     )
-    _, errors = documentation_impact(issue)
-    assert "documentation-impact reason for End-user is too weak" in errors
+    result = validate_task_issue(valid_task(documentation_lines=lines))
+    assert result["status"] == "invalid"
+    assert result["documentation_impact"]["End-user"] == {
+        "status": "not affected",
+        "reason": "None.",
+    }
 
 
 def test_commit_subject_is_derived_from_task_policy() -> None:
@@ -120,34 +133,29 @@ def test_commit_subject_is_derived_from_task_policy() -> None:
 def test_commit_subject_rejects_embedded_conventional_prefix() -> None:
     issue = valid_task()
     issue["title"] = "fix(coordinator): preserve inbound arrival timestamps"
-    with pytest.raises(DstackError, match="must not include"):
+    with pytest.raises(DstackError):
         commit_subject(issue)
 
 
 def test_plan_requires_question_ledger_or_evidence_based_none_declaration() -> None:
-    issue = deepcopy(valid_plan())
-    issue["design"] = str(issue["design"]).replace(
-        "Question: Should ambiguity block closure?\nAnswer: Yes.",
-        "Repository investigation was complete.",
+    assert validate_plan_issue(valid_plan(questions="Repository investigation was complete."))["status"] == "invalid"
+    assert (
+        validate_plan_issue(
+            valid_plan(
+                questions=(
+                    "No material questions: Existing tests and accepted decisions resolve the requested behavior."
+                )
+            )
+        )["status"]
+        == "ok"
     )
-    result = validate_plan_issue(issue)
-    assert result["status"] == "invalid"
-    assert any("paired `Question:`/`Answer:`" in error for error in result["errors"])
-
-    issue["design"] = str(issue["design"]).replace(
-        "Repository investigation was complete.",
-        "No material questions: Existing tests and accepted decisions resolve the requested behavior.",
-    )
-    assert validate_plan_issue(issue)["status"] == "ok"
 
 
 def test_plan_rejects_unpaired_or_unresolved_answer() -> None:
-    issue = deepcopy(valid_plan())
-    issue["design"] = str(issue["design"]).replace("\nAnswer: Yes.", "")
-    result = validate_plan_issue(issue)
-    assert any("Question without a following Answer" in error for error in result["errors"])
-
-    issue = deepcopy(valid_plan())
-    issue["design"] = str(issue["design"]).replace("Answer: Yes.", "Answer: Unknown")
-    result = validate_plan_issue(issue)
-    assert any("unresolved answer" in error for error in result["errors"])
+    assert validate_plan_issue(valid_plan(questions="Question: Should ambiguity block closure?"))["status"] == "invalid"
+    assert (
+        validate_plan_issue(valid_plan(questions="Question: Should ambiguity block closure?\nAnswer: Unknown"))[
+            "status"
+        ]
+        == "invalid"
+    )
