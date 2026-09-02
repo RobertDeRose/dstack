@@ -1,7 +1,7 @@
 [project]
 name = "dstack"
-version = "0.5.0"
-description = "Beads-native software engineering workflow controller for Pi"
+version = "0.6.0"
+description = "Deterministic repository control plane for Beads-native agent workflows"
 requires-python = ">=3.14,<3.15"
 
 [project.scripts]

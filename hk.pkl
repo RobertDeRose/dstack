@@ -40,11 +40,31 @@ local linters = new Mapping<String, Step> {
   ["yamlfmt"] = Builtins.yamlfmt
 }
 
+local pre_commit_steps = (linters) {
+  ["bd-pre-commit"] = new Step {
+    check = "bd hooks run pre-commit"
+  }
+}
+
 hooks {
   ["pre-commit"] {
     fix = true
     stash = "git"
-    steps = linters
+    steps = pre_commit_steps
+  }
+  ["post-merge"] {
+    steps {
+      ["bd-post-merge"] {
+        check = "bd hooks run post-merge"
+      }
+    }
+  }
+  ["pre-push"] {
+    steps {
+      ["bd-pre-push"] {
+        check = "bd hooks run pre-push \"$@\""
+      }
+    }
   }
   ["check"] {
     steps = linters

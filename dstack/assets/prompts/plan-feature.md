@@ -1,7 +1,7 @@
 ---
 dstack-managed: true
 name: plan-feature
-description: "Discover and preserve complete planned feature intent in Beads"
+description: "Plan one feature, ask material questions, and store the result in Beads"
 ---
 
 Load and follow the `dstack-beads-plan-feature` skill.

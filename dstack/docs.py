@@ -1,4 +1,4 @@
-"""Canonical mdBook foundation and stateless validation."""
+"""Canonical mdBook foundation and stateless documentation validation."""
 
 from __future__ import annotations
 
@@ -10,133 +10,33 @@ import tomllib
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from .core import DstackError, _assert_no_symlink_components, read_utf8_text, run
 from .output import emit
-from .core import (
-    DstackError,
-    _assert_no_symlink_components,
-    read_utf8_text,
-    replace_text_if_unchanged,
-    run,
-)
 
-
-DESIGN_SCAFFOLD = """# Feature design
-
-## Outcome
-
-{planned_intent}
-
-Acceptance:
-
-{planned_acceptance}
-
-## Non-goals
-
-## Design
-
-## Failure, security, and compatibility
-
-## Validation
-
-## Documentation impact
-"""
-
-RECONCILIATION_SCAFFOLD = """# {title}
-
-[Design record](design.md)
-
-## Delivered outcome
-
-## Material deviations
-
-## Validation
-
-## Documentation links
-
-## Remaining limitations
-"""
-
-RECORD_SUBJECTS = {
-    "feature-design": (
-        "Outcome",
-        "Non-goals",
-        "Design",
-        "Failure, security, and compatibility",
-        "Validation",
-        "Documentation impact",
-    ),
-    "feature-reconciliation": (
-        "Delivered outcome",
-        "Material deviations",
-        "Validation",
-        "Documentation links",
-        "Remaining limitations",
-    ),
-}
-
-# Historical records used earlier, more verbose section layouts. They remain
-# valid evidence; new records use only the compact canonical subjects above.
-RECORD_SUBJECT_ALTERNATIVES: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
-    "feature-design": {
-        "Outcome": (("Outcome",), ("Goal",), ("Feature summary",)),
-        "Non-goals": (("Non-goals",),),
-        "Design": (("Design",), ("Proposed design",)),
-        "Failure, security, and compatibility": (
-            ("Failure, security, and compatibility",),
-            ("Failure / security / compatibility behavior",),
-            ("Failure behavior", "Security implications", "Compatibility and migration implications"),
-            (
-                "Failure, recovery, and state behavior",
-                "Security implications",
-                "Compatibility and migration implications",
-            ),
-        ),
-        "Validation": (("Validation",), ("Validation strategy",)),
-        "Documentation impact": (("Documentation impact",),),
-    },
-    "feature-reconciliation": {
-        "Delivered outcome": (("Delivered outcome",), ("Delivered capability",)),
-        "Material deviations": (("Material deviations",), ("Design reconciliation",)),
-        "Validation": (("Validation",), ("Validation and limitations",)),
-        "Documentation links": (("Documentation links",), ("Documentation",)),
-        "Remaining limitations": (("Remaining limitations",), ("Validation and limitations",)),
-    },
-}
-
-
-# Public sentinel used by callers. Link targets are scanned rather than parsed
-# with this regular expression so balanced parentheses remain intact.
+SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.3"
 LINK_PATTERN = re.compile(r"!?\[[^]]*\]\((.+)\)")
 INCLUDE_PATTERN = re.compile(r"\{\{#include\s+([^}\s]+)[^}]*\}\}")
 FENCE_PATTERN = re.compile(r"^( {0,3})(`{3,}|~{3,})")
-
-CORE_NAVIGATION = (
-    ("Project", "index.md"),
-    ("Architecture", "architecture/index.md"),
-    ("Development", "development/index.md"),
-    ("Documentation", "development/documentation.md"),
-    ("Feature Records", "features/index.md"),
-)
-SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.3"
+ADR_PATTERN = "[0-9][0-9][0-9][0-9]-*.md"
+ADR_STATUSES = frozenset({"Proposed", "Accepted", "Deprecated", "Superseded"})
 
 
 def _is_escaped(text: str, index: int) -> bool:
-    backslashes = 0
+    count = 0
     index -= 1
     while index >= 0 and text[index] == "\\":
-        backslashes += 1
+        count += 1
         index -= 1
-    return backslashes % 2 == 1
+    return count % 2 == 1
 
 
 def _mask_markdown_code(text: str) -> str:
-    """Replace Markdown code with spaces while preserving offsets and newlines."""
+    """Mask fenced and inline code while preserving offsets and line breaks."""
 
     masked = list(text)
-    lines = text.splitlines(keepends=True)
     offset = 0
     fence: tuple[str, int] | None = None
-    for line in lines:
+    for line in text.splitlines(keepends=True):
         plain = line.rstrip("\r\n")
         match = FENCE_PATTERN.match(plain)
         opened = False
@@ -164,53 +64,33 @@ def _mask_markdown_code(text: str) -> str:
         if masked_text[index] != "`" or _is_escaped(masked_text, index):
             index += 1
             continue
-        run = 1
-        while index + run < len(masked_text) and masked_text[index + run] == "`":
-            run += 1
-        end = index + run
-        while end < len(masked_text):
-            end = masked_text.find("`", end)
-            if end < 0:
+        width = 1
+        while index + width < len(masked_text) and masked_text[index + width] == "`":
+            width += 1
+        cursor = index + width
+        while cursor < len(masked_text):
+            cursor = masked_text.find("`", cursor)
+            if cursor < 0:
                 break
             closing = 1
-            while end + closing < len(masked_text) and masked_text[end + closing] == "`":
+            while cursor + closing < len(masked_text) and masked_text[cursor + closing] == "`":
                 closing += 1
-            if closing == run:
-                for position in range(index, end + run):
+            if closing == width:
+                for position in range(index, cursor + width):
                     if masked[position] not in "\r\n":
                         masked[position] = " "
-                index = end + run
+                index = cursor + width
                 break
-            end += closing
+            cursor += closing
         else:
-            index += run
+            index += width
             continue
-        if end < 0:
-            index += run
+        if cursor < 0:
+            index += width
     return "".join(masked)
 
 
-def _markdown_matches(text: str, pattern: re.Pattern[str]) -> tuple[str, list[re.Match[str]]]:
-    masked = _mask_markdown_code(text)
-    matches = []
-    for match in pattern.finditer(masked):
-        syntax = match.start()
-        if pattern is LINK_PATTERN and masked[syntax] == "!":
-            if _is_escaped(masked, syntax) or _is_escaped(masked, syntax + 1):
-                continue
-        elif _is_escaped(masked, syntax):
-            continue
-        matches.append(match)
-    return masked, matches
-
-
-def _markdown_link_target_spans(text: str) -> list[tuple[int, int]]:
-    """Return Markdown inline-link target spans outside code.
-
-    A small scanner is both stricter and more accurate than a single regex:
-    it respects escapes and keeps balanced parentheses in local paths.
-    """
-
+def _link_target_spans(text: str) -> list[tuple[int, int]]:
     masked = _mask_markdown_code(text)
     spans: list[tuple[int, int]] = []
     index = 0
@@ -238,13 +118,12 @@ def _markdown_link_target_spans(text: str) -> list[tuple[int, int]]:
         cursor = target_start
         depth = 1
         while cursor < len(masked):
-            character = masked[cursor]
             if _is_escaped(masked, cursor):
                 cursor += 1
                 continue
-            if character == "(":
+            if masked[cursor] == "(":
                 depth += 1
-            elif character == ")":
+            elif masked[cursor] == ")":
                 depth -= 1
                 if depth == 0:
                     break
@@ -258,152 +137,17 @@ def _markdown_link_target_spans(text: str) -> list[tuple[int, int]]:
 
 
 def markdown_values(text: str, pattern: re.Pattern[str]) -> list[str]:
-    """Return values matched by a Markdown pattern outside code spans."""
-
     if pattern is LINK_PATTERN:
-        return [text[start:end] for start, end in _markdown_link_target_spans(text)]
-    _, matches = _markdown_matches(text, pattern)
-    return [match.group(1) for match in matches]
-
-
-# Keep the internal spelling for local documentation helpers.
-_markdown_values = markdown_values
-
-
-HEADING_PATTERN = re.compile(r"^(#{1,6}) ([^#\n].*?)[ \t]*$", re.MULTILINE)
-PLACEHOLDER_PATTERN = re.compile(r"(?i)\b(?:todo|tbd|fixme|lorem ipsum)\b|<[^>\n]+>|\{\{[^}\n]+\}\}")
-REFERENCE_LINK_PATTERN = re.compile(r"(?<!!)\[[^]\n]+\]\[[^]\n]*\]")
-
-
-def validate_record(
-    text: str,
-    kind: str,
-    *,
-    source: Path | None = None,
-    source_root: Path | None = None,
-) -> None:
-    subjects = RECORD_SUBJECTS.get(kind)
-    if not subjects:
-        raise DstackError(f"unknown documentation record kind: {kind}")
-    alternatives = RECORD_SUBJECT_ALTERNATIVES[kind]
+        return [text[start:end] for start, end in _link_target_spans(text)]
     masked = _mask_markdown_code(text)
-    headings = list(HEADING_PATTERN.finditer(masked))
-    by_title: dict[str, list[re.Match[str]]] = {}
-    for heading in headings:
-        title = heading.group(2).strip()
-        by_title.setdefault(title.casefold(), []).append(heading)
-    duplicates = sorted(matches[0].group(2).strip() for matches in by_title.values() if len(matches) > 1)
-    errors = [f"duplicate heading: {title}" for title in duplicates]
-    if PLACEHOLDER_PATTERN.search(masked):
-        errors.append("record contains a placeholder or TODO")
-    if REFERENCE_LINK_PATTERN.search(masked):
-        errors.append("record uses unsupported reference-style local links")
-
-    def validate_subject(subject: str, heading: re.Match[str]) -> None:
-        level = len(heading.group(1))
-        end = len(text)
-        for candidate in headings:
-            if candidate.start() <= heading.start():
-                continue
-            if len(candidate.group(1)) <= level:
-                end = candidate.start()
-                break
-        content = text[heading.end() : end].strip()
-        if not re.search(r"[A-Za-z0-9]", _mask_markdown_code(content)):
-            errors.append(f"section has no substantive content: {subject}")
-            return
-        if content.startswith("Not applicable"):
-            prefix = "Not applicable — "
-            reason = content.removeprefix(prefix).strip() if content.startswith(prefix) else ""
-            if (
-                not reason
-                or PLACEHOLDER_PATTERN.search(reason)
-                or reason.casefold()
-                in {
-                    "none",
-                    "n/a",
-                    "not applicable",
-                    "no impact",
-                }
-            ):
-                errors.append(f"section requires 'Not applicable — <specific reason>': {subject}")
-
-    for subject in subjects:
-        selected: tuple[str, ...] | None = None
-        for option in alternatives[subject]:
-            if all(by_title.get(title.casefold()) for title in option):
-                selected = option
-                break
-        if selected is None:
-            errors.append(f"missing required section: {subject}")
-            continue
-        for title in selected:
-            validate_subject(title, by_title[title.casefold()][0])
-
-    if source is not None and source_root is not None:
-        root = source_root.resolve()
-        try:
-            source.resolve().relative_to(root)
-            base = source.parent
-        except ValueError:
-            base = root
-        for raw in _markdown_values(text, LINK_PATTERN):
-            target = urlsplit(_raw_target(raw))
-            if target.scheme or target.netloc or not target.path:
-                continue
-            relative = Path(unquote(target.path))
-            candidate = (base / relative).resolve()
-            try:
-                candidate.relative_to(root)
-            except ValueError:
-                errors.append(f"record local link escapes repository: {raw}")
-                continue
-            if not candidate.is_file():
-                errors.append(f"record local link is missing: {raw}")
-    if errors:
-        raise DstackError(f"invalid {kind} record: " + "; ".join(sorted(set(errors))))
+    return [match.group(1) for match in pattern.finditer(masked) if not _is_escaped(masked, match.start())]
 
 
-def foundation_files(project: str) -> dict[str, str]:
-    title = project.replace("-", " ").replace("_", " ").strip().title() or "Project"
-    return {
-        "docs/book.toml": (f'[book]\ntitle = {json.dumps(title)}\nlanguage = "en"\nsrc = "src"\n'),
-        "docs/src/SUMMARY.md": (
-            "# Summary\n\n"
-            "- [Project](index.md)\n"
-            "- [Architecture](architecture/index.md)\n"
-            "- [Development](development/index.md)\n"
-            "  - [Documentation](development/documentation.md)\n"
-            "- [Feature Records](features/index.md)\n"
-        ),
-        "docs/src/index.md": (
-            f"# {title}\n\n"
-            f"This book documents {title} for users, operators, developers, "
-            "reviewers, and future maintainers.\n"
-        ),
-        "docs/src/architecture/index.md": (
-            "# Architecture\n\n"
-            "Describe the current system, its components, relationships, "
-            "boundaries, and durable invariants here.\n"
-        ),
-        "docs/src/development/index.md": (
-            "# Development\n\nDescribe how to build, test, change, validate, and release this project here.\n"
-        ),
-        "docs/src/development/documentation.md": (
-            "# Documentation\n\n"
-            "Put documentation where a reader would look based on the question "
-            "they are trying to answer. Keep current product behavior in current "
-            "architecture, user, operator, development, and reference pages; "
-            "keep accepted change intent and delivery reconciliation in feature "
-            "records. Humans and agents use the same durable documentation.\n"
-        ),
-        "docs/src/features/index.md": (
-            "# Feature Records\n\n"
-            "Feature records preserve accepted change intent and reconcile it "
-            "with delivered behavior. Current product guidance belongs in the "
-            "sections where readers look for that behavior.\n"
-        ),
-    }
+def _raw_target(value: str) -> str:
+    value = value.strip()
+    if value.startswith("<") and ">" in value:
+        return value[1 : value.index(">")]
+    return value.split(maxsplit=1)[0]
 
 
 def _inside(path: Path, parent: Path, message: str) -> Path:
@@ -415,116 +159,48 @@ def _inside(path: Path, parent: Path, message: str) -> Path:
     return resolved
 
 
-def _book_source_value(book: Path) -> str:
-    try:
-        payload = tomllib.loads(read_utf8_text(book, purpose="mdBook configuration"))
-    except (DstackError, OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
-        raise DstackError(f"invalid mdBook configuration: {book}") from exc
-    table = payload.get("book", {})
-    if not isinstance(table, dict):
-        raise DstackError("mdBook [book] configuration must be a table")
-    raw = table.get("src", "src")
-    if not isinstance(raw, str) or not raw.strip():
-        raise DstackError("mdBook [book].src must be a non-empty relative path")
-    return raw.strip()
-
-
-def configured_source(root: Path) -> tuple[str, Path]:
-    _assert_no_symlink_components(root, purpose="documentation root")
-    root = root.resolve()
-    docs = root / "docs"
-    _assert_no_symlink_components(docs, purpose="documentation directory")
-    docs = _inside(docs, root, "documentation directory escapes repository")
-    book = docs / "book.toml"
-    if not book.is_file() or book.is_symlink():
-        raise DstackError("docs/book.toml must be a regular file")
-    raw = _book_source_value(book)
-    relative = Path(raw)
-    if relative.is_absolute() or ".." in relative.parts:
-        raise DstackError("mdBook [book].src must stay within docs")
-    lexical_source = docs / relative
-    current = docs
-    for part in relative.parts:
-        current = current / part
-        if current.is_symlink():
-            raise DstackError("mdBook [book].src must not traverse symlinks")
-    source = lexical_source.resolve()
-    try:
-        source.relative_to(docs.resolve())
-    except ValueError as exc:
-        raise DstackError("mdBook [book].src must stay within docs") from exc
-    return raw, source
-
-
-def _summary_link_target(raw: str) -> str | None:
-    target = urlsplit(_raw_target(raw))
-    if target.scheme or target.netloc or not target.path:
-        return None
-    normalized = Path(unquote(target.path)).as_posix()
-    while normalized.startswith("./"):
-        normalized = normalized[2:]
-    return normalized
-
-
-def ensure_core_navigation(root: Path) -> list[str]:
-    """Add missing canonical pages without rewriting project-owned navigation."""
-
-    _assert_no_symlink_components(root, purpose="documentation root")
-    root = root.resolve()
-    summary = root / "docs/src/SUMMARY.md"
-    _assert_no_symlink_components(summary, purpose="mdBook summary")
-    if summary.is_symlink() or not summary.is_file():
-        raise DstackError("documentation foundation path is not a regular file: docs/src/SUMMARY.md")
-
-    original = read_utf8_text(summary, purpose="mdBook summary")
-    targets = {
-        target for raw in _markdown_values(original, LINK_PATTERN) if (target := _summary_link_target(raw)) is not None
+def foundation_files(project: str) -> dict[str, str]:
+    title = project.replace("-", " ").replace("_", " ").strip().title() or "Project"
+    return {
+        "docs/book.toml": f'[book]\ntitle = {json.dumps(title)}\nlanguage = "en"\nsrc = "src"\n',
+        "docs/src/SUMMARY.md": (
+            "# Summary\n\n"
+            "- [Project](index.md)\n"
+            "- [Getting started](getting-started/index.md)\n"
+            "- [Operations](operations/index.md)\n"
+            "- [Architecture](architecture/index.md)\n"
+            "- [Development](development/index.md)\n"
+            "- [Reference](reference/index.md)\n"
+            "- [Architecture decisions](decisions/index.md)\n"
+        ),
+        "docs/src/index.md": f"# {title}\n\nDescribe the project and its supported users here.\n",
+        "docs/src/getting-started/index.md": (
+            "# Getting started\n\nDescribe installation and the shortest successful user path here.\n"
+        ),
+        "docs/src/operations/index.md": (
+            "# Operations\n\nDescribe configuration, deployment, operation, failure handling, and recovery here.\n"
+        ),
+        "docs/src/architecture/index.md": (
+            "# Architecture\n\nDescribe current components, boundaries, data flow, and durable invariants here.\n"
+        ),
+        "docs/src/development/index.md": (
+            "# Development\n\nDescribe how to build, test, change, validate, and release the project here.\n"
+        ),
+        "docs/src/reference/index.md": "# Reference\n\nProvide exact interfaces and configuration reference here.\n",
+        "docs/src/decisions/index.md": (
+            "# Architecture decisions\n\nRecord durable rationale as ADRs or linked decision Beads.\n"
+        ),
     }
-    missing = [(label, target) for label, target in CORE_NAVIGATION if target not in targets]
-    if not missing:
-        return []
-
-    lines = original.rstrip("\n").splitlines()
-    for label, target in missing:
-        if target == "development/documentation.md":
-            continue
-        lines.append(f"- [{label}]({target})")
-
-    if "development/documentation.md" not in targets:
-        parent = next(
-            (
-                index
-                for index, line in enumerate(lines)
-                if "development/index.md" in _markdown_values(line, LINK_PATTERN)
-            ),
-            None,
-        )
-        entry = "  - [Documentation](development/documentation.md)"
-        if parent is None:
-            lines.append(entry.lstrip())
-        else:
-            indentation = lines[parent][: len(lines[parent]) - len(lines[parent].lstrip())]
-            lines.insert(parent + 1, indentation + entry)
-    replace_text_if_unchanged(
-        summary,
-        expected=original,
-        content="\n".join(lines) + "\n",
-        purpose="mdBook summary",
-    )
-    return [target for _, target in missing]
 
 
 def create_foundation(root: Path) -> list[str]:
     _assert_no_symlink_components(root, purpose="documentation root")
-    root = root.resolve()
-    files = foundation_files(root.name)
-    for relative in files:
-        path = root / relative
-        _assert_no_symlink_components(path, purpose="documentation foundation path")
-        _inside(path.parent, root, "documentation foundation path escapes repository")
+    repository = root.resolve()
     created: list[str] = []
-    for relative, content in files.items():
-        path = root / relative
+    for relative, content in foundation_files(repository.name).items():
+        path = repository / relative
+        _assert_no_symlink_components(path, purpose="documentation foundation path")
+        _inside(path.parent, repository, "documentation foundation path escapes repository")
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("x", encoding="utf-8") as handle:
@@ -535,28 +211,39 @@ def create_foundation(root: Path) -> list[str]:
                 raise DstackError(f"documentation foundation path is not a regular file: {relative}")
         except (OSError, UnicodeError) as exc:
             raise DstackError(f"cannot create documentation foundation path {relative}: {exc}") from exc
-    ensure_core_navigation(root)
     return created
 
 
-def require_mdbook() -> str:
-    executable = shutil.which("mdbook")
-    if not executable:
-        raise DstackError("mdbook is unavailable on PATH")
-    observed = run([executable, "--version"], cwd=Path.cwd()).stdout.strip()
-    if observed != SUPPORTED_MDBOOK_VERSION_OUTPUT:
-        raise DstackError(
-            "dStack requires mdBook 0.5.3 exactly "
-            f"({SUPPORTED_MDBOOK_VERSION_OUTPUT}); found {observed or '<empty output>'}"
-        )
-    return executable
-
-
-def _raw_target(value: str) -> str:
-    value = value.strip()
-    if value.startswith("<") and ">" in value:
-        return value[1 : value.index(">")]
-    return value.split(maxsplit=1)[0]
+def configured_source(root: Path) -> tuple[str, Path]:
+    repository = root.resolve()
+    docs = _inside(repository / "docs", repository, "documentation directory escapes repository")
+    book = docs / "book.toml"
+    if book.is_symlink() or not book.is_file():
+        raise DstackError("docs/book.toml must be a regular file")
+    try:
+        payload = tomllib.loads(read_utf8_text(book, purpose="mdBook configuration"))
+    except tomllib.TOMLDecodeError as exc:
+        raise DstackError(f"invalid mdBook configuration: {book}") from exc
+    table = payload.get("book", {})
+    if not isinstance(table, dict):
+        raise DstackError("mdBook [book] configuration must be a table")
+    raw = table.get("src", "src")
+    if not isinstance(raw, str) or not raw.strip():
+        raise DstackError("mdBook [book].src must be a non-empty relative path")
+    relative = Path(raw.strip())
+    if relative.is_absolute() or ".." in relative.parts:
+        raise DstackError("mdBook [book].src must stay within docs")
+    current = docs
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise DstackError("mdBook [book].src must not traverse symlinks")
+    source = current.resolve()
+    try:
+        source.relative_to(docs.resolve())
+    except ValueError as exc:
+        raise DstackError("mdBook [book].src must stay within docs") from exc
+    return raw.strip(), source
 
 
 def _local_target(source: Path, raw: str, source_root: Path) -> Path | None:
@@ -580,61 +267,69 @@ def _local_target(source: Path, raw: str, source_root: Path) -> Path | None:
 
 
 def _links(path: Path) -> list[str]:
-    return _markdown_values(read_utf8_text(path, purpose="documentation link source"), LINK_PATTERN)
+    return markdown_values(read_utf8_text(path, purpose="documentation link source"), LINK_PATTERN)
 
 
 def validate_decision_records(source: Path) -> list[str]:
     decisions = source / "decisions"
     if not decisions.is_dir():
         return []
+    records = {path.name: path for path in decisions.glob(ADR_PATTERN)}
     errors: list[str] = []
-    allowed = {"Proposed", "Accepted", "Deprecated", "Superseded"}
-    for path in sorted(decisions.glob("[0-9][0-9][0-9][0-9]-*.md")):
+    for path in sorted(records.values()):
         text = read_utf8_text(path, purpose="decision record")
         fields: dict[str, str] = {}
         for name in ("Status", "Supersedes", "Superseded by"):
             match = re.search(rf"^- \*\*{re.escape(name)}:\*\*\s*(.+)$", text, re.MULTILINE)
-            if not match:
+            if match is None:
                 errors.append(f"{path.name} lacks {name}")
-                continue
-            fields[name] = match.group(1).strip()
-        status = fields.get("Status")
-        if status and status not in allowed:
+            else:
+                fields[name] = match.group(1).strip()
+        if (status := fields.get("Status")) and status not in ADR_STATUSES:
             errors.append(f"{path.name} has invalid status {status!r}")
         for name in ("Supersedes", "Superseded by"):
             value = fields.get(name)
-            if value and value != "None" and not _markdown_values(value, LINK_PATTERN):
-                errors.append(f"{path.name} {name} must be None or a local link")
+            if not value or value == "None":
+                continue
+            links = markdown_values(value, LINK_PATTERN)
+            if not links:
+                errors.append(f"{path.name} {name} must be None or local ADR links")
+                continue
+            for raw in links:
+                target = urlsplit(_raw_target(raw))
+                target_name = Path(unquote(target.path)).name
+                if target.scheme or target.netloc or target_name not in records:
+                    errors.append(f"{path.name} {name} references an unknown ADR: {raw}")
     return errors
+
+
+def require_mdbook() -> str:
+    executable = shutil.which("mdbook")
+    if executable is None:
+        raise DstackError("mdbook is unavailable on PATH")
+    observed = run([executable, "--version"], cwd=Path.cwd()).stdout.strip()
+    if observed != SUPPORTED_MDBOOK_VERSION_OUTPUT:
+        raise DstackError(
+            f"dStack requires {SUPPORTED_MDBOOK_VERSION_OUTPUT}; found {observed or '<empty output>'}"
+        )
+    return executable
 
 
 def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]:
     _assert_no_symlink_components(root, purpose="documentation root")
-    root = root.resolve()
-    docs = _inside(root / "docs", root, "documentation directory escapes repository")
-    source = _inside(docs / "src", root, "documentation source escapes repository")
-    required = foundation_files(root.name)
-    missing: list[str] = []
-    invalid: list[str] = []
-    for relative in required:
-        path = root / relative
-        if path.is_symlink() or (path.exists() and not path.is_file()):
-            invalid.append(relative)
-        elif not path.is_file():
-            missing.append(relative)
-    foundation_errors = []
-    if missing:
-        foundation_errors.append("missing required documentation: " + ", ".join(missing))
-    if invalid:
-        foundation_errors.append("required documentation is not a regular file: " + ", ".join(invalid))
-    if foundation_errors:
-        raise DstackError("; ".join(foundation_errors))
+    repository = root.resolve()
+    docs = _inside(repository / "docs", repository, "documentation directory escapes repository")
+    expected_source = _inside(docs / "src", repository, "documentation source escapes repository")
 
-    raw_source, configured = configured_source(root)
-    if configured != source:
+    missing = [relative for relative in foundation_files(repository.name) if not (repository / relative).is_file()]
+    if missing:
+        raise DstackError("missing required documentation: " + ", ".join(missing))
+
+    raw_source, source = configured_source(repository)
+    if source != expected_source:
         raise DstackError(f"mdBook [book].src must resolve to docs/src; configured source is {raw_source!r}")
 
-    errors: list[str] = validate_decision_records(source)
+    errors = validate_decision_records(source)
     summary = source / "SUMMARY.md"
     chapters: set[Path] = set()
     for raw in _links(summary):
@@ -658,7 +353,8 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
     pending = list(chapters)
     while pending:
         path = pending.pop()
-        for raw in _markdown_values(read_utf8_text(path, purpose="documentation include source"), INCLUDE_PATTERN):
+        text = read_utf8_text(path, purpose="documentation include source")
+        for raw in markdown_values(text, INCLUDE_PATTERN):
             try:
                 included = _local_target(path, raw.split(":", 1)[0], source)
             except DstackError as exc:
@@ -677,24 +373,12 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
 
     executable = mdbook or require_mdbook()
     with tempfile.TemporaryDirectory(prefix="dstack-mdbook-") as output:
-        run(
-            [executable, "build", str(docs), "--dest-dir", output],
-            cwd=root,
-        )
+        run([executable, "build", str(docs), "--dest-dir", output], cwd=repository)
 
     return {
         "status": "ok",
         "chapters": sorted(path.relative_to(source).as_posix() for path in chapters),
         "includes": sorted(path.relative_to(source).as_posix() for path in includes),
-    }
-
-
-def initialize_docs(root: Path) -> dict[str, object]:
-    executable = require_mdbook()
-    created = create_foundation(root)
-    return {
-        "created_documentation": created,
-        "documentation": validate_docs(root, mdbook=executable),
     }
 
 

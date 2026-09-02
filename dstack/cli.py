@@ -8,297 +8,121 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Sequence
 
-from .audit import cmd_audit_feature
-from .commands import DstackError, cmd_infra_check
-from .core import canonical_positive_integer
+from .audit import cmd_audit_evidence
+from .commands import (
+    DstackError,
+    cmd_infra_check,
+    cmd_infra_install,
+    cmd_plan_check,
+    cmd_task_check,
+    cmd_worktree_ensure,
+)
 from .docs import cmd_docs_validate
-from .output import fail
-from .feature import (
-    cmd_feature_resolve,
-    cmd_feature_plan,
-    cmd_feature_inspect,
-    cmd_feature_audit_complete,
-    cmd_feature_initialize,
-    cmd_feature_scaffold_design,
-    cmd_feature_scaffold_reconciliation,
-    cmd_feature_add_task,
-    cmd_feature_claim_spec,
-    cmd_feature_approve_spec,
-    cmd_feature_reauthorize,
-    cmd_feature_claim_next,
-    cmd_feature_finish_task,
-    cmd_feature_finish_workstream,
-    cmd_feature_claim_closeout,
-    cmd_feature_finish_closeout,
-)
-from .delivery import (
-    cmd_git_commit,
-    cmd_git_amend,
-    cmd_evidence_commits,
-    cmd_evidence_audit_feature,
-    cmd_docs_check,
-    cmd_delivery_inspect,
-    cmd_delivery_pr_preflight,
-    cmd_delivery_register_pr,
-    cmd_delivery_replace_pr,
-    cmd_delivery_cancel_pr_gate,
-    cmd_delivery_merge,
-    cmd_delivery_finalize_pr,
-)
+from .git_ops import cmd_evidence_commits, cmd_git_amend, cmd_git_commit
 from .installer import main as install_skills_main
-
-HELP_BY_DEST = {
-    "root": "Repository root; defaults to the current directory.",
-    "selector": "Feature selector (ID, slug, or title).",
-    "title": "Human-readable title for the created or submitted item.",
-    "slug": "Stable slug used for derived paths and branch names.",
-    "base_branch": "Git branch from which the feature is based.",
-    "design_path": "Must equal docs/src/features/<slug>/design.md.",
-    "description": "Durable description of the work or correction.",
-    "description_file": "Read the durable description from this file.",
-    "acceptance": "Observable acceptance criteria for the work.",
-    "acceptance_file": "Read acceptance criteria from this file.",
-    "priority": "Native Beads priority for the created item.",
-    "depends_on": "Additional native Beads dependency; repeat for multiple items.",
-    "task": "Implementation or correction task to claim or finish.",
-    "summary_file": "Read a durable Beads summary from this file.",
-    "reason": "Native Beads close reason.",
-    "no_repository_change": "Close without Git evidence using an explicit reason.",
-    "target_branch": "Git branch being audited or targeted for delivery.",
-    "scope": "Human-readable project scope.",
-    "bead": "Beads ID to reference in the Git footer.",
-    "subject": "One-line Git commit subject.",
-    "body_file": "Read the Git or PR body from this file.",
-    "ref": "Git ref or range to inspect.",
-    "base": "Base Git ref for documentation comparison.",
-    "head": "Candidate Git ref for documentation comparison.",
-    "fetch": "Fetch the target remote before inspecting delivery.",
-    "pr_number": "External pull-request number for the native gate.",
-}
+from .output import fail
 
 
-def positive_integer(value: str) -> int:
-    try:
-        return canonical_positive_integer(value, field="integer")
-    except DstackError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def add_common_root(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--root", type=Path, default=Path.cwd(), help=HELP_BY_DEST["root"])
-
-
-def mechanical_parser(
-    parent: argparse._SubParsersAction,
-    name: str,
-    description: str,
-) -> argparse.ArgumentParser:
-    return parent.add_parser(
-        name,
-        help=description,
-        description=f"Mechanics: {description}",
-    )
-
-
-def fill_argument_help(parser: argparse.ArgumentParser) -> None:
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            for child in action.choices.values():
-                fill_argument_help(child)
-            continue
-        if action.dest == "help" or action.help:
-            continue
-        action.help = HELP_BY_DEST.get(
-            action.dest,
-            f"Value for {action.dest.replace('_', ' ')}.",
-        )
+def _leaf(parent: argparse._SubParsersAction, name: str, description: str) -> argparse.ArgumentParser:
+    return parent.add_parser(name, help=description, description=description)
 
 
 def build_ctl_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Mechanics: stateless deterministic controller for dstack workflows.")
-    add_common_root(parser)
-    top = parser.add_subparsers(dest="area", required=True)
+    parser = argparse.ArgumentParser(
+        description="Deterministic repository mechanics for a Beads-owned software workflow."
+    )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path.cwd(),
+        help="Repository root; defaults to the current directory.",
+    )
+    areas = parser.add_subparsers(dest="area", required=True)
 
-    infra = mechanical_parser(top, "infra", "initialize Beads and validate packaged dStack formula contracts")
-    infra_sub = infra.add_subparsers(dest="command", required=True)
-    infra_check = mechanical_parser(infra_sub, "check", "ensure the local dStack infrastructure is current")
-    infra_check.set_defaults(func=cmd_infra_check)
+    infra = _leaf(areas, "infra", "Install or verify the project-local Beads workflow contract.")
+    infra_commands = infra.add_subparsers(dest="command", required=True)
+    install = _leaf(infra_commands, "install", "Initialize Beads and install the packaged dStack formula.")
+    install.add_argument(
+        "--update-formula",
+        action="store_true",
+        help="Replace a different project formula after the caller has reviewed the packaged change.",
+    )
+    install.set_defaults(func=cmd_infra_install)
+    check = _leaf(infra_commands, "check", "Verify Beads, the formula, and native integration health.")
+    check.set_defaults(func=cmd_infra_check)
 
-    feature = mechanical_parser(top, "feature", "feature lifecycle commands")
-    feature_sub = feature.add_subparsers(dest="command", required=True)
-    plan_feature = mechanical_parser(feature_sub, "plan", "create or update durable planned feature intent")
-    plan_feature.add_argument("selector", nargs="?")
-    plan_feature.add_argument("--title", required=True)
-    plan_feature.add_argument("--slug")
-    plan_feature.add_argument("--body-file", type=Path, required=True)
-    plan_feature.add_argument("--acceptance", required=True)
-    plan_feature.add_argument("--priority", type=int, default=2)
-    plan_feature.add_argument("--depends-on", action="append", default=[])
-    plan_feature.set_defaults(func=cmd_feature_plan)
-    resolve = mechanical_parser(feature_sub, "resolve", "resolve a feature selector")
-    resolve.add_argument("selector", nargs="?")
-    resolve.set_defaults(func=cmd_feature_resolve)
-    inspect = mechanical_parser(feature_sub, "inspect", "inspect the feature Bead and deterministic Git/worktree facts")
-    inspect.add_argument("selector", nargs="?")
-    inspect.add_argument("--verbose", action="store_true", help="emit the full live feature view")
-    inspect.set_defaults(func=cmd_feature_inspect)
-    audit_complete = mechanical_parser(
-        feature_sub, "audit-complete", "record that existing approved work satisfies the current formula contract"
-    )
-    audit_complete.add_argument("selector")
-    audit_complete.set_defaults(func=cmd_feature_audit_complete)
-    initialize = mechanical_parser(feature_sub, "initialize", "create or reuse a feature branch and worktree")
-    initialize.add_argument("selector", nargs="?")
-    initialize.add_argument("--title")
-    initialize.add_argument("--slug")
-    initialize.add_argument("--base-branch")
-    initialize.add_argument("--design-path")
-    initialize.set_defaults(func=cmd_feature_initialize)
-    scaffold_design = mechanical_parser(
-        feature_sub, "scaffold-design", "create a missing design file without overwriting"
-    )
-    scaffold_design.add_argument("selector")
-    scaffold_design.set_defaults(func=cmd_feature_scaffold_design)
-    scaffold_reconciliation = mechanical_parser(
-        feature_sub,
-        "scaffold-reconciliation",
-        "create a missing feature reconciliation without overwriting",
-    )
-    scaffold_reconciliation.add_argument("selector")
-    scaffold_reconciliation.set_defaults(func=cmd_feature_scaffold_reconciliation)
-    add_task = mechanical_parser(feature_sub, "add-task", "create an implementation task through native Beads")
-    add_task.add_argument("selector")
-    add_task.add_argument("--title", required=True)
-    add_task.add_argument("--description")
-    add_task.add_argument("--description-file", type=Path)
-    add_task.add_argument("--acceptance")
-    add_task.add_argument("--acceptance-file", type=Path)
-    add_task.add_argument("--priority", type=int, default=2)
-    add_task.add_argument("--depends-on", action="append", default=[])
-    add_task.set_defaults(func=cmd_feature_add_task)
-    claim_spec = mechanical_parser(feature_sub, "claim-spec", "claim the feature specification task")
-    claim_spec.add_argument("selector", nargs="?")
-    claim_spec.set_defaults(func=cmd_feature_claim_spec)
-    approve = mechanical_parser(feature_sub, "approve-spec", "approve the design digest and authorize implementation")
-    approve.add_argument("selector", nargs="?")
-    approve.add_argument("--summary-file", type=Path)
-    approve.set_defaults(func=cmd_feature_approve_spec)
-    reauthorize = mechanical_parser(feature_sub, "reauthorize", "reopen feature authorization before scope changes")
-    reauthorize.add_argument("selector")
-    reauthorize.add_argument("--reason", required=True)
-    reauthorize.set_defaults(func=cmd_feature_reauthorize)
-    claim = mechanical_parser(feature_sub, "claim-next", "claim one native ready implementation task")
-    claim.add_argument("selector", nargs="?")
-    claim.add_argument("--task")
-    claim.set_defaults(func=cmd_feature_claim_next)
-    finish = mechanical_parser(feature_sub, "finish-task", "finish one implementation task after evidence checks")
-    finish.add_argument("selector")
-    finish.add_argument("--task", required=True)
-    finish.add_argument("--reason")
-    finish.add_argument("--summary-file", type=Path)
-    finish.add_argument("--no-repository-change", action="store_true")
-    finish.set_defaults(func=cmd_feature_finish_task)
-    finish_workstream = mechanical_parser(
-        feature_sub, "finish-workstream", "close the implementation epic when children are complete"
-    )
-    finish_workstream.add_argument("selector")
-    finish_workstream.set_defaults(func=cmd_feature_finish_workstream)
-    claim_closeout = mechanical_parser(
-        feature_sub, "claim-closeout", "claim feature closeout after implementation fan-in"
-    )
-    claim_closeout.add_argument("selector", nargs="?")
-    claim_closeout.set_defaults(func=cmd_feature_claim_closeout)
-    finish_closeout = mechanical_parser(
-        feature_sub, "finish-closeout", "finish feature closeout and record its summary"
-    )
-    finish_closeout.add_argument("selector", nargs="?")
-    finish_closeout.add_argument("--reason", default="Closeout completed")
-    finish_closeout.add_argument("--summary-file", type=Path)
-    finish_closeout.set_defaults(func=cmd_feature_finish_closeout)
+    plan = _leaf(areas, "plan", "Validate the structure of a native Beads feature plan.")
+    plan_commands = plan.add_subparsers(dest="command", required=True)
+    plan_check = _leaf(plan_commands, "check", "Check required plan sections, resolved questions, and audiences.")
+    plan_check.add_argument("bead", help="Plan-step Bead ID.")
+    plan_check.set_defaults(func=cmd_plan_check)
 
-    git_parser = mechanical_parser(top, "git", "create or amend commits with Beads footers")
-    git_sub = git_parser.add_subparsers(dest="command", required=True)
-    for name, handler, description in (
-        ("commit", cmd_git_commit, "create a commit with a Beads footer"),
-        ("amend", cmd_git_amend, "amend a commit while preserving its Beads footer"),
+    worktree = _leaf(areas, "worktree", "Apply feature branch and worktree policy using native Beads worktree support.")
+    worktree_commands = worktree.add_subparsers(dest="command", required=True)
+    worktree_ensure = _leaf(worktree_commands, "ensure", "Create or verify the selected feature worktree.")
+    worktree_ensure.add_argument("feature", help="Feature root or descendant Bead ID.")
+    worktree_ensure.set_defaults(func=cmd_worktree_ensure)
+
+    git = _leaf(areas, "git", "Create deterministic Conventional Commits from implementation Beads.")
+    git_commands = git.add_subparsers(dest="command", required=True)
+    for name, func, description in (
+        ("commit", cmd_git_commit, "Commit staged changes with a generated subject and Beads footer."),
+        ("amend", cmd_git_amend, "Amend HEAD while preserving its exact Beads ownership."),
     ):
-        item = mechanical_parser(git_sub, name, description)
-        item.add_argument("--bead", required=True)
-        item.add_argument("--subject", required=True)
-        item.add_argument("--body-file", type=Path)
-        item.set_defaults(func=handler)
+        command = _leaf(git_commands, name, description)
+        command.add_argument("--bead", required=True, help="Implementation Bead ID.")
+        command.add_argument("--body-file", type=Path, help="Optional UTF-8 commit body file.")
+        command.set_defaults(func=func)
 
-    evidence = mechanical_parser(top, "evidence", "inspect reachable Git evidence")
-    evidence_sub = evidence.add_subparsers(dest="command", required=True)
-    commits = mechanical_parser(evidence_sub, "commits", "list commits carrying one Beads footer")
-    commits.add_argument("--bead", required=True)
-    commits.add_argument("--ref", default="HEAD")
+    evidence = _leaf(areas, "evidence", "Inspect Git evidence without changing Beads or Git.")
+    evidence_commands = evidence.add_subparsers(dest="command", required=True)
+    commits = _leaf(evidence_commands, "commits", "Find commits with one exact Beads footer.")
+    commits.add_argument("--bead", required=True, help="Bead ID to locate.")
+    commits.add_argument("--ref", required=True, help="Git ref or range to inspect.")
     commits.set_defaults(func=cmd_evidence_commits)
-    audit = mechanical_parser(evidence_sub, "audit-feature", "audit implementation footer evidence")
-    audit.add_argument("selector")
-    audit.set_defaults(func=cmd_evidence_audit_feature)
 
-    audit_view = mechanical_parser(top, "audit", "emit read-only audit views")
-    audit_view_sub = audit_view.add_subparsers(dest="command", required=True)
-    audit_feature = mechanical_parser(
-        audit_view_sub,
-        "feature",
-        "inspect the feature boundary; add --verbose for full audit facts",
+    task = _leaf(areas, "task", "Validate an implementation Bead and its repository evidence.")
+    task_commands = task.add_subparsers(dest="command", required=True)
+    task_check = _leaf(task_commands, "check", "Check acceptance, documentation impact, Git evidence, and cleanliness.")
+    task_check.add_argument("bead", help="Implementation Bead ID.")
+    task_check.add_argument("--base", help="Override the feature base ref recorded in Beads.")
+    task_check.add_argument("--head", help="Override the feature branch ref derived from Beads.")
+    task_check.add_argument("--run-validation", action="store_true", help="Run the project validation command.")
+    task_check.add_argument(
+        "--validation-command",
+        help="Argument string for the validation command; defaults to DSTACK_VALIDATION_COMMAND or `hk check -a`.",
     )
-    audit_feature.add_argument("selector")
-    audit_feature.add_argument("--format", choices=("json", "markdown"), default="json")
-    audit_feature.add_argument("--verbose", action="store_true", help="emit complete Beads/Git/docs audit facts")
-    audit_feature.set_defaults(func=cmd_audit_feature)
+    task_check.set_defaults(func=cmd_task_check)
 
-    docs = mechanical_parser(top, "docs", "run documentation policy checks")
-    docs_sub = docs.add_subparsers(dest="command", required=True)
-    docs_check_parser = mechanical_parser(docs_sub, "check", "check changed documentation for transient bookkeeping")
-    docs_check_parser.add_argument("--base", required=True)
-    docs_check_parser.add_argument("--head", required=True)
-    docs_check_parser.set_defaults(func=cmd_docs_check)
-    docs_validate_parser = mechanical_parser(docs_sub, "validate", "validate the current mdBook documentation")
-    docs_validate_parser.set_defaults(func=cmd_docs_validate)
-
-    delivery = mechanical_parser(top, "delivery", "inspect and execute safe delivery operations")
-    delivery_sub = delivery.add_subparsers(dest="command", required=True)
-    delivery_inspect = mechanical_parser(delivery_sub, "inspect", "inspect a delivery candidate")
-    delivery_inspect.add_argument("selector")
-    delivery_inspect.add_argument("--fetch", action="store_true")
-    delivery_inspect.set_defaults(func=cmd_delivery_inspect)
-    preflight = mechanical_parser(delivery_sub, "pr-preflight", "validate a candidate before creating a pull request")
-    preflight.add_argument("selector")
-    preflight.add_argument("--title")
-    preflight.add_argument("--body-file", type=Path)
-    preflight.set_defaults(func=cmd_delivery_pr_preflight)
-    register = mechanical_parser(
-        delivery_sub,
-        "register-pr",
-        "register an open, unmerged pull request as a native pre-merge gate",
+    audit = _leaf(areas, "audit", "Collect repository facts for a semantic audit skill.")
+    audit_commands = audit.add_subparsers(dest="command", required=True)
+    audit_evidence = _leaf(
+        audit_commands,
+        "evidence",
+        "Collect plan, task, decision, Git, docs, and validation evidence.",
     )
-    register.add_argument("selector")
-    register.add_argument("--pr-number", type=positive_integer, required=True)
-    register.set_defaults(func=cmd_delivery_register_pr)
-    replace = mechanical_parser(delivery_sub, "replace-pr", "replace conflicting pull-request gates")
-    replace.add_argument("selector")
-    replace.add_argument("--pr-number", type=positive_integer, required=True)
-    replace.add_argument("--reason", required=True)
-    replace.set_defaults(func=cmd_delivery_replace_pr)
-    cancel_pr = mechanical_parser(
-        delivery_sub,
-        "cancel-pr-gate",
-        "replace one active pull-request blocker with nonblocking audit context",
+    audit_evidence.add_argument("feature", help="Feature root or descendant Bead ID.")
+    audit_evidence.add_argument(
+        "--include-history",
+        action="store_true",
+        help="Include native Beads history for each item.",
     )
-    cancel_pr.add_argument("selector")
-    cancel_pr.add_argument("--reason", required=True)
-    cancel_pr.set_defaults(func=cmd_delivery_cancel_pr_gate)
-    merge = mechanical_parser(delivery_sub, "merge", "fast-forward a clean delivery target")
-    merge.add_argument("selector")
-    merge.set_defaults(func=cmd_delivery_merge)
-    finalize = mechanical_parser(delivery_sub, "finalize-pr", "finalize Beads after a merged pull request")
-    finalize.add_argument("selector")
-    finalize.set_defaults(func=cmd_delivery_finalize_pr)
+    audit_evidence.add_argument(
+        "--run-validation",
+        action="store_true",
+        help="Run project and documentation validation.",
+    )
+    audit_evidence.add_argument(
+        "--validation-command",
+        help="Argument string for project validation; defaults to DSTACK_VALIDATION_COMMAND or `hk check -a`.",
+    )
+    audit_evidence.set_defaults(func=cmd_audit_evidence)
 
-    fill_argument_help(parser)
+    docs = _leaf(areas, "docs", "Validate current project documentation.")
+    docs_commands = docs.add_subparsers(dest="command", required=True)
+    docs_validate = _leaf(docs_commands, "validate", "Validate mdBook navigation, links, decisions, and build output.")
+    docs_validate.set_defaults(func=cmd_docs_validate)
+
     return parser
 
 
@@ -324,8 +148,8 @@ def _print_root_help() -> None:
     print(
         "usage: dstack {install_skills,ctl} ...\n\n"
         "commands:\n"
-        "  install_skills  install/update Pi skills, prompts, and dStack system guidance\n"
-        "  ctl             run deterministic dStack workflow mechanics\n"
+        "  install_skills  install/update the four targeted Pi skills and prompts\n"
+        "  ctl             run deterministic repository mechanics\n"
     )
 
 

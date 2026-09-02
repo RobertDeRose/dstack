@@ -1,30 +1,15 @@
-## dStack workflow contract
+## dStack control-plane contract
 
-Use the `dstack` CLI for deterministic workflow mechanics, Beads as the sole ready-work surface, and the installed
-`dstack-beads-*` skills for engineering decisions.
+Beads is the sole authority for feature workflow state, tasks, dependencies,
+gates, claims, decisions, and the next ready item. Start or resume work from
+native Beads output; never infer a workflow phase from Markdown or dStack state.
 
-**Central rule:** formulas define how dStack creates and reviews new work; they are not schemas that existing work must
-migrate to. Historical Beads remain execution evidence. Never rewrite historical topology merely because dStack or a
-formula changed; there is no setup or adoption migration workflow.
+Use dStack only for deterministic repository mechanics: installing the formula,
+enforcing feature worktree policy, validating plan/task structure, generating
+commit messages, checking repository evidence, validating documentation, and
+collecting read-only audit evidence.
 
-Use native `bd ready`/claims to select work. dStack inspection may add deterministic Git/worktree facts, but it does not
-project the next task, required evidence, or lifecycle state. Formula drift never creates workflow work or rewires the
-approved graph and never overrides native Beads readiness. When explicitly reviewing an approved feature under a newer
-or unknown formula contract, use the feature-specification review skill to compare the existing approved Beads intent
-semantically. A no-change audit ends with the explicit `dstack ctl feature audit-complete` root-version update; a
-material delta requires user approval and reuses the existing reauthorization/specification boundary.
-
-Guardrails:
-
-- Beads owns work, dependencies, gates, readiness, claims, and completion; Git owns code, tests, durable docs, commits,
-  and delivery history.
-- Use `dstack ctl ...`; do not call dStack Python modules directly or reproduce controller mechanics in shell.
-- Do not create dStack state files, migration ledgers, readiness caches, Git-to-Beads mappings, shadow workflow graphs,
-  or inter-agent handoff packets.
-- Fix clear in-scope discoveries inside the selected task. Use native Beads follow-up work only for genuinely separate
-  work; do not broaden scope mechanically.
-- A review supplies evidence, not workflow authority. Another review is allowed when the user authorizes it; call it
-  independent only when a separate read-only agent/session performed it.
-- Implementation tasks do not update durable documentation. Feature closeout is the final reconciliation boundary.
-- `/project-audit` is read-only agent analysis: compare current code with current documentation, report contradictions,
-  drift, and ambiguity, and present ordinary feature work. Do not create an audit workflow or packet.
+Current repository documentation explains how the system works. Beads decision
+records preserve why material choices were made. Git records what changed. Do
+not create workflow ledgers, handoff packets, readiness caches, Git-SHA maps, or
+mandatory feature-history documents.

@@ -1,1 +1,1 @@
-"""dStack deterministic workflow controller."""
+"""dStack deterministic repository control plane."""

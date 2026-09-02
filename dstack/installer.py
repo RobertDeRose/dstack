@@ -21,6 +21,13 @@ LEGACY_SKILL_NAMES = (
     "dstack-core",
     "dstack-beads-core",
     "dstack-beads-adopt-feature",
+    "dstack-beads-close-feature",
+    "dstack-beads-implement-feature",
+    "dstack-beads-project-alignment-execute",
+    "dstack-beads-project-alignment-land",
+    "dstack-beads-project-alignment-review",
+    "dstack-beads-project-audit",
+    "dstack-beads-review-feature-spec",
     "dstack-beads-setup-project",
     "dstack-beads-start-feature",
     "implement-feature",
@@ -31,9 +38,6 @@ LEGACY_SKILL_NAMES = (
     "project-alignment-execute",
     "project-alignment-land",
     "project-alignment-review",
-    "dstack-beads-project-alignment-execute",
-    "dstack-beads-project-alignment-land",
-    "dstack-beads-project-alignment-review",
     "review-feature-spec",
     "setup-project",
     "start-feature",
@@ -41,9 +45,14 @@ LEGACY_SKILL_NAMES = (
 )
 LEGACY_PROMPT_NAMES = (
     "adopt-feature.md",
+    "close-feature.md",
+    "implement-feature.md",
+    "plan-features.md",
     "project-alignment-execute.md",
     "project-alignment-land.md",
     "project-alignment-review.md",
+    "project-audit.md",
+    "review-feature-spec.md",
     "setup-project.md",
     "start-feature.md",
 )
@@ -266,7 +275,7 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Install dStack Pi skills, prompts, and system guidance.")
+    parser = argparse.ArgumentParser(description="Install the four targeted dStack Pi skills and prompts.")
     parser.add_argument(
         "--agent-dir",
         type=Path,
@@ -281,7 +290,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         payload = install_skills(args.agent_dir)
     except DstackError as exc:
-        print(json.dumps({"status": "error", "error": str(exc)}, sort_keys=True), file=sys.stderr)
+        print(
+            json.dumps({"status": "error", "error": str(exc)}, sort_keys=True, separators=(",", ":")),
+            file=sys.stderr,
+        )
         return 1
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     return 0

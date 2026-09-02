@@ -1,5 +1,3 @@
-"""Neutral JSON output helpers for public controller commands."""
-
 from __future__ import annotations
 
 import json
@@ -8,11 +6,11 @@ from typing import Any
 
 
 def emit(payload: Any) -> None:
-    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
-    sys.stdout.write("\n")
+    """Emit compact deterministic JSON for agent-facing commands."""
+
+    print(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
 
 
 def fail(message: str) -> int:
-    json.dump({"status": "error", "error": message}, sys.stderr)
-    sys.stderr.write("\n")
-    return 1
+    print(json.dumps({"status": "error", "error": message}, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+    return 2

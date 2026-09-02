@@ -1,358 +1,222 @@
-#!/usr/bin/env python3
-"""Small dStack-owned infrastructure and formula-contract helpers.
-
-Formula files are controller-managed inputs for creating new work. Their version
-is a semantic planning/review contract version, not a schema version for
-historical Beads graphs.
-"""
+"""Installation and validation of the project-local Beads formula."""
 
 from __future__ import annotations
 
-import hashlib
 import os
 import tempfile
 import tomllib
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
-from .core import (
-    FEATURE_STEPS,
-    BeadsClient,
-    DstackError,
-    git_common_dir,
-    git_root,
-    issue_metadata,
-    repository_mutation_lock,
-    run,
-)
+from .core import BeadsClient, DstackError, _assert_no_symlink_components, git_root, parse_json, run
 
-FORMULA_NAMES = ("dstack-feature",)
-FEATURE_FORMULA = "dstack-feature"
-FORMULA_VERSION_KEY = "dstack.formula_version"
-CREATED_FORMULA_VERSION_KEY = "dstack.created_formula_version"
+FORMULA_NAME = "dstack-feature"
+FORMULA_FILENAME = f"{FORMULA_NAME}.formula.toml"
+EXPECTED_STEPS = ("plan", "review", "approval", "implementation", "audit")
 
 
 def package_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-def formula_path(name: str) -> Path:
-    if name not in FORMULA_NAMES:
-        raise DstackError(f"unknown dStack formula: {name}")
-    return package_root() / "assets" / "formulas" / f"{name}.formula.toml"
+def formula_path() -> Path:
+    path = package_root() / "assets" / "formulas" / FORMULA_FILENAME
+    if not path.is_file():
+        raise DstackError(f"packaged formula is missing: {path}")
+    return path
 
 
-def load_formula(name: str) -> dict[str, Any]:
-    path = formula_path(name)
+def load_formula() -> dict[str, Any]:
     try:
-        payload = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise DstackError(f"invalid packaged formula {name}: {path}") from exc
-    if payload.get("formula") != name:
-        raise DstackError(f"packaged formula identity mismatch: {name}")
-    version = payload.get("version")
-    if not isinstance(version, int) or version < 1:
-        raise DstackError(f"packaged formula {name} has invalid contract version")
-    validate_formula_contract(name, payload)
+        payload = tomllib.loads(formula_path().read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+        raise DstackError(f"cannot load packaged formula: {exc}") from exc
+    validate_formula_contract(payload)
     return payload
-
-
-def formula_contract_version(name: str) -> int:
-    return int(load_formula(name)["version"])
 
 
 def _step_map(formula: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     raw = formula.get("steps")
     if not isinstance(raw, list):
-        raise DstackError("formula steps must be a list")
+        raise DstackError("dstack-feature formula must define steps")
     result: dict[str, Mapping[str, Any]] = {}
     for item in raw:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
-            raise DstackError("formula contains an invalid step")
+            raise DstackError("dstack-feature formula contains an invalid step")
         step_id = str(item["id"])
         if step_id in result:
-            raise DstackError(f"formula contains duplicate step ID: {step_id}")
+            raise DstackError(f"dstack-feature formula duplicates step {step_id}")
         result[step_id] = item
     return result
 
 
-def validate_formula_contract(name: str, formula: Mapping[str, Any]) -> None:
-    """Validate the deliberately small stable lifecycle skeleton."""
-
+def validate_formula_contract(formula: Mapping[str, Any]) -> None:
+    if formula.get("formula") != FORMULA_NAME:
+        raise DstackError(f"formula must be named {FORMULA_NAME}")
+    if formula.get("type") != "workflow" or formula.get("phase") != "liquid" or formula.get("pour") is not True:
+        raise DstackError("dstack-feature must be a persistent poured workflow")
     steps = _step_map(formula)
-    if name == FEATURE_FORMULA:
-        expected = {
-            "specification": ("task", FEATURE_STEPS["specification"]),
-            "approval": ("task", FEATURE_STEPS["approval"]),
-            "implementation": ("epic", FEATURE_STEPS["implementation"]),
-            "closeout": ("task", FEATURE_STEPS["closeout"]),
-        }
-        planning, approval, workstream, terminal = "specification", "approval", "implementation", "closeout"
-    else:  # guarded by load_formula callers, kept explicit for direct tests
-        raise DstackError(f"unknown dStack formula: {name}")
-
-    if set(steps) != set(expected):
-        raise DstackError(f"{name} must contain exactly {sorted(expected)}")
-    for step_id, (expected_type, expected_label) in expected.items():
-        step = steps[step_id]
-        actual_type = str(step.get("type") or "task")
-        if actual_type != expected_type:
-            raise DstackError(f"{name} step {step_id} must be {expected_type}, got {actual_type}")
-        if step.get("labels") != [expected_label]:
-            raise DstackError(f"{name} step {step_id} must have only label {expected_label}")
-        if step.get("metadata"):
-            raise DstackError(f"{name} step {step_id} must not duplicate identity in metadata")
-
-    if steps[approval].get("needs") != [planning]:
-        raise DstackError(f"{name} approval must depend only on {planning}")
-    gate = steps[approval].get("gate")
+    if tuple(steps) != EXPECTED_STEPS:
+        raise DstackError(f"dstack-feature steps must be exactly: {', '.join(EXPECTED_STEPS)}")
+    if list(steps["review"].get("needs") or []) != ["plan"]:
+        raise DstackError("review must depend on plan")
+    if list(steps["approval"].get("needs") or []) != ["review"]:
+        raise DstackError("approval must depend on review")
+    gate = steps["approval"].get("gate")
     if not isinstance(gate, dict) or gate.get("type") != "human":
-        raise DstackError(f"{name} approval must carry a human gate")
-    if steps[workstream].get("needs") or steps[workstream].get("gate"):
-        raise DstackError(f"{name} workstream must remain an ungated epic container")
-    if steps[terminal].get("needs") != [approval]:
-        raise DstackError(f"{name} terminal must depend on approval")
-    if steps[terminal].get("waits_for") != f"children-of({workstream})":
-        raise DstackError(f"{name} terminal must use native dynamic child fan-in")
+        raise DstackError("approval must use a native human gate")
+    if list(steps["implementation"].get("needs") or []) != ["approval"]:
+        raise DstackError("implementation must depend on approval")
+    if list(steps["audit"].get("needs") or []) != ["approval"]:
+        raise DstackError("audit must depend on approval")
+    if steps["audit"].get("waits_for") != "children-of(implementation)":
+        raise DstackError("audit must use native implementation fan-in")
 
 
-def _assert_no_symlink(path: Path) -> None:
-    current = path
-    while True:
-        if current.is_symlink():
-            raise DstackError(f"formula path must not be a symlink: {path}")
-        if current.parent == current:
-            return
-        current = current.parent
+def beads_workspace_optional(root: Path) -> Path | None:
+    """Resolve the authoritative workspace through native `bd where`."""
+
+    repository = git_root(root)
+    result = run(["bd", "where", "--json"], cwd=repository, check=False)
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    payload = parse_json(result.stdout, context="bd where")
+    if not isinstance(payload, dict) or not isinstance(payload.get("path"), str) or not payload["path"]:
+        return None
+    workspace = Path(payload["path"]).expanduser()
+    if not workspace.is_absolute():
+        workspace = repository / workspace
+    _assert_no_symlink_components(workspace, purpose="Beads workspace")
+    resolved = workspace.resolve()
+    if resolved.name != ".beads" or not resolved.is_dir():
+        raise DstackError(f"bd where returned an invalid Beads workspace: {resolved}")
+    return resolved
 
 
-def _atomic_replace(path: Path, content: bytes) -> None:
-    _assert_no_symlink(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _assert_no_symlink(path)
-    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
-    fd, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+def beads_workspace(root: Path) -> Path:
+    workspace = beads_workspace_optional(root)
+    if workspace is None:
+        raise DstackError("Beads is not initialized for this repository; run `dstack ctl infra install`")
+    return workspace
+
+
+def formula_destination(root: Path) -> Path:
+    return beads_workspace(root) / "formulas" / FORMULA_FILENAME
+
+
+def display_formula_path(destination: Path, repository: Path) -> str:
     try:
-        with os.fdopen(fd, "wb") as stream:
-            os.fchmod(stream.fileno(), mode)
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(raw, path)
-    finally:
-        Path(raw).unlink(missing_ok=True)
-
-
-def _formula_destination(root: Path, name: str) -> Path:
-    return root / ".beads/formulas" / formula_path(name).name
-
-
-def _formula_lock_path(root: Path) -> Path:
-    try:
-        return git_common_dir(root) / ".dstack-formula.lock"
-    except DstackError:
-        lock_dir = Path(tempfile.gettempdir()).resolve() / "dstack-formula-locks"
-        lock_dir.mkdir(parents=True, exist_ok=True)
-        digest = hashlib.sha256(str(root.resolve()).encode("utf-8")).hexdigest()
-        return lock_dir / f"{digest}.lock"
-
-
-def _formula_owner_path(root: Path, name: str) -> Path:
-    return _formula_lock_path(root).with_name(f".dstack-formula-{name}.owner")
-
-
-def _formula_backup_path(root: Path, name: str) -> Path:
-    return _formula_lock_path(root).with_name(f".dstack-formula-{name}.original")
-
-
-def _formula_is_tracked(root: Path, destination: Path) -> bool:
-    try:
-        relative = destination.relative_to(root).as_posix()
+        return str(destination.relative_to(repository))
     except ValueError:
-        return False
-    return (
+        return str(destination)
+
+
+def ensure_beads_initialized(root: Path, *, initialize: bool) -> tuple[Path, bool]:
+    repository = git_root(root)
+    initialized = False
+    if beads_workspace_optional(repository) is None:
+        if not initialize:
+            raise DstackError("Beads is not initialized for this repository")
         run(
-            ["git", "ls-files", "--error-unmatch", "--", relative],
-            cwd=root,
-            check=False,
-        ).returncode
-        == 0
-    )
-
-
-@contextmanager
-def _formula_lock(root: Path):
-    lock_path = _formula_lock_path(root)
-    with lock_path.open("a+b") as lock:
-        if os.name == "nt":
-            import msvcrt
-
-            lock.seek(0)
-            lock.write(b"\0")
-            lock.flush()
-            lock.seek(0)
-            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if os.name == "nt":
-                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-
-
-@contextmanager
-def current_formula_for_pour(client: BeadsClient, name: str):
-    """Expose the packaged formula only for one native pour.
-
-    Historical tracked formula copies are restored byte-for-byte. When no
-    project copy exists, the temporary formula file is removed after the pour,
-    so a dStack upgrade creates no formula-cache migration or Git boundary.
-    """
-
-    with _formula_lock(client.root):
-        destination = _formula_destination(client.root, name)
-        _assert_no_symlink(destination)
-        owner = _formula_owner_path(client.root, name)
-        backup = _formula_backup_path(client.root, name)
-        source = formula_path(name).read_bytes()
-
-        # Recover a previous interrupted temporary replacement before deciding
-        # whether an identical formula is intentional repository history. The
-        # marker is written before dStack replaces the formula, and an existing
-        # original is backed up first so recovery is lossless.
-        if owner.exists() or owner.is_symlink():
-            if owner.is_symlink() or not owner.is_file():
-                raise DstackError(f"formula ownership marker is invalid: {owner}")
-            action = owner.read_text(encoding="utf-8").strip()
-            destination_bytes: bytes | None = None
-            if destination.exists() or destination.is_symlink():
-                if destination.is_symlink() or not destination.is_file():
-                    raise DstackError(f"formula path must be a regular file: {destination}")
-                destination_bytes = destination.read_bytes()
-            if action == "restore":
-                if backup.is_symlink() or not backup.is_file():
-                    raise DstackError(f"formula recovery backup is missing or invalid: {backup}")
-                original_bytes = backup.read_bytes()
-                if destination_bytes not in {None, source, original_bytes}:
-                    raise DstackError(f"interrupted formula residue drifted: {destination}")
-                if destination_bytes != original_bytes:
-                    _atomic_replace(destination, original_bytes)
-            elif action == "remove":
-                if destination_bytes not in {None, source}:
-                    raise DstackError(f"interrupted formula residue drifted: {destination}")
-                destination.unlink(missing_ok=True)
-            else:
-                raise DstackError(f"formula ownership marker has invalid action: {owner}")
-            backup.unlink(missing_ok=True)
-            owner.unlink()
-        elif backup.exists() or backup.is_symlink():
-            # A crash after writing the backup but before ownership was marked
-            # cannot have replaced the destination yet. The orphan is therefore
-            # safe to discard without touching repository content.
-            if backup.is_symlink() or not backup.is_file():
-                raise DstackError(f"formula recovery backup is invalid: {backup}")
-            backup.unlink()
-
-        existed = destination.exists()
-        if existed and (not destination.is_file() or destination.is_symlink()):
-            raise DstackError(f"formula path must be a regular file: {destination}")
-        original = destination.read_bytes() if existed else None
-        if original == source and _formula_is_tracked(client.root, destination):
-            yield
-            return
-
-        # A legacy untracked byte-identical source is indistinguishable from
-        # residue created by older dStack versions. Do not turn it into a
-        # permanent formula cache.
-        if original == source:
-            original = None
-
-        if original is None:
-            _atomic_replace(owner, b"remove\n")
-        else:
-            _atomic_replace(backup, original)
-            _atomic_replace(owner, b"restore\n")
-
-        _atomic_replace(destination, source)
-        try:
-            yield
-        finally:
-            if original is None:
-                destination.unlink(missing_ok=True)
-            else:
-                _atomic_replace(destination, original)
-            backup.unlink(missing_ok=True)
-            owner.unlink(missing_ok=True)
-
-
-def pour_current_formula(client: BeadsClient, name: str, variables: Mapping[str, str]) -> dict[str, Any]:
-    with current_formula_for_pour(client, name):
-        return client.pour(name, variables)
-
-
-def ensure_beads_initialized(root_arg: Path) -> tuple[Path, bool]:
-    root = git_root(root_arg)
-    with repository_mutation_lock(root):
-        beads = root / ".beads"
-        if beads.is_symlink():
-            raise DstackError(".beads must be a repository directory, not a symlink")
-        if beads.exists():
-            if not beads.is_dir():
-                raise DstackError(".beads must be a repository directory")
-            return root, False
-        run(
-            ["bd", "init", "--quiet", "--stealth", "--skip-agents", "--skip-hooks", "--non-interactive"],
-            cwd=root,
+            [
+                "bd",
+                "init",
+                "--quiet",
+                "--stealth",
+                "--skip-agents",
+                "--skip-hooks",
+                "--non-interactive",
+            ],
+            cwd=repository,
         )
-        if not beads.is_dir():
-            raise DstackError("bd init completed without creating .beads")
-        return root, True
+        initialized = True
+    beads_workspace(repository)
+    return repository, initialized
 
 
-def ensure_infrastructure(root_arg: Path) -> dict[str, Any]:
-    """Validate prerequisites, initialize Beads, and expose formula contracts."""
+def _atomic_write(path: Path, content: bytes) -> None:
+    _assert_no_symlink_components(path, purpose="Beads formula destination")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(raw)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except OSError as exc:
+        raise DstackError(f"cannot install Beads formula: {path}") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
 
-    root = git_root(root_arg)
-    beads_version = BeadsClient(root).check_version()
-    versions = {name: formula_contract_version(name) for name in FORMULA_NAMES}
-    root, initialized = ensure_beads_initialized(root)
+
+def install_infrastructure(root: Path, *, update_formula: bool = False) -> dict[str, Any]:
+    repository, initialized = ensure_beads_initialized(root, initialize=True)
+    client = BeadsClient(repository)
+    beads_version = client.check_version()
+    load_formula()
+
+    source = formula_path().read_bytes()
+    destination = formula_destination(repository)
+    current = destination.read_bytes() if destination.is_file() else None
+    if current is not None and current != source and not update_formula:
+        raise DstackError(
+            f"project formula differs from the installed dStack contract: {destination}; "
+            "rerun with --update-formula after reviewing the change"
+        )
+    changed = current != source
+    if changed:
+        _atomic_write(destination, source)
+
+    parsed = run(["bd", "formula", "show", FORMULA_NAME, "--json"], cwd=repository, check=False)
+    if parsed.returncode != 0:
+        failure = parsed.stderr.strip() or parsed.stdout.strip() or "Beads rejected the installed formula"
+        if changed:
+            try:
+                if current is None:
+                    destination.unlink(missing_ok=True)
+                else:
+                    _atomic_write(destination, current)
+            except (OSError, DstackError) as exc:
+                raise DstackError(f"{failure}; restoring the previous formula failed: {exc}") from exc
+        raise DstackError(failure)
+
     return {
-        "root": root,
-        "initialized": initialized,
-        "formula_versions": versions,
+        "status": "ok",
+        "root": str(repository),
         "beads_version": beads_version,
+        "initialized": initialized,
+        "formula": display_formula_path(destination, repository),
+        "formula_changed": changed,
     }
 
 
-def metadata_formula_version(issue: Mapping[str, Any], key: str = FORMULA_VERSION_KEY) -> int | None:
-    value = issue_metadata(issue).get(key)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
+def check_infrastructure(root: Path) -> dict[str, Any]:
+    repository, _ = ensure_beads_initialized(root, initialize=False)
+    client = BeadsClient(repository)
+    beads_version = client.check_version()
+    load_formula()
 
+    destination = formula_destination(repository)
+    if destination.is_symlink() or not destination.is_file():
+        raise DstackError(f"project formula is not installed: {destination}")
+    if destination.read_bytes() != formula_path().read_bytes():
+        raise DstackError(f"project formula differs from the installed dStack contract: {destination}")
 
-def stamp_formula_version(
-    client: BeadsClient,
-    issue_ids: Sequence[str],
-    *,
-    formula_name: str,
-) -> int:
-    version = formula_contract_version(formula_name)
-    ids = list(dict.fromkeys(str(item) for item in issue_ids if item))
-    if ids:
-        client.update_many(ids, "--set-metadata", f"{FORMULA_VERSION_KEY}={version}")
-    return version
+    parsed = run(["bd", "formula", "show", FORMULA_NAME, "--json"], cwd=repository, check=False)
+    if parsed.returncode != 0:
+        raise DstackError(parsed.stderr.strip() or parsed.stdout.strip() or "Beads rejected the installed formula")
 
-
-def stamp_created_formula_version(client: BeadsClient, root_id: str, *, formula_name: str) -> int:
-    version = formula_contract_version(formula_name)
-    client.update(root_id, "--set-metadata", f"{CREATED_FORMULA_VERSION_KEY}={version}")
-    return version
+    doctor = run(["bd", "doctor", "--json"], cwd=repository, check=False)
+    return {
+        "status": "ok",
+        "root": str(repository),
+        "beads_version": beads_version,
+        "formula": display_formula_path(destination, repository),
+        "doctor": {
+            "status": "ok" if doctor.returncode == 0 else "issues",
+            "returncode": doctor.returncode,
+            "details": (doctor.stderr.strip() or doctor.stdout.strip())[-4000:],
+        },
+    }
