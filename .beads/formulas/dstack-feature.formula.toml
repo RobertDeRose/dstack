@@ -1,0 +1,114 @@
+formula = "dstack-feature"
+description = """
+Beads-native feature workflow for dStack.
+
+Beads owns every durable workflow transition. The molecule records planning,
+independent plan review, human approval, implementation work, and final drift
+audit. dStack supplies only deterministic repository mechanics and validators.
+"""
+version = 2
+type = "workflow"
+phase = "liquid"
+pour = true
+
+[vars.title]
+description = "Feature title used for the molecule root"
+required = true
+
+[vars.desc]
+description = "Initial feature request or problem statement"
+required = true
+
+[vars.feature_title]
+description = "Human-readable feature title"
+required = true
+
+[vars.feature_slug]
+description = "Kebab-case feature identifier"
+required = true
+pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+
+[vars.base_branch]
+description = "Git branch from which feature work is based"
+required = true
+
+[[steps]]
+id = "plan"
+title = "Plan {{feature_title}}"
+type = "task"
+priority = 1
+labels = ["dstack:step:plan"]
+description = """
+Investigate the current implementation, governing documentation, tests, and
+relevant prior decisions. Identify material ambiguity and ask the user focused
+questions before finalizing the plan. Record the resulting plan, answers,
+decisions, rationale, non-goals, compatibility concerns, acceptance criteria,
+and documentation impact on this Bead.
+
+Feature slug: {{feature_slug}}
+Base branch: {{base_branch}}
+"""
+
+[[steps]]
+id = "review"
+title = "Review the plan and create implementation work for {{feature_title}}"
+type = "task"
+priority = 1
+needs = ["plan"]
+labels = ["dstack:step:review"]
+description = """
+Review the completed plan independently against current code, tests, project
+design, current documentation, and relevant decisions. Resolve clear defects in
+the plan, ask the user when authority is ambiguous, and create bounded native
+Beads implementation tasks with explicit dependencies and documentation-impact
+classifications.
+"""
+
+[[steps]]
+id = "approval"
+title = "Approve the reviewed plan for {{feature_title}}"
+type = "task"
+priority = 1
+needs = ["review"]
+labels = ["dstack:step:approval"]
+description = """
+Human approval boundary for the reviewed plan and implementation graph. Resolve
+the generated human gate only after the user explicitly approves the reviewed
+scope. Close this milestone to expose approved implementation work through the
+native Beads ready queue.
+"""
+
+[steps.gate]
+type = "human"
+id = "approve-{{feature_slug}}-plan"
+
+[[steps]]
+id = "implementation"
+title = "Implementation work for {{feature_title}}"
+type = "epic"
+priority = 1
+labels = ["dstack:step:implementation"]
+description = """
+Structural container for reviewed implementation tasks. Beads 1.2.2 rejects
+blocking dependencies between task and epic issue types, so this epic has no
+approval dependency. Each native child task is created atomically with a blocker
+on the task-shaped approval milestone and owns any code, tests, configuration,
+and current documentation needed for its accepted outcome. Native waits-for
+fan-in on the audit is the sole implementation-completion dependency.
+"""
+
+[[steps]]
+id = "audit"
+title = "Audit implementation and documentation for {{feature_title}}"
+type = "task"
+priority = 1
+needs = ["approval"]
+waits_for = "children-of(implementation)"
+labels = ["dstack:step:audit"]
+description = """
+Compare the approved plan, decisions, implementation tasks, commits, tests,
+current code, and current documentation. Classify supported drift, create
+ordinary remediation Beads for clear defects, and create a human gate and ask
+the user when code, documentation, or approved intent has ambiguous authority.
+Close the feature only after implementation and documentation agree.
+"""
