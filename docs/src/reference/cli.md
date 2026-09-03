@@ -2,7 +2,7 @@
 
 Agent-facing operational commands emit deterministic JSON on standard output. Runtime validation failures emit JSON
 diagnostics on standard error and return a nonzero status. Top-level help, version, unknown-command, and argparse output
-remains human-readable.
+remains human-readable. TTY output uses Rich's pretty JSON renderer; redirected output remains compact.
 
 All `ctl` commands accept the global repository option immediately after `ctl`:
 
