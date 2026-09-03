@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .commands import client_for, implementation_tasks, run_project_validation
+from .commands import VALIDATION_COMMAND, client_for, implementation_tasks, run_project_validation
 from .core import (
     DstackError,
     ancestry,
@@ -19,13 +19,13 @@ from .core import (
     feature_steps,
     implementation_task_graph_errors,
     issue_type,
+    reject_beads_paths,
     run,
     truncate_output,
     validate_git_revision,
     verify_worktree_identity,
     worktree_for_branch,
 )
-from .docs import validate_docs
 from .output import emit
 from .policy import no_repository_change_reason, validate_plan_issue, validate_task_issue
 
@@ -93,26 +93,6 @@ def _footer_mapping(records: Sequence[Mapping[str, Any]]) -> dict[str, list[dict
     return result
 
 
-def _documentation(root: Path, paths: list[str]) -> dict[str, Any]:
-    documentation_paths = sorted(path for path in paths if path.startswith("docs/") or path.casefold().endswith(".md"))
-    try:
-        result = validate_docs(root)
-    except DstackError as exc:
-        return {
-            "status": "failed",
-            "changed_paths": bounded(documentation_paths),
-            "error": str(exc),
-        }
-    chapters = result.get("chapters", [])
-    includes = result.get("includes", [])
-    return {
-        "status": "ok",
-        "changed_paths": bounded(documentation_paths),
-        "chapter_count": len(chapters) if isinstance(chapters, list) else None,
-        "include_count": len(includes) if isinstance(includes, list) else None,
-    }
-
-
 def _selected_details(
     *,
     include_plan: bool,
@@ -170,16 +150,35 @@ def collect_audit_evidence(
     client = client_for(root_path)
     root, slug, base = feature_identity(client, selector)
     steps = feature_steps(client, str(root["id"]))
-    implementation = implementation_tasks(client, str(steps["implementation"]["id"]))
-    decisions = client.list(all_statuses=True, labels=[f"feature:{slug}"], issue_type_filter="decision")
+    errors: list[str] = []
+    collection_limit = MAX_AUDIT_ITEMS + 1
+    implementation = implementation_tasks(
+        client,
+        str(steps["implementation"]["id"]),
+        limit=collection_limit,
+    )
+    decisions = client.list(
+        all_statuses=True,
+        labels=[f"feature:{slug}"],
+        issue_type_filter="decision",
+        limit=collection_limit,
+    )
     gates = [
         issue
-        for issue in client.list(all_statuses=True, parent=str(root["id"]), include_gates=True)
+        for issue in client.list(
+            all_statuses=True,
+            parent=str(root["id"]),
+            include_gates=True,
+            limit=collection_limit,
+        )
         if issue_type(issue) == "gate"
     ]
+    for name, items in (("implementation tasks", implementation), ("decisions", decisions), ("gates", gates)):
+        if len(items) > MAX_AUDIT_ITEMS:
+            errors.append(f"audit {name} exceed the {MAX_AUDIT_ITEMS}-item evidence bound")
 
-    errors: list[str] = []
-    plan_validation = validate_plan_issue(client.show(str(steps["plan"]["id"])))
+    plan = client.show(str(steps["plan"]["id"]))
+    plan_validation = validate_plan_issue(plan)
     if plan_validation["status"] != "ok":
         errors.append("feature plan violates dStack policy")
 
@@ -221,8 +220,20 @@ def collect_audit_evidence(
             if not ancestry(client.root, base, branch):
                 errors.append(f"feature branch {branch} does not contain base branch {base}")
             range_value = f"{base}..{branch}"
-            records = commit_records(client.root, range_value)
+            records = commit_records(
+                client.root,
+                range_value,
+                include_paths=include_commit_paths,
+                max_count=MAX_AUDIT_ITEMS + 1,
+            )
             paths = changed_paths(client.root, base, branch)
+            if len(records) > MAX_AUDIT_ITEMS:
+                git["commits_truncated"] = True
+                errors.append(f"audit commit evidence exceeds the {MAX_AUDIT_ITEMS}-commit bound")
+            try:
+                reject_beads_paths(paths)
+            except DstackError as exc:
+                errors.append(str(exc))
             compact_commits: list[dict[str, Any]] = []
             for record in records:
                 row = {
@@ -239,7 +250,7 @@ def collect_audit_evidence(
                     "commit_count": len(records),
                     "commits": bounded(compact_commits),
                     "changed_path_count": len(paths),
-                    "diff_stat": diff_stat(client.root, base, branch),
+                    "diff_stat": truncate_output(diff_stat(client.root, base, branch)),
                 }
             )
             if include_commit_paths:
@@ -273,10 +284,11 @@ def collect_audit_evidence(
         worktree_path = None
         errors.append(str(exc))
 
+    documentation_paths = sorted(path for path in paths if path.startswith("docs/") or path.casefold().endswith(".md"))
     if worktree_path is None:
         git["worktree"] = {"status": "missing", "path": None}
-        validation = {"status": "blocked", "command": ["hk", "check", "-a"]}
-        documentation = {"status": "blocked", "changed_paths": bounded([])}
+        validation = {"status": "blocked", "command": list(VALIDATION_COMMAND)}
+        documentation = {"status": "blocked", "changed_paths": bounded(documentation_paths)}
         errors.append(f"feature worktree is not registered for {branch}")
     else:
         worktree = verify_worktree_identity(client.root, worktree_path, branch)
@@ -285,7 +297,7 @@ def collect_audit_evidence(
         git["worktree"] = {
             "status": worktree_status,
             "path": str(worktree),
-            "details": truncate_output(status.stderr or status.stdout),
+            "details": truncate_output(status.stderr) or truncate_output(status.stdout),
         }
         if worktree_status != "clean":
             errors.append("feature worktree contains uncommitted changes")
@@ -293,9 +305,10 @@ def collect_audit_evidence(
         validation = run_project_validation(worktree)
         if validation["status"] != "ok":
             errors.append("project validation failed")
-        documentation = _documentation(worktree, paths)
-        if documentation["status"] != "ok":
-            errors.append("documentation validation failed")
+        documentation = {
+            "status": validation["status"],
+            "changed_paths": bounded(documentation_paths),
+        }
 
         post_status = run(["git", "status", "--short", "--untracked-files=all"], cwd=worktree, check=False)
         post_clean = post_status.returncode == 0 and not post_status.stdout.strip()
@@ -303,7 +316,6 @@ def collect_audit_evidence(
         if not post_clean:
             errors.append("validation left uncommitted changes in the feature worktree")
 
-    plan = client.show(str(steps["plan"]["id"]))
     allowed_history = {str(item["id"]): item for item in [root, *steps.values(), *implementation, *decisions, *gates]}
     details = _selected_details(
         include_plan=include_plan,

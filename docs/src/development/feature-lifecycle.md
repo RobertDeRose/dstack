@@ -1,7 +1,8 @@
 # Feature lifecycle
 
-This lifecycle is opt-in. It starts only when the user invokes a dStack command or explicitly asks to use dStack; normal
-repository work does not create or update Beads issues.
+This workflow is opt-in. It starts only when the user invokes `/plan-feature`, `/review-plan`, `/implement`, or
+`/audit-feature`, or explicitly asks to use dStack. `dstack init`, `dstack install_skills`, and `dstack ctl` perform
+setup or deterministic mechanics without creating or updating workflow issues.
 
 ## Native molecule
 

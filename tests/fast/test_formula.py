@@ -35,6 +35,22 @@ def test_formula_contract_rejects_cross_type_implementation_blocker() -> None:
         subject.validate_formula_contract(formula)
 
 
+def test_formula_contract_rejects_missing_runtime_step_label() -> None:
+    formula = deepcopy(subject.load_formula())
+    formula["steps"][0]["labels"] = []
+
+    with pytest.raises(DstackError, match="plan label"):
+        subject.validate_formula_contract(formula)
+
+
+def test_formula_contract_rejects_wrong_fixed_step_type() -> None:
+    formula = deepcopy(subject.load_formula())
+    formula["steps"][1]["type"] = "epic"
+
+    with pytest.raises(DstackError, match="review must be a task"):
+        subject.validate_formula_contract(formula)
+
+
 def test_formula_install_requires_native_beads_initialization(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subject, "beads_workspace_optional", lambda root: None)
     with pytest.raises(DstackError):

@@ -31,6 +31,18 @@ def test_validate_docs_accepts_complete_book(tmp_path: Path) -> None:
     assert "getting-started/index.md" in result["chapters"]
 
 
+def test_validate_docs_rejects_symlinked_summary(tmp_path: Path) -> None:
+    create_foundation(tmp_path)
+    summary = tmp_path / "docs/src/SUMMARY.md"
+    outside = tmp_path / "outside-summary.md"
+    outside.write_text(summary.read_text(encoding="utf-8"), encoding="utf-8")
+    summary.unlink()
+    summary.symlink_to(outside)
+
+    with pytest.raises(DstackError, match="symlink"):
+        validate_docs(tmp_path, mdbook=str(fake_mdbook(tmp_path)))
+
+
 def test_validate_docs_accepts_a_current_decision_record(tmp_path: Path) -> None:
     create_foundation(tmp_path)
     source = tmp_path / "docs/src"

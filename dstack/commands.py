@@ -19,6 +19,7 @@ from .core import (
     feature_steps,
     implementation_task_graph_errors,
     issue_type,
+    reject_beads_paths,
     run,
     serialized_repository_mutation,
     truncate_output,
@@ -154,7 +155,7 @@ def _worktree_status(path: Path) -> dict[str, Any]:
     return {
         "status": "clean" if result.returncode == 0 and not result.stdout.strip() else "dirty",
         "returncode": result.returncode,
-        "details": truncate_output(result.stderr or result.stdout),
+        "details": truncate_output(result.stderr) or truncate_output(result.stdout),
     }
 
 
@@ -171,12 +172,22 @@ def run_project_validation(path: Path) -> dict[str, Any]:
     return payload
 
 
-def implementation_tasks(client: BeadsClient, implementation_id: str) -> list[dict[str, Any]]:
+def implementation_tasks(
+    client: BeadsClient,
+    implementation_id: str,
+    *,
+    limit: int | None = None,
+    known_task: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
-    for child in client.children(implementation_id):
+    for child in client.children(implementation_id, limit=limit):
         if issue_type(child) in {"epic", "molecule", "gate"}:
             continue
-        tasks.append(client.show(str(child["id"])))
+        child_id = str(child["id"])
+        if known_task is not None and str(known_task.get("id")) == child_id:
+            tasks.append(dict(known_task))
+        else:
+            tasks.append(client.show(child_id))
     return tasks
 
 
@@ -200,7 +211,11 @@ def cmd_task_check(args: argparse.Namespace) -> int:
 
     feature_root, slug, base = feature_identity(client, args.bead)
     steps = feature_steps(client, str(feature_root["id"]))
-    tasks = implementation_tasks(client, str(steps["implementation"]["id"]))
+    tasks = implementation_tasks(
+        client,
+        str(steps["implementation"]["id"]),
+        known_task=task,
+    )
     errors.extend(graph_errors_for_task(client, task, feature_root, steps, tasks))
 
     branch = f"feat/{slug}"
@@ -219,6 +234,11 @@ def cmd_task_check(args: argparse.Namespace) -> int:
         for record in records
         if args.bead in record.get("footer_ids", ())
     ]
+    try:
+        reject_beads_paths([path for record in records for path in record.get("paths", [])])
+    except DstackError as exc:
+        errors.append(str(exc))
+
     no_change = no_repository_change_reason(task)
     if not evidence and not no_change:
         errors.append("no reachable Git commit references this Bead and no `No repository change:` reason is recorded")

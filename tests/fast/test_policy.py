@@ -112,6 +112,16 @@ def test_task_requires_all_documentation_audiences() -> None:
     assert set(result["documentation_impact"]) == {"End-user", "Developer"}
 
 
+def test_task_requires_a_native_task_issue_type() -> None:
+    issue = valid_task()
+    issue["issue_type"] = "decision"
+
+    result = validate_task_issue(issue)
+
+    assert result["status"] == "invalid"
+    assert "implementation Bead must be a task issue" in result["errors"]
+
+
 def test_documentation_impact_rejects_weak_reason() -> None:
     lines = (
         "- End-user: not affected - None.",

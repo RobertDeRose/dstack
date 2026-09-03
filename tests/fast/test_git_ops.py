@@ -30,6 +30,17 @@ def test_implementation_commit_rejects_beads_state() -> None:
         reject_beads_paths(["src/app.py", ".beads/config.yaml"])
 
 
+def test_amend_rejects_beads_state_in_existing_head(git_repo: Path) -> None:
+    beads_file = git_repo / ".beads/config.yaml"
+    beads_file.parent.mkdir()
+    beads_file.write_text("state\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".beads/config.yaml"], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "bad implementation commit"], cwd=git_repo, check=True)
+
+    with pytest.raises(DstackError):
+        _commit(git_repo, build_commit_message("fix: amend", "", "ds-123"), amend=True)
+
+
 def test_verify_head_message_rejects_multiple_beads_owners(git_repo: Path) -> None:
     (git_repo / "change.txt").write_text("change\n", encoding="utf-8")
     subprocess.run(["git", "add", "change.txt"], cwd=git_repo, check=True)

@@ -55,6 +55,17 @@ def test_git_evidence_is_reconstructed_from_reachable_footers(git_repo: Path) ->
     }
 
 
+def test_diff_stat_is_bounded(git_repo: Path) -> None:
+    for index in range(300):
+        (git_repo / f"file-{index:03}.txt").write_text("change\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "feat: add files"], cwd=git_repo, check=True)
+
+    from dstack.core import diff_stat
+
+    assert len(diff_stat(git_repo, "HEAD~1", "HEAD")) <= 4000
+
+
 class FakeClient:
     def __init__(self, issues: dict[str, dict[str, Any]]):
         self.issues = issues
