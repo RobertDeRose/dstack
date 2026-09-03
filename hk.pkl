@@ -4,8 +4,7 @@ import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtin
 
 fail_fast = false
 
-local markdown_excludes =
-  List(".beads/**", "dstack/assets/prompts/**")
+local markdown_excludes = List(".beads/**", "dstack/assets/prompts/**")
 
 local linters = new Mapping<String, Step> {
   ["actionlint"] = Builtins.actionlint

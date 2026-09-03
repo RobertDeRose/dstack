@@ -56,8 +56,8 @@ bd update <root> \
   --json
 ```
 
-The `feature:<slug>` label is the sole slug authority. If the update fails after pouring, retain the returned root ID and
-retry this exact update; do not pour another molecule.
+The `feature:<slug>` label is the sole slug authority. If the update fails after pouring, retain the returned root ID
+and retry this exact update; do not pour another molecule.
 
 6. Claim the native plan step:
 

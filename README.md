@@ -27,7 +27,8 @@ plan -> review -> human approval -> implementation tasks -> audit
 
 The formula creates five fixed steps. The implementation epic is only a structural container: Beads does not permit a
 task-shaped approval milestone to block an epic. Review therefore creates every implementation child atomically with a
-native dependency on approval. The audit uses one native `children-of(implementation)` waits-for edge as its sole fan-in.
+native dependency on approval. The audit uses one native `children-of(implementation)` waits-for edge as its sole
+fan-in.
 
 The four installed skills are:
 

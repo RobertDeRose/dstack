@@ -529,8 +529,7 @@ def implementation_task_graph_errors(
     if parent_id != implementation_id:
         observed_parent = parent_id or "<none>"
         errors.append(
-            f"implementation Bead must be a direct child of {implementation_id}; "
-            f"observed parent {observed_parent}"
+            f"implementation Bead must be a direct child of {implementation_id}; observed parent {observed_parent}"
         )
     implementation = client.show(implementation_id)
     if issue_type(implementation) != "epic":
@@ -547,8 +546,7 @@ def implementation_task_graph_errors(
     )
     if unsupported_readiness_edges:
         errors.append(
-            "implementation Bead uses unsupported readiness dependencies: "
-            + ", ".join(unsupported_readiness_edges)
+            "implementation Bead uses unsupported readiness dependencies: " + ", ".join(unsupported_readiness_edges)
         )
 
     blockers = dependency_targets(task, "blocks")

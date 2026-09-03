@@ -17,6 +17,6 @@ hk owns project formatting, linting, type checking, tests, and documentation val
 `bd hooks run` for pre-commit, post-merge, and pre-push, allowing Beads to integrate through the existing hook manager
 rather than a dStack hook protocol.
 
-Beads setup and diagnostics remain native Beads concerns. dStack does not wrap `bd init`, `bd doctor`, hook installation,
-synchronization, or database repair. Embedded workspaces should use the native commands supported by their selected
-Beads release rather than treating `bd doctor` as a dStack prerequisite.
+Beads setup and diagnostics remain native Beads concerns. dStack does not wrap `bd init`, `bd doctor`, hook
+installation, synchronization, or database repair. Embedded workspaces should use the native commands supported by their
+selected Beads release rather than treating `bd doctor` as a dStack prerequisite.

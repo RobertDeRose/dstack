@@ -1,7 +1,7 @@
 # Compatibility
 
-dStack supports the exactly tested Beads 1.2.2 release. Compatibility is proven through behavioral acceptance tests,
-not broad major-version assumptions or exact prose matching.
+dStack supports the exactly tested Beads 1.2.2 release. Compatibility is proven through behavioral acceptance tests, not
+broad major-version assumptions or exact prose matching.
 
 Required native behavior includes:
 

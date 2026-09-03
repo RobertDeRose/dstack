@@ -106,7 +106,6 @@ def _owned_prompt(path: Path, expected_name: str) -> bool:
     return metadata.get(MANAGED_KEY) == "true" and metadata.get("name") == expected_name
 
 
-
 def _remove_legacy_system_block(path: Path) -> bool:
     """Remove the obsolete dStack block while preserving user-owned guidance."""
 

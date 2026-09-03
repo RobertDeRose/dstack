@@ -78,7 +78,6 @@ def bounded(items: Sequence[Any], *, limit: int = MAX_AUDIT_ITEMS) -> dict[str, 
     }
 
 
-
 def _footer_mapping(records: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Return compact Beads-to-commit evidence without duplicating changed paths."""
 
@@ -254,9 +253,7 @@ def collect_audit_evidence(
         task_id = str(task["id"])
         commits = mapping.get(task_id, [])
         row["commit_count"] = len(commits)
-        row["commits"] = bounded(
-            [{"commit": item["commit"], "subject": item["subject"]} for item in commits]
-        )
+        row["commits"] = bounded([{"commit": item["commit"], "subject": item["subject"]} for item in commits])
         if not commits and no_repository_change_reason(task) is None:
             errors.append(f"implementation task {task_id} has no reachable commit evidence")
 
@@ -307,10 +304,7 @@ def collect_audit_evidence(
             errors.append("validation left uncommitted changes in the feature worktree")
 
     plan = client.show(str(steps["plan"]["id"]))
-    allowed_history = {
-        str(item["id"]): item
-        for item in [root, *steps.values(), *implementation, *decisions, *gates]
-    }
+    allowed_history = {str(item["id"]): item for item in [root, *steps.values(), *implementation, *decisions, *gates]}
     details = _selected_details(
         include_plan=include_plan,
         include_task_ids=include_task_ids,

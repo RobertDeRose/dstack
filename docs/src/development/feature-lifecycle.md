@@ -34,8 +34,8 @@ command disables parent-label inheritance so concrete work cannot masquerade as 
 Task-to-task dependencies are added only when execution order is real. Direct task-to-audit blockers are prohibited.
 
 The review step closes when the plan and native task graph are coherent. The approval gate is resolved only after
-explicit user approval; the approval task history is the authorization record. dStack does not maintain
-pending/approved digests or a parallel approval state machine.
+explicit user approval; the approval task history is the authorization record. dStack does not maintain pending/approved
+digests or a parallel approval state machine.
 
 ## Implementation
 
@@ -48,8 +48,8 @@ refs from Beads, validate native graph membership, run `hk check -a`, and reject
 
 ## Audit
 
-`/audit-feature` claims the audit only when Beads exposes it. The claim itself is the native fan-in proof; the skill does
-not recalculate child completion.
+`/audit-feature` claims the audit only when Beads exposes it. The claim itself is the native fan-in proof; the skill
+does not recalculate child completion.
 
 `dstack ctl audit evidence` runs deterministic validation and returns a bounded index. The skill asks for full plan,
 task, decision, history, or commit-path content only when a concrete discrepancy requires it. Clear drift becomes
