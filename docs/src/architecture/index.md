@@ -19,25 +19,29 @@ Targeted skill ---- semantic judgment and user questions
 
 ### Beads
 
-Beads owns feature molecules, plans, questions, answers, decisions, task decomposition, dependencies, gates, claims,
-readiness, and completion. Native `blocks` edges determine availability. dStack never calculates positive readiness.
+Beads owns initialization, workspace health, feature molecules, plans, questions, answers, decisions, task
+decomposition, dependencies, gates, claims, readiness, completion, synchronization, external trackers, and agent-facing
+workflow context. Native `blocks` and `waits-for` edges determine availability. dStack never calculates positive
+readiness.
 
 ### Skills
 
 Skills own reasoning that cannot be made deterministic: finding ambiguities, reviewing plans, interpreting
-implementation behavior, assessing documentation, and deciding whether drift is clear or requires user authority.
+implementation behavior, assessing documentation, and deciding whether drift is clear or requires user authority. They
+guide native Beads operations rather than defining another lifecycle.
 
 ### dStack CLI
 
 The CLI is stateless with respect to workflow. It reads current Beads and Git facts on every invocation and may enforce:
 
-- formula installation and contract validation;
+- installation and verification of the packaged dStack formula;
 - feature branch and conventional worktree policy;
-- plan/task document structure inside native Beads fields;
+- plan/task structure inside native Beads fields;
+- native task-graph membership required by the dStack formula;
 - Conventional Commit formatting and one-way Beads evidence;
-- worktree cleanliness and reachable commit evidence;
+- mandatory hk validation and worktree cleanliness;
 - mdBook navigation, links, and build validity; and
-- compact audit evidence collection.
+- bounded audit evidence collection with explicit detail expansion.
 
 The repository mutation lock serializes local dStack Git/worktree operations. It is synchronization, not durable
 workflow state.
@@ -50,7 +54,7 @@ workflow state.
 | Current product/architecture/operations behavior | Repository documentation |
 | Code and change history | Git |
 | Project formatting/testing policy | hk and repository configuration |
-| Formula and dStack policy | Versioned project configuration |
+| dStack formula | Versioned project configuration |
 
-No dStack database, readiness cache, phase file, approval journal, formula-swap journal, worktree registry, or
-task-to-commit map exists.
+No dStack database, readiness cache, phase file, approval journal, formula-swap journal, worktree registry, validation
+cache, audit result, or task-to-commit map exists.

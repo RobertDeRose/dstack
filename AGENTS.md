@@ -30,9 +30,10 @@ closing the plan. Questions, answers, decisions, rationale, and acceptance
 criteria belong in Beads.
 
 Review compares the plan against current code, tests, documentation, and prior
-decisions. It creates bounded native implementation tasks and explicit `blocks`
-dependencies. Invocation is not approval; the formula-generated human gate is
-resolved only after explicit user approval.
+decisions. It creates bounded native implementation tasks atomically with their
+approval blockers; task-to-task blockers are used only for real execution order.
+Invocation is not approval; the formula-generated human gate is resolved only
+after explicit user approval.
 
 Implementation claims one native ready task. Code, tests, configuration, and the
 current documentation describing the changed behavior belong to the same task.

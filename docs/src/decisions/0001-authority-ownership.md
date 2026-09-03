@@ -18,4 +18,5 @@ stateless deterministic adapters that query those authorities each time.
 ## Consequences
 
 dStack does not add a database, task manifest, scheduler, ownership ledger, review topology, or Git-history mirror.
-Narrow safety vetoes may compensate for a pinned native limitation, but they cannot calculate positive readiness.
+dStack may reject a repository operation when the native graph violates the packaged formula contract, but it never
+calculates or overrides readiness.

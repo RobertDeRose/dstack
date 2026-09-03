@@ -26,9 +26,8 @@ plan -> review -> human approval -> implementation tasks -> audit
 ```
 
 The formula creates five fixed steps. The implementation epic is only a structural container: Beads does not permit a
-task-shaped approval milestone to block an epic. Review therefore makes every implementation child depend directly on
-approval and explicitly block the audit. Beads remains authoritative even when dynamic formula fan-in is unavailable or
-incomplete in a supported release.
+task-shaped approval milestone to block an epic. Review therefore creates every implementation child atomically with a
+native dependency on approval. The audit uses one native `children-of(implementation)` waits-for edge as its sole fan-in.
 
 The four installed skills are:
 
@@ -54,7 +53,7 @@ Requirements:
 - Pi or another shell-capable coding agent
 - `uv`
 - Python 3.14
-- Beads 1.2.2 or a compatible 1.x release
+- Beads 1.2.2
 - hk for project validation
 - mdBook 0.5.4 when documentation validation is enabled
 
@@ -70,32 +69,41 @@ Install the four targeted Pi skills and prompts:
 dstack install_skills
 ```
 
-Initialize a repository and install the project-local formula:
+Initialize Beads directly. dStack never initializes Beads and never uses stealth mode:
 
 ```bash
-dstack ctl infra install
+bd init --quiet --non-interactive
+```
+
+Install the project-local dStack formula:
+
+```bash
+dstack ctl formula install
+dstack ctl formula check
 ```
 
 The formula is copied to `.beads/formulas/dstack-feature.formula.toml` as versioned project configuration. dStack does
-not use a formula swap journal, formula cache, or recovery ledger.
+not use a formula swap journal, formula cache, or recovery ledger. Commit intentional formula updates as normal project
+configuration outside implementation-task commits.
 
 ## Deterministic commands
 
 ```text
-dstack ctl infra install [--update-formula]
-dstack ctl infra check
+dstack ctl formula install [--update]
+dstack ctl formula check
 dstack ctl plan check <plan-bead>
 dstack ctl worktree ensure <feature-or-descendant>
 dstack ctl git commit --bead <task> [--body-file <path>]
 dstack ctl git amend --bead <task> [--body-file <path>]
 dstack ctl evidence commits --bead <task> --ref <range>
-dstack ctl task check <task> [--run-validation]
-dstack ctl audit evidence <feature> [--include-history] [--run-validation]
+dstack ctl task check <task>
+dstack ctl audit evidence <feature> [targeted detail flags]
 dstack ctl docs validate
 ```
 
 These commands do not decide which workflow step is ready and do not advance Beads state. Skills perform native `bd`
-mutations after the deterministic checks succeed.
+mutations after deterministic checks succeed. Task and audit checks always run the repository's `hk check -a` contract;
+agent-facing flags cannot replace it with a weaker command or alternate Git refs.
 
 ## Commit contract
 
@@ -129,8 +137,8 @@ Each implementation task classifies its effect on all three audiences:
 - Future-agent: required - <current invariant or decision record>
 ```
 
-`not affected` is valid only with a specific reason. Documentation that explains the changed behavior belongs in the
-same task as the code and tests. The final audit compares approved intent, tasks, commits, observable behavior, current
+`not affected` is valid only with a specific reason. Documentation that explains changed behavior belongs in the same
+task as code and tests. The final audit compares approved intent, tasks, commits, observable behavior, current
 documentation, and decision history. When authority is ambiguous, it creates a native human gate and asks the user
 rather than silently choosing code or docs.
 
@@ -142,4 +150,4 @@ uv run pytest tests/acceptance
 hk check -a
 ```
 
-Real-Beads acceptance tests require the supported `bd` binary on `PATH`.
+Real-Beads acceptance tests require Beads 1.2.2 on `PATH`.

@@ -1,17 +1,17 @@
 # Command contracts
 
 All successful commands emit compact JSON on stdout. Deterministic failures emit JSON on stderr and return `2`.
-Structural plan/task validation returns `4` when the inspected object is valid JSON but violates policy.
+Structural plan/task/audit validation returns `4` when collected state violates policy.
 
-## Infrastructure
+## Formula
 
 ```text
-dstack ctl infra install [--update-formula]
-dstack ctl infra check
+dstack ctl formula install [--update]
+dstack ctl formula check
 ```
 
-`install` initializes Beads when necessary and installs the packaged formula as project configuration. `check` validates
-Beads compatibility, exact formula content, formula parsing, and reports native `bd doctor` output.
+These commands install and verify only the packaged dStack formula. Beads must already be initialized with native
+`bd init`. dStack does not wrap Beads initialization, stealth mode, diagnostics, hooks, synchronization, or repair.
 
 ## Plan
 
@@ -28,7 +28,8 @@ dstack ctl worktree ensure <feature-or-descendant>
 ```
 
 Derives `feat/<slug>` and the base branch from the feature root, creates the branch from that base when absent,
-delegates worktree creation to `bd worktree`, and verifies shared repository identity and the conventional path.
+delegates worktree creation and inventory to `bd worktree`, and independently verifies Git repository identity,
+ancestry, branch, path, and cleanliness.
 
 ## Git
 
@@ -44,18 +45,23 @@ Derives the Conventional Commit subject from native task labels and title. The m
 
 ```text
 dstack ctl evidence commits --bead <id> --ref <ref-or-range>
-dstack ctl task check <task> [--base <ref>] [--head <ref>] [--run-validation]
+dstack ctl task check <task>
 ```
 
-Task checks validate task structure, documentation impact, reachable commit evidence, footer uniqueness,
-feature-worktree identity/cleanliness, and optional project validation.
+Task checks derive the base and feature refs from Beads. They validate task structure, direct implementation-epic
+membership, the approval dependency, the sole native audit fan-in, documentation impact, reachable commit evidence,
+footer uniqueness, feature-worktree identity/cleanliness, and mandatory `hk check -a`. No agent-facing flag can replace
+the validation command or select alternate evidence refs.
 
 ## Audit and docs
 
 ```text
-dstack ctl audit evidence <feature> [--include-history] [--run-validation]
+dstack ctl audit evidence <feature> [--include-plan]
+  [--include-task <id>] [--include-decision <id>]
+  [--history-for <id>] [--include-commit-paths]
 dstack ctl docs validate
 ```
 
-Audit evidence is read-only and intentionally does not decide whether semantic drift exists. The audit skill makes that
-judgment and records resulting work or human gates in Beads.
+Audit evidence is read-only, bounded by default, and runs project/documentation validation. It reports deterministic
+check failures but does not decide whether semantic drift exists. The audit skill requests full content only for
+specific discrepancies and records resulting work or human gates in Beads.
