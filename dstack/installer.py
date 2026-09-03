@@ -45,23 +45,6 @@ def _assert_no_symlink(path: Path) -> None:
         current = current.parent
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
-    _assert_no_symlink(path)
-    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(raw)
-    try:
-        os.chmod(temporary, mode)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 def _atomic_copy(source: Path, destination: Path) -> None:
     _assert_no_symlink(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)

@@ -253,8 +253,8 @@ def commit_policy(issue: Mapping[str, Any]) -> tuple[str | None, str | None, lis
 
 def validate_task_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
-    if issue_type(issue) in {"epic", "molecule", "gate"}:
-        errors.append("implementation work must be a concrete non-container Bead")
+    if issue_type(issue) != "task":
+        errors.append("implementation Bead must be a task issue")
     if "dstack:work:implementation" not in issue_labels(issue):
         errors.append("implementation Bead lacks dstack:work:implementation label")
     if not _issue_text(issue, "title"):

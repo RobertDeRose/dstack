@@ -10,7 +10,7 @@ import tomllib
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from .core import DstackError, _assert_no_symlink_components, read_utf8_text, run
+from .core import DstackError, _assert_no_symlink_components, read_utf8_text, run, truncate_output
 from .output import emit
 
 SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.4"
@@ -277,6 +277,7 @@ def validate_decision_records(source: Path) -> list[str]:
     records = {path.name: path for path in decisions.glob(ADR_PATTERN)}
     errors: list[str] = []
     for path in sorted(records.values()):
+        _assert_no_symlink_components(path, purpose="decision record")
         text = read_utf8_text(path, purpose="decision record")
         match = re.search(r"^- \*\*Status:\*\*\s*(.+)$", text, re.MULTILINE)
         if match is None:
@@ -312,6 +313,7 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
 
     errors = validate_decision_records(source)
     summary = source / "SUMMARY.md"
+    _assert_no_symlink_components(summary, purpose="documentation summary")
     chapters: set[Path] = set()
     for raw in _links(summary):
         try:
@@ -324,6 +326,7 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
 
     markdown = set(source.rglob("*.md"))
     for path in markdown:
+        _assert_no_symlink_components(path, purpose="documentation file")
         for raw in _links(path):
             try:
                 _local_target(path, raw, source)
@@ -350,7 +353,7 @@ def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]
     if orphans:
         errors.append("orphan documentation is not in SUMMARY.md: " + ", ".join(orphans))
     if errors:
-        raise DstackError("documentation validation failed: " + "; ".join(sorted(set(errors))))
+        raise DstackError(truncate_output("documentation validation failed: " + "; ".join(sorted(set(errors)))))
 
     executable = mdbook or require_mdbook()
     with tempfile.TemporaryDirectory(prefix="dstack-mdbook-") as output:

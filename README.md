@@ -54,6 +54,7 @@ generic integrations are not removed automatically.
 
 ```text
 dstack init [--root PATH] [--update]
+dstack install_skills [--agent-dir PATH]
 dstack ctl formula install [--update]
 dstack ctl formula check
 dstack ctl plan check <plan-bead>
@@ -66,9 +67,9 @@ dstack ctl audit evidence <feature> [detail flags]
 dstack ctl docs validate
 ```
 
-All successful commands emit compact JSON. Deterministic failures emit JSON diagnostics and a nonzero status. Beads
-commands remain the authority for workflow transitions; dStack only validates or performs the mechanics required by the
-skills.
+Agent-facing operational commands emit deterministic JSON. Top-level help, version, unknown-command, and argparse output
+remains human-readable. Beads commands remain the authority for workflow transitions; dStack only validates or performs
+the mechanics required by the skills.
 
 ## Documentation
 
