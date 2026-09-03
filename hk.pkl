@@ -1,0 +1,75 @@
+amends "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Config.pkl"
+
+import "package://github.com/jdx/hk/releases/download/v1.54.1/hk@1.54.1#/Builtins.pkl"
+
+fail_fast = false
+
+local markdown_excludes = List(".beads/**", "dstack/assets/prompts/**")
+
+local linters = new Mapping<String, Step> {
+  ["actionlint"] = Builtins.actionlint
+  ["docs"] = new Step {
+    glob = List("docs/src/**/*.md", "docs/book.toml")
+    check = "python -m dstack ctl docs validate"
+  }
+  ["json"] = Builtins.jq
+  ["pkl"] = Builtins.pkl
+  ["pkl_format"] = Builtins.pkl_format
+  ["ruff"] = Builtins.ruff
+  ["ruff_format"] = Builtins.ruff_format
+  ["rumdl"] = (Builtins.rumdl) {
+    exclude = markdown_excludes
+  }
+  ["rumdl_format"] = (Builtins.rumdl_format) {
+    exclude = markdown_excludes
+  }
+  ["ryl"] = Builtins.ryl
+  ["ryl_markdown"] = Builtins.ryl_markdown
+  ["tombi"] = (Builtins.tombi) {
+    exclude = List("**/mise.toml")
+  }
+  ["tombi_format"] = (Builtins.tombi_format) {
+    output_summary = "stdout"
+    exclude = List(".config/**")
+  }
+  ["ty"] = (Builtins.ty) {
+    exclude = "tests/**"
+    check = "ty check {{files}}"
+  }
+  ["yamlfmt"] = Builtins.yamlfmt
+}
+
+local pre_commit_steps = (linters) {
+  ["bd-pre-commit"] = new Step {
+    check = "bd hooks run pre-commit"
+  }
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = pre_commit_steps
+  }
+  ["post-merge"] {
+    steps {
+      ["bd-post-merge"] {
+        check = "bd hooks run post-merge"
+      }
+    }
+  }
+  ["pre-push"] {
+    steps {
+      ["bd-pre-push"] {
+        check = "bd hooks run pre-push \"$@\""
+      }
+    }
+  }
+  ["check"] {
+    steps = linters
+  }
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+}

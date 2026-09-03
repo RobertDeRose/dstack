@@ -1,0 +1,56 @@
+name: Tests
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  MISE_LOCKED: "1"
+jobs:
+  scripts:
+    name: Scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+      - run: |
+          uv sync --dev
+          uv run pytest -q -rs --cov=dstack --cov-report=term-missing
+  beads:
+    name: Beads / ${{ matrix.suite.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: Native workflow
+            test: test_native_workflow.py
+          - name: Repository mechanics
+            test: test_repository_mechanics.py
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+      - run: |
+          uv sync --dev
+          uv run pytest -q tests/acceptance/${{ matrix.suite.test }}
+  release:
+    name: Release integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # ratchet:astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
+      - run: mise run release-check
