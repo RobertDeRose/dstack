@@ -4,57 +4,27 @@ import argparse
 import json
 import os
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 from typing import Sequence
 
 from .core import DstackError
+from .output import fail
 
-SYSTEM_BEGIN = "<!-- dstack:managed-system-prompt:begin -->"
-SYSTEM_END = "<!-- dstack:managed-system-prompt:end -->"
 MANAGED_KEY = "dstack-managed"
-LEGACY_SKILL_NAMES = (
-    "adopt-feature",
-    "audit-project",
-    "close-feature",
-    "dstack-core",
-    "dstack-beads-core",
-    "dstack-beads-adopt-feature",
-    "dstack-beads-close-feature",
-    "dstack-beads-implement-feature",
-    "dstack-beads-project-alignment-execute",
-    "dstack-beads-project-alignment-land",
-    "dstack-beads-project-alignment-review",
-    "dstack-beads-project-audit",
-    "dstack-beads-review-feature-spec",
-    "dstack-beads-setup-project",
-    "dstack-beads-start-feature",
-    "implement-feature",
-    "implement-task",
-    "migrate-workflow",
-    "plan-feature",
-    "plan-features",
-    "project-alignment-execute",
-    "project-alignment-land",
-    "project-alignment-review",
-    "review-feature-spec",
-    "setup-project",
-    "start-feature",
-    "update-project",
+LEGACY_SYSTEM_BEGIN = "<!-- dstack:managed-system-prompt:begin -->"
+LEGACY_SYSTEM_END = "<!-- dstack:managed-system-prompt:end -->"
+CURRENT_SKILLS = (
+    "dstack-beads-audit-feature",
+    "dstack-beads-implement",
+    "dstack-beads-plan-feature",
+    "dstack-beads-review-plan",
 )
-LEGACY_PROMPT_NAMES = (
-    "adopt-feature.md",
-    "close-feature.md",
-    "implement-feature.md",
-    "plan-features.md",
-    "project-alignment-execute.md",
-    "project-alignment-land.md",
-    "project-alignment-review.md",
-    "project-audit.md",
-    "review-feature-spec.md",
-    "setup-project.md",
-    "start-feature.md",
+CURRENT_PROMPTS = (
+    "audit-feature.md",
+    "implement.md",
+    "plan-feature.md",
+    "review-plan.md",
 )
 
 
@@ -79,19 +49,19 @@ def _assert_no_symlink(path: Path) -> None:
 
 def _atomic_write_text(path: Path, content: str) -> None:
     _assert_no_symlink(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _assert_no_symlink(path)
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
-    fd, raw_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(raw)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            os.chmod(raw_path, mode)
+        os.chmod(temporary, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(raw_path, path)
+        os.replace(temporary, path)
     finally:
-        Path(raw_path).unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
 
 
 def _atomic_copy(source: Path, destination: Path) -> None:
@@ -131,73 +101,65 @@ def _owned_skill(path: Path, expected_name: str) -> bool:
     return metadata.get(MANAGED_KEY) == "true" and metadata.get("name") == expected_name
 
 
-def _owned_prompt(path: Path, expected_name: str | None = None) -> bool:
+def _owned_prompt(path: Path, expected_name: str) -> bool:
     metadata = _frontmatter(path)
-    if metadata.get(MANAGED_KEY) != "true":
-        return False
-    return expected_name is None or metadata.get("name") == expected_name
+    return metadata.get(MANAGED_KEY) == "true" and metadata.get("name") == expected_name
 
 
-def _managed_block_bounds(current: str) -> tuple[int, int] | None:
-    begins = current.count(SYSTEM_BEGIN)
-    ends = current.count(SYSTEM_END)
-    if begins == 0 and ends == 0:
-        return None
-    if begins != 1 or ends != 1:
-        raise DstackError("managed system prompt must contain exactly one complete block")
-    begin = current.find(SYSTEM_BEGIN)
-    end = current.find(SYSTEM_END)
-    if end < begin:
-        raise DstackError("managed system prompt markers are out of order")
-    return begin, end + len(SYSTEM_END)
 
+def _remove_legacy_system_block(path: Path) -> bool:
+    """Remove the obsolete dStack block while preserving user-owned guidance."""
 
-def _validate_managed_destination(path: Path) -> None:
     _assert_no_symlink(path)
     if not path.exists():
-        return
+        return False
     try:
         current = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
-        raise DstackError(f"cannot read managed destination: {path}") from exc
-    _managed_block_bounds(current)
+        raise DstackError(f"cannot read legacy agent guidance: {path}") from exc
 
+    begins = current.count(LEGACY_SYSTEM_BEGIN)
+    ends = current.count(LEGACY_SYSTEM_END)
+    if begins == 0 and ends == 0:
+        return False
+    if begins != 1 or ends != 1:
+        raise DstackError("legacy dStack system guidance has incomplete or duplicate markers")
 
-def _replace_managed_block(path: Path, content: str) -> None:
-    _validate_managed_destination(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    block = f"{SYSTEM_BEGIN}\n{content.rstrip()}\n{SYSTEM_END}"
-    if not path.exists():
-        updated = block + "\n"
+    begin = current.index(LEGACY_SYSTEM_BEGIN)
+    end = current.index(LEGACY_SYSTEM_END) + len(LEGACY_SYSTEM_END)
+    if end <= begin:
+        raise DstackError("legacy dStack system guidance markers are out of order")
+
+    before = current[:begin].strip()
+    after = current[end:].strip()
+    updated = "\n\n".join(part for part in (before, after) if part)
+    if updated:
+        _atomic_write_text(path, updated + "\n")
     else:
-        try:
-            current = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            raise DstackError(f"cannot read managed destination: {path}") from exc
-        bounds = _managed_block_bounds(current)
-        if bounds is None:
-            updated = current.rstrip() + "\n\n" + block + "\n"
-        else:
-            begin, end = bounds
-            updated = current[:begin].rstrip() + "\n\n" + block + current[end:]
-    _atomic_write_text(path, updated.lstrip("\n"))
+        path.unlink()
+    return True
 
 
-def _remove_stale_resources(skills_target: Path, prompts_target: Path) -> list[str]:
+def _remove_stale_owned_resources(skills_target: Path, prompts_target: Path) -> list[str]:
+    """Remove only dStack-owned resources outside the current manifest."""
+
     removed: list[str] = []
-    for name in LEGACY_SKILL_NAMES:
-        directory = skills_target / name
+    for directory in sorted(skills_target.iterdir()):
+        if not directory.is_dir() or directory.name in CURRENT_SKILLS:
+            continue
         _assert_no_symlink(directory)
         skill = directory / "SKILL.md"
-        if skill.is_file() and _owned_skill(skill, name):
+        if skill.is_file() and _owned_skill(skill, directory.name):
             shutil.rmtree(directory)
-            removed.append(f"skills/{name}")
-    for filename in LEGACY_PROMPT_NAMES:
-        prompt = prompts_target / filename
+            removed.append(f"skills/{directory.name}")
+
+    for prompt in sorted(prompts_target.glob("*.md")):
+        if prompt.name in CURRENT_PROMPTS:
+            continue
         _assert_no_symlink(prompt)
-        if prompt.is_file() and _owned_prompt(prompt, Path(filename).stem):
+        if _owned_prompt(prompt, prompt.stem):
             prompt.unlink()
-            removed.append(f"prompts/{filename}")
+            removed.append(f"prompts/{prompt.name}")
     return removed
 
 
@@ -224,41 +186,47 @@ def _replace_prompt(source: Path, destination: Path) -> None:
     _atomic_copy(source, destination)
 
 
+def _verify_packaged_manifest(skill_source: Path, prompt_source: Path) -> None:
+    packaged_skills = {path.name for path in skill_source.iterdir() if path.is_dir()}
+    packaged_prompts = {path.name for path in prompt_source.glob("*.md")}
+    expected_skills = set(CURRENT_SKILLS)
+    expected_prompts = set(CURRENT_PROMPTS)
+    if packaged_skills != expected_skills:
+        raise DstackError(
+            "packaged skill manifest differs from the supported set: "
+            f"expected={sorted(expected_skills)}, observed={sorted(packaged_skills)}"
+        )
+    if packaged_prompts != expected_prompts:
+        raise DstackError(
+            "packaged prompt manifest differs from the supported set: "
+            f"expected={sorted(expected_prompts)}, observed={sorted(packaged_prompts)}"
+        )
+
+
 def install_skills(agent_dir: Path) -> dict[str, object]:
     source = asset_root()
     skill_source = source / "skills"
     prompt_source = source / "prompts"
+    _verify_packaged_manifest(skill_source, prompt_source)
+
     original_target = agent_dir.expanduser()
     _assert_no_symlink(original_target)
     target = original_target.resolve()
     skills_target = target / "skills"
     prompts_target = target / "prompts"
-    system_path = target / "APPEND_SYSTEM.md"
     try:
-        for path in (skills_target, prompts_target, system_path):
+        for path in (skills_target, prompts_target):
             _assert_no_symlink(path)
-        _validate_managed_destination(system_path)
         skills_target.mkdir(parents=True, exist_ok=True)
         prompts_target.mkdir(parents=True, exist_ok=True)
-        removed = _remove_stale_resources(skills_target, prompts_target)
+        removed = _remove_stale_owned_resources(skills_target, prompts_target)
+        if _remove_legacy_system_block(target / "APPEND_SYSTEM.md"):
+            removed.append("APPEND_SYSTEM.md#dstack-managed-block")
 
-        installed_skills: list[str] = []
-        for path in sorted(skill_source.iterdir()):
-            if not path.is_dir():
-                continue
-            _replace_skill(path, skills_target / path.name)
-            installed_skills.append(path.name)
-
-        installed_prompts: list[str] = []
-        for path in sorted(prompt_source.glob("*.md")):
-            _replace_prompt(path, prompts_target / path.name)
-            installed_prompts.append(path.name)
-
-        try:
-            system_content = (source / "APPEND_SYSTEM.md").read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            raise DstackError(f"cannot read packaged system guidance: {source / 'APPEND_SYSTEM.md'}") from exc
-        _replace_managed_block(system_path, system_content)
+        for name in CURRENT_SKILLS:
+            _replace_skill(skill_source / name, skills_target / name)
+        for name in CURRENT_PROMPTS:
+            _replace_prompt(prompt_source / name, prompts_target / name)
     except DstackError:
         raise
     except (OSError, UnicodeError) as exc:
@@ -267,9 +235,8 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
     return {
         "status": "ok",
         "agent_dir": str(target),
-        "skills": installed_skills,
-        "prompts": installed_prompts,
-        "system_prompt": str(system_path),
+        "skills": list(CURRENT_SKILLS),
+        "prompts": list(CURRENT_PROMPTS),
         "removed_stale": removed,
     }
 
@@ -290,10 +257,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         payload = install_skills(args.agent_dir)
     except DstackError as exc:
-        print(
-            json.dumps({"status": "error", "error": str(exc)}, sort_keys=True, separators=(",", ":")),
-            file=sys.stderr,
-        )
-        return 1
+        return fail(str(exc))
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     return 0

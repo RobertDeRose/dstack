@@ -38,7 +38,6 @@ include = ["dstack*"]
 
 [tool.setuptools.package-data]
 dstack = [
-  "assets/APPEND_SYSTEM.md",
   "assets/formulas/*.toml",
   "assets/prompts/*.md",
   "assets/skills/*/*.md",

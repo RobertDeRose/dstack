@@ -46,7 +46,6 @@ done
 for prompt in audit-feature.md implement.md plan-feature.md review-plan.md; do
   test -f "$agent_dir/prompts/$prompt"
 done
-test -f "$agent_dir/APPEND_SYSTEM.md"
 
 "$tmp/venv/bin/python" - <<'PYFORMULA'
 from dstack.formula import EXPECTED_STEPS, load_formula
