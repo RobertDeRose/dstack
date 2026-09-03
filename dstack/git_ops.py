@@ -17,6 +17,7 @@ from .core import (
     git_root,
     implementation_task_graph_errors,
     read_text_file,
+    reject_beads_paths,
     run,
     serialized_repository_mutation,
 )
@@ -29,13 +30,9 @@ def staged_paths(root: Path) -> list[str]:
     return [line for line in output.splitlines() if line]
 
 
-def reject_beads_paths(paths: list[str]) -> None:
-    invalid = sorted(path for path in paths if path == ".beads" or path.startswith(".beads/"))
-    if invalid:
-        raise DstackError(
-            "implementation commits may not include Beads configuration or runtime state; "
-            "commit intentional Beads maintenance separately: " + ", ".join(invalid)
-        )
+def head_paths(root: Path) -> list[str]:
+    output = run(["git", "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "HEAD"], cwd=root).stdout
+    return [line for line in output.splitlines() if line]
 
 
 def build_commit_message(subject: str, body: str, bead_id: str) -> str:
@@ -57,6 +54,8 @@ def _commit(root: Path, message: str, *, amend: bool) -> str:
     if not paths and not amend:
         raise DstackError("no staged repository changes to commit")
     reject_beads_paths(paths)
+    if amend:
+        reject_beads_paths(head_paths(root))
     run(["git", "diff", "--cached", "--check"], cwd=root)
 
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as handle:

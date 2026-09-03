@@ -22,6 +22,14 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 SUPPORTED_BEADS_VERSION = (1, 2, 2)
+FEATURE_STEP_TYPES = {
+    "plan": "task",
+    "review": "task",
+    "approval": "task",
+    "implementation": "epic",
+    "audit": "task",
+}
+FEATURE_STEP_LABELS = {step: f"dstack:step:{step}" for step in FEATURE_STEP_TYPES}
 BEADS_VERSION_PATTERN = re.compile(r"\bbd version (\d+)\.(\d+)\.(\d+)\b")
 
 
@@ -145,7 +153,9 @@ def run(
 
     result = CommandResult(completed.returncode, completed.stdout, completed.stderr)
     if check and completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit {completed.returncode}"
+        detail = (
+            truncate_output(completed.stderr) or truncate_output(completed.stdout) or f"exit {completed.returncode}"
+        )
         raise DstackError(f"command failed ({' '.join(command)}): {detail}")
     return result
 
@@ -422,8 +432,11 @@ class BeadsClient:
         issue_type_filter: str | None = None,
         include_gates: bool = False,
         include_templates: bool = False,
+        limit: int | None = None,
     ) -> builtins.list[dict[str, Any]]:
-        command = ["bd", "list", "--limit", "0", "--json"]
+        if limit is not None and limit < 1:
+            raise DstackError("Beads list limit must be positive")
+        command = ["bd", "list", "--limit", str(limit if limit is not None else 0), "--json"]
         if all_statuses:
             command.append("--all")
         if parent:
@@ -438,8 +451,10 @@ class BeadsClient:
             command.append("--include-templates")
         return as_items(self.json(command), context="bd list")
 
-    def children(self, parent: str, *, all_statuses: bool = True) -> builtins.list[dict[str, Any]]:
-        return self.list(all_statuses=all_statuses, parent=parent)
+    def children(
+        self, parent: str, *, all_statuses: bool = True, limit: int | None = None
+    ) -> builtins.list[dict[str, Any]]:
+        return self.list(all_statuses=all_statuses, parent=parent, limit=limit)
 
     def history(self, issue_id: str) -> Any:
         result = self._run(["bd", "history", issue_id, "--json"], check=False)
@@ -480,14 +495,11 @@ def find_feature_root(client: BeadsClient, selector: str) -> dict[str, Any]:
 
 def feature_steps(client: BeadsClient, root_id: str) -> dict[str, dict[str, Any]]:
     children = client.children(root_id)
-    labels = {
-        "plan": "dstack:step:plan",
-        "review": "dstack:step:review",
-        "approval": "dstack:step:approval",
-        "implementation": "dstack:step:implementation",
-        "audit": "dstack:step:audit",
-    }
-    return {name: step_by_label(children, label) for name, label in labels.items()}
+    steps = {name: step_by_label(children, label) for name, label in FEATURE_STEP_LABELS.items()}
+    for name, expected_type in FEATURE_STEP_TYPES.items():
+        if issue_type(steps[name]) != expected_type:
+            raise DstackError(f"{name} step must be a {expected_type}")
+    return steps
 
 
 def feature_identity(client: BeadsClient, selector: str) -> tuple[dict[str, Any], str, str]:
@@ -524,7 +536,7 @@ def implementation_task_graph_errors(
         errors.append(
             f"implementation Bead must be a direct child of {implementation_id}; observed parent {observed_parent}"
         )
-    implementation = client.show(implementation_id)
+    implementation = steps["implementation"]
     if issue_type(implementation) != "epic":
         errors.append("feature implementation step is not an epic")
     if has_label(task, "dstack:step:implementation"):
@@ -704,16 +716,40 @@ def changed_paths(root: Path, base: str, head: str) -> list[str]:
     return [line for line in output.splitlines() if line]
 
 
+def reject_beads_paths(paths: Sequence[str]) -> None:
+    invalid = sorted(path for path in paths if path == ".beads" or path.startswith(".beads/"))
+    if invalid:
+        raise DstackError(
+            "implementation commits may not include Beads configuration or runtime state; "
+            "commit intentional Beads maintenance separately: " + ", ".join(invalid)
+        )
+
+
 def diff_stat(root: Path, base: str, head: str) -> str:
     repository = git_root(root)
-    return run(["git", "diff", "--stat", f"{base}...{head}"], cwd=repository).stdout.strip()
+    return run(["git", "diff", "--shortstat", f"{base}...{head}"], cwd=repository).stdout.strip()
 
 
-def commit_records(root: Path, ref_range: str) -> list[dict[str, Any]]:
+def commit_records(
+    root: Path,
+    ref_range: str,
+    *,
+    include_paths: bool = True,
+    max_count: int | None = None,
+) -> list[dict[str, Any]]:
     repository = git_root(root)
     validate_git_range(repository, ref_range, name="evidence revision")
+    if max_count is not None and max_count < 1:
+        raise DstackError("Git evidence limit must be positive")
     format_string = "%x1e%H%x00%s%x00%B%x00"
-    output = run(["git", "log", f"--format={format_string}", "--name-only", ref_range], cwd=repository).stdout
+    command = ["git", "log"]
+    if max_count is not None:
+        command.append(f"--max-count={max_count}")
+    command.append(f"--format={format_string}")
+    if include_paths:
+        command.append("--name-only")
+    command.append(ref_range)
+    output = run(command, cwd=repository).stdout
     records: list[dict[str, Any]] = []
     for raw in output.split("\x1e"):
         if not raw.strip():
@@ -727,8 +763,7 @@ def commit_records(root: Path, ref_range: str) -> list[dict[str, Any]]:
             {
                 "commit": commit.strip(),
                 "subject": subject.strip(),
-                "body": body.rstrip(),
-                "paths": [line for line in paths.splitlines() if line.strip()],
+                "paths": [line for line in paths.splitlines() if line.strip()] if include_paths else [],
                 "footer_ids": footer_ids,
             }
         )

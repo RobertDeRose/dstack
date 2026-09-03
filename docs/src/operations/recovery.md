@@ -27,9 +27,14 @@ success.
 ## dStack contract
 
 The project formula and scoped Beads prime are installed as `.beads/formulas/dstack-feature.formula.toml` and
-`.beads/PRIME.md`. Run `dstack init` when the Beads workspace is missing:
+`.beads/PRIME.md`. Run `dstack init` when the Beads workspace is missing. For an existing workspace, use the lower-level
+commands:
 
 ```bash
+# Missing workspace
+dstack init
+
+# Existing workspace
 dstack ctl formula install --update
 dstack ctl formula check
 ```

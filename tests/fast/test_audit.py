@@ -45,7 +45,7 @@ class FakeClient:
     def show_optional(self, issue_id: str) -> dict[str, Any] | None:
         return self.issues.get(issue_id)
 
-    def children(self, parent: str) -> list[dict[str, Any]]:
+    def children(self, parent: str, **kwargs: Any) -> list[dict[str, Any]]:
         return [self.issues["task"]] if parent == "implementation" else []
 
     def list(self, **kwargs: Any) -> list[dict[str, Any]]:
@@ -173,3 +173,19 @@ def test_audit_rejects_detail_ids_outside_feature(tmp_path: Path, monkeypatch: p
 
     with pytest.raises(DstackError):
         subject.collect_audit_evidence(tmp_path, "root", include_task_ids=["other"])
+
+
+def test_audit_bounds_diff_stat_and_rejects_beads_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, root_issue, steps = fixture_data(tmp_path)
+    install_fakes(monkeypatch, client, root_issue, steps)
+    monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
+    monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
+    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(subject, "commit_records", lambda *args, **kwargs: [])
+    monkeypatch.setattr(subject, "changed_paths", lambda *args, **kwargs: [".beads/runtime.json"])
+    monkeypatch.setattr(subject, "diff_stat", lambda *args, **kwargs: "x" * 5000)
+
+    result = subject.collect_audit_evidence(tmp_path, "root")
+
+    assert len(result["git"]["diff_stat"]) <= 4000
+    assert any("Beads" in error for error in result["checks"]["errors"])

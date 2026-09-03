@@ -1,7 +1,14 @@
 # Command contracts
 
-Successful commands emit compact JSON on standard output. Deterministic failures emit JSON diagnostics on standard error
-and return a nonzero status.
+Agent-facing operational commands emit deterministic JSON on standard output. Runtime validation failures emit JSON
+diagnostics on standard error and return a nonzero status. Top-level help, version, unknown-command, and argparse output
+remains human-readable.
+
+All `ctl` commands accept the global repository option immediately after `ctl`:
+
+```text
+dstack ctl [--root PATH] <area> <command> ...
+```
 
 ## Initialization
 
@@ -13,6 +20,14 @@ dstack init [--root PATH] [--update]
 scoped `PRIME.md`, and validates the resulting contract. It is idempotent, does not create workflow issues, and refuses
 to replace a different project formula or prime unless `--update` is explicitly supplied. Existing generic Beads
 integrations are not removed.
+
+## Agent resources
+
+```text
+dstack install_skills [--agent-dir PATH]
+```
+
+This installs or updates the four dStack skills and prompts under the configured Pi agent directory.
 
 ## Formula
 
@@ -48,11 +63,17 @@ Commit subjects come from task labels and titles. Each generated commit contains
 
 ```text
 dstack ctl task check <task>
-dstack ctl audit evidence <feature> [detail flags]
+dstack ctl audit evidence <feature> \
+  [--include-plan] \
+  [--include-task ID] \
+  [--include-decision ID] \
+  [--history-for ID] \
+  [--include-commit-paths]
 ```
 
-Task checks validate graph membership, approval dependencies, Git evidence, worktree cleanliness, documentation impact,
-and `hk check -a`. Audit evidence is bounded by default and expands only the requested Beads, history, or commit paths.
+Repeat `--include-task`, `--include-decision`, and `--history-for` when needed. Task checks validate graph membership,
+approval dependencies, Git evidence, worktree cleanliness, documentation impact, and `hk check -a`. Audit evidence is
+bounded by default and expands only explicitly requested details.
 
 ## Documentation
 

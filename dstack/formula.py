@@ -8,12 +8,21 @@ import tomllib
 from pathlib import Path
 from typing import Any, Mapping
 
-from .core import BeadsClient, DstackError, _assert_no_symlink_components, git_root, parse_json, run
+from .core import (
+    FEATURE_STEP_LABELS,
+    FEATURE_STEP_TYPES,
+    BeadsClient,
+    DstackError,
+    _assert_no_symlink_components,
+    git_root,
+    parse_json,
+    run,
+)
 
 FORMULA_NAME = "dstack-feature"
 FORMULA_FILENAME = f"{FORMULA_NAME}.formula.toml"
 PRIME_FILENAME = "PRIME.md"
-EXPECTED_STEPS = ("plan", "review", "approval", "implementation", "audit")
+EXPECTED_STEPS = tuple(FEATURE_STEP_TYPES)
 
 
 def package_root() -> Path:
@@ -71,6 +80,11 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
     steps = _step_map(formula)
     if set(steps) != set(EXPECTED_STEPS):
         raise DstackError(f"dstack-feature steps must be exactly: {', '.join(EXPECTED_STEPS)}")
+    for step_id in EXPECTED_STEPS:
+        if steps[step_id].get("type") != FEATURE_STEP_TYPES[step_id]:
+            raise DstackError(f"{step_id} must be a {FEATURE_STEP_TYPES[step_id]}")
+        if steps[step_id].get("labels") != [FEATURE_STEP_LABELS[step_id]]:
+            raise DstackError(f"{step_id} label must be exactly {FEATURE_STEP_LABELS[step_id]}")
     if list(steps["review"].get("needs") or []) != ["plan"]:
         raise DstackError("review must depend on plan")
     if list(steps["approval"].get("needs") or []) != ["review"]:
@@ -78,8 +92,6 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
     gate = steps["approval"].get("gate")
     if not isinstance(gate, dict) or gate.get("type") != "human":
         raise DstackError("approval must use a native human gate")
-    if steps["implementation"].get("type") != "epic":
-        raise DstackError("implementation must be a structural epic")
     if steps["implementation"].get("needs") or steps["implementation"].get("depends_on"):
         raise DstackError(
             "implementation epic must not use blocking dependencies; reviewed child tasks depend on approval"
