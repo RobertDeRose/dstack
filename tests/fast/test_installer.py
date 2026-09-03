@@ -5,23 +5,20 @@ from pathlib import Path
 import pytest
 
 from dstack.core import DstackError
-from dstack.installer import SYSTEM_BEGIN, SYSTEM_END, install_skills
+from dstack.installer import CURRENT_PROMPTS, CURRENT_SKILLS, install_skills
+
+EXPECTED_SKILLS = set(CURRENT_SKILLS)
+EXPECTED_PROMPTS = set(CURRENT_PROMPTS)
 
 
-EXPECTED_SKILLS = {
-    "dstack-beads-audit-feature",
-    "dstack-beads-implement",
-    "dstack-beads-plan-feature",
-    "dstack-beads-review-plan",
-}
-EXPECTED_PROMPTS = {"audit-feature.md", "implement.md", "plan-feature.md", "review-plan.md"}
-
-
-def test_installer_is_idempotent_and_preserves_user_system_guidance(tmp_path: Path) -> None:
+def test_installer_is_idempotent_and_leaves_unrelated_agent_files_untouched(tmp_path: Path) -> None:
     target = tmp_path / "agent"
     target.mkdir()
     system = target / "APPEND_SYSTEM.md"
-    system.write_text("user prefix\n", encoding="utf-8")
+    system.write_text("user-owned guidance\n", encoding="utf-8")
+    unrelated = target / "skills/user-skill"
+    unrelated.mkdir(parents=True)
+    (unrelated / "SKILL.md").write_text("---\nname: user-skill\n---\nuser\n", encoding="utf-8")
 
     first = install_skills(target)
     second = install_skills(target)
@@ -29,29 +26,36 @@ def test_installer_is_idempotent_and_preserves_user_system_guidance(tmp_path: Pa
     assert set(first["skills"]) == EXPECTED_SKILLS
     assert set(first["prompts"]) == EXPECTED_PROMPTS
     assert second["status"] == "ok"
-    text = system.read_text(encoding="utf-8")
-    assert text.startswith("user prefix")
-    assert text.count(SYSTEM_BEGIN) == 1
-    assert text.count(SYSTEM_END) == 1
-    assert {path.name for path in (target / "skills").iterdir()} == EXPECTED_SKILLS
+    assert system.read_text(encoding="utf-8") == "user-owned guidance\n"
+    assert unrelated.is_dir()
+    assert EXPECTED_SKILLS <= {path.name for path in (target / "skills").iterdir()}
+    assert "system_prompt" not in first
+    assert first["removed_stale"] == []
 
 
-def test_installer_removes_only_dstack_owned_legacy_resources(tmp_path: Path) -> None:
+def test_installer_removes_stale_owned_resources_without_a_legacy_name_list(tmp_path: Path) -> None:
     target = tmp_path / "agent"
-    legacy = target / "skills/dstack-beads-close-feature"
+    legacy = target / "skills/dstack-beads-obsolete"
     legacy.mkdir(parents=True)
     (legacy / "SKILL.md").write_text(
-        "---\ndstack-managed: true\nname: dstack-beads-close-feature\n---\nold\n",
+        "---\ndstack-managed: true\nname: dstack-beads-obsolete\n---\nold\n",
         encoding="utf-8",
     )
-    user = target / "skills/close-feature"
-    user.mkdir(parents=True)
-    (user / "SKILL.md").write_text("---\nname: close-feature\n---\nuser\n", encoding="utf-8")
+    stale_prompt = target / "prompts/obsolete.md"
+    stale_prompt.parent.mkdir(parents=True)
+    stale_prompt.write_text(
+        "---\ndstack-managed: true\nname: obsolete\n---\nold\n",
+        encoding="utf-8",
+    )
 
     result = install_skills(target)
-    assert "skills/dstack-beads-close-feature" in result["removed_stale"]
+
     assert not legacy.exists()
-    assert user.exists()
+    assert not stale_prompt.exists()
+    assert result["removed_stale"] == [
+        "skills/dstack-beads-obsolete",
+        "prompts/obsolete.md",
+    ]
 
 
 def test_installer_refuses_to_replace_user_owned_current_skill(tmp_path: Path) -> None:
@@ -63,3 +67,22 @@ def test_installer_refuses_to_replace_user_owned_current_skill(tmp_path: Path) -
     with pytest.raises(DstackError):
         install_skills(target)
     assert (current / "SKILL.md").read_bytes() == original
+
+
+def test_installer_removes_only_the_obsolete_managed_system_block(tmp_path: Path) -> None:
+    target = tmp_path / "agent"
+    target.mkdir()
+    system = target / "APPEND_SYSTEM.md"
+    system.write_text(
+        "user before\n\n"
+        "<!-- dstack:managed-system-prompt:begin -->\n"
+        "obsolete dStack guidance\n"
+        "<!-- dstack:managed-system-prompt:end -->\n\n"
+        "user after\n",
+        encoding="utf-8",
+    )
+
+    result = install_skills(target)
+
+    assert system.read_text(encoding="utf-8") == "user before\n\nuser after\n"
+    assert "APPEND_SYSTEM.md#dstack-managed-block" in result["removed_stale"]

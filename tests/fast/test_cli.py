@@ -11,10 +11,28 @@ from dstack import cli
 
 def test_parser_exposes_only_targeted_control_plane_areas() -> None:
     parser = cli.build_ctl_parser()
-    args = parser.parse_args(["plan", "check", "ds-plan"])
-    assert args.area == "plan"
+    args = parser.parse_args(["formula", "check"])
+    assert args.area == "formula"
     assert args.command == "check"
-    assert args.bead == "ds-plan"
+
+    task = parser.parse_args(["task", "check", "ds-task"])
+    assert task.bead == "ds-task"
+    assert not hasattr(task, "base")
+    assert not hasattr(task, "validation_command")
+
+    audit = parser.parse_args(
+        [
+            "audit",
+            "evidence",
+            "ds-root",
+            "--include-task",
+            "ds-task",
+            "--history-for",
+            "ds-task",
+        ]
+    )
+    assert audit.include_task == ["ds-task"]
+    assert audit.history_for == ["ds-task"]
 
 
 def test_root_dispatches_both_supported_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:

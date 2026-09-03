@@ -15,6 +15,8 @@ from dstack.core import (
     footer_mapping,
     parse_beads_version,
     parse_json,
+    truncate_output,
+    worktree_for_branch,
 )
 
 
@@ -61,7 +63,7 @@ class FakeClient:
         return self.issues[issue_id]
 
 
-def test_feature_identity_climbs_native_parent_graph() -> None:
+def test_feature_identity_uses_one_feature_label_authority() -> None:
     client = FakeClient(
         {
             "task": {"id": "task", "issue_type": "task", "parent": "impl"},
@@ -70,10 +72,7 @@ def test_feature_identity_climbs_native_parent_graph() -> None:
                 "id": "root",
                 "issue_type": "molecule",
                 "labels": ["workflow:feature", "feature:native-control-plane"],
-                "metadata": {
-                    "dstack.feature_slug": "native-control-plane",
-                    "dstack.base_branch": "dev",
-                },
+                "metadata": {"dstack.base_branch": "dev"},
             },
         }
     )
@@ -81,3 +80,49 @@ def test_feature_identity_climbs_native_parent_graph() -> None:
     assert root["id"] == "root"
     assert slug == "native-control-plane"
     assert base == "dev"
+
+
+def test_feature_identity_rejects_conflicting_legacy_slug_metadata() -> None:
+    client = FakeClient(
+        {
+            "root": {
+                "id": "root",
+                "issue_type": "molecule",
+                "labels": ["workflow:feature", "feature:native-control-plane"],
+                "metadata": {
+                    "dstack.feature_slug": "different-slug",
+                    "dstack.base_branch": "dev",
+                },
+            }
+        }
+    )
+    with pytest.raises(DstackError):
+        feature_identity(client, "root")  # type: ignore[arg-type]
+
+
+def test_worktree_inventory_uses_only_native_beads_view(tmp_path: Path) -> None:
+    class WorktreeClient:
+        root = tmp_path
+
+        def worktrees(self) -> list[dict[str, Any]]:
+            return []
+
+    assert worktree_for_branch(WorktreeClient(), "feat/example") is None  # type: ignore[arg-type]
+
+
+def test_truncated_command_output_preserves_root_cause_and_tail() -> None:
+    value = "ROOT-CAUSE\n" + ("x" * 5000) + "\nSUMMARY"
+    observed = truncate_output(value, limit=100)
+    assert observed.startswith("ROOT-CAUSE")
+    assert observed.endswith("SUMMARY")
+    assert "output truncated" in observed
+
+
+def test_beads_client_requires_exact_tested_version(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from dstack import core as subject
+
+    client = subject.BeadsClient(git_repo)
+    monkeypatch.setattr(client, "version", lambda: "bd version 1.3.0 (future)")
+
+    with pytest.raises(DstackError):
+        client.check_version()

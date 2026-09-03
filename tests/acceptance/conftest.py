@@ -63,7 +63,14 @@ def run_dstack(cwd: Path, *args: str, check: bool = True) -> Any:
 
 
 @pytest.fixture
-def real_repo(tmp_path: Path) -> Path:
+def real_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    hk = bin_dir / "hk"
+    hk.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    hk.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+
     repo = tmp_path / "project"
     repo.mkdir()
     run_command(["git", "init", "--initial-branch", "main", "-q"], cwd=repo)
@@ -72,11 +79,17 @@ def real_repo(tmp_path: Path) -> Path:
     (repo / "README.md").write_text("acceptance\n", encoding="utf-8")
     run_command(["git", "add", "README.md"], cwd=repo)
     run_command(["git", "commit", "-qm", "initial"], cwd=repo)
+
+    run_command(["bd", "init", "--quiet", "--non-interactive"], cwd=repo)
     return repo
 
 
 def pour_feature(repo: Path, *, slug: str = "native-workflow") -> tuple[str, dict[str, dict[str, Any]]]:
-    run_dstack(repo, "infra", "install")
+    run_dstack(repo, "formula", "install")
+    run_command(["git", "add", ".beads"], cwd=repo)
+    if run_command(["git", "diff", "--cached", "--quiet"], cwd=repo, check=False).returncode:
+        run_command(["git", "commit", "-qm", "chore: initialize Beads workflow"], cwd=repo)
+
     payload = run_json(
         repo,
         "mol",
@@ -102,8 +115,6 @@ def pour_feature(repo: Path, *, slug: str = "native-workflow") -> tuple[str, dic
         "workflow:feature",
         "--add-label",
         f"feature:{slug}",
-        "--set-metadata",
-        f"dstack.feature_slug={slug}",
         "--set-metadata",
         "dstack.base_branch=main",
     )

@@ -101,18 +101,31 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         "task",
         "--parent",
         steps["implementation"]["id"],
+        "--no-inherit-labels",
         "--labels",
         "dstack:work:implementation",
         "--labels",
         "dstack:commit:feat",
+        "--deps",
+        f"blocked-by:{steps['approval']['id']}",
         "--description-file",
         str(task_file),
         "--acceptance",
         "The tested behavior uses native Beads readiness.",
     )
     task_id = str(task["id"])
-    run_json(real_repo, "dep", "add", task_id, steps["approval"]["id"], "--type", "blocks")
-    run_json(real_repo, "dep", "add", steps["audit"]["id"], task_id, "--type", "blocks")
+    assert "dstack:step:implementation" not in task.get("labels", [])
+    assert (
+        run_json(
+            real_repo,
+            "ready",
+            "--parent",
+            steps["implementation"]["id"],
+            "--label",
+            "dstack:work:implementation",
+        )
+        == []
+    )
     run_json(real_repo, "close", steps["review"]["id"], "--reason", "Reviewed graph created")
 
     assert (

@@ -12,7 +12,6 @@ REQUIRED_SKILLS = {
 }
 REQUIRED_PROMPTS = {"audit-feature.md", "implement.md", "plan-feature.md", "review-plan.md"}
 REQUIRED_PACKAGE_ASSETS = {
-    "assets/APPEND_SYSTEM.md",
     "assets/formulas/dstack-feature.formula.toml",
     *(f"assets/prompts/{name}" for name in REQUIRED_PROMPTS),
     *(f"assets/skills/{name}/SKILL.md" for name in REQUIRED_SKILLS),
@@ -30,11 +29,12 @@ def test_package_configuration_covers_runtime_assets() -> None:
     assert uncovered == set()
 
 
-def test_required_targeted_resources_exist() -> None:
+def test_required_targeted_resources_are_the_only_packaged_agent_resources() -> None:
     skills = {path.parent.name for path in (ROOT / "dstack/assets/skills").glob("*/SKILL.md")}
     prompts = {path.name for path in (ROOT / "dstack/assets/prompts").glob("*.md")}
-    assert REQUIRED_SKILLS <= skills
-    assert REQUIRED_PROMPTS <= prompts
+    assert skills == REQUIRED_SKILLS
+    assert prompts == REQUIRED_PROMPTS
+    assert not (ROOT / "dstack/assets/APPEND_SYSTEM.md").exists()
 
 
 def test_repository_formula_matches_packaged_formula() -> None:
