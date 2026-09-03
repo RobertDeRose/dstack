@@ -11,8 +11,8 @@ from typing import Sequence
 from .audit import cmd_audit_evidence
 from .commands import (
     DstackError,
-    cmd_infra_check,
-    cmd_infra_install,
+    cmd_formula_check,
+    cmd_formula_install,
     cmd_plan_check,
     cmd_task_check,
     cmd_worktree_ensure,
@@ -39,17 +39,17 @@ def build_ctl_parser() -> argparse.ArgumentParser:
     )
     areas = parser.add_subparsers(dest="area", required=True)
 
-    infra = _leaf(areas, "infra", "Install or verify the project-local Beads workflow contract.")
-    infra_commands = infra.add_subparsers(dest="command", required=True)
-    install = _leaf(infra_commands, "install", "Initialize Beads and install the packaged dStack formula.")
+    formula = _leaf(areas, "formula", "Install or verify the packaged dStack Beads formula.")
+    formula_commands = formula.add_subparsers(dest="command", required=True)
+    install = _leaf(formula_commands, "install", "Install the packaged formula into an existing Beads workspace.")
     install.add_argument(
-        "--update-formula",
+        "--update",
         action="store_true",
         help="Replace a different project formula after the caller has reviewed the packaged change.",
     )
-    install.set_defaults(func=cmd_infra_install)
-    check = _leaf(infra_commands, "check", "Verify Beads, the formula, and native integration health.")
-    check.set_defaults(func=cmd_infra_check)
+    install.set_defaults(func=cmd_formula_install)
+    check = _leaf(formula_commands, "check", "Verify the installed formula and native Beads parsing.")
+    check.set_defaults(func=cmd_formula_check)
 
     plan = _leaf(areas, "plan", "Validate the structure of a native Beads feature plan.")
     plan_commands = plan.add_subparsers(dest="command", required=True)
@@ -83,38 +83,48 @@ def build_ctl_parser() -> argparse.ArgumentParser:
 
     task = _leaf(areas, "task", "Validate an implementation Bead and its repository evidence.")
     task_commands = task.add_subparsers(dest="command", required=True)
-    task_check = _leaf(task_commands, "check", "Check acceptance, documentation impact, Git evidence, and cleanliness.")
-    task_check.add_argument("bead", help="Implementation Bead ID.")
-    task_check.add_argument("--base", help="Override the feature base ref recorded in Beads.")
-    task_check.add_argument("--head", help="Override the feature branch ref derived from Beads.")
-    task_check.add_argument("--run-validation", action="store_true", help="Run the project validation command.")
-    task_check.add_argument(
-        "--validation-command",
-        help="Argument string for the validation command; defaults to DSTACK_VALIDATION_COMMAND or `hk check -a`.",
+    task_check = _leaf(
+        task_commands,
+        "check",
+        "Check native graph membership, documentation impact, Git evidence, validation, and cleanliness.",
     )
+    task_check.add_argument("bead", help="Implementation Bead ID.")
     task_check.set_defaults(func=cmd_task_check)
 
-    audit = _leaf(areas, "audit", "Collect repository facts for a semantic audit skill.")
+    audit = _leaf(areas, "audit", "Collect bounded repository facts for a semantic audit skill.")
     audit_commands = audit.add_subparsers(dest="command", required=True)
     audit_evidence = _leaf(
         audit_commands,
         "evidence",
-        "Collect plan, task, decision, Git, docs, and validation evidence.",
+        "Collect compact plan, task, decision, Git, docs, and validation evidence.",
     )
     audit_evidence.add_argument("feature", help="Feature root or descendant Bead ID.")
+    audit_evidence.add_argument("--include-plan", action="store_true", help="Include the full native plan issue.")
     audit_evidence.add_argument(
-        "--include-history",
-        action="store_true",
-        help="Include native Beads history for each item.",
+        "--include-task",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="Include one full implementation issue; repeat for additional tasks.",
     )
     audit_evidence.add_argument(
-        "--run-validation",
-        action="store_true",
-        help="Run project and documentation validation.",
+        "--include-decision",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="Include one full decision issue; repeat for additional decisions.",
     )
     audit_evidence.add_argument(
-        "--validation-command",
-        help="Argument string for project validation; defaults to DSTACK_VALIDATION_COMMAND or `hk check -a`.",
+        "--history-for",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="Include native Beads history for one feature issue; repeat as needed.",
+    )
+    audit_evidence.add_argument(
+        "--include-commit-paths",
+        action="store_true",
+        help="Include per-commit and aggregate changed paths.",
     )
     audit_evidence.set_defaults(func=cmd_audit_evidence)
 

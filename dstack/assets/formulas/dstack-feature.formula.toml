@@ -91,9 +91,10 @@ labels = ["dstack:step:implementation"]
 description = """
 Structural container for reviewed implementation tasks. Beads 1.2.2 rejects
 blocking dependencies between task and epic issue types, so this epic has no
-approval dependency. Each native child task is blocked by the task-shaped
-approval milestone, explicitly blocks the final audit, and owns any code,
-tests, configuration, and current documentation needed for its accepted outcome.
+approval dependency. Each native child task is created atomically with a blocker
+on the task-shaped approval milestone and owns any code, tests, configuration,
+and current documentation needed for its accepted outcome. Native waits-for
+fan-in on the audit is the sole implementation-completion dependency.
 """
 
 [[steps]]

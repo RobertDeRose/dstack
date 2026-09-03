@@ -6,8 +6,8 @@ description: "Audit approved intent, implementation, and current documentation f
 
 # Audit feature
 
-The audit skill makes semantic judgments. dStack gathers facts; Beads owns all resulting work, blockers, gates, and
-completion.
+The audit skill makes semantic judgments. dStack gathers bounded facts; Beads owns all resulting work, blockers, gates,
+and completion.
 
 ## Claim the native audit
 
@@ -17,15 +17,25 @@ Claim the audit only when Beads exposes it:
 bd ready --parent <feature-root> --label dstack:step:audit --claim --json
 ```
 
-If it is blocked, report the native blockers. Do not override fan-in or infer readiness from Git.
+If it is blocked, report native blockers. Do not override fan-in or infer readiness from Git.
 
-Collect deterministic evidence:
+Collect deterministic summary evidence:
 
 ```bash
-dstack ctl audit evidence <feature-root> --run-validation
+dstack ctl audit evidence <feature-root>
 ```
 
-Read targeted Beads history, source, or documentation only where the evidence identifies a material question. Compare:
+The command runs project and documentation validation and returns a bounded index. Fetch full content only for a
+material discrepancy:
+
+```bash
+dstack ctl audit evidence <feature-root> --include-plan
+dstack ctl audit evidence <feature-root> --include-task <task-id>
+dstack ctl audit evidence <feature-root> --include-decision <decision-id>
+dstack ctl audit evidence <feature-root> --history-for <bead-id>
+```
+
+Compare:
 
 - approved plan and recorded decisions;
 - implementation tasks and dependencies;
@@ -41,13 +51,13 @@ ambiguous authority. Cite repository paths and Beads IDs.
 
 For a clear defect:
 
-1. reopen or release the audit to `open` and unassigned;
-2. create an ordinary implementation task under the implementation epic;
-3. give it acceptance criteria, commit labels, and the three-audience documentation matrix;
-4. add a native blocker from the audit to the remediation task; and
-5. return `/implement <feature-root>`.
+1. release the audit claim to open and unassigned;
+2. create an ordinary task directly under the implementation epic;
+3. use `--no-inherit-labels`, acceptance criteria, commit labels, and the three-audience documentation matrix;
+4. include `--deps blocked-by:<approval-step>` in the create operation; and
+5. verify native waits-for fan-in blocks audit before returning `/implement <feature-root>`.
 
-Do not create an audit packet, correction ledger, or Markdown status file.
+Do not add a direct task-to-audit blocker. Do not create an audit packet, correction ledger, or Markdown status file.
 
 ## Ambiguous authority
 
@@ -63,12 +73,9 @@ required. Never silently choose which source is authoritative.
 
 ## Completion
 
-When no material drift remains and validation passes:
+When no material drift remains and deterministic checks pass, close the audit task with an evidence-based reason. Then
+close the molecule root if it remains open and native Beads reports it as closeable. The fact that the audit was
+claimable is the implementation fan-in proof; do not recalculate child completion.
 
-1. verify every implementation child is closed;
-2. close the implementation epic if it remains open;
-3. close the audit task with an evidence-based reason; and
-4. close the molecule root if the supported Beads version does not close it automatically.
-
-Return the validation performed, decisions recorded, remediation created, and final native Beads status. Do not create a
+Return validation performed, decisions recorded, remediation created, and final native Beads status. Do not create a
 mandatory reconciliation document or post-completion bookkeeping commit.

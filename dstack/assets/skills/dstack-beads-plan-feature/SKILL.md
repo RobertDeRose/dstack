@@ -11,11 +11,30 @@ Beads. Do not create a parallel Markdown plan or infer the next phase from repos
 
 ## Start or resume
 
-1. Run `dstack ctl infra check`. If the project has not been initialized, run `dstack ctl infra install` and then repeat
-   the check.
-2. When the user supplied an existing feature root or descendant, resume that molecule. Do not pour a replacement.
-3. For new work, determine a stable kebab-case slug and the base branch (`dev` when present, otherwise `main`). Then
-   pour exactly one molecule:
+1. Verify the repository already has a native Beads workspace:
+
+```bash
+bd where --json
+```
+
+If it is not initialized, stop and tell the user to run:
+
+```bash
+bd init --quiet --non-interactive
+```
+
+Never initialize Beads in stealth mode. dStack does not initialize, diagnose, synchronize, or repair Beads.
+
+2. Install or verify only the dStack formula:
+
+```bash
+dstack ctl formula install
+dstack ctl formula check
+```
+
+3. When the user supplied an existing feature root or descendant, resume that molecule. Do not pour a replacement.
+4. For new work, determine a stable kebab-case slug and the base branch (`dev` when present, otherwise `main`). Pour
+   exactly one molecule:
 
 ```bash
 bd mol pour dstack-feature \
@@ -27,18 +46,20 @@ bd mol pour dstack-feature \
   --json
 ```
 
-4. Record searchable native identity on the returned root:
+5. Record searchable native identity on the returned root:
 
 ```bash
 bd update <root> \
   --add-label workflow:feature \
   --add-label feature:<slug> \
-  --set-metadata dstack.feature_slug=<slug> \
   --set-metadata dstack.base_branch=<base> \
   --json
 ```
 
-5. Claim the native plan step:
+The `feature:<slug>` label is the sole slug authority. If the update fails after pouring, retain the returned root ID and
+retry this exact update; do not pour another molecule.
+
+6. Claim the native plan step:
 
 ```bash
 bd ready --parent <root> --label dstack:step:plan --claim --json
@@ -50,7 +71,7 @@ visible.
 ## Investigate before asking
 
 Read only the current code, tests, governing documentation, and prior decision Beads needed to understand the requested
-outcome. Search decision Beads by the relevant component or concern labels before scanning historical Markdown.
+outcome. Search decision Beads by relevant component or concern labels before scanning historical Markdown.
 
 Perform an explicit ambiguity pass. Classify each uncertainty as:
 
@@ -58,14 +79,14 @@ Perform an explicit ambiguity pass. Classify each uncertainty as:
 - a safe implementation detail;
 - a material product, architecture, compatibility, operational, or security question.
 
-Ask material questions one at a time before finalizing the plan. Do not silently choose a product policy. Record every
+Ask material questions one at a time before finalizing the plan. Do not silently choose product policy. Record every
 asked question and answer in the plan as paired `Question:` and `Answer:` lines. When repository evidence establishes
 that no user decision is required, record `No material questions: <specific evidence-based reason>` instead.
 
 ## Store the plan
 
 Write the final plan to a temporary file outside the repository and update the plan Bead's native `design` field. The
-plan must contain these exact sections:
+plan must contain these sections:
 
 ```markdown
 ## Goal
@@ -115,5 +136,4 @@ When validation passes:
 bd close <plan-bead> --reason 'Feature plan completed'
 ```
 
-Return the molecule root, the material questions and answers, the final decisions, and `/review-plan <root>` as the next
-action.
+Return the molecule root, material questions and answers, final decisions, and `/review-plan <root>` as the next action.

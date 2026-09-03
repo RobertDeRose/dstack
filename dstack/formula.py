@@ -1,4 +1,4 @@
-"""Installation and validation of the project-local Beads formula."""
+"""Install and validate the project-local dStack Beads formula."""
 
 from __future__ import annotations
 
@@ -51,14 +51,17 @@ def _step_map(formula: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
 
 
 def validate_formula_contract(formula: Mapping[str, Any]) -> None:
+    """Validate the dStack-specific invariants Beads cannot infer from the name."""
+
     if formula.get("formula") != FORMULA_NAME:
         raise DstackError(f"formula must be named {FORMULA_NAME}")
     if formula.get("version") != 2:
         raise DstackError("dstack-feature formula version must be 2")
     if formula.get("type") != "workflow" or formula.get("phase") != "liquid" or formula.get("pour") is not True:
         raise DstackError("dstack-feature must be a persistent poured workflow")
+
     steps = _step_map(formula)
-    if tuple(steps) != EXPECTED_STEPS:
+    if set(steps) != set(EXPECTED_STEPS):
         raise DstackError(f"dstack-feature steps must be exactly: {', '.join(EXPECTED_STEPS)}")
     if list(steps["review"].get("needs") or []) != ["plan"]:
         raise DstackError("review must depend on plan")
@@ -80,7 +83,7 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
 
 
 def beads_workspace_optional(root: Path) -> Path | None:
-    """Resolve the authoritative workspace through native `bd where`."""
+    """Resolve the authoritative workspace through native ``bd where``."""
 
     repository = git_root(root)
     result = run(["bd", "where", "--json"], cwd=repository, check=False)
@@ -102,7 +105,9 @@ def beads_workspace_optional(root: Path) -> Path | None:
 def beads_workspace(root: Path) -> Path:
     workspace = beads_workspace_optional(root)
     if workspace is None:
-        raise DstackError("Beads is not initialized for this repository; run `dstack ctl infra install`")
+        raise DstackError(
+            "Beads is not initialized for this repository; run `bd init --quiet --non-interactive` directly"
+        )
     return workspace
 
 
@@ -117,35 +122,14 @@ def display_formula_path(destination: Path, repository: Path) -> str:
         return str(destination)
 
 
-def ensure_beads_initialized(root: Path, *, initialize: bool) -> tuple[Path, bool]:
-    repository = git_root(root)
-    initialized = False
-    if beads_workspace_optional(repository) is None:
-        if not initialize:
-            raise DstackError("Beads is not initialized for this repository")
-        run(
-            [
-                "bd",
-                "init",
-                "--quiet",
-                "--stealth",
-                "--skip-agents",
-                "--skip-hooks",
-                "--non-interactive",
-            ],
-            cwd=repository,
-        )
-        initialized = True
-    beads_workspace(repository)
-    return repository, initialized
-
-
 def _atomic_write(path: Path, content: bytes) -> None:
     _assert_no_symlink_components(path, purpose="Beads formula destination")
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(raw)
     try:
+        os.chmod(temporary, mode)
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(content)
             handle.flush()
@@ -157,27 +141,38 @@ def _atomic_write(path: Path, content: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def install_infrastructure(root: Path, *, update_formula: bool = False) -> dict[str, Any]:
-    repository, initialized = ensure_beads_initialized(root, initialize=True)
+def _verify_native_formula(repository: Path) -> None:
+    parsed = run(["bd", "formula", "show", FORMULA_NAME, "--json"], cwd=repository, check=False)
+    if parsed.returncode != 0:
+        raise DstackError(parsed.stderr.strip() or parsed.stdout.strip() or "Beads rejected the installed formula")
+
+
+def install_formula(root: Path, *, update: bool = False) -> dict[str, Any]:
+    """Install only dStack's versioned formula into an existing Beads workspace."""
+
+    repository = git_root(root)
+    beads_workspace(repository)
     client = BeadsClient(repository)
     beads_version = client.check_version()
     load_formula()
 
     source = formula_path().read_bytes()
     destination = formula_destination(repository)
+    _assert_no_symlink_components(destination, purpose="Beads formula destination")
     current = destination.read_bytes() if destination.is_file() else None
-    if current is not None and current != source and not update_formula:
+    if current is not None and current != source and not update:
         raise DstackError(
-            f"project formula differs from the installed dStack contract: {destination}; "
-            "rerun with --update-formula after reviewing the change"
+            f"project formula differs from the packaged dStack contract: {destination}; "
+            "rerun with `dstack ctl formula install --update` after reviewing the change"
         )
+
     changed = current != source
     if changed:
         _atomic_write(destination, source)
 
-    parsed = run(["bd", "formula", "show", FORMULA_NAME, "--json"], cwd=repository, check=False)
-    if parsed.returncode != 0:
-        failure = parsed.stderr.strip() or parsed.stdout.strip() or "Beads rejected the installed formula"
+    try:
+        _verify_native_formula(repository)
+    except DstackError as failure:
         if changed:
             try:
                 if current is None:
@@ -186,43 +181,37 @@ def install_infrastructure(root: Path, *, update_formula: bool = False) -> dict[
                     _atomic_write(destination, current)
             except (OSError, DstackError) as exc:
                 raise DstackError(f"{failure}; restoring the previous formula failed: {exc}") from exc
-        raise DstackError(failure)
+        raise
 
     return {
         "status": "ok",
         "root": str(repository),
         "beads_version": beads_version,
-        "initialized": initialized,
         "formula": display_formula_path(destination, repository),
         "formula_changed": changed,
     }
 
 
-def check_infrastructure(root: Path) -> dict[str, Any]:
-    repository, _ = ensure_beads_initialized(root, initialize=False)
+def check_formula(root: Path) -> dict[str, Any]:
+    """Verify dStack's formula without wrapping Beads workspace diagnostics."""
+
+    repository = git_root(root)
+    beads_workspace(repository)
     client = BeadsClient(repository)
     beads_version = client.check_version()
     load_formula()
 
     destination = formula_destination(repository)
-    if destination.is_symlink() or not destination.is_file():
+    _assert_no_symlink_components(destination, purpose="Beads formula destination")
+    if not destination.is_file():
         raise DstackError(f"project formula is not installed: {destination}")
     if destination.read_bytes() != formula_path().read_bytes():
-        raise DstackError(f"project formula differs from the installed dStack contract: {destination}")
+        raise DstackError(f"project formula differs from the packaged dStack contract: {destination}")
 
-    parsed = run(["bd", "formula", "show", FORMULA_NAME, "--json"], cwd=repository, check=False)
-    if parsed.returncode != 0:
-        raise DstackError(parsed.stderr.strip() or parsed.stdout.strip() or "Beads rejected the installed formula")
-
-    doctor = run(["bd", "doctor", "--json"], cwd=repository, check=False)
+    _verify_native_formula(repository)
     return {
         "status": "ok",
         "root": str(repository),
         "beads_version": beads_version,
         "formula": display_formula_path(destination, repository),
-        "doctor": {
-            "status": "ok" if doctor.returncode == 0 else "issues",
-            "returncode": doctor.returncode,
-            "details": (doctor.stderr.strip() or doctor.stdout.strip())[-4000:],
-        },
     }

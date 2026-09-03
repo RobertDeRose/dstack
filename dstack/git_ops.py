@@ -13,9 +13,9 @@ from .core import (
     commits_for_bead,
     current_head,
     feature_identity,
+    feature_steps,
     git_root,
-    has_label,
-    issue_parent,
+    implementation_task_graph_errors,
     read_text_file,
     run,
     serialized_repository_mutation,
@@ -74,14 +74,12 @@ def _commit(root: Path, message: str, *, amend: bool) -> str:
 
 def _validate_feature_branch(client: BeadsClient, task: dict[str, object]) -> tuple[str, str]:
     bead_id = str(task.get("id") or "")
-    parent_id = issue_parent(task)
-    if parent_id is None:
-        raise DstackError(f"implementation Bead {bead_id} has no native parent")
-    parent = client.show(parent_id)
-    if not has_label(parent, "dstack:step:implementation"):
-        raise DstackError(f"implementation Bead {bead_id} is not a child of the implementation epic")
-
     root, slug, base = feature_identity(client, bead_id)
+    steps = feature_steps(client, str(root["id"]))
+    graph_errors = implementation_task_graph_errors(client, task, root, steps)
+    if graph_errors:
+        raise DstackError("implementation Bead violates native graph policy: " + "; ".join(graph_errors))
+
     branch = f"feat/{slug}"
     active = run(["git", "branch", "--show-current"], cwd=client.root).stdout.strip()
     if active != branch:

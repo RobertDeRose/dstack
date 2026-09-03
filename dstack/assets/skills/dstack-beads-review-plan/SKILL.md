@@ -21,7 +21,7 @@ bd ready --parent <root> --label dstack:step:review --claim --json
 3. Read the completed plan, relevant current source, tests, architecture, operations, development and reference
    documentation, and relevant decision Beads.
 4. Review from three independent perspectives when subagents are available: implementation accuracy, current
-   documentation/architecture, and plan risk. Persist only the synthesized findings in Beads.
+   documentation/architecture, and plan risk. Persist only synthesized findings in Beads.
 
 ## Reconcile the plan
 
@@ -35,9 +35,9 @@ Correct clear local defects directly in the plan Bead and rerun:
 dstack ctl plan check <plan-bead>
 ```
 
-When code, documentation, and proposed intent disagree and the authoritative behavior is not clear, ask the user before
-changing the plan or task graph. Record the answer and rationale. Create a native decision Bead for material durable
-choices, label it `decision` and `feature:<slug>`, and relate it to the feature.
+When code, documentation, and proposed intent disagree and the authoritative behavior is unclear, ask the user before
+changing the plan or task graph. Record the answer and rationale. Create a native `decision` Bead for material durable
+choices, label it `feature:<slug>`, and relate it to the feature.
 
 ## Create implementation tasks
 
@@ -60,31 +60,41 @@ Create only bounded implementation outcomes under the formula's implementation e
 Use `not affected` instead of `required` only with a specific reason. Code, tests, configuration, and the current
 documentation describing the behavior belong to the same task.
 
-For every task:
+Create each task and its approval blocker in one native Beads operation:
 
 ```bash
 bd create '<task title>' \
   --type task \
   --parent <implementation-epic> \
+  --no-inherit-labels \
   --labels dstack:work:implementation \
   --labels dstack:commit:<type> \
   --labels dstack:scope:<scope> \
+  --deps blocked-by:<approval-step> \
   --description-file <temporary-description> \
   --acceptance '<observable criteria>' \
   --json
-bd dep add <task> <approval-step> --type blocks
-bd dep add <audit-step> <task> --type blocks
 ```
 
-Add task-to-task `blocks` dependencies only when execution order is real. The explicit audit blockers keep Beads
-authoritative even on versions where dynamic `children-of(...)` fan-in is incomplete. Reuse matching existing tasks when
-resuming; do not duplicate them after interruption.
+Omit the scope label when no scope is useful. Add task-to-task `blocked-by` dependencies in the same create operation
+when execution order is real. Do not add direct task-to-audit blockers: the formula's native
+`children-of(implementation)` waits-for edge is the sole audit fan-in.
+
+After creating tasks, verify observable native behavior before closing review:
+
+```bash
+bd ready --parent <implementation-epic> --label dstack:work:implementation --json
+bd dep cycles
+```
+
+No implementation task may be ready while approval is open. If interrupted, list the existing implementation children
+and continue from their concrete IDs; do not recreate an already represented outcome.
 
 Do not add a blocking dependency between the approval task and the implementation epic. Beads 1.2.2 rejects task/epic
-`blocks` edges; approval belongs on each task-shaped implementation child as shown above.
+`blocks` edges; approval belongs on each task-shaped implementation child.
 
-Close the review step after the plan and task graph are internally consistent. Then present the reviewed plan, task
-graph, risks, and decisions to the user. Invocation is not approval.
+Close the review step only after the plan and native graph are internally consistent. Then present the reviewed plan,
+task graph, risks, and decisions to the user. Invocation is not approval.
 
 ## Human approval
 
@@ -98,4 +108,4 @@ Only after explicit user approval:
 Do not store a second pending/approved digest protocol. The native gate and approval-step history are the authorization
 record.
 
-Return the implementation task IDs and `/implement <root>` as the next action.
+Return implementation task IDs and `/implement <root>` as the next action.

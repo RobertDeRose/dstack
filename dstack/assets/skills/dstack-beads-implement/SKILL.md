@@ -53,10 +53,10 @@ dstack ctl git commit --bead <task-id> [--body-file <temporary-body>]
 Do not hand-write a Conventional Commit subject. If subject generation fails, correct the task title or its
 `dstack:commit:*` / `dstack:scope:*` labels.
 
-Validate before closure:
+Validation is mandatory and uses the repository's hk contract:
 
 ```bash
-dstack ctl task check <task-id> --run-validation
+dstack ctl task check <task-id>
 ```
 
 Fix every reported error. When the task intentionally requires no repository change, add a durable Beads note containing

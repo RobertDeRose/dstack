@@ -21,7 +21,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-MINIMUM_BEADS_VERSION = (1, 2, 2)
+SUPPORTED_BEADS_VERSION = (1, 2, 2)
 BEADS_VERSION_PATTERN = re.compile(r"\bbd version (\d+)\.(\d+)\.(\d+)\b")
 
 
@@ -330,6 +330,26 @@ def dependency_records(issue: Mapping[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def dependency_type(record: Mapping[str, Any]) -> str:
+    return str(record.get("dependency_type") or record.get("type") or "")
+
+
+def dependency_target(record: Mapping[str, Any]) -> str | None:
+    value = record.get("depends_on_id") or record.get("target_id") or record.get("id")
+    return str(value) if isinstance(value, str) and value else None
+
+
+def dependency_targets(issue: Mapping[str, Any], relation: str) -> list[str]:
+    targets: list[str] = []
+    for record in dependency_records(issue):
+        if dependency_type(record) != relation:
+            continue
+        target = dependency_target(record)
+        if target is not None:
+            targets.append(target)
+    return targets
+
+
 def issue_parent(issue: Mapping[str, Any]) -> str | None:
     direct = issue.get("parent") or issue.get("parent_id")
     if isinstance(direct, str) and direct:
@@ -373,9 +393,9 @@ class BeadsClient:
     def check_version(self) -> str:
         raw = self.version()
         observed = parse_beads_version(raw)
-        if observed < MINIMUM_BEADS_VERSION or observed[0] >= 2:
-            minimum = ".".join(str(part) for part in MINIMUM_BEADS_VERSION)
-            raise DstackError(f"dStack requires Beads >= {minimum} and < 2.0; found {raw}")
+        if observed != SUPPORTED_BEADS_VERSION:
+            supported = ".".join(str(part) for part in SUPPORTED_BEADS_VERSION)
+            raise DstackError(f"dStack requires Beads {supported}; found {raw}")
         return raw
 
     def show_optional(self, issue_id: str) -> dict[str, Any] | None:
@@ -472,20 +492,113 @@ def feature_steps(client: BeadsClient, root_id: str) -> dict[str, dict[str, Any]
 
 def feature_identity(client: BeadsClient, selector: str) -> tuple[dict[str, Any], str, str]:
     root = find_feature_root(client, selector)
-    slug = metadata_value(root, "dstack.feature_slug")
-    base = metadata_value(root, "dstack.base_branch")
     labels = issue_labels(root)
-    if not slug:
-        slugs = [label.removeprefix("feature:") for label in labels if label.startswith("feature:")]
-        if len(slugs) == 1:
-            slug = slugs[0]
-    if not slug or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+    slugs = sorted({label.removeprefix("feature:") for label in labels if label.startswith("feature:")})
+    if len(slugs) != 1 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slugs[0]):
+        raise DstackError(f"feature root {root['id']} must have exactly one valid feature:<slug> label")
+    slug = slugs[0]
+
+    legacy_slug = metadata_value(root, "dstack.feature_slug")
+    if legacy_slug is not None and legacy_slug != slug:
         raise DstackError(
-            f"feature root {root['id']} lacks canonical dstack.feature_slug metadata or one feature:<slug> label"
+            f"feature root {root['id']} has conflicting feature identity: label={slug}, "
+            f"dstack.feature_slug={legacy_slug}"
         )
+
+    base = metadata_value(root, "dstack.base_branch")
     if not base:
         raise DstackError(f"feature root {root['id']} lacks dstack.base_branch metadata")
     return root, slug, base
+
+
+def implementation_task_graph_errors(
+    client: BeadsClient,
+    task: Mapping[str, Any],
+    root: Mapping[str, Any],
+    steps: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    """Validate native graph membership without calculating task readiness."""
+
+    errors: list[str] = []
+    task_id = str(task.get("id") or "")
+    root_id = str(root.get("id") or "")
+    implementation_id = str(steps["implementation"].get("id") or "")
+    approval_id = str(steps["approval"].get("id") or "")
+
+    parent_id = issue_parent(task)
+    if parent_id != implementation_id:
+        observed_parent = parent_id or "<none>"
+        errors.append(
+            f"implementation Bead must be a direct child of {implementation_id}; "
+            f"observed parent {observed_parent}"
+        )
+    implementation = client.show(implementation_id)
+    if issue_type(implementation) != "epic":
+        errors.append("feature implementation step is not an epic")
+    if has_label(task, "dstack:step:implementation"):
+        errors.append("implementation task inherited the structural dstack:step:implementation label")
+
+    unsupported_readiness_edges = sorted(
+        {
+            dependency_type(record)
+            for record in dependency_records(task)
+            if dependency_type(record) in {"conditional-blocks", "waits-for"}
+        }
+    )
+    if unsupported_readiness_edges:
+        errors.append(
+            "implementation Bead uses unsupported readiness dependencies: "
+            + ", ".join(unsupported_readiness_edges)
+        )
+
+    blockers = dependency_targets(task, "blocks")
+    if approval_id not in blockers:
+        errors.append(f"implementation Bead is not blocked by approval step {approval_id}")
+
+    for blocker_id in blockers:
+        if blocker_id == approval_id:
+            continue
+        blocker = client.show_optional(blocker_id)
+        if blocker is None:
+            errors.append(f"implementation Bead depends on missing blocker {blocker_id}")
+            continue
+        try:
+            blocker_root = find_feature_root(client, blocker_id)
+        except DstackError:
+            errors.append(f"implementation Bead has cross-feature blocker {blocker_id}")
+            continue
+        if str(blocker_root.get("id") or "") != root_id:
+            errors.append(f"implementation Bead has cross-feature blocker {blocker_id}")
+
+    if not task_id:
+        errors.append("implementation Bead has no ID")
+    return errors
+
+
+def audit_fan_in_errors(
+    client: BeadsClient,
+    steps: Mapping[str, Mapping[str, Any]],
+    implementation_tasks: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    """Verify that native ``waits-for`` is the sole implementation fan-in."""
+
+    errors: list[str] = []
+    implementation_id = str(steps["implementation"].get("id") or "")
+    audit_id = str(steps["audit"].get("id") or "")
+    audit = client.show(audit_id)
+    waits_for = dependency_targets(audit, "waits-for")
+    if waits_for != [implementation_id]:
+        errors.append(
+            f"audit must have exactly one waits-for dependency on {implementation_id}; observed {waits_for or '<none>'}"
+        )
+
+    task_ids = {str(task.get("id") or "") for task in implementation_tasks}
+    redundant: set[str] = set()
+    for relation in ("blocks", "conditional-blocks"):
+        redundant.update(task_ids.intersection(dependency_targets(audit, relation)))
+    if redundant:
+        errors.append("audit has redundant direct task readiness edges: " + ", ".join(sorted(redundant)))
+    return errors
 
 
 def validate_git_branch(root: Path, branch: str, *, name: str = "branch") -> str:
@@ -548,37 +661,11 @@ def current_head(root: Path, ref: str = "HEAD") -> str:
     return run(["git", "rev-parse", "--verify", "--end-of-options", ref], cwd=repository).stdout.strip()
 
 
-def git_worktree_records(root: Path) -> list[dict[str, str | bool]]:
-    repository = git_root(root)
-    output = run(["git", "worktree", "list", "--porcelain"], cwd=repository).stdout
-    result: list[dict[str, str | bool]] = []
-    current: dict[str, str | bool] = {}
-    for line in [*output.splitlines(), ""]:
-        if not line:
-            if current:
-                result.append(current)
-                current = {}
-            continue
-        key, _, value = line.partition(" ")
-        current[key] = True if key in {"bare", "detached", "prunable", "locked"} else value
-    return result
-
-
 def worktree_for_branch(client: BeadsClient, branch: str) -> Path | None:
     matches = [Path(str(item["path"])) for item in client.worktrees() if item.get("branch") == branch]
     if len(matches) > 1:
         raise DstackError(f"multiple worktrees are registered for {branch}")
-    if matches:
-        return matches[0]
-    expected = f"refs/heads/{branch}"
-    raw = [
-        Path(str(item["worktree"]))
-        for item in git_worktree_records(client.root)
-        if item.get("branch") == expected and isinstance(item.get("worktree"), str)
-    ]
-    if len(raw) > 1:
-        raise DstackError(f"multiple Git worktrees are registered for {branch}")
-    return raw[0] if raw else None
+    return matches[0] if matches else None
 
 
 def conventional_worktree(root: Path, branch: str) -> Path:
@@ -689,4 +776,11 @@ def truncate_output(value: str, *, limit: int = 4000) -> str:
     text = value.strip()
     if len(text) <= limit:
         return text
-    return text[-limit:]
+    marker = "\n... output truncated ...\n"
+    if limit <= len(marker):
+        return marker[:limit]
+    remaining = limit - len(marker)
+    head = remaining // 2
+    tail = remaining - head
+    suffix = text[-tail:] if tail else ""
+    return text[:head] + marker + suffix
