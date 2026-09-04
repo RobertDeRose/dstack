@@ -2,6 +2,7 @@
 
 - [dStack](index.md)
 - [Getting started](getting-started/index.md)
+- [Lean workflow refinement](features/lean-workflow-refinement/index.md)
 - [Architecture](architecture/index.md)
 - [Operations](operations/index.md)
   - [Project audit](operations/project-audit.md)
