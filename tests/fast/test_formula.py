@@ -22,6 +22,7 @@ def test_packaged_formula_has_one_native_five_step_graph() -> None:
     assert steps["audit"]["title"].startswith("Close ")
     assert steps["audit"]["labels"] == ["dstack:step:audit"]
     assert steps["audit"]["waits_for"] == "children-of(implementation)"
+    assert "gate" not in steps["audit"]
 
 
 def test_formula_contract_rejects_controller_owned_phase() -> None:

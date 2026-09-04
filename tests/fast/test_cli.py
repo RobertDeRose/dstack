@@ -38,15 +38,20 @@ def test_parser_exposes_ergonomic_commands() -> None:
     assert export.command == "export-design"
     assert export.bead == "ds-root"
 
+    docs_commit = parser.parse_args(["docs", "commit", "--bead", "ds-root"])
+    assert docs_commit.command == "commit"
+    assert docs_commit.bead == "ds-root"
+
     commit = parser.parse_args(["commit", "--bead", "ds-task"])
     assert commit.bead == "ds-task"
 
     worktree = parser.parse_args(["worktree", "--bead", "ds-feature"])
     assert worktree.bead == "ds-feature"
 
-    audit = parser.parse_args(["audit", "ds-feature", "--include-plan"])
-    assert audit.feature == "ds-feature"
+    audit = parser.parse_args(["audit", "--bead", "ds-feature", "--include-plan", "--require-docs"])
+    assert audit.bead == "ds-feature"
     assert audit.include_plan is True
+    assert audit.require_docs is True
 
 
 def test_legacy_command_names_are_removed() -> None:
@@ -79,14 +84,16 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "cmd_plan_check", record("plan", 13))
     monkeypatch.setattr(cli, "cmd_review_check", record("review", 18))
     monkeypatch.setattr(cli, "cmd_docs_export", record("docs-export", 19))
+    monkeypatch.setattr(cli, "cmd_git_commit_docs", record("docs-commit", 20))
     monkeypatch.setattr(cli, "cmd_git_commit", record("commit", 14))
     monkeypatch.setattr(cli, "cmd_worktree_ensure", record("worktree", 15))
 
     assert cli.main(["install", "skills", "--agent-dir", "/tmp/agent"]) == 11
     assert cli.main(["check", "formula", "--root", "/tmp/project"]) == 17
     assert cli.main(["check", "plan", "--bead", "ds-plan"]) == 13
-    assert cli.main(["check", "review", "--feature", "ds-root"]) == 18
-    assert cli.main(["docs", "export-design", "--feature", "ds-root"]) == 19
+    assert cli.main(["check", "review", "--bead", "ds-root"]) == 18
+    assert cli.main(["docs", "export-design", "--bead", "ds-root"]) == 19
+    assert cli.main(["docs", "commit", "--bead", "ds-root"]) == 20
     assert cli.main(["commit", "--bead", "ds-task"]) == 14
     assert cli.main(["worktree", "--bead", "ds-feature"]) == 15
     assert [name for name, _ in calls] == [
@@ -95,6 +102,7 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         "plan",
         "review",
         "docs-export",
+        "docs-commit",
         "commit",
         "worktree",
     ]

@@ -19,7 +19,7 @@ from .commands import (
 )
 from .core import DstackError
 from .docs import cmd_docs_export, cmd_docs_validate
-from .git_ops import cmd_git_commit
+from .git_ops import cmd_git_commit, cmd_git_commit_docs
 from .installer import cmd_install_skills, default_agent_dir
 from .output import fail
 
@@ -91,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     task = _leaf(
         check_commands,
         "task",
-        "Check native graph membership, documentation impact, Git evidence, validation, and cleanliness.",
+        "Check native graph membership, Git evidence, and worktree cleanliness.",
     )
     _root(task)
     _bead(task, "Implementation Bead ID.")
@@ -107,6 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
     _root(export_design)
     export_design.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
     export_design.set_defaults(func=cmd_docs_export)
+    docs_commit = _leaf(docs_commands, "commit", "Commit the validated feature documentation for close.")
+    _root(docs_commit)
+    docs_commit.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
+    docs_commit.set_defaults(func=cmd_git_commit_docs)
 
     commit = _leaf(commands, "commit", "Create or correct the canonical commit for an implementation task.")
     _root(commit)
@@ -147,6 +151,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-commit-paths",
         action="store_true",
         help="Include per-commit and aggregate changed paths.",
+    )
+    audit.add_argument(
+        "--require-docs",
+        action="store_true",
+        help="Treat missing or invalid feature documentation as a failed close check.",
     )
     audit.set_defaults(func=cmd_audit_evidence)
 

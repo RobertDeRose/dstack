@@ -140,7 +140,7 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
     )
 
     gates = run_json(real_repo, "list", "--parent", root, "--all", "--include-gates", "--limit", "0")
-    gate = next(issue for issue in gates if issue.get("issue_type") == "gate")
+    gate = next(issue for issue in gates if issue.get("await_id") == "approve-native-workflow-plan")
     # Beads 1.2.2 accepts the global --json flag for gate resolution but still
     # emits human-readable output. Treat it as a state-changing command; the
     # following native ready claim verifies that the gate actually closed.
@@ -193,3 +193,47 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         "dstack:step:audit",
     )
     assert audit_ready[0]["id"] == steps["audit"]["id"]
+
+    # Close reviews before claiming the now-ready final step. A correction
+    # discovered during that review becomes a native implementation child and
+    # the existing waits-for fan-in blocks the still-open final step again.
+    late_task = run_json(
+        real_repo,
+        "create",
+        "Correct a close review finding",
+        "--type",
+        "task",
+        "--parent",
+        steps["implementation"]["id"],
+        "--no-inherit-labels",
+        "--labels",
+        "dstack:work:implementation",
+        "--deps",
+        f"blocked-by:{steps['approval']['id']}",
+        "--description",
+        "Correct one finding returned by close review.",
+        "--acceptance",
+        "The reviewed defect no longer occurs.",
+    )
+    assert late_task["status"] == "open"
+    assert (
+        run_json(
+            real_repo,
+            "ready",
+            "--parent",
+            root,
+            "--label",
+            "dstack:step:audit",
+        )
+        == []
+    )
+    run_json(real_repo, "close", late_task["id"], "--reason", "Correction completed")
+    audit_ready_again = run_json(
+        real_repo,
+        "ready",
+        "--parent",
+        root,
+        "--label",
+        "dstack:step:audit",
+    )
+    assert audit_ready_again[0]["id"] == steps["audit"]["id"]

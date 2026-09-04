@@ -14,6 +14,7 @@ from dstack.git_ops import (
     _require_registered_feature_worktree,
     _verify_head_message,
     build_commit_message,
+    canonical_docs_message,
     reject_beads_paths,
     task_commit_body,
 )
@@ -42,6 +43,15 @@ def test_build_commit_message_adds_exactly_one_task_footer() -> None:
         build_commit_message("feat: x", "Task: wrong", "ds-123")
     with pytest.raises(DstackError):
         build_commit_message("feat: x", "Beads: wrong", "ds-123")
+
+
+def test_canonical_docs_message_uses_human_feature_title_without_a_body() -> None:
+    message = canonical_docs_message(
+        {"title": "Feature: Lean workflow and documentation lifecycle"},
+        "lean-workflow-refinement",
+        "ds-close",
+    )
+    assert message == ("docs(lean-workflow-refinement): Lean workflow and documentation lifecycle\n\nTask: ds-close\n")
 
 
 def test_task_commit_body_uses_ordered_implementation_notes() -> None:

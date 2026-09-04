@@ -246,10 +246,22 @@ Users receive one canonical task commit and one final documentation commit.
         )
         docs_commit = run_dstack(worktree, "docs", "commit", "--bead", root)
         assert docs_commit["bead"] == close_step["id"]
-        assert docs_commit["subject"] == "docs(repository-mechanics): document the feature"
+        assert docs_commit["mode"] == "created"
+        assert docs_commit["subject"] == "docs(repository-mechanics): Native workflow"
+        docs_message = run_command(["git", "log", "-1", "--format=%B"], cwd=worktree).stdout
+        assert docs_message.strip() == f"docs(repository-mechanics): Native workflow\n\nTask: {close_step['id']}"
+
+        run_json(real_repo, "update", root, "--title", "Refined native workflow")
+        corrected_docs = run_dstack(worktree, "docs", "commit", "--bead", root)
+        assert corrected_docs["mode"] == "corrected"
+        assert corrected_docs["commit"] != docs_commit["commit"]
+        assert corrected_docs["subject"] == "docs(repository-mechanics): Refined native workflow"
+        records = run_command(["git", "log", "--format=%B", "main..feat/repository-mechanics"], cwd=worktree).stdout
+        assert records.count(f"Task: {close_step['id']}") == 1
+
         audit = run_dstack(worktree, "audit", root, "--require-docs")
         assert audit["validation"]["project"]["status"] == "external"
         assert audit["validation"]["feature_docs"]["status"] == "ok"
-        assert audit["git"]["close_commit"]["commit"] == docs_commit["commit"]
+        assert audit["git"]["close_commit"]["commit"] == corrected_docs["commit"]
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=real_repo, check=False)

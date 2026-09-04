@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .commands import VALIDATION_COMMAND, client_for, implementation_tasks, run_project_validation
+from .commands import client_for, implementation_tasks
 from .core import (
     DstackError,
     ancestry,
@@ -14,10 +14,12 @@ from .core import (
     branch_exists,
     changed_paths,
     commit_records,
+    dependency_targets,
     diff_stat,
     feature_identity,
     feature_steps,
     implementation_task_graph_errors,
+    issue_labels,
     issue_type,
     reject_beads_paths,
     run,
@@ -26,7 +28,8 @@ from .core import (
     verify_worktree_identity,
     worktree_for_branch,
 )
-from .git_ops import canonical_task_message, commit_record_matches_message
+from .docs import validate_docs
+from .git_ops import canonical_docs_message, canonical_task_message, commit_record_matches_message
 from .output import emit
 from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
 
@@ -148,6 +151,7 @@ def collect_audit_evidence(
     include_decision_ids: Sequence[str] = (),
     history_ids: Sequence[str] = (),
     include_commit_paths: bool = False,
+    require_docs: bool = False,
 ) -> dict[str, Any]:
     client = client_for(root_path)
     root, slug, base = feature_identity(client, selector)
@@ -159,21 +163,21 @@ def collect_audit_evidence(
         str(steps["implementation"]["id"]),
         limit=collection_limit,
     )
-    decisions = client.list(
-        all_statuses=True,
-        labels=[f"feature:{slug}"],
-        issue_type_filter="decision",
-        limit=collection_limit,
-    )
-    gates = [
+    decisions = [
         issue
         for issue in client.list(
             all_statuses=True,
-            parent=str(root["id"]),
-            include_gates=True,
+            labels=[f"decision:{slug}"],
+            issue_type_filter="decision",
             limit=collection_limit,
         )
-        if issue_type(issue) == "gate"
+        if f"decision:{slug}" in issue_labels(issue) and str(root["id"]) in dependency_targets(issue, "relates-to")
+    ]
+    audit_step = steps["audit"]
+    gates = [
+        issue
+        for issue_id in dependency_targets(audit_step, "blocks")
+        if (issue := client.show_optional(issue_id)) is not None and issue_type(issue) == "gate"
     ]
     for name, items in (("implementation tasks", implementation), ("decisions", decisions), ("gates", gates)):
         if len(items) > MAX_AUDIT_ITEMS:
@@ -211,6 +215,8 @@ def collect_audit_evidence(
         )
         if task_errors:
             errors.append(f"implementation task {task['id']} violates dStack policy or graph invariants")
+        if str(task.get("status") or "") != "closed":
+            errors.append(f"implementation task {task['id']} is not closed")
 
     fan_in_errors = audit_fan_in_errors(client, steps, implementation)
     errors.extend(fan_in_errors)
@@ -272,6 +278,8 @@ def collect_audit_evidence(
             errors.append(str(exc))
 
     task_ids = {str(task["id"]) for task in implementation}
+    close_id = str(audit_step["id"])
+    accepted_ids = {*task_ids, close_id}
     mapping = _footer_mapping(records)
     for row, task in zip(task_rows, implementation, strict=True):
         task_id = str(task["id"])
@@ -292,16 +300,25 @@ def collect_audit_evidence(
                 if not commit_record_matches_message(commits[0], expected_message):
                     errors.append(f"implementation task {task_id} commit message is not canonical")
 
+    close_commits = mapping.get(close_id, [])
+    git["close_commit"] = close_commits[0] if len(close_commits) == 1 else None
+    if len(close_commits) > 1:
+        errors.append(f"close step {close_id} may own at most one documentation commit")
+    elif close_commits and not commit_record_matches_message(
+        close_commits[0], canonical_docs_message(root, slug, close_id)
+    ):
+        errors.append("close documentation commit message is not canonical")
+
     invalid_footer_commits = sorted(
         str(record["commit"])
         for record in records
         if record.get("legacy_footer_ids")
         or len(tuple(record.get("footer_ids", ()))) != 1
-        or any(str(bead_id) not in task_ids for bead_id in record.get("footer_ids", ()))
+        or any(str(owner_id) not in accepted_ids for owner_id in record.get("footer_ids", ()))
     )
     git["invalid_footer_commits"] = bounded(invalid_footer_commits)
     if invalid_footer_commits:
-        errors.append("feature commits contain missing, multiple, or non-task Beads footers")
+        errors.append("feature commits contain missing, multiple, or unaccepted ownership footers")
 
     try:
         worktree_path = worktree_for_branch(client, branch)
@@ -309,11 +326,15 @@ def collect_audit_evidence(
         worktree_path = None
         errors.append(str(exc))
 
-    documentation_paths = sorted(path for path in paths if path.startswith("docs/") or path.casefold().endswith(".md"))
+    project_validation = {
+        "status": "external",
+        "owner": "target repository",
+        "note": "run the repository's documented validation contract before close",
+    }
+    feature_docs: dict[str, Any] = {"status": "not_checked"}
     if worktree_path is None:
         git["worktree"] = {"status": "missing", "path": None}
-        validation = {"status": "blocked", "command": list(VALIDATION_COMMAND)}
-        documentation = {"status": "blocked", "changed_paths": bounded(documentation_paths)}
+        feature_docs = {"status": "blocked"}
         errors.append(f"feature worktree is not registered for {branch}")
     else:
         worktree = verify_worktree_identity(client.root, worktree_path, branch)
@@ -326,20 +347,12 @@ def collect_audit_evidence(
         }
         if worktree_status != "clean":
             errors.append("feature worktree contains uncommitted changes")
-
-        validation = run_project_validation(worktree)
-        if validation["status"] != "ok":
-            errors.append("project validation failed")
-        documentation = {
-            "status": validation["status"],
-            "changed_paths": bounded(documentation_paths),
-        }
-
-        post_status = run(["git", "status", "--short", "--untracked-files=all"], cwd=worktree, check=False)
-        post_clean = post_status.returncode == 0 and not post_status.stdout.strip()
-        git["worktree"]["post_validation_status"] = "clean" if post_clean else "dirty"
-        if not post_clean:
-            errors.append("validation left uncommitted changes in the feature worktree")
+        try:
+            feature_docs = {"status": "ok", **validate_docs(worktree, feature=slug)}
+        except DstackError as exc:
+            feature_docs = {"status": "invalid", "errors": [str(exc)]}
+            if require_docs:
+                errors.append("feature documentation validation failed")
 
     allowed_history = {str(item["id"]): item for item in [root, *steps.values(), *implementation, *decisions, *gates]}
     details = _selected_details(
@@ -372,8 +385,10 @@ def collect_audit_evidence(
         "decisions": bounded([issue_summary(issue) for issue in decisions]),
         "gates": bounded([issue_summary(issue) for issue in gates]),
         "git": git,
-        "validation": validation,
-        "documentation": documentation,
+        "validation": {
+            "project": project_validation,
+            "feature_docs": feature_docs,
+        },
     }
     if details:
         payload["details"] = details
@@ -383,12 +398,13 @@ def collect_audit_evidence(
 def cmd_audit_evidence(args: argparse.Namespace) -> int:
     payload = collect_audit_evidence(
         args.root,
-        args.feature,
+        args.bead,
         include_plan=args.include_plan,
         include_task_ids=args.include_task,
         include_decision_ids=args.include_decision,
         history_ids=args.history_for,
         include_commit_paths=args.include_commit_paths,
+        require_docs=args.require_docs,
     )
     emit(payload)
     return 0 if payload["checks"]["status"] == "ok" else 4

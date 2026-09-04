@@ -50,9 +50,7 @@ class FakeClient:
 
     def list(self, **kwargs: Any) -> list[dict[str, Any]]:
         if kwargs.get("issue_type_filter") == "decision":
-            return [self.issues["decision"]]
-        if kwargs.get("include_gates"):
-            return [self.issues["gate"]]
+            return [self.issues["decision"], self.issues["unrelated-decision"]]
         return []
 
     def history(self, issue_id: str) -> list[dict[str, Any]]:
@@ -98,6 +96,15 @@ def fixture_data(tmp_path: Path) -> tuple[FakeClient, dict[str, Any], dict[str, 
             "status": "closed",
             "issue_type": "decision",
             "description": "Long rationale that should be hidden by default.",
+            "labels": ["decision:feature"],
+            "dependencies": [{"id": "root", "dependency_type": "relates-to"}],
+        },
+        "unrelated-decision": {
+            "id": "unrelated-decision",
+            "title": "Unrelated",
+            "status": "closed",
+            "issue_type": "decision",
+            "labels": ["decision:feature"],
         },
         "gate": {"id": "gate", "title": "Approval gate", "status": "closed", "issue_type": "gate"},
     }
@@ -106,8 +113,10 @@ def fixture_data(tmp_path: Path) -> tuple[FakeClient, dict[str, Any], dict[str, 
         "dependencies": [
             {"id": "approval", "dependency_type": "blocks"},
             {"id": "implementation", "dependency_type": "waits-for"},
+            {"id": "gate", "dependency_type": "blocks"},
         ],
     }
+    steps["audit"] = issues["audit"]
     return FakeClient(tmp_path, issues), root_issue, steps
 
 
@@ -134,18 +143,35 @@ def test_audit_evidence_is_bounded_fact_collection(tmp_path: Path, monkeypatch: 
     assert result["checks"]["status"] == "invalid"
     assert result["git"]["branch_present"] is False
     assert result["plan_validation"]["status"] == "invalid"
+    assert result["validation"]["project"]["status"] == "external"
+    assert result["validation"]["feature_docs"]["status"] == "blocked"
     task = result["implementation_tasks"]["items"][0]
     assert task["validation"]["status"] == "ok"
     assert "description" not in task
     assert "details" not in result
     assert "footer_mapping" not in result["git"]
     assert result["checks"]["error_count"] == len(result["checks"]["errors"])
-    assert result["decisions"]["items"][0] == {
-        "id": "decision",
-        "title": "Use native Beads",
-        "status": "closed",
-        "issue_type": "decision",
-    }
+    assert result["decisions"]["items"] == [
+        {
+            "id": "decision",
+            "title": "Use native Beads",
+            "status": "closed",
+            "issue_type": "decision",
+        }
+    ]
+    assert [gate["id"] for gate in result["gates"]["items"]] == ["gate"]
+
+
+def test_audit_rejects_close_while_an_implementation_task_is_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, root_issue, steps = fixture_data(tmp_path)
+    client.issues["task"]["status"] = "open"
+    install_fakes(monkeypatch, client, root_issue, steps)
+
+    result = subject.collect_audit_evidence(tmp_path, "root")
+
+    assert "implementation task task is not closed" in result["checks"]["errors"]
 
 
 def test_audit_expands_only_explicitly_requested_details(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -276,17 +302,57 @@ def test_audit_rejects_legacy_and_multiple_task_footers(tmp_path: Path, monkeypa
     assert "feature commits contain missing, multiple, or unaccepted ownership footers" in result["checks"]["errors"]
 
 
+def test_audit_rejects_noncanonical_close_commit_message(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, root_issue, steps = fixture_data(tmp_path)
+    install_fakes(monkeypatch, client, root_issue, steps)
+    monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
+    monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
+    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        subject,
+        "commit_records",
+        lambda *args, **kwargs: [
+            {
+                "commit": "close123",
+                "subject": "docs(feature): document the feature",
+                "body": "- Document the accepted feature.\n\nTask: audit",
+                "footer_ids": ("audit",),
+                "paths": [],
+            }
+        ],
+    )
+    monkeypatch.setattr(subject, "changed_paths", lambda *args, **kwargs: [])
+    monkeypatch.setattr(subject, "diff_stat", lambda *args, **kwargs: "")
+
+    result = subject.collect_audit_evidence(tmp_path, "root")
+
+    assert "close documentation commit message is not canonical" in result["checks"]["errors"]
+
+
 def test_audit_bounds_diff_stat_and_rejects_beads_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client, root_issue, steps = fixture_data(tmp_path)
     install_fakes(monkeypatch, client, root_issue, steps)
     monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
     monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
     monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
-    monkeypatch.setattr(subject, "commit_records", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        subject,
+        "commit_records",
+        lambda *args, **kwargs: [
+            {
+                "commit": "abc123",
+                "subject": "chore: unrelated",
+                "footer_ids": ("other",),
+                "paths": [],
+            }
+        ],
+    )
     monkeypatch.setattr(subject, "changed_paths", lambda *args, **kwargs: [".beads/runtime.json"])
     monkeypatch.setattr(subject, "diff_stat", lambda *args, **kwargs: "x" * 5000)
 
     result = subject.collect_audit_evidence(tmp_path, "root")
 
     assert len(result["git"]["diff_stat"]) <= 4000
+    assert result["git"]["invalid_footer_commits"]["items"] == ["abc123"]
     assert any("Beads" in error for error in result["checks"]["errors"])
+    assert any("ownership" in error for error in result["checks"]["errors"])

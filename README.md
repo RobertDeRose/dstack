@@ -21,7 +21,7 @@ plan -> review -> human approval -> implementation tasks -> audit
 ```
 
 The implementation step is a structural epic. Review creates each implementation task with a native approval blocker,
-and the audit waits for the implementation children through one native `children-of(implementation)` dependency.
+and the final close step waits natively for implementation children. `/close-feature` reviews before claiming that step.
 
 The installed skills are:
 
@@ -38,7 +38,8 @@ run `bd`, create Beads issues, or require Beads initialization.
 
 ## Install
 
-Requirements: Git, `uv`, Python 3.14, Beads 1.2.2, hk, and mdBook 0.5.4.
+Runtime requirements: Git, Python 3.14, and Beads 1.2.2. This repository additionally uses `uv`, hk, and mdBook for its
+own development and validation.
 
 ```bash
 uv tool install --python 3.14 /path/to/dstack
@@ -47,7 +48,7 @@ dstack init
 ```
 
 `dstack init` preflights the supported Beads version, initializes Beads with generic agent and hook setup disabled,
-installs the dStack formula and scoped `bd prime` instructions, and validates the resulting workspace. It is idempotent
+installs the dStack formula and scoped `bd prime` instructions, then validates the resulting workspace. It is idempotent
 and does not create workflow issues. Existing generic integrations are not removed automatically, and an unhealthy
 existing `.beads` workspace is reported rather than replaced. Review and commit the installed formula, then run
 `dstack check formula`; commands that pour new feature work require this committed-policy check to pass.
@@ -61,8 +62,9 @@ dstack check formula [--root PATH]
 dstack check plan --bead <plan>
 dstack check review --bead <feature-root>
 dstack check task --bead <task>
-dstack check docs --feature <slug> [--root PATH]
-dstack docs export-design --feature <feature-root> [--root PATH]
+dstack check docs --slug <slug> [--root PATH]
+dstack docs export-design --bead <feature-root> [--root PATH]
+dstack docs commit --bead <feature-root> [--root PATH]
 dstack commit --bead <task>
 dstack worktree --bead <feature-or-descendant>
 dstack audit <feature> [detail flags]

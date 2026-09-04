@@ -13,7 +13,8 @@ plan -> review -> approval -> implementation -> audit
 ```
 
 The implementation step is an epic containing dynamic tasks. Review creates each task with a direct blocker on the
-approval step. The audit has one `children-of(implementation)` waits-for dependency.
+approval step. The final `audit` step has one `children-of(implementation)` waits-for dependency; there is no fixed
+close-review gate.
 
 ## Planning
 
@@ -45,9 +46,24 @@ implementation note for repository changes. Each task owns one canonical `feat(<
 Reopened corrections append notes and are fixup/autosquashed
 into that commit when its history is unambiguous and unpublished; dStack refuses unsafe rewriting. The task owns its
 code, tests, configuration, and current documentation. `dstack check task --bead <task>` validates the graph, evidence,
-worktree, and `hk check -a` result before closure.
+and clean worktree. The skill separately runs the target repository's documented validation contract, then closes the
+task so native task dependencies can expose downstream work. Implementation does not write the feature publication under
+`docs/src/features/<slug>/`; close owns it after semantic review.
 
-## Audit
+## Close
 
-`/audit-feature` collects bounded facts with `dstack audit`, compares the delivered repository with the approved intent,
-and records clear findings or user questions in Beads.
+The public `/close-feature` operation reviews the feature while a formula-generated human gate keeps the final step
+blocked. Its internal ID and label remain `audit` and `dstack:step:audit`. Close collects bounded facts with
+`dstack audit`, compares the delivered repository with approved intent, and returns clear defects to their owning task.
+Unowned findings become one new implementation child; material ambiguity becomes a separate native gate that directly
+blocks the close step.
+
+The close-review gate remains unresolved even if native `children-of(implementation)` fan-in has already observed prior
+children as complete. A defect reopens its owning task for `/implement`. Once the complete review is clean and every
+implementation task is closed, close resolves the fixed gate and claims the final step.
+
+Only after review passes does close export the design, write the minimal feature documentation, and run feature-document
+validation separately from the repository's own project validation. `dstack docs commit --feature <feature-root>`
+creates the one allowed close-owned `docs(<slug>): <feature title>` commit with no body and a `Task:` trailer for the
+final step. Rerunning it with one unpublished close commit and a clean worktree rewords stale canonical metadata without
+creating duplicate evidence.

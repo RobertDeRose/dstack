@@ -34,8 +34,6 @@ from .git_ops import canonical_task_message, commit_record_matches_message
 from .output import emit
 from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
 
-VALIDATION_COMMAND = ("hk", "check", "-a")
-
 
 @serialized_repository_mutation
 def cmd_init(args: argparse.Namespace) -> int:
@@ -241,19 +239,6 @@ def _worktree_status(path: Path) -> dict[str, Any]:
     }
 
 
-def run_project_validation(path: Path) -> dict[str, Any]:
-    result = run(VALIDATION_COMMAND, cwd=path, check=False)
-    payload: dict[str, Any] = {
-        "status": "ok" if result.returncode == 0 else "failed",
-        "command": list(VALIDATION_COMMAND),
-        "returncode": result.returncode,
-    }
-    if result.returncode != 0:
-        payload["stdout"] = truncate_output(result.stdout)
-        payload["stderr"] = truncate_output(result.stderr)
-    return payload
-
-
 def implementation_tasks(
     client: BeadsClient,
     implementation_id: str,
@@ -364,25 +349,12 @@ def cmd_task_check(args: argparse.Namespace) -> int:
     worktree: dict[str, Any]
     if worktree_path is None:
         worktree = {"status": "missing", "branch": branch, "path": None}
-        validation = {"status": "blocked", "command": list(VALIDATION_COMMAND)}
         errors.append(f"feature worktree is not registered for {branch}")
     else:
         verified = verify_worktree_identity(client.root, worktree_path, branch)
         worktree = {"branch": branch, "path": str(verified), **_worktree_status(verified)}
         if worktree["status"] != "clean":
             errors.append("feature worktree contains uncommitted changes")
-
-        validation = run_project_validation(verified)
-        if validation["status"] == "failed":
-            errors.append("project validation failed")
-        post_validation_status = _worktree_status(verified)
-        worktree["post_validation_status"] = post_validation_status["status"]
-        worktree["post_validation_details"] = post_validation_status["details"]
-        if (
-            post_validation_status["status"] != "clean"
-            and "feature worktree contains uncommitted changes" not in errors
-        ):
-            errors.append("project validation left uncommitted changes in the feature worktree")
 
     result.update(
         {
@@ -392,7 +364,6 @@ def cmd_task_check(args: argparse.Namespace) -> int:
             "graph": {
                 "implementation": steps["implementation"]["id"],
                 "approval": steps["approval"]["id"],
-                "audit": steps["audit"]["id"],
             },
             "evidence": {
                 "range": evidence_range,
@@ -401,7 +372,6 @@ def cmd_task_check(args: argparse.Namespace) -> int:
                 "invalid_footer_commits": invalid_footer_commits,
             },
             "worktree": worktree,
-            "validation": validation,
         }
     )
     emit(result)
