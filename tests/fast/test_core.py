@@ -8,7 +8,10 @@ from typing import Any
 import pytest
 
 from dstack.core import (
+    BeadsClient,
+    CommandResult,
     DstackError,
+    command_may_mutate,
     commit_records,
     feature_identity,
     footer_mapping,
@@ -17,6 +20,33 @@ from dstack.core import (
     truncate_output,
     worktree_for_branch,
 )
+
+
+def test_timeout_error_does_not_classify_native_command_semantics(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def timeout(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(["bd", "show", "task"], 1)
+
+    monkeypatch.setattr(subprocess, "run", timeout)
+    with pytest.raises(DstackError, match="inspect native Git/Beads state before retrying"):
+        run(["bd", "show", "task"], cwd=git_repo, timeout=1)
+
+
+def test_show_many_batches_one_native_read_and_preserves_requested_order(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = BeadsClient(git_repo)
+    observed: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> CommandResult:
+        observed.append(command)
+        return CommandResult(0, '[{"id":"second"},{"id":"first"}]', "")
+
+    monkeypatch.setattr(client, "_run", fake_run)
+
+    assert [issue["id"] for issue in client.show_many(["first", "second"])] == ["first", "second"]
+    assert observed == [["bd", "show", "first", "second", "--json"]]
 
 
 def test_parse_json_unwraps_beads_envelope() -> None:
@@ -47,7 +77,7 @@ def test_git_evidence_ignores_legacy_beads_footers(git_repo: Path) -> None:
         check=True,
     )
 
-    records = commit_records(git_repo, "HEAD~2..HEAD")
+    records = commit_records(git_repo, "HEAD~2..HEAD", include_paths=True)
 
     assert [record["footer_kind"] for record in records] == ["Task", None]
     assert records[0]["footer_ids"] == ("ds-task",)

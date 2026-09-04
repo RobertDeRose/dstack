@@ -18,8 +18,8 @@ Targeted skill -- semantic decisions and user questions
     `-- dstack -------------- deterministic repository mechanics
              |
              +-- Git and worktrees
-             +-- hk and tests
-             `-- mdBook validation
+             +-- bounded Beads/Git evidence
+             `-- feature-document structure
 ```
 
 ### Beads
@@ -34,8 +34,10 @@ findings. They perform semantic judgment through native Beads operations.
 
 ### dStack CLI
 
-dStack commands read current Beads, Git, and filesystem facts on each invocation. They validate structure, branch and
-worktree identity, Git evidence, documentation, and project checks. They perform no workflow-state calculation.
+dStack commands read current Beads, Git, and filesystem facts on each invocation. They batch multi-issue Beads reads,
+bound default evidence, omit commit paths unless requested, and validate structure, branch and worktree identity, Git
+evidence, and feature documentation. They perform no workflow-state calculation. Skills run the target repository's
+documented project-validation contract.
 
 ## Persistent information
 
@@ -44,7 +46,7 @@ worktree identity, Git evidence, documentation, and project checks. They perform
 | Workflow state and relationships | Beads |
 | Source, tests, documentation, and history | Git |
 | Current product guidance | `docs/` |
-| Formatting, linting, and validation | hk |
+| Project validation | Target repository tooling |
 | Feature formula | Versioned project configuration |
 
 The CLI stores no workflow database, readiness cache, audit snapshot, or commit mapping.

@@ -157,28 +157,40 @@ def collect_audit_evidence(
     root, slug, base = feature_identity(client, selector)
     steps = feature_steps(client, str(root["id"]))
     errors: list[str] = []
+    for name, values in (
+        ("task details", include_task_ids),
+        ("decision details", include_decision_ids),
+        ("history details", history_ids),
+    ):
+        if len(values) > MAX_AUDIT_ITEMS:
+            raise DstackError(f"requested audit {name} exceed the {MAX_AUDIT_ITEMS}-item bound")
     collection_limit = MAX_AUDIT_ITEMS + 1
     implementation = implementation_tasks(
         client,
         str(steps["implementation"]["id"]),
         limit=collection_limit,
     )
-    decisions = [
-        issue
-        for issue in client.list(
-            all_statuses=True,
-            labels=[f"decision:{slug}"],
-            issue_type_filter="decision",
-            limit=collection_limit,
-        )
-        if f"decision:{slug}" in issue_labels(issue) and str(root["id"]) in dependency_targets(issue, "relates-to")
-    ]
+    decisions = sorted(
+        (
+            issue
+            for issue in client.list(
+                all_statuses=True,
+                labels=[f"decision:{slug}"],
+                issue_type_filter="decision",
+                limit=collection_limit,
+            )
+            if f"decision:{slug}" in issue_labels(issue) and str(root["id"]) in dependency_targets(issue, "relates-to")
+        ),
+        key=lambda issue: str(issue.get("id") or ""),
+    )
     audit_step = steps["audit"]
-    gates = [
-        issue
-        for issue_id in dependency_targets(audit_step, "blocks")
-        if (issue := client.show_optional(issue_id)) is not None and issue_type(issue) == "gate"
-    ]
+    gate_ids = sorted(set(dependency_targets(audit_step, "blocks")))
+    if len(gate_ids) > MAX_AUDIT_ITEMS:
+        errors.append(f"audit gates exceed the {MAX_AUDIT_ITEMS}-item evidence bound")
+    gates = sorted(
+        (issue for issue in client.show_many(gate_ids[:collection_limit]) if issue_type(issue) == "gate"),
+        key=lambda issue: str(issue.get("id") or ""),
+    )
     for name, items in (("implementation tasks", implementation), ("decisions", decisions), ("gates", gates)):
         if len(items) > MAX_AUDIT_ITEMS:
             errors.append(f"audit {name} exceed the {MAX_AUDIT_ITEMS}-item evidence bound")
