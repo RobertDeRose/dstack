@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Sequence
 
 from .core import DstackError
-from .output import fail
+from .output import emit
 
 MANAGED_KEY = "dstack-managed"
 CURRENT_SKILLS = (
@@ -186,22 +184,6 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
     }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Install the four targeted dStack Pi skills and prompts.")
-    parser.add_argument(
-        "--agent-dir",
-        type=Path,
-        default=default_agent_dir(),
-        help="Pi agent directory; defaults to PI_CODING_AGENT_DIR or ~/.pi/agent.",
-    )
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    try:
-        payload = install_skills(args.agent_dir)
-    except DstackError as exc:
-        return fail(str(exc))
-    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+def cmd_install_skills(args: argparse.Namespace) -> int:
+    emit(install_skills(args.agent_dir))
     return 0

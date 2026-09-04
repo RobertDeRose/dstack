@@ -6,11 +6,11 @@
 
 The dStack workflow is opt-in. Only `/plan-feature`, `/review-plan`, `/implement`, `/audit-feature`, or an explicit
 request to use dStack activates Beads tracking; the presence of a Beads workspace, installed skills, or a project
-formula does not. `dstack init`, `dstack install_skills`, and explicitly requested `dstack ctl` mechanics do not create
-workflow issues. Ordinary requests do not invoke `bd`.
+formula does not. dStack setup, checks, and deterministic repository commands do not create workflow issues. Ordinary
+requests do not invoke `bd`.
 
 Once activated, Beads owns workflow state and native transitions. Git owns repository content, worktrees, branches, and
-history. Skills make semantic decisions and ask the user about material uncertainty. `dstack ctl` performs deterministic
+history. Skills make semantic decisions and ask the user about material uncertainty. dStack performs deterministic
 repository mechanics and validation from current Beads, Git, filesystem, and project-check facts.
 
 The feature formula is:

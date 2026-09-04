@@ -3,9 +3,9 @@
 ## Authority boundaries
 
 The dStack workflow is opt-in. The presence of Beads, installed skills, or a project formula does not activate task
-tracking. Only an explicit workflow command or request to use dStack crosses the workflow boundary; an explicitly
-requested `dstack ctl` command may perform its documented mechanics but does not create workflow issues. Ordinary
-requests do not invoke Beads.
+tracking. Only an explicitly invoked workflow skill or request to use dStack crosses the workflow boundary. dStack
+commands may perform their documented mechanics but do not create workflow issues. Ordinary requests do not invoke
+Beads.
 
 ```text
 User request
@@ -15,7 +15,7 @@ Targeted skill -- semantic decisions and user questions
     |
     +-- native Beads commands -- workflow graph and state
     |
-    `-- dstack ctl ----------- deterministic repository mechanics
+    `-- dstack -------------- deterministic repository mechanics
              |
              +-- Git and worktrees
              +-- hk and tests
@@ -34,8 +34,8 @@ findings. They perform semantic judgment through native Beads operations.
 
 ### dStack CLI
 
-`dstack ctl` reads current Beads, Git, and filesystem facts on each invocation. It validates structure, branch and
-worktree identity, Git evidence, documentation, and project checks. It performs no workflow-state calculation.
+dStack commands read current Beads, Git, and filesystem facts on each invocation. They validate structure, branch and
+worktree identity, Git evidence, documentation, and project checks. They perform no workflow-state calculation.
 
 ## Persistent information
 

@@ -10,7 +10,6 @@ import pytest
 from dstack.core import (
     DstackError,
     commit_records,
-    commits_for_bead,
     feature_identity,
     footer_mapping,
     parse_beads_version,
@@ -43,7 +42,6 @@ def test_git_evidence_is_reconstructed_from_reachable_footers(git_repo: Path) ->
     records = commit_records(git_repo, "HEAD~1..HEAD")
     assert len(records) == 1
     assert records[0]["footer_ids"] == ("ds-task",)
-    assert commits_for_bead(git_repo, "HEAD~1..HEAD", "ds-task")[0]["subject"] == "feat: add feature"
     assert footer_mapping(records) == {
         "ds-task": [
             {

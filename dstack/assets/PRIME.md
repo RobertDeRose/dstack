@@ -10,7 +10,7 @@ tracking.
 - For an ordinary request, do not run `bd` or create, update, claim, or close Beads issues.
 - `/plan-feature`, `/review-plan`, `/implement`, and `/audit-feature` activate the workflow.
 - An explicit request to use dStack also activates the workflow.
-- An explicit `dstack ctl` command may perform its documented mechanics but does not create workflow issues.
+- An explicit dStack command may perform its documented mechanics but does not create workflow issues.
 
 Do not install or enable generic Beads agent instructions or session hooks for this project. `bd prime` is context only;
 it does not activate the workflow and should not run as a generic session hook.
@@ -32,9 +32,9 @@ bd close <id> --reason '<reason>'
 
 The dStack skills scope queue queries to the active feature molecule and label. Do not claim unrelated ready work.
 
-Use `dstack ctl` for deterministic formula, worktree, commit, evidence, task, and documentation checks. During
-implementation, use `dstack ctl git commit --bead <task>` rather than hand-writing the task commit subject. Run the
-repository validation contract before closing active work.
+Use dStack's deterministic install, check, worktree, commit, and audit commands. During implementation, use
+`dstack commit --bead <task>` rather than hand-writing the task commit subject. Run the repository validation contract
+before closing active work.
 
 Do not use Markdown TODO lists, readiness caches, handoff ledgers, commit-to-task maps, or other shadow workflow state.
 Use `bd remember` only for durable project memory that belongs in Beads; ordinary implementation notes belong in the

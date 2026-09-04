@@ -7,7 +7,7 @@ Install dStack and its four agent skills:
 
 ```bash
 uv tool install --python 3.14 /path/to/dstack
-dstack install_skills
+dstack install skills
 ```
 
 Initialize and validate the Beads workspace plus scoped `bd prime` instructions:

@@ -10,7 +10,7 @@ local linters = new Mapping<String, Step> {
   ["actionlint"] = Builtins.actionlint
   ["docs"] = new Step {
     glob = List("docs/src/**/*.md", "docs/book.toml")
-    check = "python -m dstack ctl docs validate"
+    check = "python -m dstack check docs"
   }
   ["json"] = Builtins.jq
   ["pkl"] = Builtins.pkl

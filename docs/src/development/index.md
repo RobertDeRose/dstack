@@ -5,4 +5,4 @@
 3. **Review before approval.** Review checks intent against code, tests, documentation, and decisions.
 4. **Documentation is implementation.** Current documentation changes with the behavior it describes.
 5. **Audit from evidence.** Audit compares Beads intent, Git history, tests, code, and documentation.
-6. **Automate deterministic mechanics.** Skills decide; `dstack ctl` validates and executes mechanical operations.
+6. **Automate deterministic mechanics.** Skills decide; dStack validates and executes mechanical operations.

@@ -10,7 +10,6 @@ from pathlib import Path
 from .core import (
     BeadsClient,
     DstackError,
-    commits_for_bead,
     current_head,
     feature_identity,
     feature_steps,
@@ -125,10 +124,4 @@ def cmd_git_amend(args: argparse.Namespace) -> int:
     commit = _commit(root, message, amend=True)
     _verify_head_message(root, subject=subject, bead_id=args.bead)
     emit({"status": "ok", "bead": args.bead, "feature": feature_root, "commit": commit, "subject": subject})
-    return 0
-
-
-def cmd_evidence_commits(args: argparse.Namespace) -> int:
-    root = git_root(args.root)
-    emit({"status": "ok", "bead": args.bead, "ref": args.ref, "commits": commits_for_bead(root, args.ref, args.bead)})
     return 0
