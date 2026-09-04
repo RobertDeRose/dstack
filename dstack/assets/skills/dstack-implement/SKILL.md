@@ -40,6 +40,19 @@ Implement the smallest complete change satisfying the task. Keep code, tests, co
 user/developer/future-agent documentation aligned in the same unit of work. Do not postpone documentation to a closeout
 phase.
 
+Use native task notes as the execution record. After each meaningful delivered increment, append one concise,
+verb-led fragment:
+
+```bash
+bd note <task> "Implementation: Add compact output"
+```
+
+Keep each fragment to one concrete change, preferably one line and no more than 96 characters. Omit articles,
+transitions, filler, rationale, and unnecessary implementation detail. Only ordered `Implementation:` notes become
+commit bullets; dStack strips surrounding whitespace and punctuation, then adds `- ` without wrapping. Do not copy
+planned description or design prose into notes, and do not put `Task:` or `Beads:` ownership footers in note text. For
+an intentional no-change outcome, use only `No repository change: <specific reason>`.
+
 When new product or architecture ambiguity appears, record it on the task and ask the user rather than guessing. Clear
 incidental defects may be fixed in scope. Significant separate work becomes a native Beads task linked with
 `discovered-from`.
@@ -48,11 +61,16 @@ Review the complete diff, stage only task-owned repository changes, and commit t
 come from the Bead:
 
 ```bash
-dstack commit --bead <task-id> [--body <temporary-body>]
+dstack commit --bead <task-id>
 ```
 
-Do not hand-write a Conventional Commit subject. If subject generation fails, correct the task title or its
-`dstack:commit:*` / `dstack:scope:*` labels.
+The command verifies the Beads-registered conventional feature worktree, derives the subject and one bullet per ordered
+`Implementation:` note, and writes exactly one `Task:` trailer. It refuses repository-changing tasks without an
+implementation note; planned description and design are never commit material. Notes and generated bodies are bounded,
+and ownership footer text in notes is rejected. It does not accept `Beads:` evidence. Corrections replace stale
+canonical messages while autosquashing unpublished unambiguous history.
+
+Do not hand-write a Conventional Commit subject. If subject generation fails, correct the task title.
 
 Validation is mandatory and uses the repository's hk contract:
 

@@ -31,26 +31,36 @@ def test_parse_beads_version_accepts_semver_output() -> None:
         parse_beads_version("beads unknown")
 
 
-def test_git_evidence_is_reconstructed_from_reachable_footers(git_repo: Path) -> None:
-    (git_repo / "feature.txt").write_text("feature\n", encoding="utf-8")
-    subprocess.run(["git", "add", "feature.txt"], cwd=git_repo, check=True)
+def test_git_evidence_ignores_legacy_beads_footers(git_repo: Path) -> None:
+    (git_repo / "legacy.txt").write_text("legacy\n", encoding="utf-8")
+    subprocess.run(["git", "add", "legacy.txt"], cwd=git_repo, check=True)
     subprocess.run(
-        ["git", "commit", "-qm", "feat: add feature", "-m", "Beads: ds-task"],
+        ["git", "commit", "-qm", "feat: add legacy feature", "-m", "Beads: ds-legacy"],
         cwd=git_repo,
         check=True,
     )
-    records = commit_records(git_repo, "HEAD~1..HEAD")
-    assert len(records) == 1
+    (git_repo / "feature.txt").write_text("feature\n", encoding="utf-8")
+    subprocess.run(["git", "add", "feature.txt"], cwd=git_repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-qm", "feat: add feature", "-m", "Task: ds-task"],
+        cwd=git_repo,
+        check=True,
+    )
+
+    records = commit_records(git_repo, "HEAD~2..HEAD")
+
+    assert [record["footer_kind"] for record in records] == ["Task", None]
     assert records[0]["footer_ids"] == ("ds-task",)
-    assert footer_mapping(records) == {
-        "ds-task": [
-            {
-                "commit": records[0]["commit"],
-                "subject": "feat: add feature",
-                "paths": ["feature.txt"],
-            }
-        ]
-    }
+    assert records[1]["footer_ids"] == ()
+    assert records[1]["legacy_footer_ids"] == ("ds-legacy",)
+    assert "ds-legacy" not in footer_mapping(records)
+    assert footer_mapping(records)["ds-task"] == [
+        {
+            "commit": records[0]["commit"],
+            "subject": "feat: add feature",
+            "paths": ["feature.txt"],
+        }
+    ]
 
 
 def test_diff_stat_is_bounded(git_repo: Path) -> None:

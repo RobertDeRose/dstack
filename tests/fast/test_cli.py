@@ -38,13 +38,8 @@ def test_parser_exposes_ergonomic_commands() -> None:
     assert export.command == "export-design"
     assert export.bead == "ds-root"
 
-    commit = parser.parse_args(["commit", "--bead", "ds-task", "--body", "/tmp/body"])
+    commit = parser.parse_args(["commit", "--bead", "ds-task"])
     assert commit.bead == "ds-task"
-    assert commit.body_file == Path("/tmp/body")
-    assert commit.amend is False
-
-    amend = parser.parse_args(["commit", "-a", "-b", "ds-task"])
-    assert amend.amend is True
 
     worktree = parser.parse_args(["worktree", "--bead", "ds-feature"])
     assert worktree.bead == "ds-feature"
@@ -63,6 +58,10 @@ def test_legacy_command_names_are_removed() -> None:
         parser.parse_args(["install_skills"])
     with pytest.raises(SystemExit):
         parser.parse_args(["commit", "--bead", "ds-task", "--subject", "feat: manual"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["commit", "--amend", "--bead", "ds-task"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["commit", "--body", "/tmp/body", "--bead", "ds-task"])
 
 
 def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,7 +79,7 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "cmd_plan_check", record("plan", 13))
     monkeypatch.setattr(cli, "cmd_review_check", record("review", 18))
     monkeypatch.setattr(cli, "cmd_docs_export", record("docs-export", 19))
-    monkeypatch.setattr(cli, "cmd_commit", record("commit", 14))
+    monkeypatch.setattr(cli, "cmd_git_commit", record("commit", 14))
     monkeypatch.setattr(cli, "cmd_worktree_ensure", record("worktree", 15))
 
     assert cli.main(["install", "skills", "--agent-dir", "/tmp/agent"]) == 11

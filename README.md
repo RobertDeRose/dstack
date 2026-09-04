@@ -63,8 +63,7 @@ dstack check review --bead <feature-root>
 dstack check task --bead <task>
 dstack check docs --feature <slug> [--root PATH]
 dstack docs export-design --feature <feature-root> [--root PATH]
-dstack commit --bead <task> [--body <path>]
-dstack commit --amend --bead <task> [--body <path>]
+dstack commit --bead <task>
 dstack worktree --bead <feature-or-descendant>
 dstack audit <feature> [detail flags]
 ```

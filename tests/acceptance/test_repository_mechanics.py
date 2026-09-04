@@ -6,7 +6,17 @@ from pathlib import Path
 from .conftest import pour_feature, requires_bd, run_command, run_dstack, run_json
 
 
-TASK_DESCRIPTION = """- Add one repository evidence fixture through the public commit command.
+TASK_DESCRIPTION = """Provide a repository evidence fixture through the public commit command.
+
+The description records the planned outcome rather than completed implementation bullets.
+"""
+TASK_DESIGN = """### Approach
+
+Use the public commit command and native execution notes.
+
+### Invariants
+
+The canonical commit body contains only ordered implementation notes.
 """
 PLAN_DESIGN = """### Goals
 
@@ -81,8 +91,10 @@ def test_worktree_commit_correction_and_task_evidence_use_native_state(real_repo
         f"blocked-by:{steps['approval']['id']}",
         "--description-file",
         str(task_file),
+        "--design",
+        TASK_DESIGN,
         "--acceptance",
-        "A reachable canonical commit contains exactly one matching Task trailer.",
+        "A reachable canonical commit contains one bullet per implementation note and exactly one matching Task trailer.",
     )
     task_id = str(task["id"])
     approve_feature(real_repo, root, steps)
@@ -104,25 +116,67 @@ def test_worktree_commit_correction_and_task_evidence_use_native_state(real_repo
         assert ensured["branch"] == "feat/repository-mechanics"
         (worktree / "evidence.txt").write_text("native evidence\n", encoding="utf-8")
         run_command(["git", "add", "evidence.txt"], cwd=worktree)
+        without_notes = run_dstack(worktree, "commit", "--bead", task_id, check=False)
+        assert without_notes.returncode != 0
+        assert "implementation note" in without_notes.stderr.lower()
 
+        run_command(
+            [
+                "bd",
+                "note",
+                task_id,
+                "Implementation: Add one repository evidence fixture through the public commit command.",
+            ],
+            cwd=real_repo,
+        )
         committed = run_dstack(worktree, "commit", "--bead", task_id)
         assert committed["subject"] == "feat(repository-mechanics): add repository evidence fixture"
         message = run_command(["git", "log", "-1", "--format=%B"], cwd=worktree).stdout
+        assert "- Add one repository evidence fixture through the public commit command" in message
+        assert "The description records the planned outcome" not in message
+        assert "Use the public commit command and native execution notes." not in message
+        assert "The canonical commit body contains only ordered implementation notes." not in message
         assert message.count(f"Task: {task_id}") == 1
         assert "Beads:" not in message
         assert run_dstack(worktree, "check", "task", "--bead", task_id)["status"] == "ok"
 
         run_json(real_repo, "close", task_id, "--reason", "Fixture first implementation")
         run_json(real_repo, "reopen", task_id, "--reason", "Fixture correction")
+        run_json(
+            real_repo,
+            "update",
+            task_id,
+            "--title",
+            "Refine repository evidence fixture",
+            "--description",
+            "Preserve corrected repository evidence and reword stale commit messages.",
+            "--design",
+            "Use a correction note and the canonical autosquash path.",
+        )
         reclaimed = run_json(real_repo, "update", task_id, "--claim")
         assert reclaimed[0]["id"] == task_id
         assert reclaimed[0]["status"] == "in_progress"
+        run_command(
+            ["bd", "note", task_id, "Implementation: Preserve corrected repository evidence."],
+            cwd=real_repo,
+        )
+        run_command(
+            ["bd", "note", task_id, "Implementation: Reword stale canonical commit messages."],
+            cwd=real_repo,
+        )
 
         (worktree / "evidence.txt").write_text("corrected evidence\n", encoding="utf-8")
         run_command(["git", "add", "evidence.txt"], cwd=worktree)
         corrected = run_dstack(worktree, "commit", "--bead", task_id)
 
         assert corrected["commit"] != committed["commit"]
+        assert corrected["subject"] == "feat(repository-mechanics): refine repository evidence fixture"
+        corrected_message = run_command(["git", "log", "-1", "--format=%B"], cwd=worktree).stdout
+        assert "- Add one repository evidence fixture through the public commit command" in corrected_message
+        assert "- Preserve corrected repository evidence" in corrected_message
+        assert "- Reword stale canonical commit messages" in corrected_message
+        assert "Preserve corrected repository evidence and reword stale commit messages." not in corrected_message
+        assert "feat(repository-mechanics): add repository evidence fixture" not in corrected_message
         records = run_command(
             ["git", "log", "--format=%H%x00%B", "main..feat/repository-mechanics"], cwd=worktree
         ).stdout

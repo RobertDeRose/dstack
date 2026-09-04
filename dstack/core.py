@@ -741,7 +741,7 @@ def commit_records(
     validate_git_range(repository, ref_range, name="evidence revision")
     if max_count is not None and max_count < 1:
         raise DstackError("Git evidence limit must be positive")
-    format_string = "%x1e%H%x00%s%x00%B%x00"
+    format_string = "%x1e%H%x00%s%x00%b%x00"
     command = ["git", "log"]
     if max_count is not None:
         command.append(f"--max-count={max_count}")
@@ -758,13 +758,18 @@ def commit_records(
         if len(parts) != 4:
             raise DstackError("Git evidence query returned a malformed record")
         commit, subject, body, paths = parts
-        footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Beads:\s*([^\s]+)\s*$", body))
+        footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Task:\s*([^\s]+)\s*$", body))
+        legacy_footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Beads:\s*([^\s]+)\s*$", body))
+        footer_kind = "Task" if footer_ids else None
         records.append(
             {
                 "commit": commit.strip(),
                 "subject": subject.strip(),
+                "body": body.rstrip("\n"),
                 "paths": [line for line in paths.splitlines() if line.strip()] if include_paths else [],
                 "footer_ids": footer_ids,
+                "legacy_footer_ids": legacy_footer_ids,
+                "footer_kind": footer_kind,
             }
         )
     return records

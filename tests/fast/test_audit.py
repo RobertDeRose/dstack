@@ -175,6 +175,107 @@ def test_audit_rejects_detail_ids_outside_feature(tmp_path: Path, monkeypatch: p
         subject.collect_audit_evidence(tmp_path, "root", include_task_ids=["other"])
 
 
+def test_audit_rejects_noncanonical_task_commit_subject(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, root_issue, steps = fixture_data(tmp_path)
+    client.issues["task"]["notes"] = "Implementation:"
+    install_fakes(monkeypatch, client, root_issue, steps)
+    monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
+    monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
+    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        subject,
+        "commit_records",
+        lambda *args, **kwargs: [
+            {
+                "commit": "abc123",
+                "subject": "feat(old): stale subject",
+                "footer_ids": ("task",),
+                "paths": [],
+            }
+        ],
+    )
+    monkeypatch.setattr(subject, "changed_paths", lambda *args, **kwargs: [])
+    monkeypatch.setattr(subject, "diff_stat", lambda *args, **kwargs: "")
+
+    result = subject.collect_audit_evidence(tmp_path, "root")
+
+    assert "implementation task task violates dStack policy or graph invariants" in result["checks"]["errors"]
+    assert "implementation task task commit message is not canonical" in result["checks"]["errors"]
+    assert any(
+        "implementation note" in error for error in result["implementation_tasks"]["items"][0]["validation"]["errors"]
+    )
+
+
+def test_audit_reports_missing_implementation_notes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, root_issue, steps = fixture_data(tmp_path)
+    client.issues["task"]["notes"] = ""
+    install_fakes(monkeypatch, client, root_issue, steps)
+    monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
+    monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
+    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        subject,
+        "commit_records",
+        lambda *args, **kwargs: [
+            {
+                "commit": "abc123",
+                "subject": "feat(feature): stale subject",
+                "body": "Task: task",
+                "footer_ids": ("task",),
+                "paths": [],
+            }
+        ],
+    )
+    monkeypatch.setattr(subject, "changed_paths", lambda *args, **kwargs: [])
+    monkeypatch.setattr(subject, "diff_stat", lambda *args, **kwargs: "")
+
+    result = subject.collect_audit_evidence(tmp_path, "root")
+
+    assert any(
+        "requires at least one Implementation note" in error
+        for error in result["implementation_tasks"]["items"][0]["validation"]["errors"]
+    )
+    assert "implementation task task commit message is not canonical" in result["checks"]["errors"]
+
+
+def test_audit_rejects_legacy_and_multiple_task_footers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, root_issue, steps = fixture_data(tmp_path)
+    client.issues["task"]["notes"] = "Implementation: Deliver the reviewed behavior."
+    install_fakes(monkeypatch, client, root_issue, steps)
+    monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
+    monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
+    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        subject,
+        "commit_records",
+        lambda *args, **kwargs: [
+            {
+                "commit": "legacy123",
+                "subject": "feat(feature): legacy evidence",
+                "body": "Beads: task",
+                "footer_ids": (),
+                "legacy_footer_ids": ("task",),
+                "paths": [],
+            },
+            {
+                "commit": "multiple123",
+                "subject": "feat(feature): multiple evidence",
+                "body": "Task: task\nTask: other",
+                "footer_ids": ("task", "other"),
+                "legacy_footer_ids": (),
+                "paths": [],
+            },
+        ],
+    )
+    monkeypatch.setattr(subject, "changed_paths", lambda *args, **kwargs: [])
+    monkeypatch.setattr(subject, "diff_stat", lambda *args, **kwargs: "")
+
+    result = subject.collect_audit_evidence(tmp_path, "root")
+
+    assert result["git"]["invalid_footer_commits"]["items"] == ["legacy123", "multiple123"]
+    assert "feature commits contain missing, multiple, or unaccepted ownership footers" in result["checks"]["errors"]
+
+
 def test_audit_bounds_diff_stat_and_rejects_beads_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client, root_issue, steps = fixture_data(tmp_path)
     install_fakes(monkeypatch, client, root_issue, steps)

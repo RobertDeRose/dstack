@@ -29,16 +29,23 @@ Planning closes only after its questions are resolved and `dstack check plan --b
 ## Review and approval
 
 `/review-plan` first searches targeted project memories, then reconciles the design with relevant current code, tests,
-and documentation. It creates bounded implementation tasks with native dependencies. Before presenting the result, it
-runs `dstack check review --feature <feature-root>` to validate fixed steps, task shape and parentage, direct approval
-blockers, native readiness, cycle freedom, final-step fan-in, and task descriptions whose leading Markdown bullets
-become canonical commit material. Invocation never grants human approval.
+and documentation. It creates bounded implementation tasks with native dependencies. Each task stores planned scope in
+`description`, the accepted approach and invariants in `design`, and observable outcomes in `acceptance_criteria`; it
+does not use commit-type or scope labels. Before presenting the result, review validates fixed steps and task graph
+invariants. Invocation never grants human approval.
 
 ## Implementation
 
 `/implement` claims one native ready implementation task, prepares its verified feature worktree, and implements the
-complete accepted outcome. The task owns its code, tests, configuration, and current documentation.
-`dstack check task --bead <task>` validates the graph, evidence, worktree, and `hk check -a` result.
+complete accepted outcome. During implementation, the agent appends concise, verb-led, one-line `Implementation:`
+fragments to the task; each names one concrete change and is no more than 96 characters. dStack strips surrounding
+whitespace and punctuation, adds `- ` without wrapping, and uses these notes—not planned description or design prose—as
+the only source of commit bullets. Commit and task validation require native `in_progress` status and at least one
+implementation note for repository changes. Each task owns one canonical `feat(<slug>)` commit with one `Task:` trailer.
+Reopened corrections append notes and are fixup/autosquashed
+into that commit when its history is unambiguous and unpublished; dStack refuses unsafe rewriting. The task owns its
+code, tests, configuration, and current documentation. `dstack check task --bead <task>` validates the graph, evidence,
+worktree, and `hk check -a` result before closure.
 
 ## Audit
 

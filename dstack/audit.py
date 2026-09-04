@@ -26,8 +26,9 @@ from .core import (
     verify_worktree_identity,
     worktree_for_branch,
 )
+from .git_ops import canonical_task_message, commit_record_matches_message
 from .output import emit
-from .policy import no_repository_change_reason, validate_plan_issue, validate_task_issue
+from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
 
 MAX_AUDIT_ITEMS = 100
 DETAIL_FIELDS = (
@@ -88,6 +89,7 @@ def _footer_mapping(records: Sequence[Mapping[str, Any]]) -> dict[str, list[dict
                 {
                     "commit": str(record.get("commit") or ""),
                     "subject": str(record.get("subject") or ""),
+                    "body": str(record.get("body") or ""),
                 }
             )
     return result
@@ -183,10 +185,21 @@ def collect_audit_evidence(
         errors.append("feature plan violates dStack policy")
 
     task_rows: list[dict[str, Any]] = []
+    no_change_by_task: dict[str, str | None] = {}
     for task in implementation:
         validation = validate_task_issue(task)
         graph_errors = implementation_task_graph_errors(client, task, root, steps)
         task_errors = [*validation["errors"], *graph_errors]
+        try:
+            execution_notes = implementation_notes(task)
+        except DstackError:
+            execution_notes = []
+            no_change = None
+        else:
+            no_change = no_repository_change_reason(task)
+        no_change_by_task[str(task["id"])] = no_change
+        if not no_change and execution_notes == [] and not any("implementation note" in error for error in task_errors):
+            task_errors.append("implementation task requires at least one Implementation note before committing")
         task_rows.append(
             {
                 **issue_summary(task),
@@ -265,13 +278,25 @@ def collect_audit_evidence(
         commits = mapping.get(task_id, [])
         row["commit_count"] = len(commits)
         row["commits"] = bounded([{"commit": item["commit"], "subject": item["subject"]} for item in commits])
-        if not commits and no_repository_change_reason(task) is None:
-            errors.append(f"implementation task {task_id} has no reachable commit evidence")
+        expected_count = 0 if no_change_by_task.get(task_id) is not None else 1
+        if len(commits) != expected_count:
+            errors.append(
+                f"implementation task {task_id} must own {expected_count} canonical commit(s); observed {len(commits)}"
+            )
+        elif commits:
+            try:
+                expected_message = canonical_task_message(task, slug)
+            except DstackError:
+                errors.append(f"implementation task {task_id} commit message is not canonical")
+            else:
+                if not commit_record_matches_message(commits[0], expected_message):
+                    errors.append(f"implementation task {task_id} commit message is not canonical")
 
     invalid_footer_commits = sorted(
         str(record["commit"])
         for record in records
-        if len(tuple(record.get("footer_ids", ()))) != 1
+        if record.get("legacy_footer_ids")
+        or len(tuple(record.get("footer_ids", ()))) != 1
         or any(str(bead_id) not in task_ids for bead_id in record.get("footer_ids", ()))
     )
     git["invalid_footer_commits"] = bounded(invalid_footer_commits)

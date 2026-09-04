@@ -45,4 +45,15 @@ ambiguous workspace; inspect the native Beads error and ask whether to recover o
 
 ## Git evidence
 
-`dstack check task --bead <task>` validates evidence from reachable `Beads: <task>` footers in Git history.
+`dstack check task --bead <task>` requires the task to be `in_progress` and validates exactly one reachable canonical
+commit with a `Task: <task>` trailer and the deterministic `feat(<slug>): <task title>` subject. Its body must contain
+one unwrapped bullet per ordered `Implementation:` fragment. Each fragment is concise, verb-led, one line, and no more
+than 96 characters; formatting strips surrounding whitespace and punctuation before adding `- `. Planned description and
+design prose are never evidence. A repository-changing task without an implementation note fails. `Beads: <task>` footers
+are not ownership evidence.
+
+For a reopened task with one unpublished canonical commit, append notes for the correction, stage only the correction,
+and run `dstack commit --bead <task>` again. dStack creates an amend fixup, regenerates the complete subject and body
+from the current task title and ordered notes, and immediately autosquashes from the feature base. If Git stops on a
+conflict, retain unrelated valid descendant work, resolve deliberately, and continue the native rebase. Abort rather
+than guess. Published or ambiguous history is never rewritten automatically.
