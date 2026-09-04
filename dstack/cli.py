@@ -13,6 +13,7 @@ from .commands import (
     cmd_formula_check,
     cmd_init,
     cmd_plan_check,
+    cmd_review_check,
     cmd_task_check,
     cmd_worktree_ensure,
 )
@@ -87,6 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
     _root(plan)
     _bead(plan, "Plan-step Bead ID.")
     plan.set_defaults(func=cmd_plan_check)
+    review = _leaf(check_commands, "review", "Check the complete native graph before human approval.")
+    _root(review)
+    review.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
+    review.set_defaults(func=cmd_review_check)
     task = _leaf(
         check_commands,
         "task",

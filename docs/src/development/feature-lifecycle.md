@@ -18,15 +18,21 @@ approval step. The audit has one `children-of(implementation)` waits-for depende
 ## Planning
 
 `/plan-feature` runs `dstack init` and requires `dstack check formula` to validate committed policy before pouring new
-work. It records the request, repository evidence, questions and answers, decisions, rationale, acceptance criteria,
-non-goals, and documentation impact in the plan Bead. It does not create implementation tasks.
+work. It records the original request in the plan description, a publishable design fragment in the design field,
+observable outcomes in acceptance criteria, and material questions and answers in native comments. The design contains
+exactly six level-three headings: Goals, User-facing behavior, Implemented design, Compatibility and constraints,
+Validation, and Non-goals. Planning focuses on user intent; it does not broadly inspect the repository or create
+implementation tasks.
 
-Planning closes only after the ambiguity pass is complete and `dstack check plan --bead <plan-bead>` succeeds.
+Planning closes only after its questions are resolved and `dstack check plan --bead <plan-bead>` succeeds.
 
 ## Review and approval
 
-`/review-plan` compares the plan with current repository behavior and creates bounded implementation tasks with native
-dependencies. It presents the reviewed graph for explicit human approval before implementation becomes ready.
+`/review-plan` first searches targeted project memories, then reconciles the design with relevant current code, tests,
+and documentation. It creates bounded implementation tasks with native dependencies. Before presenting the result, it
+runs `dstack check review --feature <feature-root>` to validate fixed steps, task shape and parentage, direct approval
+blockers, native readiness, cycle freedom, final-step fan-in, and task descriptions whose leading Markdown bullets
+become canonical commit material. Invocation never grants human approval.
 
 ## Implementation
 

@@ -9,8 +9,9 @@ The canonical command surface is:
 ```text
 dstack init [--root PATH] [--update]
 dstack install skills [--agent-dir PATH]
-dstack install formula [--root PATH] [--update]
+dstack check formula [--root PATH]
 dstack check plan --bead ID [--root PATH]
+dstack check review --feature ID [--root PATH]
 dstack check task --bead ID [--root PATH]
 dstack check docs [--root PATH]
 dstack commit [-a|--amend] -b|--bead ID [--body FILE] [--root PATH]
@@ -38,7 +39,9 @@ dstack install skills [--agent-dir PATH]
 ## Checks and repository operations
 
 ```text
+dstack check formula
 dstack check plan --bead <plan-bead>
+dstack check review --feature <feature-root>
 dstack check task --bead <task>
 dstack check docs
 
@@ -47,10 +50,13 @@ dstack commit --bead <task> [--body <path>]
 dstack commit --amend --bead <task> [--body <path>]
 ```
 
-Plan checks validate native plan fields. Task checks validate graph membership, approval dependencies, Git evidence,
-worktree cleanliness, documentation impact, and `hk check -a`. Worktree checks derive `feat/<slug>` from the feature
-root and verify its branch, path, repository, and base ancestry. Commit subjects come from task labels and titles; each
-commit contains exactly one `Beads: <task>` footer. Use `--amend` to preserve the existing footer ownership.
+Formula checks validate installed policy against the package and committed `HEAD`. Plan checks bind the requested Bead
+to the fixed plan step and require exactly the six publishable design headings. Review checks validate the complete
+native graph and bullet-oriented descriptions for new tasks before approval. Task checks validate graph membership,
+approval dependencies, Git evidence, worktree cleanliness, and `hk check -a`. Worktree checks derive `feat/<slug>` from
+the feature root and verify its branch, path, repository,
+and base ancestry. Commit subjects come from task labels and titles; each commit contains exactly one `Beads: <task>`
+footer. Use `--amend` to preserve the existing footer ownership.
 
 ## Audit
 

@@ -5,49 +5,26 @@ from pathlib import Path
 from .conftest import pour_feature, requires_bd, run_command, run_dstack, run_dstack_root, run_json
 
 
-PLAN = """## Goal
+PLAN = """### Goals
 Use Beads as workflow authority.
 
-## Current behavior
-The controller duplicates lifecycle state.
+### User-facing behavior
+Explicit lifecycle commands expose native ready work.
 
-## Proposed behavior
+### Implemented design
 Use one native molecule and targeted skills.
 
-## Repository evidence
-The formula contains five native steps.
+### Compatibility and constraints
+Retain the stable internal final-step identity.
 
-## Questions and answers
-Question: Should Beads own readiness?\nAnswer: Yes.
+### Validation
+Exercise native dependencies, gates, and dynamic children.
 
-## Decisions and rationale
-Use native dependencies and gates to reduce context.
-
-## Compatibility
-The feature preserves supported interfaces and tool contracts.
-
-## Documentation impact
-
-### End users
-Document the four targeted commands.
-
-### Developers
-Document authority and deterministic mechanics.
-
-### Future agents
-Record the native-workflow invariant.
-
-## Non-goals
+### Non-goals
 No custom scheduler or lifecycle database.
 """
 
-TASK_DESCRIPTION = """Implement the reviewed outcome.
-
-## Documentation impact
-
-- End-user: required - Update current usage documentation for the behavior.
-- Developer: required - Document architecture, tests, and extension boundaries.
-- Future-agent: required - Record the durable invariant and decision rationale.
+TASK_DESCRIPTION = """- Implement the reviewed outcome through the public workflow.
 """
 
 
@@ -124,8 +101,6 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         "--no-inherit-labels",
         "--labels",
         "dstack:work:implementation",
-        "--labels",
-        "dstack:commit:feat",
         "--deps",
         f"blocked-by:{steps['approval']['id']}",
         "--description-file",
@@ -135,6 +110,7 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
     )
     task_id = str(task["id"])
     assert "dstack:step:implementation" not in task.get("labels", [])
+    assert "dstack:commit:feat" not in task.get("labels", [])
     assert (
         run_json(
             real_repo,
@@ -146,6 +122,9 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         )
         == []
     )
+    review = run_dstack(real_repo, "check", "review", "--bead", root)
+    assert review["status"] == "ok"
+    assert review["tasks"] == [task_id]
     run_json(real_repo, "close", steps["review"]["id"], "--reason", "Reviewed graph created")
 
     assert (

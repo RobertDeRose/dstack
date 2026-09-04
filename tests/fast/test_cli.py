@@ -22,6 +22,10 @@ def test_parser_exposes_ergonomic_commands() -> None:
     assert plan.command == "plan"
     assert plan.bead == "ds-plan"
 
+    review = parser.parse_args(["check", "review", "--bead", "ds-root"])
+    assert review.command == "review"
+    assert review.bead == "ds-root"
+
     task = parser.parse_args(["check", "task", "-b", "ds-task"])
     assert task.command == "task"
     assert task.bead == "ds-task"
@@ -69,18 +73,21 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "cmd_install_skills", record("skills", 11))
     monkeypatch.setattr(cli, "cmd_formula_check", record("formula-check", 17))
     monkeypatch.setattr(cli, "cmd_plan_check", record("plan", 13))
+    monkeypatch.setattr(cli, "cmd_review_check", record("review", 18))
     monkeypatch.setattr(cli, "cmd_commit", record("commit", 14))
     monkeypatch.setattr(cli, "cmd_worktree_ensure", record("worktree", 15))
 
     assert cli.main(["install", "skills", "--agent-dir", "/tmp/agent"]) == 11
     assert cli.main(["check", "formula", "--root", "/tmp/project"]) == 17
     assert cli.main(["check", "plan", "--bead", "ds-plan"]) == 13
+    assert cli.main(["check", "review", "--feature", "ds-root"]) == 18
     assert cli.main(["commit", "--bead", "ds-task"]) == 14
     assert cli.main(["worktree", "--bead", "ds-feature"]) == 15
     assert [name for name, _ in calls] == [
         "skills",
         "formula-check",
         "plan",
+        "review",
         "commit",
         "worktree",
     ]
