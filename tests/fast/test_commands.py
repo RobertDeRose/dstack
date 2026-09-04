@@ -77,17 +77,46 @@ def graph_fixture() -> tuple[GraphClient, dict[str, Any], dict[str, dict[str, An
         "metadata": {"dstack.base_branch": "main"},
     }
     steps = {
-        "plan": {"id": "plan"},
-        "review": {"id": "review"},
-        "approval": {"id": "approval"},
+        "plan": {
+            "id": "plan",
+            "title": "Plan example",
+            "description": "Original request",
+            "issue_type": "task",
+            "labels": ["dstack:step:plan"],
+            "design": """### Goals
+Deliver the workflow.
+
+### User-facing behavior
+Expose explicit lifecycle commands.
+
+### Implemented design
+Use native Beads state.
+
+### Compatibility and constraints
+Keep the native final-step identity.
+
+### Validation
+Exercise the real graph.
+
+### Non-goals
+No shadow controller.
+""",
+            "acceptance_criteria": "The native graph controls readiness.",
+            "status": "closed",
+        },
+        "review": {"id": "review", "issue_type": "task", "status": "in_progress"},
+        "approval": {"id": "approval", "issue_type": "task", "status": "open"},
         "implementation": {"id": "implementation", "issue_type": "epic"},
-        "audit": {"id": "audit"},
+        "audit": {"id": "audit", "issue_type": "task", "status": "open"},
     }
     task = {
         "id": "task",
+        "title": "Implement native workflow",
         "issue_type": "task",
         "parent": "implementation",
         "labels": ["dstack:work:implementation", "dstack:commit:feat"],
+        "description": "Implement the reviewed behavior.",
+        "acceptance_criteria": "The public workflow uses native readiness.",
         "dependencies": [
             {"id": "implementation", "dependency_type": "parent-child"},
             {"id": "approval", "dependency_type": "blocks"},
@@ -95,8 +124,9 @@ def graph_fixture() -> tuple[GraphClient, dict[str, Any], dict[str, dict[str, An
     }
     issues = {
         "root": root,
+        **steps,
         "implementation": steps["implementation"],
-        "approval": {"id": "approval", "issue_type": "task", "parent": "root"},
+        "approval": {**steps["approval"], "parent": "root"},
         "audit": {
             "id": "audit",
             "issue_type": "task",
@@ -134,3 +164,36 @@ def test_graph_check_rejects_nonstandard_readiness_edges() -> None:
     client.issues["other"] = {"id": "other", "issue_type": "task", "parent": "implementation"}
 
     assert subject.graph_errors_for_task(client, task, root, steps, [task])  # type: ignore[arg-type]
+
+
+def test_preapproval_review_accepts_complete_blocked_graph() -> None:
+    client, root, steps, task = graph_fixture()
+
+    assert (
+        subject.review_graph_errors(  # type: ignore[arg-type]
+            client,
+            root,
+            steps,
+            [task],
+            ready_task_ids=[],
+            cycles=[],
+        )
+        == []
+    )
+
+
+def test_preapproval_review_rejects_missing_work_false_readiness_and_cycles() -> None:
+    client, root, steps, task = graph_fixture()
+
+    errors = subject.review_graph_errors(  # type: ignore[arg-type]
+        client,
+        root,
+        steps,
+        [],
+        ready_task_ids=["task"],
+        cycles=[{"cycle": ["task", "approval"]}],
+    )
+
+    assert "review must create at least one implementation task" in errors
+    assert "implementation tasks are ready before approval: task" in errors
+    assert "native Beads dependency graph contains a cycle" in errors

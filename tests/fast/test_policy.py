@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 import pytest
 
 from dstack.core import DstackError
@@ -9,107 +7,115 @@ from dstack.policy import PLAN_SECTIONS, commit_subject, validate_plan_issue, va
 
 
 PLAN_CONTENT = {
-    "Goal": "Ship deterministic planning.",
-    "Current behavior": "The agent guesses.",
-    "Proposed behavior": "The agent asks material questions.",
-    "Repository evidence": "`dstack/policy.py` validates the plan.",
-    "Questions and answers": "Question: Should ambiguity block closure?\nAnswer: Yes.",
-    "Decisions and rationale": "Use native Beads fields to avoid a second plan store.",
-    "Compatibility": "The feature preserves supported interfaces and tool contracts.",
-    "Documentation impact": """### End users
-Update planning usage.
-
-### Developers
-Document the formula and validators.
-
-### Future agents
-Record the authority invariant.""",
-    "Non-goals": "No autonomous product-policy decisions.",
+    "Goals": "Ship deterministic planning.",
+    "User-facing behavior": "The planning skill asks focused product questions.",
+    "Implemented design": "Beads stores the request, design, acceptance criteria, and comments.",
+    "Compatibility and constraints": "Existing repositories remain native Beads projects.",
+    "Validation": "Public checks exercise the completed workflow graph.",
+    "Non-goals": "No custom scheduler or lifecycle database.",
 }
 
-DOCUMENTATION_LINES = (
-    "- End-user: not affected - No observable interface or operational behavior changes.",
-    "- Developer: required - Document queue timestamp ownership in architecture guidance.",
-    "- Future-agent: required - Record the ordering invariant and rationale for later planning.",
-)
 
-
-def plan_design(
-    *,
-    questions: str | None = None,
-    order: Iterable[str] = PLAN_SECTIONS,
-    content_overrides: dict[str, str] | None = None,
-) -> str:
-    content = dict(PLAN_CONTENT)
-    if questions is not None:
-        content["Questions and answers"] = questions
-    if content_overrides:
-        content.update(content_overrides)
-    return "\n\n".join(f"## {section}\n{content[section]}" for section in order) + "\n"
+def plan_design(*, level: int = 3, omit: str | None = None) -> str:
+    marker = "#" * level
+    return "\n\n".join(f"{marker} {section}\n{content}" for section, content in PLAN_CONTENT.items() if section != omit)
 
 
 def valid_plan(**kwargs: object) -> dict[str, object]:
     return {
         "id": "ds-plan",
+        "title": "Plan deterministic workflow",
+        "description": "Original user request: make workflow state native.",
         "issue_type": "task",
         "labels": ["dstack:step:plan"],
         "design": plan_design(**kwargs),
-        "acceptance_criteria": "The plan validator accepts this complete structure.",
+        "acceptance_criteria": "The native graph exposes each reviewed step in dependency order.",
     }
 
 
-def valid_task(*, documentation_lines: Iterable[str] = DOCUMENTATION_LINES) -> dict[str, object]:
-    matrix = "\n".join(documentation_lines)
+def valid_task() -> dict[str, object]:
     return {
         "id": "ds-task",
         "title": "Preserve inbound arrival timestamps",
         "issue_type": "task",
-        "labels": [
-            "dstack:work:implementation",
-            "dstack:commit:fix",
-            "dstack:scope:coordinator",
-        ],
-        "description": f"""Implement arrival ordering.
-
-## Documentation impact
-
-{matrix}
-""",
+        "labels": ["dstack:work:implementation"],
+        "description": (
+            "- Implement arrival ordering through the public queue interface.\n"
+            "- Cover timestamp retention through observable tests."
+        ),
         "acceptance_criteria": "Queued messages retain the timestamp captured at ingress.",
     }
 
 
-def test_complete_plan_is_valid() -> None:
+def legacy_commit_task() -> dict[str, object]:
+    task = valid_task()
+    task["labels"] = [
+        "dstack:work:implementation",
+        "dstack:commit:fix",
+        "dstack:scope:coordinator",
+    ]
+    return task
+
+
+def test_complete_publishable_plan_is_valid() -> None:
     result = validate_plan_issue(valid_plan())
     assert result["status"] == "ok"
     assert result["errors"] == []
+    assert result["required_sections"] == list(PLAN_SECTIONS)
 
 
-def test_plan_validation_ignores_prose_wording_wrapping_and_section_order() -> None:
-    reordered = tuple(reversed(PLAN_SECTIONS))
-    issue = valid_plan(
-        order=reordered,
-        content_overrides={
-            "Goal": "Ship deterministic planning while preserving\nrepository authority and compact agent context.",
-            "Current behavior": "Planning behavior is inconsistent across agents.",
-            "Proposed behavior": "Validate the observable Beads record instead of copied skill wording.",
-        },
-    )
-    assert validate_plan_issue(issue)["status"] == "ok"
+def test_plan_requires_level_three_publishable_sections() -> None:
+    wrong_level = validate_plan_issue(valid_plan(level=2))
+    missing = validate_plan_issue(valid_plan(omit="Validation"))
+
+    assert wrong_level["status"] == "invalid"
+    assert any("level-three" in error for error in wrong_level["errors"])
+    assert "missing plan section: Validation" in missing["errors"]
 
 
-def test_plan_rejects_unresolved_questions_and_placeholders() -> None:
-    issue = valid_plan(questions="Status: unresolved\nTODO decide who owns authority.")
+def test_plan_rejects_sections_outside_the_publishable_set() -> None:
+    issue = valid_plan()
+    issue["design"] = f"{issue['design']}\n\n### Repository evidence\nInternal planning notes."
+
     result = validate_plan_issue(issue)
+
     assert result["status"] == "invalid"
-    assert len(result["errors"]) >= 2
+    assert "plan headings must be exactly the publishable section set" in result["errors"]
 
 
-def test_task_requires_all_documentation_audiences() -> None:
-    issue = valid_task(documentation_lines=DOCUMENTATION_LINES[:-1])
+def test_plan_rejects_missing_request_acceptance_and_placeholders() -> None:
+    issue = valid_plan()
+    issue["description"] = ""
+    issue["acceptance_criteria"] = "TODO"
+    result = validate_plan_issue(issue)
+
+    assert result["status"] == "invalid"
+    assert "native Beads description is empty" in result["errors"]
+    assert "acceptance criteria contain a placeholder or unchecked item" in result["errors"]
+
+
+def test_task_requires_only_native_shape_and_observable_acceptance() -> None:
+    assert validate_task_issue(valid_task()) == {
+        "status": "ok",
+        "bead": "ds-task",
+        "errors": [],
+    }
+
+
+def test_task_requires_bullet_oriented_commit_material() -> None:
+    issue = valid_task()
+    issue["description"] = "Implement arrival ordering through the public queue interface."
+
     result = validate_task_issue(issue)
+
     assert result["status"] == "invalid"
-    assert set(result["documentation_impact"]) == {"End-user", "Developer"}
+    assert "implementation Bead description must begin with Markdown commit bullets" in result["errors"]
+
+
+def test_task_tolerates_legacy_bootstrap_metadata_without_requiring_it() -> None:
+    issue = legacy_commit_task()
+    issue["description"] = "Legacy prose summary."
+    assert validate_task_issue(issue)["status"] == "ok"
 
 
 def test_task_requires_a_native_task_issue_type() -> None:
@@ -122,50 +128,10 @@ def test_task_requires_a_native_task_issue_type() -> None:
     assert "implementation Bead must be a task issue" in result["errors"]
 
 
-def test_documentation_impact_rejects_weak_reason() -> None:
-    lines = (
-        "- End-user: not affected - None.",
-        DOCUMENTATION_LINES[1],
-        DOCUMENTATION_LINES[2],
-    )
-    result = validate_task_issue(valid_task(documentation_lines=lines))
-    assert result["status"] == "invalid"
-    assert result["documentation_impact"]["End-user"] == {
-        "status": "not affected",
-        "reason": "None.",
-    }
+def test_commit_subject_remains_compatible_until_commit_transition() -> None:
+    assert commit_subject(legacy_commit_task()) == "fix(coordinator): preserve inbound arrival timestamps"
 
-
-def test_commit_subject_is_derived_from_task_policy() -> None:
-    assert commit_subject(valid_task()) == "fix(coordinator): preserve inbound arrival timestamps"
-
-
-def test_commit_subject_rejects_embedded_conventional_prefix() -> None:
-    issue = valid_task()
+    issue = legacy_commit_task()
     issue["title"] = "fix(coordinator): preserve inbound arrival timestamps"
     with pytest.raises(DstackError):
         commit_subject(issue)
-
-
-def test_plan_requires_question_ledger_or_evidence_based_none_declaration() -> None:
-    assert validate_plan_issue(valid_plan(questions="Repository investigation was complete."))["status"] == "invalid"
-    assert (
-        validate_plan_issue(
-            valid_plan(
-                questions=(
-                    "No material questions: Existing tests and accepted decisions resolve the requested behavior."
-                )
-            )
-        )["status"]
-        == "ok"
-    )
-
-
-def test_plan_rejects_unpaired_or_unresolved_answer() -> None:
-    assert validate_plan_issue(valid_plan(questions="Question: Should ambiguity block closure?"))["status"] == "invalid"
-    assert (
-        validate_plan_issue(valid_plan(questions="Question: Should ambiguity block closure?\nAnswer: Unknown"))[
-            "status"
-        ]
-        == "invalid"
-    )

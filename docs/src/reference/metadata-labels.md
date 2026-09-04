@@ -18,13 +18,14 @@ dstack:step:implementation
 dstack:step:audit
 ```
 
-Implementation tasks use:
+Implementation tasks use only the discovery label:
 
 ```text
 dstack:work:implementation
-dstack:commit:<type>
-dstack:scope:<optional-scope>
 ```
+
+Commit type and scope are derived from the fixed feature contract rather than task metadata. Legacy labels may remain on
+tasks created by a workflow already active during the transition, but new tasks do not require them.
 
 Decision Beads use the native `decision` type with searchable feature, area, and concern labels.
 

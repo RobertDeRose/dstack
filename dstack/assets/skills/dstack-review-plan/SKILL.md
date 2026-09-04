@@ -47,6 +47,7 @@ Create only bounded implementation outcomes under the formula's implementation e
 - have label `dstack:work:implementation`;
 - have exactly one `dstack:commit:<type>` label;
 - optionally have one `dstack:scope:<scope>` label;
+- begin its description with meaningful Markdown bullets that become canonical commit material;
 - contain concrete acceptance criteria;
 - contain this documentation-impact matrix with a meaningful reason:
 

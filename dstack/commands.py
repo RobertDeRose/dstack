@@ -11,6 +11,7 @@ from .core import (
     DstackError,
     _assert_no_symlink_components,
     ancestry,
+    as_items,
     audit_fan_in_errors,
     branch_exists,
     commit_records,
@@ -140,9 +141,94 @@ def cmd_worktree_ensure(args: argparse.Namespace) -> int:
 
 def cmd_plan_check(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    result = validate_plan_issue(client.show(args.bead))
+    plan = client.show(args.bead)
+    root = feature_identity(client, args.bead)[0]
+    expected = feature_steps(client, str(root["id"]))["plan"]
+    result = validate_plan_issue(plan)
+    if str(plan.get("id")) != str(expected.get("id")):
+        result["errors"].append(f"plan Bead is not the fixed plan step {expected['id']}")
+        result["status"] = "invalid"
     emit(result)
     return 0 if result["status"] == "ok" else 4
+
+
+def review_graph_errors(
+    client: BeadsClient,
+    root: Mapping[str, Any],
+    steps: Mapping[str, Mapping[str, Any]],
+    tasks: list[dict[str, Any]],
+    *,
+    ready_task_ids: list[str],
+    cycles: list[Any],
+) -> list[str]:
+    """Validate the complete native graph immediately before human approval."""
+
+    errors: list[str] = []
+    plan = client.show(str(steps["plan"]["id"]))
+    plan_result = validate_plan_issue(plan)
+    errors.extend(f"plan: {error}" for error in plan_result["errors"])
+    if str(plan.get("status")) != "closed":
+        errors.append("fixed plan step must be closed before approval")
+    if str(steps["review"].get("status")) != "in_progress":
+        errors.append("fixed review step must be in_progress during preapproval validation")
+    if str(steps["approval"].get("status")) != "open":
+        errors.append("fixed approval step must remain open during preapproval validation")
+    if not tasks:
+        errors.append("review must create at least one implementation task")
+
+    for task in tasks:
+        validation = validate_task_issue(task)
+        errors.extend(f"{task.get('id')}: {error}" for error in validation["errors"])
+        errors.extend(implementation_task_graph_errors(client, task, root, steps))
+    errors.extend(audit_fan_in_errors(client, steps, tasks))
+
+    if ready_task_ids:
+        errors.append("implementation tasks are ready before approval: " + ", ".join(sorted(ready_task_ids)))
+    if cycles:
+        errors.append("native Beads dependency graph contains a cycle")
+    return errors
+
+
+def cmd_review_check(args: argparse.Namespace) -> int:
+    client = client_for(args.root)
+    root, slug, _ = feature_identity(client, args.bead)
+    steps = feature_steps(client, str(root["id"]))
+    tasks = implementation_tasks(client, str(steps["implementation"]["id"]))
+    ready = as_items(
+        client.json(
+            [
+                "bd",
+                "ready",
+                "--parent",
+                str(steps["implementation"]["id"]),
+                "--label",
+                "dstack:work:implementation",
+                "--json",
+            ]
+        ),
+        context="bd ready implementation",
+    )
+    cycles_payload = client.json(["bd", "dep", "cycles", "--json"])
+    if not isinstance(cycles_payload, list):
+        raise DstackError("bd dep cycles returned an unknown JSON shape")
+    errors = review_graph_errors(
+        client,
+        root,
+        steps,
+        tasks,
+        ready_task_ids=[str(item["id"]) for item in ready],
+        cycles=cycles_payload,
+    )
+    emit(
+        {
+            "status": "ok" if not errors else "invalid",
+            "feature": root["id"],
+            "slug": slug,
+            "tasks": [str(task["id"]) for task in tasks],
+            "errors": errors,
+        }
+    )
+    return 0 if not errors else 4
 
 
 def _worktree_status(path: Path) -> dict[str, Any]:

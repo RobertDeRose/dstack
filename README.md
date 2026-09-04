@@ -59,6 +59,7 @@ dstack init [--root PATH] [--update]
 dstack install skills [--agent-dir PATH]
 dstack check formula [--root PATH]
 dstack check plan --bead <plan>
+dstack check review --bead <feature-root>
 dstack check task --bead <task>
 dstack check docs [--root PATH]
 dstack commit --bead <task> [--body <path>]

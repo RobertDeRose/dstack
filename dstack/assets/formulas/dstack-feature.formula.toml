@@ -3,8 +3,8 @@ description = """
 Beads-native feature workflow for dStack.
 
 Beads owns every durable workflow transition. The molecule records planning,
-independent plan review, human approval, implementation work, and final drift
-audit. dStack supplies only deterministic repository mechanics and validators.
+independent plan review, human approval, implementation work, and final close.
+dStack supplies only deterministic repository mechanics and validators.
 """
 version = 2
 type = "workflow"
@@ -39,11 +39,9 @@ type = "task"
 priority = 1
 labels = ["dstack:step:plan"]
 description = """
-Investigate the current implementation, governing documentation, tests, and
-relevant prior decisions. Identify material ambiguity and ask the user focused
-questions before finalizing the plan. Record the resulting plan, answers,
-decisions, rationale, non-goals, compatibility concerns, acceptance criteria,
-and documentation impact on this Bead.
+Record the original request, desired behavior, constraints, non-goals, focused
+questions and answers, a publishable design, and observable acceptance criteria.
+Planning stays focused on user intent rather than broad repository investigation.
 
 Feature slug: {{feature_slug}}
 Base branch: {{base_branch}}
@@ -57,11 +55,11 @@ priority = 1
 needs = ["plan"]
 labels = ["dstack:step:review"]
 description = """
-Review the completed plan independently against current code, tests, project
-design, current documentation, and relevant decisions. Resolve clear defects in
-the plan, ask the user when authority is ambiguous, and create bounded native
-Beads implementation tasks with explicit dependencies and documentation-impact
-classifications.
+Search targeted project memories, then reconcile the completed plan against only
+the relevant current code, tests, documentation, and accepted decisions. Resolve
+clear defects, ask the user when authority is ambiguous, create bounded native
+implementation tasks with explicit dependencies, and validate the complete graph
+before requesting approval.
 """
 
 [[steps]]
@@ -92,8 +90,8 @@ description = """
 Structural container for reviewed implementation tasks. Beads 1.2.2 rejects
 blocking dependencies between task and epic issue types, so this epic has no
 approval dependency. Each native child task is created atomically with a blocker
-on the task-shaped approval milestone and owns any code, tests, configuration,
-and current documentation needed for its accepted outcome. Native waits-for
+on the task-shaped approval milestone and owns one bounded accepted outcome.
+Native waits-for
 fan-in on the final close step is the sole implementation-completion dependency.
 """
 
