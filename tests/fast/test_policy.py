@@ -102,14 +102,46 @@ def test_task_requires_only_native_shape_and_observable_acceptance() -> None:
     }
 
 
-def test_task_requires_bullet_oriented_commit_material() -> None:
+def test_task_accepts_prose_planned_description_without_commit_labels() -> None:
     issue = valid_task()
     issue["description"] = "Implement arrival ordering through the public queue interface."
+    issue["labels"] = ["dstack:work:implementation"]
+
+    assert validate_task_issue(issue) == {
+        "status": "ok",
+        "bead": "ds-task",
+        "errors": [],
+    }
+
+
+def test_task_rejects_malformed_execution_notes() -> None:
+    issue = valid_task()
+    issue["notes"] = "Implementation:"
 
     result = validate_task_issue(issue)
 
     assert result["status"] == "invalid"
-    assert "implementation Bead description must begin with Markdown commit bullets" in result["errors"]
+    assert any("implementation note" in error for error in result["errors"])
+
+
+def test_task_rejects_non_action_implementation_notes() -> None:
+    issue = valid_task()
+    issue["notes"] = "Implementation: The output is compact."
+
+    result = validate_task_issue(issue)
+
+    assert result["status"] == "invalid"
+    assert "implementation note must start with a clear action verb" in result["errors"]
+
+
+def test_task_rejects_conflicting_change_modes() -> None:
+    issue = valid_task()
+    issue["notes"] = "No repository change: The outcome is documentation-only.\nImplementation: Add a fixture."
+
+    result = validate_task_issue(issue)
+
+    assert result["status"] == "invalid"
+    assert "implementation notes cannot be combined with a No repository change reason" in result["errors"]
 
 
 def test_task_tolerates_legacy_bootstrap_metadata_without_requiring_it() -> None:
@@ -128,10 +160,12 @@ def test_task_requires_a_native_task_issue_type() -> None:
     assert "implementation Bead must be a task issue" in result["errors"]
 
 
-def test_commit_subject_remains_compatible_until_commit_transition() -> None:
-    assert commit_subject(legacy_commit_task()) == "fix(coordinator): preserve inbound arrival timestamps"
+def test_commit_subject_is_fixed_by_feature_slug_and_task_title() -> None:
+    assert commit_subject(valid_task(), "native-workflow") == (
+        "feat(native-workflow): preserve inbound arrival timestamps"
+    )
 
-    issue = legacy_commit_task()
+    issue = valid_task()
     issue["title"] = "fix(coordinator): preserve inbound arrival timestamps"
     with pytest.raises(DstackError):
-        commit_subject(issue)
+        commit_subject(issue, "native-workflow")

@@ -19,7 +19,7 @@ from .commands import (
 )
 from .core import DstackError
 from .docs import cmd_docs_export, cmd_docs_validate
-from .git_ops import cmd_git_amend, cmd_git_commit
+from .git_ops import cmd_git_commit
 from .installer import cmd_install_skills, default_agent_dir
 from .output import fail
 
@@ -46,10 +46,6 @@ def _root(parser: argparse.ArgumentParser) -> None:
 
 def _bead(parser: argparse.ArgumentParser, help: str) -> None:
     parser.add_argument("-b", "--bead", required=True, help=help)
-
-
-def cmd_commit(args: argparse.Namespace) -> int:
-    return cmd_git_amend(args) if args.amend else cmd_git_commit(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -112,17 +108,10 @@ def build_parser() -> argparse.ArgumentParser:
     export_design.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
     export_design.set_defaults(func=cmd_docs_export)
 
-    commit = _leaf(commands, "commit", "Create a deterministic Conventional Commit from an implementation Bead.")
+    commit = _leaf(commands, "commit", "Create or correct the canonical commit for an implementation task.")
     _root(commit)
-    commit.add_argument(
-        "-a",
-        "--amend",
-        action="store_true",
-        help="Amend HEAD while preserving its exact Beads ownership.",
-    )
     _bead(commit, "Implementation Bead ID.")
-    commit.add_argument("--body", dest="body_file", type=Path, help="Optional UTF-8 commit body file.")
-    commit.set_defaults(func=cmd_commit, amend=False)
+    commit.set_defaults(func=cmd_git_commit)
 
     worktree = _leaf(commands, "worktree", "Create or verify the feature worktree for a Bead.")
     _root(worktree)

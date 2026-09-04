@@ -30,8 +30,9 @@ from .core import (
     worktree_for_branch,
 )
 from .formula import beads_workspace, check_formula, init_workspace, install_formula
+from .git_ops import canonical_task_message, commit_record_matches_message
 from .output import emit
-from .policy import no_repository_change_reason, validate_plan_issue, validate_task_issue
+from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
 
 VALIDATION_COMMAND = ("hk", "check", "-a")
 
@@ -289,6 +290,8 @@ def cmd_task_check(args: argparse.Namespace) -> int:
     task = client.show(args.bead)
     result = validate_task_issue(task)
     errors = list(result["errors"])
+    if str(task.get("status") or "") != "in_progress":
+        errors.append("implementation task must be in_progress during validation")
 
     feature_root, slug, base = feature_identity(client, args.bead)
     steps = feature_steps(client, str(feature_root["id"]))
@@ -306,32 +309,54 @@ def cmd_task_check(args: argparse.Namespace) -> int:
         errors.append(f"feature branch {branch} does not contain base branch {base}")
     evidence_range = f"{base}..{branch}"
     records = commit_records(client.root, evidence_range)
+    task_records = [record for record in records if args.bead in record.get("footer_ids", ())]
     evidence = [
         {
             "commit": str(record["commit"]),
             "subject": str(record["subject"]),
             "paths": list(record.get("paths", [])),
         }
-        for record in records
-        if args.bead in record.get("footer_ids", ())
+        for record in task_records
     ]
     try:
         reject_beads_paths([path for record in records for path in record.get("paths", [])])
     except DstackError as exc:
         errors.append(str(exc))
 
-    no_change = no_repository_change_reason(task)
+    notes_valid = True
+    try:
+        execution_notes = implementation_notes(task)
+    except DstackError as exc:
+        notes_valid = False
+        execution_notes = []
+        errors.append(str(exc))
+    no_change = no_repository_change_reason(task) if notes_valid else None
+    if notes_valid and not no_change and not execution_notes:
+        errors.append("implementation task requires at least one Implementation note before committing")
     if not evidence and not no_change:
-        errors.append("no reachable Git commit references this Bead and no `No repository change:` reason is recorded")
+        errors.append("no reachable Git commit references this task and no `No repository change:` reason is recorded")
+    elif len(evidence) > 1:
+        errors.append("implementation task must have exactly one reachable canonical commit")
+    elif evidence:
+        try:
+            expected_message = canonical_task_message(task, slug)
+        except DstackError:
+            errors.append("implementation task commit does not match the deterministic message contract")
+        else:
+            if not commit_record_matches_message(task_records[0], expected_message):
+                errors.append("implementation task commit does not match the deterministic message contract")
 
     invalid_footer_commits = sorted(
         str(record["commit"])
         for record in records
-        if args.bead in record.get("footer_ids", ()) and tuple(record.get("footer_ids", ())) != (args.bead,)
+        if (
+            args.bead in record.get("legacy_footer_ids", ())
+            or (args.bead in record.get("footer_ids", ()) and tuple(record.get("footer_ids", ())) != (args.bead,))
+        )
     )
     if invalid_footer_commits:
         errors.append(
-            "task evidence commits must contain exactly one Beads footer for this task: "
+            "task evidence commits must contain exactly one ownership footer for this task: "
             + ", ".join(invalid_footer_commits)
         )
 

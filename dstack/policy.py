@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import string
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -16,13 +17,28 @@ PLAN_SECTIONS = (
     "Validation",
     "Non-goals",
 )
-COMMIT_TYPES = frozenset({"build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "test"})
 COMMIT_SUBJECT_MAX = 100
+MAX_IMPLEMENTATION_NOTES = 100
+MAX_IMPLEMENTATION_NOTE_LENGTH = 96
+MAX_IMPLEMENTATION_BODY_LENGTH = 4000
+MAX_IMPLEMENTATION_NOTES_FIELD_LENGTH = 50000
 
 _HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 _PLACEHOLDER = re.compile(r"(?i)\b(?:todo|tbd|fixme|lorem ipsum)\b|<[^>\n]+>|\?\?\?|^\s*[-*]\s*\[ \]", re.MULTILINE)
-_SCOPE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_FEATURE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _CONVENTIONAL_PREFIX = re.compile(r"^(?:build|chore|ci|docs|feat|fix|perf|refactor|revert|test)(?:\([^)]+\))?!?:\s+")
+_OWNERSHIP_TOKEN = re.compile(r"(?i)\b(?:Task|Beads):\s*\S+")
+_NOTE_LINE_END = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
+_ACTION_VERBS = frozenset(
+    """
+    add adopt allow apply archive assert audit avoid autosquash batch bound build change check claim classify close collect compare
+    complete configure connect create default define delete derive detect disable document drop emit enforce ensure expose
+    export extract fail fetch fix format generate guard handle harden implement include initialize install keep limit link
+    load make mark migrate normalize omit open parse preserve prevent process publish read record reject remove replace report
+    require reset resolve restore return reword run scan select separate serialize set ship simplify split stage start stop store
+    strip support test track transform truncate update use validate verify write
+    """.split()
+)
 
 
 @dataclass(frozen=True)
@@ -75,6 +91,45 @@ def _issue_text(issue: Mapping[str, Any], field: str) -> str:
     return str(value).strip() if isinstance(value, str) else ""
 
 
+def _bounded_notes_text(issue: Mapping[str, Any]) -> str:
+    value = issue.get("notes")
+    if not isinstance(value, str):
+        return ""
+    if len(value) > MAX_IMPLEMENTATION_NOTES_FIELD_LENGTH:
+        raise DstackError(
+            "implementation notes field exceeds the bounded limit of "
+            f"{MAX_IMPLEMENTATION_NOTES_FIELD_LENGTH} characters"
+        )
+    return value
+
+
+def _iter_note_lines(notes: str):
+    start = 0
+    for match in _NOTE_LINE_END.finditer(notes):
+        yield notes[start : match.start()]
+        start = match.end()
+    if start < len(notes):
+        yield notes[start:]
+
+
+def _normalize_implementation_note(value: str) -> str:
+    return value.strip().strip(string.punctuation).strip()
+
+
+def _lint_implementation_note(value: str) -> str:
+    normalized = _normalize_implementation_note(value)
+    if not normalized:
+        raise DstackError("implementation note must contain text after Implementation:")
+    if len(normalized) > MAX_IMPLEMENTATION_NOTE_LENGTH:
+        raise DstackError(
+            f"implementation note exceeds the bounded length of {MAX_IMPLEMENTATION_NOTE_LENGTH} characters"
+        )
+    first_word = re.match(r"[A-Za-z]+(?:[-'][A-Za-z]+)*", normalized)
+    if first_word is None or first_word.group(0).casefold() not in _ACTION_VERBS:
+        raise DstackError("implementation note must start with a clear action verb")
+    return normalized
+
+
 def validate_plan_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
     if issue_type(issue) != "task":
@@ -124,33 +179,6 @@ def validate_plan_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def commit_policy(issue: Mapping[str, Any]) -> tuple[str | None, str | None, list[str]]:
-    """Read the legacy commit labels while active workflows transition."""
-
-    labels = issue_labels(issue)
-    type_labels = [label.removeprefix("dstack:commit:") for label in labels if label.startswith("dstack:commit:")]
-    scope_labels = [label.removeprefix("dstack:scope:") for label in labels if label.startswith("dstack:scope:")]
-    errors: list[str] = []
-    commit_type: str | None = None
-    scope: str | None = None
-
-    if len(type_labels) != 1:
-        errors.append("implementation Bead must have exactly one dstack:commit:<type> label")
-    elif type_labels[0] not in COMMIT_TYPES:
-        errors.append(f"unsupported commit type: {type_labels[0]}")
-    else:
-        commit_type = type_labels[0]
-
-    if len(scope_labels) > 1:
-        errors.append("implementation Bead may have at most one dstack:scope:<scope> label")
-    elif scope_labels:
-        if not _SCOPE.fullmatch(scope_labels[0]):
-            errors.append(f"invalid commit scope: {scope_labels[0]}")
-        else:
-            scope = scope_labels[0]
-    return commit_type, scope, errors
-
-
 def validate_task_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
     if issue_type(issue) != "task":
@@ -162,13 +190,13 @@ def validate_task_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     description = _issue_text(issue, "description")
     if not description:
         errors.append("implementation Bead description is empty")
-    elif not any(label.startswith("dstack:commit:") for label in issue_labels(issue)):
-        commit_material = description.split("\n\n", 1)[0]
-        bullets = [line.strip() for line in commit_material.splitlines() if line.strip()]
-        if not bullets or any(not re.match(r"^-\s+\S", line) for line in bullets):
-            errors.append("implementation Bead description must begin with Markdown commit bullets")
-        elif _PLACEHOLDER.search(commit_material):
-            errors.append("implementation Bead description commit bullets contain a placeholder")
+    try:
+        execution_notes = implementation_notes(issue)
+    except DstackError as exc:
+        errors.append(str(exc))
+    else:
+        if execution_notes and no_repository_change_reason(issue):
+            errors.append("implementation notes cannot be combined with a No repository change reason")
     acceptance = _issue_text(issue, "acceptance_criteria")
     if not acceptance:
         errors.append("implementation Bead acceptance criteria are empty")
@@ -189,20 +217,19 @@ def _lower_initial(value: str) -> str:
     return value
 
 
-def commit_subject(issue: Mapping[str, Any]) -> str:
+def commit_subject(issue: Mapping[str, Any], feature_slug: str) -> str:
     validation = validate_task_issue(issue)
-    commit_type, scope, commit_errors = commit_policy(issue)
     errors = [error for error in validation["errors"] if "title" in error]
-    errors.extend(commit_errors)
     if errors:
         raise DstackError("cannot derive commit subject: " + "; ".join(errors))
+    if not _FEATURE_SLUG.fullmatch(feature_slug):
+        raise DstackError(f"invalid feature slug for commit subject: {feature_slug!r}")
 
     title = _issue_text(issue, "title")
     if _CONVENTIONAL_PREFIX.match(title):
         raise DstackError("implementation Bead title must not include a Conventional Commit prefix")
     summary = _lower_initial(title.rstrip().rstrip("."))
-    prefix = f"{commit_type}({scope})" if scope else str(commit_type)
-    subject = f"{prefix}: {summary}"
+    subject = f"feat({feature_slug}): {summary}"
     if len(subject) > COMMIT_SUBJECT_MAX:
         raise DstackError(
             f"derived commit subject is {len(subject)} characters; update the Bead title to fit {COMMIT_SUBJECT_MAX}"
@@ -210,7 +237,29 @@ def commit_subject(issue: Mapping[str, Any]) -> str:
     return subject
 
 
+def implementation_notes(issue: Mapping[str, Any]) -> list[str]:
+    """Return ordered, bounded execution notes that may become commit bullets."""
+
+    notes = _bounded_notes_text(issue)
+    result: list[str] = []
+    prefix = "Implementation:"
+    for line in _iter_note_lines(notes):
+        candidate = line.strip()
+        if not candidate:
+            continue
+        if _OWNERSHIP_TOKEN.search(candidate):
+            raise DstackError("implementation notes must not contain Task: or Beads: ownership footers")
+        if not candidate.startswith(prefix):
+            continue
+        value = _lint_implementation_note(candidate.removeprefix(prefix))
+        if len(result) >= MAX_IMPLEMENTATION_NOTES:
+            raise DstackError(f"implementation notes exceed the bounded limit of {MAX_IMPLEMENTATION_NOTES} entries")
+        result.append(value)
+
+    return result
+
+
 def no_repository_change_reason(issue: Mapping[str, Any]) -> str | None:
-    notes = _issue_text(issue, "notes")
+    notes = _bounded_notes_text(issue)
     match = re.search(r"(?im)^No repository change:\s*(\S.+)$", notes)
     return match.group(1).strip() if match else None
