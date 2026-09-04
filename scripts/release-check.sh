@@ -32,10 +32,10 @@ fi
 uv venv --python 3.14 "$tmp/venv"
 uv pip install --python "$tmp/venv/bin/python" "$wheel"
 "$tmp/venv/bin/dstack" --version >/dev/null
-"$tmp/venv/bin/dstack" ctl --help >/dev/null
+"$tmp/venv/bin/dstack" check --help >/dev/null
 
 agent_dir="$tmp/pi-agent"
-"$tmp/venv/bin/dstack" install_skills --agent-dir "$agent_dir" >"$tmp/install-skills.json"
+"$tmp/venv/bin/dstack" install skills --agent-dir "$agent_dir" >"$tmp/install-skills.json"
 for skill in \
   dstack-audit-feature \
   dstack-implement \

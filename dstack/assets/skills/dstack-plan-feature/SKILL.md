@@ -114,7 +114,7 @@ bd update <plan-bead> \
   --acceptance '<observable criteria>' \
   --json
 
-dstack ctl plan check <plan-bead>
+dstack check plan --bead <plan-bead>
 ```
 
 Remove the temporary file after validation. Fix structural failures before closing the plan Bead. Do not create

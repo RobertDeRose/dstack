@@ -784,20 +784,6 @@ def footer_mapping(records: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[
     return result
 
 
-def commits_for_bead(root: Path, ref_range: str, bead_id: str) -> list[dict[str, Any]]:
-    if not bead_id or any(character.isspace() for character in bead_id):
-        raise DstackError("Beads evidence ID must be one non-empty token")
-    return [
-        {
-            "commit": str(record["commit"]),
-            "subject": str(record["subject"]),
-            "paths": list(record.get("paths", [])),
-        }
-        for record in commit_records(root, ref_range)
-        if bead_id in record.get("footer_ids", ())
-    ]
-
-
 def truncate_output(value: str, *, limit: int = 4000) -> str:
     text = value.strip()
     if len(text) <= limit:

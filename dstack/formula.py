@@ -203,7 +203,7 @@ def install_formula(root: Path, *, update: bool = False) -> dict[str, Any]:
     if current is not None and current != source and not update:
         raise DstackError(
             f"project formula differs from the packaged dStack contract: {destination}; "
-            "rerun with `dstack ctl formula install --update` after reviewing the change"
+            "rerun with `dstack install formula --update` after reviewing the change"
         )
 
     prime_source = prime_path().read_bytes()
@@ -213,7 +213,7 @@ def install_formula(root: Path, *, update: bool = False) -> dict[str, Any]:
     if current_prime is not None and current_prime != prime_source and not update:
         raise DstackError(
             f"project Beads prime differs from the packaged dStack contract: {prime}; "
-            "rerun with `dstack ctl formula install --update` after reviewing the change"
+            "rerun with `dstack install formula --update` after reviewing the change"
         )
 
     formula_changed = current != source

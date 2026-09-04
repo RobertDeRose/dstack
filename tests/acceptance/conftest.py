@@ -56,7 +56,7 @@ def run_json(cwd: Path, *args: str) -> Any:
 
 
 def run_dstack(cwd: Path, *args: str, check: bool = True) -> Any:
-    result = run_command([sys.executable, "-m", "dstack", "ctl", "--root", str(cwd), *args], cwd=cwd, check=check)
+    result = run_command([sys.executable, "-m", "dstack", *args, "--root", str(cwd)], cwd=cwd, check=check)
     if not check and result.returncode:
         return result
     return json.loads(result.stdout)
@@ -100,7 +100,7 @@ def real_repo(uninitialized_repo: Path) -> Path:
 
 
 def pour_feature(repo: Path, *, slug: str = "native-workflow") -> tuple[str, dict[str, dict[str, Any]]]:
-    run_dstack(repo, "formula", "install")
+    run_dstack(repo, "install", "formula")
     run_command(["git", "add", ".beads"], cwd=repo)
     if run_command(["git", "diff", "--cached", "--quiet"], cwd=repo, check=False).returncode:
         run_command(["git", "commit", "-qm", "chore: initialize Beads workflow"], cwd=repo)

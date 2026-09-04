@@ -10,7 +10,7 @@
 - **Git** owns repository content, branches, worktrees, and history.
 - **hk** runs the repository validation contract.
 - **dStack skills** guide semantic planning, review, implementation, and audit.
-- **`dstack ctl`** performs deterministic repository checks and mutations.
+- **dStack commands** perform deterministic repository checks and mutations.
 
 ## Workflow
 
@@ -32,9 +32,9 @@ The installed skills are:
 /audit-feature  Compare the delivered work with the approved intent
 ```
 
-The workflow is opt-in. Only these commands, or an explicit request to use dStack, activate Beads tracking. An explicit
-`dstack ctl` command may perform its documented mechanics but does not create issues. Ordinary requests do not run `bd`,
-create Beads issues, or require Beads initialization.
+The workflow is opt-in. Only the targeted skills, or an explicit request to use dStack, activate Beads tracking. dStack
+setup and check commands perform their documented mechanics but do not create workflow issues. Ordinary requests do not
+run `bd`, create Beads issues, or require Beads initialization.
 
 ## Install
 
@@ -42,7 +42,7 @@ Requirements: Git, `uv`, Python 3.14, Beads 1.2.2, hk, and mdBook 0.5.4.
 
 ```bash
 uv tool install --python 3.14 /path/to/dstack
-dstack install_skills
+dstack install skills
 dstack init
 ```
 
@@ -54,17 +54,15 @@ generic integrations are not removed automatically.
 
 ```text
 dstack init [--root PATH] [--update]
-dstack install_skills [--agent-dir PATH]
-dstack ctl formula install [--update]
-dstack ctl formula check
-dstack ctl plan check <plan-bead>
-dstack ctl worktree ensure <feature-or-descendant>
-dstack ctl git commit --bead <task> [--body-file <path>]
-dstack ctl git amend --bead <task> [--body-file <path>]
-dstack ctl evidence commits --bead <task> --ref <range>
-dstack ctl task check <task>
-dstack ctl audit evidence <feature> [detail flags]
-dstack ctl docs validate
+dstack install skills [--agent-dir PATH]
+dstack install formula [--root PATH] [--update]
+dstack check plan --bead <plan>
+dstack check task --bead <task>
+dstack check docs [--root PATH]
+dstack commit --bead <task> [--body <path>]
+dstack commit --amend --bead <task> [--body <path>]
+dstack worktree --bead <feature-or-descendant>
+dstack audit <feature> [detail flags]
 ```
 
 Agent-facing operational commands emit deterministic JSON. Top-level help, version, unknown-command, and argparse output
@@ -74,7 +72,7 @@ the mechanics required by the skills.
 ## Documentation
 
 The canonical documentation is the mdBook under `docs/`. It describes the current architecture, workflow, operations,
-security boundaries, command contracts, and environment. `dstack ctl formula install` also installs the scoped
+security boundaries, command contracts, and environment. `dstack install formula` also installs the scoped
 `.beads/PRIME.md` instructions.
 
 ## Development
