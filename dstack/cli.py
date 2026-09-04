@@ -18,7 +18,7 @@ from .commands import (
     cmd_worktree_ensure,
 )
 from .core import DstackError
-from .docs import cmd_docs_validate
+from .docs import cmd_docs_export, cmd_docs_validate
 from .git_ops import cmd_git_amend, cmd_git_commit
 from .installer import cmd_install_skills, default_agent_dir
 from .output import fail
@@ -100,9 +100,17 @@ def build_parser() -> argparse.ArgumentParser:
     _root(task)
     _bead(task, "Implementation Bead ID.")
     task.set_defaults(func=cmd_task_check)
-    docs = _leaf(check_commands, "docs", "Validate mdBook navigation, links, decisions, and build output.")
-    _root(docs)
-    docs.set_defaults(func=cmd_docs_validate)
+    docs_check = _leaf(check_commands, "docs", "Validate one feature's documentation structure.")
+    _root(docs_check)
+    docs_check.add_argument("--feature", required=True, help="Kebab-case feature slug.")
+    docs_check.set_defaults(func=cmd_docs_validate)
+
+    docs = _leaf(commands, "docs", "Materialize reviewed feature documentation.")
+    docs_commands = docs.add_subparsers(dest="command", required=True)
+    export_design = _leaf(docs_commands, "export-design", "Export the reviewed plan design without rewriting it.")
+    _root(export_design)
+    export_design.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
+    export_design.set_defaults(func=cmd_docs_export)
 
     commit = _leaf(commands, "commit", "Create a deterministic Conventional Commit from an implementation Bead.")
     _root(commit)

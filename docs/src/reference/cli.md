@@ -13,7 +13,8 @@ dstack check formula [--root PATH]
 dstack check plan --bead ID [--root PATH]
 dstack check review --feature ID [--root PATH]
 dstack check task --bead ID [--root PATH]
-dstack check docs [--root PATH]
+dstack check docs --feature SLUG [--root PATH]
+dstack docs export-design --feature ID [--root PATH]
 dstack commit [-a|--amend] -b|--bead ID [--body FILE] [--root PATH]
 dstack worktree -b|--bead ID [--root PATH]
 dstack audit FEATURE [detail flags] [--root PATH]
@@ -43,7 +44,8 @@ dstack check formula
 dstack check plan --bead <plan-bead>
 dstack check review --feature <feature-root>
 dstack check task --bead <task>
-dstack check docs
+dstack check docs --feature <slug>
+dstack docs export-design --feature <feature-root>
 
 dstack worktree --bead <feature-or-descendant>
 dstack commit --bead <task> [--body <path>]
@@ -53,10 +55,11 @@ dstack commit --amend --bead <task> [--body <path>]
 Formula checks validate installed policy against the package and committed `HEAD`. Plan checks bind the requested Bead
 to the fixed plan step and require exactly the six publishable design headings. Review checks validate the complete
 native graph and bullet-oriented descriptions for new tasks before approval. Task checks validate graph membership,
-approval dependencies, Git evidence, worktree cleanliness, and `hk check -a`. Worktree checks derive `feat/<slug>` from
-the feature root and verify its branch, path, repository,
-and base ancestry. Commit subjects come from task labels and titles; each commit contains exactly one `Beads: <task>`
-footer. Use `--amend` to preserve the existing footer ownership.
+approval dependencies, Git evidence, worktree cleanliness, and `hk check -a`. Feature-document checks validate only the
+approved feature index, unchanged exported design, and SUMMARY link; repository tooling owns whole-book builds and
+broader documentation policy. Worktree checks derive `feat/<slug>` from the feature root and verify its branch, path,
+repository, and base ancestry. Commit subjects come from task labels and titles; each commit contains exactly one
+`Beads: <task>` footer. Use `--amend` to preserve the existing footer ownership.
 
 ## Audit
 

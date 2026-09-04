@@ -10,7 +10,8 @@ local linters = new Mapping<String, Step> {
   ["actionlint"] = Builtins.actionlint
   ["docs"] = new Step {
     glob = List("docs/src/**/*.md", "docs/book.toml")
-    check = "python -m dstack check docs"
+    check =
+      "sh -c 'tmp=$(mktemp -d); trap \"rm -rf $tmp\" EXIT; mdbook build docs --dest-dir \"$tmp\"'"
   }
   ["json"] = Builtins.jq
   ["pkl"] = Builtins.pkl

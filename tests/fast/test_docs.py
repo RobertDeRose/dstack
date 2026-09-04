@@ -1,89 +1,155 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from dstack.core import DstackError
-from dstack.docs import LINK_PATTERN, create_foundation, markdown_values, validate_docs
+from dstack.docs import LINK_PATTERN, export_design, markdown_values, validate_docs
 
 
-def fake_mdbook(tmp_path: Path) -> Path:
-    executable = tmp_path / "mdbook"
-    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    executable.chmod(0o755)
-    return executable
+INDEX = """# Example feature
+
+## Overview
+
+This feature gives users a deterministic workflow.
+
+## User Impact
+
+Users invoke one explicit command and receive bounded output.
+
+## Implemented Design
+
+{{#include design.md}}
+"""
+DESIGN = """### Goals
+
+Provide a safe feature workflow.
+
+### User-facing behavior
+
+Users explicitly invoke each lifecycle operation.
+"""
 
 
-def test_foundation_covers_user_developer_and_decision_surfaces(tmp_path: Path) -> None:
-    created = create_foundation(tmp_path)
-    assert "docs/src/getting-started/index.md" in created
-    assert "docs/src/operations/index.md" in created
-    assert "docs/src/development/index.md" in created
-    assert "docs/src/decisions/index.md" in created
-    assert create_foundation(tmp_path) == []
+def write_feature(root: Path, *, slug: str = "example", index: str = INDEX, design: str = DESIGN) -> Path:
+    source = root / "docs/src"
+    feature = source / "features" / slug
+    feature.mkdir(parents=True)
+    (feature / "index.md").write_text(index, encoding="utf-8")
+    (feature / "design.md").write_text(design, encoding="utf-8")
+    (source / "SUMMARY.md").write_text(
+        f"# Summary\n\n- [Example](features/{slug}/index.md)\n",
+        encoding="utf-8",
+    )
+    return feature
 
 
-def test_validate_docs_accepts_complete_book(tmp_path: Path) -> None:
-    create_foundation(tmp_path)
-    result = validate_docs(tmp_path, mdbook=str(fake_mdbook(tmp_path)))
-    assert result["status"] == "ok"
-    assert "getting-started/index.md" in result["chapters"]
+def test_validate_docs_accepts_minimal_feature_contract(tmp_path: Path) -> None:
+    write_feature(tmp_path)
+
+    result = validate_docs(tmp_path, feature="example")
+
+    assert result == {
+        "status": "ok",
+        "feature": "example",
+        "index": "docs/src/features/example/index.md",
+        "design": "docs/src/features/example/design.md",
+    }
 
 
-def test_validate_docs_rejects_symlinked_summary(tmp_path: Path) -> None:
-    create_foundation(tmp_path)
-    summary = tmp_path / "docs/src/SUMMARY.md"
-    outside = tmp_path / "outside-summary.md"
-    outside.write_text(summary.read_text(encoding="utf-8"), encoding="utf-8")
-    summary.unlink()
-    summary.symlink_to(outside)
+def test_validate_docs_rejects_unsafe_slug_symlink_and_weak_sections(tmp_path: Path) -> None:
+    with pytest.raises(DstackError, match="feature slug"):
+        validate_docs(tmp_path, feature="../outside")
 
+    feature = write_feature(
+        tmp_path, index=INDEX.replace("This feature gives users a deterministic workflow.", "Short")
+    )
+    with pytest.raises(DstackError, match="Overview"):
+        validate_docs(tmp_path, feature="example")
+
+    (feature / "index.md").unlink()
+    outside = tmp_path / "outside.md"
+    outside.write_text(INDEX, encoding="utf-8")
+    (feature / "index.md").symlink_to(outside)
     with pytest.raises(DstackError, match="symlink"):
-        validate_docs(tmp_path, mdbook=str(fake_mdbook(tmp_path)))
+        validate_docs(tmp_path, feature="example")
 
 
-def test_validate_docs_accepts_a_current_decision_record(tmp_path: Path) -> None:
-    create_foundation(tmp_path)
-    source = tmp_path / "docs/src"
-    decision = source / "decisions/0001-current.md"
-    decision.write_text("# Current decision\n\n- **Status:** Accepted\n", encoding="utf-8")
-    summary = source / "SUMMARY.md"
+def test_validate_docs_requires_one_index_link_and_no_design_link(tmp_path: Path) -> None:
+    write_feature(tmp_path)
+    summary = tmp_path / "docs/src/SUMMARY.md"
     summary.write_text(
-        summary.read_text(encoding="utf-8") + "- [Current decision](decisions/0001-current.md)\n",
+        summary.read_text(encoding="utf-8")
+        + "- [Duplicate](features/example/index.md)\n"
+        + "- [Raw design](features/example/design.md)\n",
         encoding="utf-8",
     )
 
-    assert validate_docs(tmp_path, mdbook=str(fake_mdbook(tmp_path)))["status"] == "ok"
+    with pytest.raises(DstackError, match="exactly one SUMMARY link"):
+        validate_docs(tmp_path, feature="example")
+
+    summary.write_text("# Summary\n\n- [Raw design](features/example/design.md)\n", encoding="utf-8")
+    with pytest.raises(DstackError, match="must not link directly"):
+        validate_docs(tmp_path, feature="example")
 
 
-def test_validate_docs_tracks_navigation_and_local_targets_by_behavior(tmp_path: Path) -> None:
-    create_foundation(tmp_path)
-    mdbook = str(fake_mdbook(tmp_path))
-    source = tmp_path / "docs/src"
-    summary = source / "SUMMARY.md"
+def test_validate_docs_requires_exact_native_include_and_rejects_design_directives(tmp_path: Path) -> None:
+    feature = write_feature(tmp_path, index=INDEX.replace("{{#include design.md}}", "{{#include ../design.md}}"))
+    with pytest.raises(DstackError, match="exactly one native include"):
+        validate_docs(tmp_path, feature="example")
 
-    orphan = source / "orphan.md"
-    orphan.write_text("# Orphan\n", encoding="utf-8")
-    with pytest.raises(DstackError):
-        validate_docs(tmp_path, mdbook=mdbook)
+    (feature / "index.md").write_text(INDEX, encoding="utf-8")
+    for design in (
+        "{{#include ../../../secret}}\n",
+        "```markdown\n{{#include design.md}}\n```\n",
+    ):
+        (feature / "design.md").write_text(design, encoding="utf-8")
+        with pytest.raises(DstackError, match="must not contain active mdBook directives"):
+            validate_docs(tmp_path, feature="example")
 
-    summary.write_text(
-        summary.read_text(encoding="utf-8") + "- [Additional](orphan.md)\n",
-        encoding="utf-8",
-    )
-    assert "orphan.md" in validate_docs(tmp_path, mdbook=mdbook)["chapters"]
 
-    summary.write_text(
-        summary.read_text(encoding="utf-8") + "- [Pending](pending.md)\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(DstackError):
-        validate_docs(tmp_path, mdbook=mdbook)
+class ExportClient:
+    def __init__(self, root: Path, design: str):
+        self.root = root
+        self.design = design
+        self.feature = {
+            "id": "root",
+            "issue_type": "molecule",
+            "labels": ["workflow:feature", "feature:example"],
+            "metadata": {"dstack.base_branch": "main"},
+        }
+        self.steps = [
+            {
+                "id": name,
+                "issue_type": "epic" if name == "implementation" else "task",
+                "labels": [f"dstack:step:{name}"],
+            }
+            for name in ("plan", "review", "approval", "implementation", "audit")
+        ]
+        self.steps[0]["design"] = design
 
-    (source / "pending.md").write_text("# Pending\n", encoding="utf-8")
-    result = validate_docs(tmp_path, mdbook=mdbook)
-    assert set(result["chapters"]) >= {"orphan.md", "pending.md"}
+    def show(self, issue_id: str) -> dict[str, Any]:
+        if issue_id == "root":
+            return self.feature
+        return next(step for step in self.steps if step["id"] == issue_id)
+
+    def children(self, parent: str) -> list[dict[str, Any]]:
+        assert parent == "root"
+        return self.steps
+
+
+def test_export_design_writes_unique_plan_verbatim_and_atomically(tmp_path: Path) -> None:
+    design = "### Goals\n\nKeep {{ braces }} and trailing text unchanged.\n"
+    client = ExportClient(tmp_path, design)
+
+    result = export_design(tmp_path, "root", client=client)  # type: ignore[arg-type]
+
+    target = tmp_path / "docs/src/features/example/design.md"
+    assert target.read_text(encoding="utf-8") == design
+    assert result["path"] == "docs/src/features/example/design.md"
+    assert not list(target.parent.glob(".design.md.*"))
 
 
 def test_markdown_links_ignore_code_and_keep_balanced_parentheses() -> None:

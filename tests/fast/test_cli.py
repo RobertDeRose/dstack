@@ -30,8 +30,13 @@ def test_parser_exposes_ergonomic_commands() -> None:
     assert task.command == "task"
     assert task.bead == "ds-task"
 
-    docs = parser.parse_args(["check", "docs"])
+    docs = parser.parse_args(["check", "docs", "--slug", "example"])
     assert docs.command == "docs"
+    assert docs.slug == "example"
+
+    export = parser.parse_args(["docs", "export-design", "--bead", "ds-root"])
+    assert export.command == "export-design"
+    assert export.bead == "ds-root"
 
     commit = parser.parse_args(["commit", "--bead", "ds-task", "--body", "/tmp/body"])
     assert commit.bead == "ds-task"
@@ -74,6 +79,7 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "cmd_formula_check", record("formula-check", 17))
     monkeypatch.setattr(cli, "cmd_plan_check", record("plan", 13))
     monkeypatch.setattr(cli, "cmd_review_check", record("review", 18))
+    monkeypatch.setattr(cli, "cmd_docs_export", record("docs-export", 19))
     monkeypatch.setattr(cli, "cmd_commit", record("commit", 14))
     monkeypatch.setattr(cli, "cmd_worktree_ensure", record("worktree", 15))
 
@@ -81,6 +87,7 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cli.main(["check", "formula", "--root", "/tmp/project"]) == 17
     assert cli.main(["check", "plan", "--bead", "ds-plan"]) == 13
     assert cli.main(["check", "review", "--feature", "ds-root"]) == 18
+    assert cli.main(["docs", "export-design", "--feature", "ds-root"]) == 19
     assert cli.main(["commit", "--bead", "ds-task"]) == 14
     assert cli.main(["worktree", "--bead", "ds-feature"]) == 15
     assert [name for name, _ in calls] == [
@@ -88,6 +95,7 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         "formula-check",
         "plan",
         "review",
+        "docs-export",
         "commit",
         "worktree",
     ]
