@@ -28,7 +28,7 @@ from .core import (
     verify_worktree_identity,
     worktree_for_branch,
 )
-from .formula import beads_workspace, check_formula, init_workspace, install_formula
+from .formula import beads_workspace, init_workspace, install_formula
 from .output import emit
 from .policy import no_repository_change_reason, validate_plan_issue, validate_task_issue
 
@@ -48,11 +48,6 @@ def client_for(root: Path) -> BeadsClient:
     client.check_version()
     return client
 
-
-
-def cmd_formula_check(args: argparse.Namespace) -> int:
-    emit(check_formula(args.root))
-    return 0
 
 
 def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -> tuple[Path, bool, bool]:
@@ -121,7 +116,7 @@ def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -
 @serialized_repository_mutation
 def cmd_worktree_ensure(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    root, slug, base = feature_identity(client, args.feature)
+    root, slug, base = feature_identity(client, args.bead)
     branch = f"feat/{slug}"
     worktree, created_branch, created_worktree = ensure_branch_worktree(client, branch, base)
     emit(

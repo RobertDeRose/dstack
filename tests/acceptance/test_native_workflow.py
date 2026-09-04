@@ -97,7 +97,7 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         "--acceptance",
         "The native graph exposes each reviewed step in dependency order.",
     )
-    assert run_dstack(real_repo, "plan", "check", steps["plan"]["id"])["status"] == "ok"
+    assert run_dstack(real_repo, "check", "plan", "--bead", steps["plan"]["id"])["status"] == "ok"
     run_json(real_repo, "close", steps["plan"]["id"], "--reason", "Plan completed")
 
     review_claim = run_json(

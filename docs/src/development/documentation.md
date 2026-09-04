@@ -22,7 +22,7 @@ workflow. Do not copy those facts into Markdown.
 Run:
 
 ```bash
-dstack ctl docs validate
+dstack check docs
 ```
 
 The validator checks required files, navigation, local links, decision records, and the mdBook build without writing a

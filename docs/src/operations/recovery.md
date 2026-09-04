@@ -21,8 +21,8 @@ bd worktree list --json
 git worktree list --porcelain
 ```
 
-`dstack ctl worktree ensure` verifies the registered worktree path, branch, repository, and ancestry before returning
-success.
+`dstack worktree --bead <feature-or-descendant>` verifies the registered worktree path, branch, repository, and ancestry
+before returning success.
 
 ## dStack contract
 
@@ -35,16 +35,11 @@ commands:
 dstack init
 
 # Existing workspace
-dstack ctl formula install --update
-dstack ctl formula check
+dstack install formula --update
 ```
 
 Review the formula diff before using `--update`.
 
 ## Git evidence
 
-```bash
-dstack ctl evidence commits --bead <id> --ref <base>..<feature>
-```
-
-Evidence comes from reachable `Beads: <id>` footers in Git history.
+`dstack check task --bead <task>` validates evidence from reachable `Beads: <task>` footers in Git history.

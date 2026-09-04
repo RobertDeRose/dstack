@@ -2,76 +2,101 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Sequence
-
 import pytest
 
 from dstack import cli
 
 
-def test_parser_exposes_only_targeted_control_plane_areas() -> None:
-    parser = cli.build_ctl_parser()
-    args = parser.parse_args(["formula", "check"])
-    assert args.area == "formula"
-    assert args.command == "check"
+def test_parser_exposes_ergonomic_commands() -> None:
+    parser = cli.build_parser()
 
-    task = parser.parse_args(["task", "check", "ds-task"])
+    skills = parser.parse_args(["install", "skills", "--agent-dir", "/tmp/agent"])
+    assert skills.command == "skills"
+    assert skills.agent_dir == Path("/tmp/agent")
+
+    formula = parser.parse_args(["install", "formula", "--root", "/tmp/project", "--update"])
+    assert formula.command == "formula"
+    assert formula.root == Path("/tmp/project")
+    assert formula.update is True
+
+    plan = parser.parse_args(["check", "plan", "--bead", "ds-plan"])
+    assert plan.command == "plan"
+    assert plan.bead == "ds-plan"
+
+    task = parser.parse_args(["check", "task", "-b", "ds-task"])
+    assert task.command == "task"
     assert task.bead == "ds-task"
-    assert not hasattr(task, "base")
-    assert not hasattr(task, "validation_command")
 
-    audit = parser.parse_args(
-        [
-            "audit",
-            "evidence",
-            "ds-root",
-            "--include-task",
-            "ds-task",
-            "--history-for",
-            "ds-task",
-        ]
-    )
-    assert audit.include_task == ["ds-task"]
-    assert audit.history_for == ["ds-task"]
+    docs = parser.parse_args(["check", "docs"])
+    assert docs.command == "docs"
 
+    commit = parser.parse_args(["commit", "--bead", "ds-task", "--body", "/tmp/body"])
+    assert commit.bead == "ds-task"
+    assert commit.body_file == Path("/tmp/body")
+    assert commit.amend is False
 
-def test_root_dispatches_both_supported_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[str, list[str]]] = []
+    amend = parser.parse_args(["commit", "-a", "-b", "ds-task"])
+    assert amend.amend is True
 
-    def install(values: Sequence[str] | None = None) -> int:
-        calls.append(("install_skills", list(values or [])))
-        return 11
+    worktree = parser.parse_args(["worktree", "--bead", "ds-feature"])
+    assert worktree.bead == "ds-feature"
 
-    def control(values: Sequence[str] | None = None) -> int:
-        calls.append(("ctl", list(values or [])))
-        return 12
-
-    monkeypatch.setattr(cli, "install_skills_main", install)
-    monkeypatch.setattr(cli, "ctl_main", control)
-
-    assert cli.main(["install_skills", "--agent-dir", "/tmp/agent"]) == 11
-    assert cli.main(["ctl", "plan", "check", "ds-plan"]) == 12
-    assert calls == [
-        ("install_skills", ["--agent-dir", "/tmp/agent"]),
-        ("ctl", ["plan", "check", "ds-plan"]),
-    ]
+    audit = parser.parse_args(["audit", "ds-feature", "--include-plan"])
+    assert audit.feature == "ds-feature"
+    assert audit.include_plan is True
 
 
-def test_root_dispatches_init(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
+def test_legacy_command_names_are_removed() -> None:
+    parser = cli.build_parser()
 
-    def initialize(values: Sequence[str] | None = None) -> int:
-        calls.append(list(values or []))
-        return 13
-
-    monkeypatch.setattr(cli, "init_main", initialize)
-
-    assert cli.main(["init", "--root", "/tmp/project", "--update"]) == 13
-    assert calls == [["--root", "/tmp/project", "--update"]]
+    with pytest.raises(SystemExit):
+        parser.parse_args(["ctl", "plan", "check", "ds-plan"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["install_skills"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["commit", "--bead", "ds-task", "--subject", "feat: manual"])
 
 
-def test_ctl_failure_is_compact_json(git_repo: Path, capsys) -> None:  # type: ignore[no-untyped-def]
-    result = cli.ctl_main(["--root", str(git_repo), "plan", "check", "missing"])
+def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def record(name: str, result: int):
+        def command(values: object) -> int:
+            calls.append((name, dict(vars(values))))
+            return result
+
+        return command
+
+    monkeypatch.setattr(cli, "cmd_install_skills", record("skills", 11))
+    monkeypatch.setattr(cli, "cmd_formula_install", record("formula", 12))
+    monkeypatch.setattr(cli, "cmd_plan_check", record("plan", 13))
+    monkeypatch.setattr(cli, "cmd_commit", record("commit", 14))
+    monkeypatch.setattr(cli, "cmd_worktree_ensure", record("worktree", 15))
+
+    assert cli.main(["install", "skills", "--agent-dir", "/tmp/agent"]) == 11
+    assert cli.main(["install", "formula", "--root", "/tmp/project"]) == 12
+    assert cli.main(["check", "plan", "--bead", "ds-plan"]) == 13
+    assert cli.main(["commit", "--bead", "ds-task"]) == 14
+    assert cli.main(["worktree", "--bead", "ds-feature"]) == 15
+    assert [name for name, _ in calls] == ["skills", "formula", "plan", "commit", "worktree"]
+
+
+def test_init_dispatches_from_the_unified_parser(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def initialize(values: object) -> int:
+        calls.append(dict(vars(values)))
+        return 16
+
+    monkeypatch.setattr(cli, "cmd_init", initialize)
+
+    assert cli.main(["init", "--root", "/tmp/project", "--update"]) == 16
+    assert calls[0]["root"] == Path("/tmp/project")
+    assert calls[0]["update"] is True
+
+
+def test_cli_failure_is_compact_json(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    result = cli.main(["check", "plan", "--root", str(git_repo), "--bead", "missing"])
     captured = capsys.readouterr()
     assert result == 2
     payload = json.loads(captured.err)

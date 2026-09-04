@@ -14,7 +14,7 @@ Beads is the only next-work surface. Do not read a task list file or maintain a 
 Run:
 
 ```bash
-dstack ctl worktree ensure <feature-root>
+dstack worktree --bead <feature-root>
 ```
 
 Change into the returned worktree and verify the active branch matches the returned `feat/<slug>` branch. Do not run
@@ -48,7 +48,7 @@ Review the complete diff, stage only task-owned repository changes, and commit t
 come from the Bead:
 
 ```bash
-dstack ctl git commit --bead <task-id> [--body-file <temporary-body>]
+dstack commit --bead <task-id> [--body <temporary-body>]
 ```
 
 Do not hand-write a Conventional Commit subject. If subject generation fails, correct the task title or its
@@ -57,7 +57,7 @@ Do not hand-write a Conventional Commit subject. If subject generation fails, co
 Validation is mandatory and uses the repository's hk contract:
 
 ```bash
-dstack ctl task check <task-id>
+dstack check task --bead <task-id>
 ```
 
 Fix every reported error. When the task intentionally requires no repository change, add a durable Beads note containing

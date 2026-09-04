@@ -13,8 +13,8 @@ registry, worktree registry, commit map, or coordination protocol.
 
 The dStack workflow is opt-in. Do not infer activation from `.beads`, installed skills, or the availability of `bd`.
 Only use Beads and the native dStack workflow when the user explicitly invokes `/plan-feature`, `/review-plan`,
-`/implement`, or `/audit-feature`, or explicitly asks to use dStack. An explicitly requested `dstack ctl` command may
-perform its documented deterministic mechanics, but it does not activate workflow tracking or create issues.
+`/implement`, or `/audit-feature`, or explicitly asks to use dStack. An explicitly requested dStack command may perform
+its documented deterministic mechanics, but it does not activate workflow tracking or create issues.
 
 For all other requests:
 
@@ -45,7 +45,7 @@ question in Beads.
 
 ## Deterministic mechanics
 
-`dstack ctl` may:
+dStack commands may:
 
 - install and verify the project formula;
 - enforce feature branch and worktree policy;

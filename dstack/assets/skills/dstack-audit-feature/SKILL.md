@@ -23,17 +23,17 @@ If it is blocked, report native blockers. Do not override fan-in or infer readin
 Collect deterministic summary evidence:
 
 ```bash
-dstack ctl audit evidence <feature-root>
+dstack audit <feature-root>
 ```
 
 The command runs project and documentation validation and returns a bounded index. Fetch full content only for a
 material discrepancy:
 
 ```bash
-dstack ctl audit evidence <feature-root> --include-plan
-dstack ctl audit evidence <feature-root> --include-task <task-id>
-dstack ctl audit evidence <feature-root> --include-decision <decision-id>
-dstack ctl audit evidence <feature-root> --history-for <bead-id>
+dstack audit <feature-root> --include-plan
+dstack audit <feature-root> --include-task <task-id>
+dstack audit <feature-root> --include-decision <decision-id>
+dstack audit <feature-root> --history-for <bead-id>
 ```
 
 Compare:

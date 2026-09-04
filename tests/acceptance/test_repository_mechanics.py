@@ -45,7 +45,7 @@ def test_worktree_commit_and_task_evidence_use_native_state(real_repo: Path, tmp
     )
     task_id = str(task["id"])
 
-    ensured = run_dstack(real_repo, "worktree", "ensure", root)
+    ensured = run_dstack(real_repo, "worktree", "--bead", root)
     worktree = Path(ensured["worktree"])
     try:
         assert worktree.is_dir()
@@ -53,11 +53,16 @@ def test_worktree_commit_and_task_evidence_use_native_state(real_repo: Path, tmp
         (worktree / "evidence.txt").write_text("native evidence\n", encoding="utf-8")
         run_command(["git", "add", "evidence.txt"], cwd=worktree)
 
-        committed = run_dstack(worktree, "git", "commit", "--bead", task_id)
+        committed = run_dstack(worktree, "commit", "--bead", task_id)
         assert committed["subject"] == "test(evidence): add repository evidence fixture"
 
-        checked = run_dstack(worktree, "task", "check", task_id)
+        (worktree / "evidence.txt").write_text("amended evidence\n", encoding="utf-8")
+        run_command(["git", "add", "evidence.txt"], cwd=worktree)
+        amended = run_dstack(worktree, "commit", "--amend", "--bead", task_id)
+        assert amended["subject"] == committed["subject"]
+
+        checked = run_dstack(worktree, "check", "task", "--bead", task_id)
         assert checked["status"] == "ok"
-        assert checked["evidence"]["commits"][0]["commit"] == committed["commit"]
+        assert checked["evidence"]["commits"][0]["commit"] == amended["commit"]
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=real_repo, check=False)

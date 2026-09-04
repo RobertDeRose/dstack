@@ -33,7 +33,7 @@ conflicts with prior accepted decisions.
 Correct clear local defects directly in the plan Bead and rerun:
 
 ```bash
-dstack ctl plan check <plan-bead>
+dstack check plan --bead <plan-bead>
 ```
 
 When code, documentation, and proposed intent disagree and the authoritative behavior is unclear, ask the user before
