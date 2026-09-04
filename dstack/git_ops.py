@@ -17,12 +17,14 @@ from .core import (
     feature_steps,
     git_root,
     implementation_task_graph_errors,
+    issue_type,
     reject_beads_paths,
     run,
     serialized_repository_mutation,
     verify_worktree_identity,
     worktree_for_branch,
 )
+from .docs import validate_docs
 from .output import emit
 from .policy import (
     MAX_IMPLEMENTATION_BODY_LENGTH,
@@ -92,11 +94,19 @@ def _message_file(message: str) -> Path:
         return Path(handle.name)
 
 
-def _commit(root: Path, message: str) -> str:
-    _prepare_staged_change(root)
+def _commit(root: Path, message: str, *, allow_empty: bool = False) -> str:
+    if allow_empty:
+        dirty = [*staged_paths(root), *_unstaged_paths(root)]
+        if dirty:
+            raise DstackError("message-only correction requires a clean worktree: " + ", ".join(sorted(set(dirty))))
+    else:
+        _prepare_staged_change(root)
     message_path = _message_file(message)
     try:
-        run(["git", "commit", "-F", str(message_path)], cwd=root)
+        command = ["git", "commit"]
+        if allow_empty:
+            command.append("--allow-empty")
+        run([*command, "-F", str(message_path)], cwd=root)
     finally:
         message_path.unlink(missing_ok=True)
     return current_head(root)
@@ -132,6 +142,13 @@ def _commit_message(root: Path, revision: str) -> str:
     return run(["git", "show", "-s", "--format=%B", revision], cwd=root).stdout.rstrip("\n")
 
 
+def canonical_docs_message(feature: Mapping[str, object], slug: str, task_id: str) -> str:
+    title = str(feature.get("title") or "").strip().removeprefix("Feature: ").strip()
+    if not title or "\n" in title:
+        raise DstackError("feature title must be one non-empty line for the documentation commit")
+    return build_commit_message(f"docs({slug}): {title}", "", task_id)
+
+
 def canonical_task_message(task: Mapping[str, object], slug: str) -> str:
     task_id = str(task.get("id") or "")
     return build_commit_message(commit_subject(task, slug), task_commit_body(task), task_id)
@@ -162,11 +179,18 @@ def _published(root: Path, revision: str) -> bool:
     return any(line.strip() and not line.strip().endswith("/HEAD") for line in refs.splitlines())
 
 
-def _autosquash_correction(root: Path, *, target: str, base: str, message: str) -> str:
+def _autosquash_correction(
+    root: Path,
+    *,
+    target: str,
+    base: str,
+    message: str,
+    allow_empty: bool = False,
+) -> str:
     if _published(root, target):
         raise DstackError("refusing to rewrite a task commit reachable from a remote-tracking branch")
     fixup_message = f"amend! {target}\n\n{message.rstrip()}\n"
-    _commit(root, fixup_message)
+    _commit(root, fixup_message, allow_empty=allow_empty)
     result = run(
         ["git", "rebase", "-i", "--autosquash", base],
         cwd=root,
@@ -184,6 +208,74 @@ def _autosquash_correction(root: Path, *, target: str, base: str, message: str) 
 
 def _task_evidence(root: Path, base: str, task_id: str) -> list[dict[str, object]]:
     return [record for record in commit_records(root, f"{base}..HEAD") if task_id in record.get("footer_ids", ())]
+
+
+def _require_feature_docs_paths(paths: list[str], slug: str) -> None:
+    prefix = f"docs/src/features/{slug}/"
+    allowed = {"docs/src/SUMMARY.md"}
+    invalid = [path for path in paths if path not in allowed and not path.startswith(prefix)]
+    if invalid:
+        raise DstackError("close documentation commit contains non-feature paths: " + ", ".join(invalid))
+
+
+@serialized_repository_mutation
+def cmd_git_commit_docs(args: argparse.Namespace) -> int:
+    root = git_root(args.root)
+    client = BeadsClient(root)
+    client.check_version()
+    feature_root, slug, base = feature_identity(client, args.bead)
+    steps = feature_steps(client, str(feature_root["id"]))
+    close_step = client.show(str(steps["audit"]["id"]))
+    _require_in_progress(close_step)
+    implementation_id = str(steps["implementation"]["id"])
+    open_tasks = [
+        str(child["id"])
+        for child in client.children(implementation_id)
+        if issue_type(child) not in {"epic", "molecule", "gate"} and str(child.get("status") or "") != "closed"
+    ]
+    if open_tasks:
+        raise DstackError("cannot document while implementation tasks remain open: " + ", ".join(open_tasks))
+
+    branch = f"feat/{slug}"
+    _require_registered_feature_worktree(client, branch)
+    close_id = str(close_step["id"])
+    evidence = _task_evidence(root, base, close_id)
+    message = canonical_docs_message(feature_root, slug, close_id)
+
+    paths = staged_paths(root)
+    if paths:
+        _require_feature_docs_paths(paths, slug)
+    validate_docs(root, feature=slug)
+
+    if not evidence:
+        if not paths:
+            raise DstackError("no staged feature documentation changes to commit")
+        commit = _commit(root, message)
+        mode = "created"
+    elif len(evidence) == 1:
+        target = str(evidence[0]["commit"])
+        _autosquash_correction(root, target=target, base=base, message=message, allow_empty=not paths)
+        corrected = _task_evidence(root, base, close_id)
+        if len(corrected) != 1:
+            raise DstackError("autosquash did not leave exactly one close documentation commit")
+        commit = str(corrected[0]["commit"])
+        mode = "corrected"
+    else:
+        raise DstackError("close step has multiple reachable commits; refusing ambiguous correction")
+
+    _verify_commit_message(root, commit, message=message)
+    subject = message.splitlines()[0]
+    emit(
+        {
+            "status": "ok",
+            "mode": mode,
+            "bead": close_id,
+            "feature": feature_root["id"],
+            "commit": commit,
+            "subject": subject,
+        }
+    )
+    return 0
 
 
 @serialized_repository_mutation

@@ -100,6 +100,13 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
         raise DstackError("audit must depend on approval")
     if steps["audit"].get("waits_for") != "children-of(implementation)":
         raise DstackError("audit must use native implementation fan-in")
+    close_gate = steps["audit"].get("gate")
+    if (
+        not isinstance(close_gate, dict)
+        or close_gate.get("type") != "human"
+        or close_gate.get("id") != "close-{{feature_slug}}-review"
+    ):
+        raise DstackError("audit must use the fixed native close-review gate")
 
 
 def beads_workspace_optional(root: Path) -> Path | None:

@@ -57,3 +57,8 @@ and run `dstack commit --bead <task>` again. dStack creates an amend fixup, rege
 from the current task title and ordered notes, and immediately autosquashes from the feature base. If Git stops on a
 conflict, retain unrelated valid descendant work, resolve deliberately, and continue the native rebase. Abort rather
 than guess. Published or ambiguous history is never rewritten automatically.
+
+A close-owned documentation commit uses `docs(<slug>): <feature title>`, no body, and one final-step `Task:` trailer. If
+only its canonical metadata is stale, ensure the final step is `in_progress`, all implementation tasks are closed, and
+the feature worktree is clean, then rerun `dstack docs commit --feature <feature-root>`. The same unpublished and
+unambiguous rewrite safeguards apply.
