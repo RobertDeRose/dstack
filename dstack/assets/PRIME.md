@@ -1,47 +1,45 @@
 # dStack Beads context
 
-This project uses Beads for the explicitly activated dStack feature workflow.
+This project uses Beads only for an explicitly activated dStack workflow.
 
-## Scope
+## Activation
 
-The dStack workflow is opt-in. The presence of `.beads`, installed skills, this file, or `bd` does not activate task
-tracking.
+Do not infer activation from `.beads`, installed skills, this file, or `bd` availability. For ordinary requests, do not
+run `bd`, create issues, or require initialization.
 
-- For an ordinary request, do not run `bd` or create, update, claim, or close Beads issues.
-- `/plan-feature`, `/review-plan`, `/implement`, and `/audit-feature` activate the workflow.
-- An explicit request to use dStack also activates the workflow.
-- An explicit dStack command may perform its documented mechanics but does not create workflow issues.
+Only `/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`, or an explicit request to use
+dStack activates workflow tracking. An explicitly requested dStack command performs only its documented deterministic
+mechanics.
 
-Do not install or enable generic Beads agent instructions or session hooks for this project. `bd prime` is context only;
-it does not activate the workflow and should not run as a generic session hook.
+Do not install generic Beads agent instructions or hooks. Do not run `bd prime` automatically.
 
-## Active dStack workflow
+## Authority
 
-Once activated, Beads owns plans, decisions, tasks, dependencies, gates, claims, readiness, and completion. Git owns
-repository content, branches, worktrees, and history. Do not infer readiness, maintain a task list, or create a second
-workflow state store.
+Within an active workflow, Beads owns plans, decisions, tasks, dependencies, gates, claims, readiness, completion, and
+durable project memory. Git owns repository content, branches, worktrees, and history. Current repository documentation
+and accepted decisions outrank stale memory.
 
-Use the native Beads queue and the dStack skills:
+Use the feature-scoped native queue and dStack's deterministic checks. Never maintain a Markdown task list, readiness
+cache, commit map, audit packet, or other shadow workflow state.
 
-```bash
-bd ready --json
-bd show <id> --json
-bd update <id> --claim
-bd close <id> --reason '<reason>'
+## Memory exception
+
+`/review-plan` and `/audit-project` may search and recall only targeted Beads memories. `/close-feature` may propose a
+reusable memory addition, correction, or retirement, but it must show the exact change and receive user approval before
+writing. Memory is advisory context, not live status or completion evidence.
+
+## Lifecycle
+
+```text
+plan -> review -> human approval -> implementation tasks -> close
 ```
 
-The dStack skills scope queue queries to the active feature molecule and label. Do not claim unrelated ready work.
+Planning captures intent in native description, design, and acceptance fields. Review reconciles memory and repository
+facts and creates native work. Implementation claims one ready task, records each completed increment as an ordered
+`Implementation:` note, uses those notes for one canonical `Task:` commit, runs the target repository's documented
+validation, and closes the task. The fixed human close-review gate keeps the final internal `audit` step blocked while
+`/close-feature` reviews and returns defects. Close resolves that gate only after review passes, then writes and
+validates feature documentation.
 
-Use dStack's deterministic install, check, worktree, commit, and audit commands. During implementation, use
-`dstack commit --bead <task>` rather than hand-writing the task commit subject. Run the repository validation contract
-before closing active work.
-
-Do not use Markdown TODO lists, readiness caches, handoff ledgers, commit-to-task maps, or other shadow workflow state.
-Use `bd remember` only for durable project memory that belongs in Beads; ordinary implementation notes belong in the
-repository or the active task.
-
-## Active-work completion
-
-For an active dStack task, validate the complete outcome, review the diff, and close only the claimed native task after
-its checks pass. Do not apply the generic Beads session-close rule to ordinary requests: ordinary requests have no Beads
-task to close.
+`/audit-project` audits current project drift and, when remediation is needed, creates and completes only the plan step
+of a normal feature before returning `/review-plan`.

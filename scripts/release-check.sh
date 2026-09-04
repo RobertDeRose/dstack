@@ -37,13 +37,14 @@ uv pip install --python "$tmp/venv/bin/python" "$wheel"
 agent_dir="$tmp/pi-agent"
 "$tmp/venv/bin/dstack" install skills --agent-dir "$agent_dir" >"$tmp/install-skills.json"
 for skill in \
-  dstack-audit-feature \
+  dstack-audit-project \
+  dstack-close-feature \
   dstack-implement \
   dstack-plan-feature \
   dstack-review-plan; do
   test -f "$agent_dir/skills/$skill/SKILL.md"
 done
-for prompt in audit-feature.md implement.md plan-feature.md review-plan.md; do
+for prompt in audit-project.md close-feature.md implement.md plan-feature.md review-plan.md; do
   test -f "$agent_dir/prompts/$prompt"
 done
 

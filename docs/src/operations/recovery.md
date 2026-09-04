@@ -12,7 +12,9 @@ bd blocked --parent <feature-root> --json
 bd history <bead> --json
 ```
 
-Inspect and release claims, correct relationships, and resolve gates with native Beads commands.
+Inspect and release claims and correct relationships with native Beads commands. Resolve the fixed `close-<slug>-review`
+human gate only after `/close-feature` reports a clean review; do not confuse it with an ambiguity gate. Active legacy
+molecules may lack this gate and retain their existing close behavior.
 
 ## Worktrees
 
@@ -48,9 +50,9 @@ ambiguous workspace; inspect the native Beads error and ask whether to recover o
 `dstack check task --bead <task>` requires the task to be `in_progress` and validates exactly one reachable canonical
 commit with a `Task: <task>` trailer and the deterministic `feat(<slug>): <task title>` subject. Its body must contain
 one unwrapped bullet per ordered `Implementation:` fragment. Each fragment is concise, verb-led, one line, and no more
-than 96 characters; formatting strips surrounding whitespace and punctuation before adding `- `. Planned description and
-design prose are never evidence. A repository-changing task without an implementation note fails. `Beads: <task>` footers
-are not ownership evidence.
+than 96 characters; formatting strips surrounding whitespace and punctuation before adding a dash-and-space prefix.
+Planned description and design prose are never evidence. A repository-changing task without an implementation note
+fails. `Beads: <task>` footers are not ownership evidence.
 
 For a reopened task with one unpublished canonical commit, append notes for the correction, stage only the correction,
 and run `dstack commit --bead <task>` again. dStack creates an amend fixup, regenerates the complete subject and body

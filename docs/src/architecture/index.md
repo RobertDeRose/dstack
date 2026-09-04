@@ -29,8 +29,10 @@ workflow history.
 
 ### Skills
 
-Skills inspect repository evidence, ask material questions, review intent, implement accepted work, and assess audit
-findings. They perform semantic judgment through native Beads operations.
+Public prompts explicitly load hidden, non-model-invocable skills. Skills ask material questions, reconcile targeted
+memory with repository evidence, implement accepted work, review close findings, and audit project drift. They perform
+semantic judgment through native Beads operations. Current documentation and accepted decisions outrank memory; memory
+writes require user approval.
 
 ### dStack CLI
 

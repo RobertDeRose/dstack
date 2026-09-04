@@ -1,130 +1,51 @@
 ---
 dstack-managed: true
 name: dstack-plan-feature
-description: "Plan one feature in a native Beads molecule, asking material questions before finalizing it."
+description: "Plan one feature in a native Beads molecule and resolve material intent questions."
+disable-model-invocation: true
 ---
 
 # Plan feature
 
-This skill is the dStack workflow activation boundary. Use it only when explicitly invoked. Beads is the workflow
-authority once activated; store the plan, questions, answers, decisions, dependencies, and acceptance criteria in Beads.
-Do not create a parallel Markdown plan or infer the next phase from repository files.
+Run only when explicitly invoked. This is an opt-in dStack activation boundary. Beads owns the plan and workflow state;
+do not create a parallel plan file in the repository.
 
 ## Start or resume
 
-1. Initialize and verify the repository's native Beads workspace:
+1. Run `dstack init`, then `dstack check formula`. Do not pour new work until committed policy validation succeeds.
+2. If the user supplied a feature root or descendant, resume that molecule; never pour a replacement.
+3. Otherwise choose a stable kebab-case slug and base branch (`dev` when present, otherwise `main`), then pour exactly
+   one `dstack-feature` molecule with `title`, `desc`, `feature_title`, `feature_slug`, and `base_branch` variables.
+4. Label the root `workflow:feature` and `feature:<slug>`, and set `dstack.base_branch=<base>` metadata.
+5. Claim only the plan step with `bd ready --parent <root> --label dstack:step:plan --claim --json`.
 
-```bash
-dstack init
-dstack check formula
-```
+If identity metadata fails after pour, retry that update on the returned root. Do not add feature-creation recovery
+logic or pour another molecule.
 
-These commands install and validate the dStack formula and scoped `PRIME.md`, including committed policy. Do not pour
-new work until the check succeeds. Explicit setup does not create workflow issues. Do not initialize Beads in stealth
-mode or remove existing integrations automatically.
+## Resolve intent
 
-2. When the user supplied an existing feature root or descendant, resume that molecule. Do not pour a replacement.
-3. For new work, determine a stable kebab-case slug and the base branch (`dev` when present, otherwise `main`). Pour
-   exactly one molecule:
+Planning is intent-focused. Read the request and only enough repository identity to select the base branch. Do not
+perform broad source investigation or memory search; `/review-plan` owns repository and memory reconciliation.
 
-```bash
-bd mol pour dstack-feature \
-  --var "title=Feature: <title>" \
-  --var "desc=<initial request>" \
-  --var "feature_title=<title>" \
-  --var "feature_slug=<slug>" \
-  --var "base_branch=<base>" \
-  --json
-```
-
-4. Record searchable native identity on the returned root:
-
-```bash
-bd update <root> \
-  --add-label workflow:feature \
-  --add-label feature:<slug> \
-  --set-metadata dstack.base_branch=<base> \
-  --json
-```
-
-The `feature:<slug>` label is the sole slug authority. If the update fails after pouring, retain the returned root ID
-and retry this exact update; do not pour another molecule.
-
-5. Claim the native plan step:
-
-```bash
-bd ready --parent <root> --label dstack:step:plan --claim --json
-```
-
-If it is already claimed by this session, resume it. Never claim a different workflow step merely because it is also
-visible.
-
-## Investigate before asking
-
-Read only the current code, tests, governing documentation, and prior decision Beads needed to understand the requested
-outcome. Search decision Beads by relevant component or concern labels before scanning current repository documentation.
-
-Perform an explicit ambiguity pass. Classify each uncertainty as:
-
-- resolved by repository evidence;
-- a safe implementation detail;
-- a material product, architecture, compatibility, operational, or security question.
-
-Ask material questions one at a time before finalizing the plan. Do not silently choose product policy. Record every
-asked question and answer in the plan as paired `Question:` and `Answer:` lines. When repository evidence establishes
-that no user decision is required, record `No material questions: <specific evidence-based reason>` instead.
+Ask focused questions for material product, architecture, compatibility, operational, or security choices. Record each
+question and answer as native plan comments. Record `No material questions: <reason>` when none remain. Never silently
+choose product policy.
 
 ## Store the plan
 
-Write the final plan to a temporary file outside the repository and update the plan Bead's native `design` field. The
-plan must contain these sections:
+Put the original request in the plan description, observable outcomes in acceptance criteria, and a publishable mdBook
+fragment beginning at heading level three in the design field. The design contains exactly:
 
 ```markdown
-## Goal
-
-## Current behavior
-
-## Proposed behavior
-
-## Repository evidence
-
-## Questions and answers
-
-## Decisions and rationale
-
-## Compatibility
-
-## Documentation impact
-
-### End users
-
-### Developers
-
-### Future agents
-
-## Non-goals
+### Goals
+### User-facing behavior
+### Implemented design
+### Compatibility and constraints
+### Validation
+### Non-goals
 ```
 
-Store observable acceptance criteria in the Bead's native acceptance field. The documentation sections must identify
-current documentation that must change or explain why that audience is unaffected. Future-agent impact covers current
-architecture/invariant documentation and searchable decision Beads, not a second workflow ledger.
+Write design content to a temporary file outside the repository, update the native fields, delete the temporary file,
+and run `dstack check plan --bead <plan>`. Do not create implementation tasks or feature documentation during planning.
 
-```bash
-bd update <plan-bead> \
-  --design-file <temporary-plan> \
-  --acceptance '<observable criteria>' \
-  --json
-
-dstack check plan --bead <plan-bead>
-```
-
-Remove the temporary file after validation. Fix structural failures before closing the plan Bead. Do not create
-implementation tasks during planning.
-
-When validation passes:
-
-```bash
-bd close <plan-bead> --reason 'Feature plan completed'
-```
-
-Return the molecule root, material questions and answers, final decisions, and `/review-plan <root>` as the next action.
+After validation, close the plan step and return the root ID, resolved questions, decisions, and `/review-plan <root>`.

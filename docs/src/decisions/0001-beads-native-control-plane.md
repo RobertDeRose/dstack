@@ -4,10 +4,10 @@
 
 ## Decision
 
-The dStack workflow is opt-in. Only `/plan-feature`, `/review-plan`, `/implement`, `/audit-feature`, or an explicit
-request to use dStack activates Beads tracking; the presence of a Beads workspace, installed skills, or a project
-formula does not. dStack setup, checks, and deterministic repository commands do not create workflow issues. Ordinary
-requests do not invoke `bd`.
+The dStack workflow is opt-in. Only `/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`,
+or an explicit request to use dStack activates Beads tracking; the presence of a Beads workspace, installed skills, or a
+project formula does not. dStack setup, checks, and deterministic repository commands do not create workflow issues.
+Ordinary requests do not invoke `bd`.
 
 Once activated, Beads owns workflow state and native transitions. Git owns repository content, worktrees, branches, and
 history. Skills make semantic decisions and ask the user about material uncertainty. dStack performs deterministic
@@ -16,12 +16,14 @@ repository mechanics and validation from current Beads, Git, filesystem, and pro
 The feature formula is:
 
 ```text
-plan -> review -> human approval -> implementation tasks -> audit
+plan -> review -> human approval -> implementation tasks -> close
 ```
 
 The controller stores no workflow database, readiness cache, task manifest, audit snapshot, or commit mapping. Native
-Beads relationships determine readiness and completion. Git footers provide one-way task evidence when a task commit is
-required.
+Beads relationships and gates determine readiness and completion. The close skill performs semantic review before
+claiming the final step; native implementation fan-in blocks that step whenever implementation work is open. Human gates
+are created only for actual approval or material ambiguity. Git trailers provide one-way task evidence when a task
+commit is required.
 
 ## Consequences
 

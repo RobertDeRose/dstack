@@ -17,6 +17,7 @@ from dstack.core import (
     footer_mapping,
     parse_beads_version,
     parse_json,
+    reject_beads_paths,
     truncate_output,
     worktree_for_branch,
 )
@@ -47,6 +48,18 @@ def test_show_many_batches_one_native_read_and_preserves_requested_order(
 
     assert [issue["id"] for issue in client.show_many(["first", "second"])] == ["first", "second"]
     assert observed == [["bd", "show", "first", "second", "--json"]]
+
+
+def test_committed_prime_is_policy_not_generated_beads_state() -> None:
+    reject_beads_paths(
+        [
+            ".beads/PRIME.md",
+            ".beads/formulas/dstack-feature.formula.toml",
+            "src/app.py",
+        ]
+    )
+    with pytest.raises(DstackError):
+        reject_beads_paths([".beads/runtime.json"])
 
 
 def test_parse_json_unwraps_beads_envelope() -> None:
