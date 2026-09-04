@@ -27,8 +27,9 @@ before returning success.
 ## dStack contract
 
 The project formula and scoped Beads prime are installed as `.beads/formulas/dstack-feature.formula.toml` and
-`.beads/PRIME.md`. Run `dstack init` when the Beads workspace is missing. For an existing workspace, use the lower-level
-commands:
+`.beads/PRIME.md`. Run `dstack init` only when the Beads workspace is missing. A failed native `bd where` with an
+existing `.beads` path is treated as unhealthy and returned unchanged for deliberate recovery. For a healthy existing
+workspace, use the lower-level commands:
 
 ```bash
 # Missing workspace
@@ -36,9 +37,11 @@ dstack init
 
 # Existing workspace
 dstack install formula --update
+dstack check formula
 ```
 
-Review the formula diff before using `--update`.
+Review and commit the formula diff before using it for feature work. Do not delete, replace, or silently reinitialize an
+ambiguous workspace; inspect the native Beads error and ask whether to recover or restart.
 
 ## Git evidence
 

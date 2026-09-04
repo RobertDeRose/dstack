@@ -46,16 +46,18 @@ dstack install skills
 dstack init
 ```
 
-`dstack init` initializes Beads with generic agent setup disabled, installs the dStack formula and scoped `bd prime`
-instructions, and validates the resulting workspace. It is idempotent and does not create workflow issues. Existing
-generic integrations are not removed automatically.
+`dstack init` preflights the supported Beads version, initializes Beads with generic agent and hook setup disabled,
+installs the dStack formula and scoped `bd prime` instructions, and validates the resulting workspace. It is idempotent
+and does not create workflow issues. Existing generic integrations are not removed automatically, and an unhealthy
+existing `.beads` workspace is reported rather than replaced. Review and commit the installed formula, then run
+`dstack check formula`; commands that pour new feature work require this committed-policy check to pass.
 
 ## Commands
 
 ```text
 dstack init [--root PATH] [--update]
 dstack install skills [--agent-dir PATH]
-dstack install formula [--root PATH] [--update]
+dstack check formula [--root PATH]
 dstack check plan --bead <plan>
 dstack check task --bead <task>
 dstack check docs [--root PATH]

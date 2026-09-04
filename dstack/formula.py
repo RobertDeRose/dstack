@@ -108,10 +108,13 @@ def beads_workspace_optional(root: Path) -> Path | None:
     repository = git_root(root)
     result = run(["bd", "where", "--json"], cwd=repository, check=False)
     if result.returncode != 0 or not result.stdout.strip():
+        if (repository / ".beads").exists():
+            details = result.stderr.strip() or result.stdout.strip() or "bd where returned no workspace"
+            raise DstackError(f"existing Beads workspace is unhealthy: {details}")
         return None
     payload = parse_json(result.stdout, context="bd where")
-    if not isinstance(payload, dict) or not isinstance(payload.get("path"), str) or not payload["path"]:
-        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("path"), str) or not payload["path"].strip():
+        raise DstackError("bd where returned an invalid Beads workspace payload")
     workspace = Path(payload["path"]).expanduser()
     if not workspace.is_absolute():
         workspace = repository / workspace
@@ -175,15 +178,24 @@ def init_workspace(root: Path, *, update: bool = False) -> dict[str, Any]:
     """Initialize Beads when absent, then install and verify the dStack contract."""
 
     repository = git_root(root)
+    BeadsClient(repository).check_version()
     initialized = beads_workspace_optional(repository) is None
     if initialized:
         run(
-            ["bd", "init", "--quiet", "--non-interactive", "--init-if-missing", "--skip-agents"],
+            [
+                "bd",
+                "init",
+                "--quiet",
+                "--non-interactive",
+                "--init-if-missing",
+                "--skip-agents",
+                "--skip-hooks",
+            ],
             cwd=repository,
         )
 
     installed = install_formula(repository, update=update)
-    check_formula(repository)
+    check_formula(repository, require_committed=False)
     return {**installed, "initialized": initialized, "validated": True}
 
 
@@ -251,8 +263,8 @@ def install_formula(root: Path, *, update: bool = False) -> dict[str, Any]:
     }
 
 
-def check_formula(root: Path) -> dict[str, Any]:
-    """Verify dStack's formula and scoped Beads prime."""
+def check_formula(root: Path, *, require_committed: bool = True) -> dict[str, Any]:
+    """Verify dStack's installed and, when requested, committed project policy."""
 
     repository = git_root(root)
     beads_workspace(repository)
@@ -264,8 +276,28 @@ def check_formula(root: Path) -> dict[str, Any]:
     _assert_no_symlink_components(destination, purpose="Beads formula destination")
     if not destination.is_file():
         raise DstackError(f"project formula is not installed: {destination}")
-    if destination.read_bytes() != formula_path().read_bytes():
+    packaged_formula = formula_path().read_bytes()
+    if destination.read_bytes() != packaged_formula:
         raise DstackError(f"project formula differs from the packaged dStack contract: {destination}")
+
+    committed = False
+    if require_committed:
+        try:
+            relative_formula = destination.relative_to(repository)
+        except ValueError as exc:
+            raise DstackError(
+                f"project formula is outside the repository and cannot be verified at HEAD: {destination}"
+            ) from exc
+        observed = run(
+            ["git", "show", f"HEAD:{relative_formula.as_posix()}"],
+            cwd=repository,
+            check=False,
+        )
+        if observed.returncode != 0 or observed.stdout.encode() != packaged_formula:
+            raise DstackError(
+                f"project formula must match the committed HEAD policy before feature work: {relative_formula}"
+            )
+        committed = True
 
     prime = prime_destination(repository)
     _assert_no_symlink_components(prime, purpose="Beads prime destination")
@@ -280,5 +312,6 @@ def check_formula(root: Path) -> dict[str, Any]:
         "root": str(repository),
         "beads_version": beads_version,
         "formula": display_formula_path(destination, repository),
+        "formula_committed": committed,
         "prime": display_formula_path(prime, repository),
     }

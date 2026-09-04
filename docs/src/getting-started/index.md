@@ -16,9 +16,12 @@ Initialize and validate the Beads workspace plus scoped `bd prime` instructions:
 dstack init
 ```
 
-`dstack init` is idempotent, uses `bd init --skip-agents` for new workspaces, and does not create workflow issues. It
-never removes generic integrations from an existing workspace; clean those up explicitly before relying on dStack's
-opt-in boundary.
+`dstack init` is idempotent, preflights the supported Beads version, and uses
+`bd init --init-if-missing --skip-agents --skip-hooks` for new workspaces. It does not create workflow issues or replace
+an unhealthy existing `.beads` workspace. It never removes generic integrations from an existing workspace; clean those
+up explicitly before relying on dStack's opt-in boundary. Review and commit the installed formula policy, then run
+`dstack check formula`; `/plan-feature` and `/audit-project` do not pour new work until that committed-policy check
+passes.
 
 Start a feature with `/plan-feature`. Use `/review-plan`, `/implement`, and `/audit-feature` as the native molecule
 steps become ready.

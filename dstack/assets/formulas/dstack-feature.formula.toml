@@ -94,21 +94,21 @@ blocking dependencies between task and epic issue types, so this epic has no
 approval dependency. Each native child task is created atomically with a blocker
 on the task-shaped approval milestone and owns any code, tests, configuration,
 and current documentation needed for its accepted outcome. Native waits-for
-fan-in on the audit is the sole implementation-completion dependency.
+fan-in on the final close step is the sole implementation-completion dependency.
 """
 
 [[steps]]
 id = "audit"
-title = "Audit implementation and documentation for {{feature_title}}"
+title = "Close {{feature_title}}"
 type = "task"
 priority = 1
 needs = ["approval"]
 waits_for = "children-of(implementation)"
 labels = ["dstack:step:audit"]
 description = """
-Compare the approved plan, decisions, implementation tasks, commits, tests,
-current code, and current documentation. Classify supported drift, create
-ordinary remediation Beads for clear defects, and create a human gate and ask
-the user when code, documentation, or approved intent has ambiguous authority.
-Close the feature only after implementation and documentation agree.
+Review approved intent, decisions, implementation tasks, commits, tests, and
+current code before feature documentation is written. Reopen the owning task for
+clear defects, create a child task only when no task owns the finding, and ask
+the user through a native gate when authority is ambiguous. Materialize and
+validate feature documentation only after review passes, then close the feature.
 """

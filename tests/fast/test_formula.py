@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,8 @@ def test_packaged_formula_has_one_native_five_step_graph() -> None:
     assert steps["approval"]["gate"]["type"] == "human"
     assert steps["implementation"]["type"] == "epic"
     assert "needs" not in steps["implementation"]
+    assert steps["audit"]["title"].startswith("Close ")
+    assert steps["audit"]["labels"] == ["dstack:step:audit"]
     assert steps["audit"]["waits_for"] == "children-of(implementation)"
 
 
@@ -50,6 +53,98 @@ def test_formula_contract_rejects_wrong_fixed_step_type() -> None:
     with pytest.raises(DstackError, match="review must be a task"):
         subject.validate_formula_contract(formula)
 
+
+def test_failed_bd_where_is_absent_only_without_workspace(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(subject, "run", lambda *args, **kwargs: CommandResult(1, "", "database is unhealthy"))
+
+    assert subject.beads_workspace_optional(git_repo) is None
+
+    (git_repo / ".beads").mkdir()
+    with pytest.raises(DstackError, match="database is unhealthy"):
+        subject.beads_workspace_optional(git_repo)
+
+
+@pytest.mark.parametrize("payload", [{}, {"path": ""}, {"path": 42}, [], None])
+def test_successful_bd_where_rejects_malformed_workspace_payload(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, payload: object
+) -> None:
+    monkeypatch.setattr(subject, "run", lambda *args, **kwargs: CommandResult(0, json.dumps(payload), ""))
+
+    with pytest.raises(DstackError, match="invalid Beads workspace payload"):
+        subject.beads_workspace_optional(git_repo)
+
+
+def test_init_preflights_version_and_skips_agent_and_hook_installation(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: list[object] = []
+
+    class FakeClient:
+        def __init__(self, root: Path):
+            self.root = root
+
+        def check_version(self) -> str:
+            observed.append("version")
+            return "bd version 1.2.2 (test)"
+
+    def fake_run(command: list[str], **kwargs: object) -> CommandResult:
+        observed.append(command)
+        return CommandResult(0, "", "")
+
+    monkeypatch.setattr(subject, "BeadsClient", FakeClient)
+    monkeypatch.setattr(subject, "beads_workspace_optional", lambda root: None)
+    monkeypatch.setattr(subject, "install_formula", lambda root, update=False: {"status": "ok"})
+    monkeypatch.setattr(subject, "check_formula", lambda root, **kwargs: {"status": "ok"})
+    monkeypatch.setattr(subject, "run", fake_run)
+
+    result = subject.init_workspace(git_repo)
+
+    assert result["initialized"] is True
+    assert observed == [
+        "version",
+        [
+            "bd",
+            "init",
+            "--quiet",
+            "--non-interactive",
+            "--init-if-missing",
+            "--skip-agents",
+            "--skip-hooks",
+        ],
+    ]
+
+
+def test_formula_check_rejects_policy_not_committed_at_head(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = git_repo / ".beads"
+    destination = workspace / "formulas" / subject.FORMULA_FILENAME
+    destination.parent.mkdir(parents=True)
+    destination.write_text("old\n", encoding="utf-8")
+    subject.run(["git", "add", str(destination)], cwd=git_repo)
+    subject.run(["git", "commit", "-qm", "test: commit formula"], cwd=git_repo)
+
+    packaged_formula = tmp_path / subject.FORMULA_FILENAME
+    packaged_formula.write_text("new\n", encoding="utf-8")
+    destination.write_text("new\n", encoding="utf-8")
+    prime = workspace / subject.PRIME_FILENAME
+    prime.write_bytes(subject.prime_path().read_bytes())
+
+    class FakeClient:
+        def __init__(self, root: Path):
+            self.root = root
+
+        def check_version(self) -> str:
+            return "bd version 1.2.2 (test)"
+
+    monkeypatch.setattr(subject, "formula_path", lambda: packaged_formula)
+    monkeypatch.setattr(subject, "load_formula", lambda: {})
+    monkeypatch.setattr(subject, "beads_workspace", lambda root: workspace)
+    monkeypatch.setattr(subject, "BeadsClient", FakeClient)
+    monkeypatch.setattr(subject, "_verify_native_formula", lambda root: None)
+
+    with pytest.raises(DstackError, match="must match the committed HEAD policy"):
+        subject.check_formula(git_repo)
 
 
 def test_failed_native_parse_restores_previous_formula(

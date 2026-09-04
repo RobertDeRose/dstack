@@ -16,10 +16,11 @@ Do not create a parallel Markdown plan or infer the next phase from repository f
 
 ```bash
 dstack init
+dstack check formula
 ```
 
-This explicit workflow command uses `bd init --skip-agents` only when needed, installs the dStack formula and scoped
-`PRIME.md`, and validates the resulting contract. It does not create workflow issues. Do not initialize Beads in stealth
+These commands install and validate the dStack formula and scoped `PRIME.md`, including committed policy. Do not pour
+new work until the check succeeds. Explicit setup does not create workflow issues. Do not initialize Beads in stealth
 mode or remove existing integrations automatically.
 
 2. When the user supplied an existing feature root or descendant, resume that molecule. Do not pour a replacement.

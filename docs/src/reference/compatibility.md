@@ -10,6 +10,7 @@ The native behavior exercised by acceptance tests includes formula parsing and p
 blocking and waits-for dependencies, human gates, dynamic implementation children, Beads worktrees, JSON output, Beads
 history, and Git-hook integration through hk.
 
-Formula and prime changes are reviewed project configuration. The packaged formula and installed project contract must
-match before feature work begins; the formula must describe the same five-step graph and `PRIME.md` must preserve the
-opt-in workflow boundary.
+Formula and prime changes are reviewed project configuration. The installed formula and prime must exactly match the
+packaged contract, and `dstack check formula` also requires the formula to match the version committed at `HEAD` before
+feature work begins. The five-step graph retains the internal `audit` step ID and label as its stable final-step
+identity while its public lifecycle role becomes close. `PRIME.md` must preserve the opt-in workflow boundary.

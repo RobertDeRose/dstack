@@ -17,8 +17,9 @@ approval step. The audit has one `children-of(implementation)` waits-for depende
 
 ## Planning
 
-`/plan-feature` records the request, repository evidence, questions and answers, decisions, rationale, acceptance
-criteria, non-goals, and documentation impact in the plan Bead. It does not create implementation tasks.
+`/plan-feature` runs `dstack init` and requires `dstack check formula` to validate committed policy before pouring new
+work. It records the request, repository evidence, questions and answers, decisions, rationale, acceptance criteria,
+non-goals, and documentation impact in the plan Bead. It does not create implementation tasks.
 
 Planning closes only after the ambiguity pass is complete and `dstack check plan --bead <plan-bead>` succeeds.
 
