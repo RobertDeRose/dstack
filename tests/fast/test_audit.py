@@ -45,6 +45,9 @@ class FakeClient:
     def show_optional(self, issue_id: str) -> dict[str, Any] | None:
         return self.issues.get(issue_id)
 
+    def show_many(self, issue_ids: list[str]) -> list[dict[str, Any]]:
+        return [self.issues[issue_id] for issue_id in issue_ids]
+
     def children(self, parent: str, **kwargs: Any) -> list[dict[str, Any]]:
         return [self.issues["task"]] if parent == "implementation" else []
 
@@ -131,6 +134,14 @@ def install_fakes(
     monkeypatch.setattr(subject, "feature_steps", lambda client, root_id: steps)
     monkeypatch.setattr(subject, "branch_exists", lambda root, branch: False)
     monkeypatch.setattr(subject, "worktree_for_branch", lambda client, branch: None)
+
+
+def test_bounded_payload_reports_truncation() -> None:
+    result = subject.bounded(range(subject.MAX_AUDIT_ITEMS + 1))
+
+    assert result["count"] == subject.MAX_AUDIT_ITEMS + 1
+    assert result["truncated"] is True
+    assert len(result["items"]) == subject.MAX_AUDIT_ITEMS
 
 
 def test_audit_evidence_is_bounded_fact_collection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -351,8 +362,11 @@ def test_audit_bounds_diff_stat_and_rejects_beads_paths(tmp_path: Path, monkeypa
     monkeypatch.setattr(subject, "diff_stat", lambda *args, **kwargs: "x" * 5000)
 
     result = subject.collect_audit_evidence(tmp_path, "root")
+    expanded = subject.collect_audit_evidence(tmp_path, "root", include_commit_paths=True)
 
     assert len(result["git"]["diff_stat"]) <= 4000
+    assert "paths" not in result["git"]["commits"]["items"][0]
+    assert expanded["git"]["commits"]["items"][0]["paths"]["items"] == []
     assert result["git"]["invalid_footer_commits"]["items"] == ["abc123"]
     assert any("Beads" in error for error in result["checks"]["errors"])
     assert any("ownership" in error for error in result["checks"]["errors"])

@@ -95,6 +95,7 @@ def command_may_mutate(command: Sequence[str]) -> bool:
     if executable == "bd":
         return action in {
             "close",
+            "comment",
             "comments",
             "create",
             "delete",
@@ -423,6 +424,24 @@ class BeadsClient:
             raise DstackError(f"Bead not found: {issue_id}")
         return issue
 
+    def show_many(self, issue_ids: Sequence[str]) -> builtins.list[dict[str, Any]]:
+        ids = [str(issue_id) for issue_id in issue_ids]
+        if not ids:
+            return []
+        if len(ids) != len(set(ids)):
+            raise DstackError("batched Beads read contains duplicate IDs")
+        items = as_items(
+            self.json(["bd", "show", *ids, "--json"]),
+            context="bd show batch",
+        )
+        by_id = {str(item.get("id") or ""): item for item in items}
+        if len(by_id) != len(items):
+            raise DstackError("Beads batch response contains duplicate IDs")
+        missing = [issue_id for issue_id in ids if issue_id not in by_id]
+        if missing:
+            raise DstackError("Beads batch response omitted: " + ", ".join(missing))
+        return [by_id[issue_id] for issue_id in ids]
+
     def list(
         self,
         *,
@@ -734,7 +753,7 @@ def commit_records(
     root: Path,
     ref_range: str,
     *,
-    include_paths: bool = True,
+    include_paths: bool = False,
     max_count: int | None = None,
 ) -> list[dict[str, Any]]:
     repository = git_root(root)
@@ -779,13 +798,13 @@ def footer_mapping(records: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[
     result: dict[str, list[dict[str, Any]]] = {}
     for record in records:
         for bead_id in record.get("footer_ids", ()):
-            result.setdefault(str(bead_id), []).append(
-                {
-                    "commit": str(record.get("commit") or ""),
-                    "subject": str(record.get("subject") or ""),
-                    "paths": list(record.get("paths", [])),
-                }
-            )
+            row: dict[str, Any] = {
+                "commit": str(record.get("commit") or ""),
+                "subject": str(record.get("subject") or ""),
+            }
+            if record.get("paths"):
+                row["paths"] = list(record["paths"])
+            result.setdefault(str(bead_id), []).append(row)
     return result
 
 

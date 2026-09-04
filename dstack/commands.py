@@ -14,6 +14,7 @@ from .core import (
     as_items,
     audit_fan_in_errors,
     branch_exists,
+    changed_paths,
     commit_records,
     conventional_worktree,
     feature_identity,
@@ -33,6 +34,9 @@ from .formula import beads_workspace, check_formula, init_workspace, install_for
 from .git_ops import canonical_task_message, commit_record_matches_message
 from .output import emit
 from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
+
+MAX_TASK_EVIDENCE_COMMITS = 100
+MAX_IMPLEMENTATION_TASKS = 100
 
 
 @serialized_repository_mutation
@@ -192,7 +196,13 @@ def cmd_review_check(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     root, slug, _ = feature_identity(client, args.bead)
     steps = feature_steps(client, str(root["id"]))
-    tasks = implementation_tasks(client, str(steps["implementation"]["id"]))
+    tasks = implementation_tasks(
+        client,
+        str(steps["implementation"]["id"]),
+        limit=MAX_IMPLEMENTATION_TASKS + 1,
+    )
+    task_overflow = len(tasks) > MAX_IMPLEMENTATION_TASKS
+    tasks = tasks[:MAX_IMPLEMENTATION_TASKS]
     ready = as_items(
         client.json(
             [
@@ -218,6 +228,8 @@ def cmd_review_check(args: argparse.Namespace) -> int:
         ready_task_ids=[str(item["id"]) for item in ready],
         cycles=cycles_payload,
     )
+    if task_overflow:
+        errors.append(f"implementation tasks exceed the {MAX_IMPLEMENTATION_TASKS}-item review bound")
     emit(
         {
             "status": "ok" if not errors else "invalid",
@@ -246,16 +258,21 @@ def implementation_tasks(
     limit: int | None = None,
     known_task: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    tasks: list[dict[str, Any]] = []
-    for child in client.children(implementation_id, limit=limit):
-        if issue_type(child) in {"epic", "molecule", "gate"}:
-            continue
-        child_id = str(child["id"])
-        if known_task is not None and str(known_task.get("id")) == child_id:
-            tasks.append(dict(known_task))
-        else:
-            tasks.append(client.show(child_id))
-    return tasks
+    children = sorted(
+        (
+            child
+            for child in client.children(implementation_id, limit=limit)
+            if issue_type(child) not in {"epic", "molecule", "gate"}
+        ),
+        key=lambda child: str(child.get("id") or ""),
+    )
+    known_id = str(known_task.get("id")) if known_task is not None else None
+    requested_ids = [str(child["id"]) for child in children if str(child["id"]) != known_id]
+    loaded = {str(task["id"]): task for task in client.show_many(requested_ids)}
+    return [
+        dict(known_task) if known_task is not None and str(child["id"]) == known_id else loaded[str(child["id"])]
+        for child in children
+    ]
 
 
 def graph_errors_for_task(
@@ -283,8 +300,12 @@ def cmd_task_check(args: argparse.Namespace) -> int:
     tasks = implementation_tasks(
         client,
         str(steps["implementation"]["id"]),
+        limit=MAX_IMPLEMENTATION_TASKS + 1,
         known_task=task,
     )
+    if len(tasks) > MAX_IMPLEMENTATION_TASKS:
+        errors.append(f"implementation tasks exceed the {MAX_IMPLEMENTATION_TASKS}-item evidence bound")
+        tasks = tasks[:MAX_IMPLEMENTATION_TASKS]
     errors.extend(graph_errors_for_task(client, task, feature_root, steps, tasks))
 
     branch = f"feat/{slug}"
@@ -293,18 +314,25 @@ def cmd_task_check(args: argparse.Namespace) -> int:
     if not ancestry(client.root, base, branch):
         errors.append(f"feature branch {branch} does not contain base branch {base}")
     evidence_range = f"{base}..{branch}"
-    records = commit_records(client.root, evidence_range)
+    records = commit_records(
+        client.root,
+        evidence_range,
+        include_paths=False,
+        max_count=MAX_TASK_EVIDENCE_COMMITS + 1,
+    )
+    if len(records) > MAX_TASK_EVIDENCE_COMMITS:
+        errors.append(f"task evidence exceeds the {MAX_TASK_EVIDENCE_COMMITS}-commit bound")
+        records = records[:MAX_TASK_EVIDENCE_COMMITS]
     task_records = [record for record in records if args.bead in record.get("footer_ids", ())]
     evidence = [
         {
             "commit": str(record["commit"]),
             "subject": str(record["subject"]),
-            "paths": list(record.get("paths", [])),
         }
         for record in task_records
     ]
     try:
-        reject_beads_paths([path for record in records for path in record.get("paths", [])])
+        reject_beads_paths(changed_paths(client.root, base, branch))
     except DstackError as exc:
         errors.append(str(exc))
 

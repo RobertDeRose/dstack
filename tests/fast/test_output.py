@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import re
 from io import StringIO
 
 import pytest
 
 from dstack import output as subject
-
-
-def strip_ansi(value: str) -> str:
-    return re.sub(r"\x1b\[[0-9;]*m", "", value)
 
 
 class FakeStream(StringIO):
@@ -21,19 +16,9 @@ class FakeStream(StringIO):
         return self.tty
 
 
-def test_emit_pretty_prints_for_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
-    stream = FakeStream(tty=True)
-    monkeypatch.delenv("DSTACK_OUTPUT_FORMAT", raising=False)
-    monkeypatch.setattr(subject.sys, "stdout", stream)
-
-    subject.emit({"status": "ok", "items": [1]})
-
-    assert "\x1b[" in stream.getvalue()
-    assert strip_ansi(stream.getvalue()) == '{\n  "items": [\n    1\n  ],\n  "status": "ok"\n}\n'
-
-
-def test_emit_compact_prints_when_not_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
-    stream = FakeStream(tty=False)
+@pytest.mark.parametrize("tty", [True, False])
+def test_emit_defaults_to_compact_json_in_every_terminal(monkeypatch: pytest.MonkeyPatch, tty: bool) -> None:
+    stream = FakeStream(tty=tty)
     monkeypatch.delenv("DSTACK_OUTPUT_FORMAT", raising=False)
     monkeypatch.setattr(subject.sys, "stdout", stream)
 
@@ -42,30 +27,33 @@ def test_emit_compact_prints_when_not_a_terminal(monkeypatch: pytest.MonkeyPatch
     assert stream.getvalue() == '{"items":[1],"status":"ok"}\n'
 
 
-@pytest.mark.parametrize(
-    ("tty", "override", "pretty"),
-    [(True, "compact", False), (False, "pretty", True)],
-)
-def test_output_format_override_wins_over_terminal_detection(
-    monkeypatch: pytest.MonkeyPatch, tty: bool, override: str, pretty: bool
+def test_explicit_pretty_output_uses_standard_json_without_terminal_codes(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    stream = FakeStream(tty=tty)
-    monkeypatch.setenv("DSTACK_OUTPUT_FORMAT", override)
+    stream = FakeStream(tty=True)
+    monkeypatch.setenv("DSTACK_OUTPUT_FORMAT", "pretty")
+    monkeypatch.setattr(subject.sys, "stdout", stream)
+
+    subject.emit({"status": "ok", "items": [1]})
+
+    assert stream.getvalue() == '{\n  "items": [\n    1\n  ],\n  "status": "ok"\n}\n'
+    assert "\x1b[" not in stream.getvalue()
+
+
+def test_compact_override_remains_compatible(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream = FakeStream(tty=True)
+    monkeypatch.setenv("DSTACK_OUTPUT_FORMAT", "compact")
     monkeypatch.setattr(subject.sys, "stdout", stream)
 
     subject.emit({"status": "ok"})
 
-    if pretty:
-        assert stream.getvalue() == '{\n  "status": "ok"\n}\n'
-    else:
-        assert stream.getvalue() == '{"status":"ok"}\n'
+    assert stream.getvalue() == '{"status":"ok"}\n'
 
 
-def test_fail_uses_stderr_terminal_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fail_defaults_to_compact_json_on_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
     stream = FakeStream(tty=True)
     monkeypatch.delenv("DSTACK_OUTPUT_FORMAT", raising=False)
     monkeypatch.setattr(subject.sys, "stderr", stream)
 
     assert subject.fail("bad") == 2
-    assert "\x1b[" in stream.getvalue()
-    assert strip_ansi(stream.getvalue()) == '{\n  "error": "bad",\n  "status": "error"\n}\n'
+    assert stream.getvalue() == '{"error":"bad","status":"error"}\n'
