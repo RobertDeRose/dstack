@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     install = _leaf(commands, "install", "Install dStack agent resources.")
     install_commands = install.add_subparsers(dest="command", required=True)
-    skills = _leaf(install_commands, "skills", "Install or update the four targeted Pi skills and prompts.")
+    skills = _leaf(install_commands, "skills", "Install or update the five targeted Pi skills and prompts.")
     skills.add_argument(
         "--agent-dir",
         type=Path,

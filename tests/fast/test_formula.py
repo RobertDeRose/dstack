@@ -148,6 +148,35 @@ def test_formula_check_rejects_policy_not_committed_at_head(
         subject.check_formula(git_repo)
 
 
+def test_formula_check_uses_committed_policy_from_linked_worktree(
+    git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracked = git_repo / ".beads/formulas" / subject.FORMULA_FILENAME
+    tracked.parent.mkdir(parents=True)
+    tracked.write_bytes(subject.formula_path().read_bytes())
+    subject.run(["git", "add", str(tracked)], cwd=git_repo)
+    subject.run(["git", "commit", "-qm", "test: commit formula"], cwd=git_repo)
+
+    shared = tmp_path / ".beads"
+    destination = shared / "formulas" / subject.FORMULA_FILENAME
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(subject.formula_path().read_bytes())
+    (shared / subject.PRIME_FILENAME).write_bytes(subject.prime_path().read_bytes())
+
+    class FakeClient:
+        def __init__(self, root: Path):
+            self.root = root
+
+        def check_version(self) -> str:
+            return "bd version 1.2.2 (test)"
+
+    monkeypatch.setattr(subject, "beads_workspace", lambda root: shared)
+    monkeypatch.setattr(subject, "BeadsClient", FakeClient)
+    monkeypatch.setattr(subject, "_verify_native_formula", lambda root: None)
+
+    assert subject.check_formula(git_repo)["formula_committed"] is True
+
+
 def test_failed_native_parse_restores_previous_formula(
     git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

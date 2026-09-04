@@ -4,6 +4,8 @@ name: review-plan
 description: "Review a Beads feature plan against the repository and create implementation tasks"
 ---
 
+<!-- rumdl-disable-file MD041 -->
+
 Load and follow the `dstack-review-plan` skill.
 
 User input: $ARGUMENTS

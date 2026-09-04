@@ -736,7 +736,13 @@ def changed_paths(root: Path, base: str, head: str) -> list[str]:
 
 
 def reject_beads_paths(paths: Sequence[str]) -> None:
-    invalid = sorted(path for path in paths if path == ".beads" or path.startswith(".beads/"))
+    committed_policy = {
+        ".beads/PRIME.md",
+        ".beads/formulas/dstack-feature.formula.toml",
+    }
+    invalid = sorted(
+        path for path in paths if (path == ".beads" or path.startswith(".beads/")) and path not in committed_policy
+    )
     if invalid:
         raise DstackError(
             "implementation commits may not include Beads configuration or runtime state; "

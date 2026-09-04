@@ -4,6 +4,7 @@
 - [Getting started](getting-started/index.md)
 - [Architecture](architecture/index.md)
 - [Operations](operations/index.md)
+  - [Project audit](operations/project-audit.md)
   - [Recovery](operations/recovery.md)
 - [Security](security/index.md)
 - [Development](development/index.md)

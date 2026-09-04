@@ -40,7 +40,10 @@ def test_dstack_init_bootstraps_and_validates_beads(uninitialized_repo: Path) ->
     assert (uninitialized_repo / ".beads/formulas/dstack-feature.formula.toml").is_file()
     assert (uninitialized_repo / ".beads/PRIME.md").is_file()
     assert not (uninitialized_repo / "AGENTS.md").exists()
-    assert "workflow is opt-in" in run_command(["bd", "prime", "--mcp"], cwd=uninitialized_repo).stdout
+    prime = run_command(["bd", "prime", "--mcp"], cwd=uninitialized_repo).stdout
+    assert "explicitly activated dStack workflow" in prime
+    assert "/close-feature" in prime
+    assert "/audit-project" in prime
 
     repeated = run_dstack_root(uninitialized_repo, "init")
     assert repeated["initialized"] is False

@@ -289,12 +289,7 @@ def check_formula(root: Path, *, require_committed: bool = True) -> dict[str, An
 
     committed = False
     if require_committed:
-        try:
-            relative_formula = destination.relative_to(repository)
-        except ValueError as exc:
-            raise DstackError(
-                f"project formula is outside the repository and cannot be verified at HEAD: {destination}"
-            ) from exc
+        relative_formula = Path(".beads") / "formulas" / FORMULA_FILENAME
         observed = run(
             ["git", "show", f"HEAD:{relative_formula.as_posix()}"],
             cwd=repository,

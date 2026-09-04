@@ -29,8 +29,11 @@ unique plan Bead:
 ```bash
 dstack docs export-design --feature <feature-root>
 dstack check docs --feature <slug>
+dstack docs commit --feature <feature-root>
 ```
 
 The feature check rejects unsafe paths, symlinks, invalid includes, duplicate navigation, and direct SUMMARY links to
 the design. It does not enforce global book layout, orphan pages, ADR format, unrelated links, or an mdBook build.
-Repository lint and pre-commit workflows own those broader checks.
+Repository lint and pre-commit workflows own those broader checks. The final documentation commit is owned by the close
+step. Close may propose reusable Beads memory, but it writes memory only after user approval and never treats memory as
+publication or completion evidence.

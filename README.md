@@ -9,7 +9,7 @@
 - **Beads** owns plans, decisions, tasks, dependencies, gates, claims, readiness, and completion.
 - **Git** owns repository content, branches, worktrees, and history.
 - **hk** runs the repository validation contract.
-- **dStack skills** guide semantic planning, review, implementation, and audit.
+- **dStack skills** guide semantic planning, review, implementation, close, and project audit.
 - **dStack commands** perform deterministic repository checks and mutations.
 
 ## Workflow
@@ -17,7 +17,7 @@
 Each feature uses one native Beads molecule:
 
 ```text
-plan -> review -> human approval -> implementation tasks -> audit
+plan -> review -> human approval -> implementation tasks -> close
 ```
 
 The implementation step is a structural epic. Review creates each implementation task with a native approval blocker,
@@ -26,10 +26,11 @@ and the final close step waits natively for implementation children. `/close-fea
 The installed skills are:
 
 ```text
-/plan-feature   Record a feature plan and its decisions in Beads
-/review-plan    Review the plan and create implementation tasks
-/implement      Claim and implement the next ready task
-/audit-feature  Compare the delivered work with the approved intent
+/plan-feature   Record feature intent and material decisions in Beads
+/review-plan    Reconcile memory and repository facts; create implementation tasks
+/implement      Claim and implement native ready work
+/close-feature  Review, document, and close an implemented feature
+/audit-project  Audit current project drift and plan remediation
 ```
 
 The workflow is opt-in. Only the targeted skills, or an explicit request to use dStack, activate Beads tracking. dStack
@@ -67,7 +68,7 @@ dstack docs export-design --bead <feature-root> [--root PATH]
 dstack docs commit --bead <feature-root> [--root PATH]
 dstack commit --bead <task>
 dstack worktree --bead <feature-or-descendant>
-dstack audit <feature> [detail flags]
+dstack audit --bead <feature> [--offset N] [--include-plan] [--require-docs]
 ```
 
 Agent-facing operational commands emit deterministic JSON. Top-level help, version, unknown-command, and argparse output

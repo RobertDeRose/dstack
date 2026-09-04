@@ -3,7 +3,7 @@
 dStack is opt-in. Normal requests do not create Beads work; invoke one of the installed commands when you want the
 native feature workflow.
 
-Install dStack and its four agent skills:
+Install dStack and its five hidden agent skills plus public prompt commands:
 
 ```bash
 uv tool install --python 3.14 /path/to/dstack
@@ -23,5 +23,6 @@ up explicitly before relying on dStack's opt-in boundary. Review and commit the 
 `dstack check formula`; `/plan-feature` and `/audit-project` do not pour new work until that committed-policy check
 passes.
 
-Start a feature with `/plan-feature`. Use `/review-plan`, `/implement`, and `/audit-feature` as the native molecule
-steps become ready.
+Start a feature with `/plan-feature`, then use `/review-plan`, `/implement`, and `/close-feature`. Use `/audit-project`
+to inspect current project drift and prepare a normal remediation plan. Only explicit prompt invocation activates the
+workflow; hidden skills are not model-selected.

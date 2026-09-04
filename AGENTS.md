@@ -13,7 +13,7 @@ registry, worktree registry, commit map, or coordination protocol.
 
 The dStack workflow is opt-in. Do not infer activation from `.beads`, installed skills, or the availability of `bd`.
 Only use Beads and the native dStack workflow when the user explicitly invokes `/plan-feature`, `/review-plan`,
-`/implement`, or `/audit-feature`, or explicitly asks to use dStack. An explicitly requested dStack command may perform
+`/implement`, `/close-feature`, or `/audit-project`, or explicitly asks to use dStack. An explicitly requested dStack command may perform
 its documented deterministic mechanics, but it does not activate workflow tracking or create issues.
 
 For all other requests:
@@ -27,7 +27,7 @@ For all other requests:
 When explicitly activated, use the native `dstack-feature` molecule:
 
 ```text
-plan -> review -> human approval -> implementation children -> audit
+plan -> review -> human approval -> implementation children -> close
 ```
 
 Query Beads for the next task. Never calculate readiness or override a native blocker.
@@ -40,23 +40,30 @@ Review compares the plan with current code, tests, documentation, and decisions.
 real dependencies, then presents the reviewed scope for explicit approval.
 
 Implementation claims one native ready task. Code, tests, configuration, and current documentation for that outcome
-belong together. Audit compares the approved intent with the delivered repository and records any resulting work or
-question in Beads.
+belong together. Close reviews approved intent before claiming the final step, returns defects to implementation, and
+writes feature documentation only after review passes. Project audit creates a normal remediation plan and returns
+it for review.
 
 ## Deterministic mechanics
 
 dStack commands may:
 
-- install and verify the project formula;
+- initialize and verify project workflow policy;
 - enforce feature branch and worktree policy;
 - validate plan and task structure;
 - create Conventional Commits with Beads evidence;
 - inspect reachable Git evidence;
-- validate current documentation; and
-- collect bounded audit facts.
+- validate feature documentation; and
+- collect bounded close and project-audit facts.
 
 Skills perform semantic judgment and native Beads mutations. The CLI does not choose workflow steps or close Beads
 work.
+
+## Memory
+
+`/review-plan` and `/audit-project` may search and recall focused Beads memories. `/close-feature` may propose a reusable
+memory write, correction, or retirement, but must receive explicit user approval before mutation. Current repository
+documentation and accepted decisions outrank stale memory. Memory is never live workflow state.
 
 ## Documentation
 

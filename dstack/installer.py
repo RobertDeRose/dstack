@@ -11,13 +11,15 @@ from .output import emit
 
 MANAGED_KEY = "dstack-managed"
 CURRENT_SKILLS = (
-    "dstack-audit-feature",
+    "dstack-audit-project",
+    "dstack-close-feature",
     "dstack-implement",
     "dstack-plan-feature",
     "dstack-review-plan",
 )
 CURRENT_PROMPTS = (
-    "audit-feature.md",
+    "audit-project.md",
+    "close-feature.md",
     "implement.md",
     "plan-feature.md",
     "review-plan.md",
@@ -41,19 +43,6 @@ def _assert_no_symlink(path: Path) -> None:
         if current.parent == current:
             return
         current = current.parent
-
-
-def _atomic_copy(source: Path, destination: Path) -> None:
-    _assert_no_symlink(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    _assert_no_symlink(destination)
-    fd, raw_path = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
-    os.close(fd)
-    try:
-        shutil.copy2(source, raw_path)
-        os.replace(raw_path, destination)
-    finally:
-        Path(raw_path).unlink(missing_ok=True)
 
 
 def _frontmatter(path: Path) -> dict[str, str]:
@@ -85,50 +74,139 @@ def _owned_prompt(path: Path, expected_name: str) -> bool:
     return metadata.get(MANAGED_KEY) == "true" and metadata.get("name") == expected_name
 
 
-def _remove_stale_owned_resources(skills_target: Path, prompts_target: Path) -> list[str]:
-    """Remove only dStack-owned resources outside the current manifest."""
+def _stale_owned_resources(skills_target: Path, prompts_target: Path) -> list[tuple[Path, str]]:
+    """Find removable dStack resources without mutating the installation."""
 
-    removed: list[str] = []
-    for directory in sorted(skills_target.iterdir()):
-        if not directory.is_dir() or directory.name in CURRENT_SKILLS:
-            continue
-        _assert_no_symlink(directory)
-        skill = directory / "SKILL.md"
-        if skill.is_file() and _owned_skill(skill, directory.name):
-            shutil.rmtree(directory)
-            removed.append(f"skills/{directory.name}")
+    stale: list[tuple[Path, str]] = []
+    for target, kind in ((skills_target, "skills"), (prompts_target, "prompts")):
+        _assert_no_symlink(target)
+        if target.exists() and not target.is_dir():
+            raise DstackError(f"agent {kind} destination is not a directory: {target}")
 
-    for prompt in sorted(prompts_target.glob("*.md")):
-        if prompt.name in CURRENT_PROMPTS:
-            continue
-        _assert_no_symlink(prompt)
-        if _owned_prompt(prompt, prompt.stem):
-            prompt.unlink()
-            removed.append(f"prompts/{prompt.name}")
-    return removed
+    if skills_target.exists():
+        for directory in sorted(skills_target.iterdir()):
+            if not directory.is_dir() or directory.name in CURRENT_SKILLS:
+                continue
+            _assert_no_symlink(directory)
+            skill = directory / "SKILL.md"
+            if skill.is_file() and _owned_skill(skill, directory.name):
+                stale.append((directory, f"skills/{directory.name}"))
 
-
-def _replace_skill(source: Path, destination: Path) -> None:
-    source_skill = source / "SKILL.md"
-    if not _owned_skill(source_skill, source.name):
-        raise DstackError(f"packaged skill lacks dStack ownership marker: {source.name}")
-    _assert_no_symlink(destination)
-    if destination.exists():
-        installed = destination / "SKILL.md"
-        if not installed.is_file() or not _owned_skill(installed, source.name):
-            raise DstackError(f"refusing to replace user-owned skill: {destination}")
-        shutil.rmtree(destination)
-    shutil.copytree(source, destination)
+    if prompts_target.exists():
+        for prompt in sorted(prompts_target.glob("*.md")):
+            if prompt.name in CURRENT_PROMPTS:
+                continue
+            _assert_no_symlink(prompt)
+            if _owned_prompt(prompt, prompt.stem):
+                stale.append((prompt, f"prompts/{prompt.name}"))
+    return stale
 
 
-def _replace_prompt(source: Path, destination: Path) -> None:
-    expected_name = source.stem
-    if not _owned_prompt(source, expected_name):
-        raise DstackError(f"packaged prompt lacks dStack ownership marker: {source.name}")
-    _assert_no_symlink(destination)
-    if destination.exists() and (not destination.is_file() or not _owned_prompt(destination, expected_name)):
-        raise DstackError(f"refusing to replace user-owned prompt: {destination}")
-    _atomic_copy(source, destination)
+def _preflight_resources(
+    skill_source: Path,
+    prompt_source: Path,
+    skills_target: Path,
+    prompts_target: Path,
+) -> list[tuple[Path, str]]:
+    """Validate every source and destination before changing any resource."""
+
+    stale = _stale_owned_resources(skills_target, prompts_target)
+    for name in CURRENT_SKILLS:
+        source_skill = skill_source / name / "SKILL.md"
+        if not _owned_skill(source_skill, name):
+            raise DstackError(f"packaged skill lacks dStack ownership marker: {name}")
+        if _frontmatter(source_skill).get("disable-model-invocation") != "true":
+            raise DstackError(f"packaged skill must disable model invocation: {name}")
+
+        destination = skills_target / name
+        _assert_no_symlink(destination)
+        if destination.exists():
+            installed = destination / "SKILL.md"
+            if not destination.is_dir() or not installed.is_file() or not _owned_skill(installed, name):
+                raise DstackError(f"refusing to replace user-owned skill: {destination}")
+
+    for name in CURRENT_PROMPTS:
+        source = prompt_source / name
+        expected_name = source.stem
+        if not _owned_prompt(source, expected_name):
+            raise DstackError(f"packaged prompt lacks dStack ownership marker: {name}")
+
+        destination = prompts_target / name
+        _assert_no_symlink(destination)
+        if destination.exists() and (not destination.is_file() or not _owned_prompt(destination, expected_name)):
+            raise DstackError(f"refusing to replace user-owned prompt: {destination}")
+    return stale
+
+
+def _stage_resources(
+    skill_source: Path,
+    prompt_source: Path,
+    skills_target: Path,
+    prompts_target: Path,
+    staging: Path,
+) -> list[tuple[Path, Path]]:
+    staged_skills = staging / "new/skills"
+    staged_prompts = staging / "new/prompts"
+    staged_skills.mkdir(parents=True)
+    staged_prompts.mkdir(parents=True)
+
+    resources: list[tuple[Path, Path]] = []
+    for name in CURRENT_SKILLS:
+        staged = staged_skills / name
+        shutil.copytree(skill_source / name, staged, copy_function=shutil.copy2)
+        resources.append((staged, skills_target / name))
+    for name in CURRENT_PROMPTS:
+        staged = staged_prompts / name
+        shutil.copy2(prompt_source / name, staged)
+        resources.append((staged, prompts_target / name))
+    return resources
+
+
+def _remove_resource(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _apply_resources(
+    resources: list[tuple[Path, Path]],
+    stale: list[tuple[Path, str]],
+    backup_root: Path,
+) -> None:
+    """Install staged resources and restore the prior installation on failure."""
+
+    backup_root.mkdir(parents=True)
+    installed: list[Path] = []
+    backups: list[tuple[Path, Path]] = []
+    try:
+        for staged, destination in resources:
+            if destination.exists():
+                backup = backup_root / f"{len(backups):03d}"
+                os.replace(destination, backup)
+                backups.append((destination, backup))
+            os.replace(staged, destination)
+            installed.append(destination)
+        for path, _label in stale:
+            backup = backup_root / f"{len(backups):03d}"
+            os.replace(path, backup)
+            backups.append((path, backup))
+    except OSError as exc:
+        rollback_errors: list[str] = []
+        for path in reversed(installed):
+            try:
+                _remove_resource(path)
+            except OSError as rollback_exc:
+                rollback_errors.append(f"remove {path}: {rollback_exc}")
+        for destination, backup in reversed(backups):
+            try:
+                os.replace(backup, destination)
+            except OSError as rollback_exc:
+                rollback_errors.append(f"restore {destination}: {rollback_exc}")
+        if rollback_errors:
+            details = "; ".join(rollback_errors)
+            raise DstackError(f"agent resource installation failed and rollback was incomplete: {details}") from exc
+        raise
 
 
 def _verify_packaged_manifest(skill_source: Path, prompt_source: Path) -> None:
@@ -160,16 +238,13 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
     skills_target = target / "skills"
     prompts_target = target / "prompts"
     try:
-        for path in (skills_target, prompts_target):
-            _assert_no_symlink(path)
+        stale = _preflight_resources(skill_source, prompt_source, skills_target, prompts_target)
         skills_target.mkdir(parents=True, exist_ok=True)
         prompts_target.mkdir(parents=True, exist_ok=True)
-        removed = _remove_stale_owned_resources(skills_target, prompts_target)
-
-        for name in CURRENT_SKILLS:
-            _replace_skill(skill_source / name, skills_target / name)
-        for name in CURRENT_PROMPTS:
-            _replace_prompt(prompt_source / name, prompts_target / name)
+        with tempfile.TemporaryDirectory(prefix=".dstack-install-", dir=target) as raw_staging:
+            staging = Path(raw_staging)
+            resources = _stage_resources(skill_source, prompt_source, skills_target, prompts_target, staging)
+            _apply_resources(resources, stale, staging / "backup")
     except DstackError:
         raise
     except (OSError, UnicodeError) as exc:
@@ -180,7 +255,7 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
         "agent_dir": str(target),
         "skills": list(CURRENT_SKILLS),
         "prompts": list(CURRENT_PROMPTS),
-        "removed_stale": removed,
+        "removed_stale": [label for _path, label in stale],
     }
 
 

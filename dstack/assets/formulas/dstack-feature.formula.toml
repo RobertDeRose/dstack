@@ -6,7 +6,7 @@ Beads owns every durable workflow transition. The molecule records planning,
 independent plan review, human approval, implementation work, and final close.
 dStack supplies only deterministic repository mechanics and validators.
 """
-version = 2
+version = 3
 type = "workflow"
 phase = "liquid"
 pour = true
