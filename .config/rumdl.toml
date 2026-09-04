@@ -18,6 +18,9 @@ exclude = [
 flavor = "gfm"
 respect-gitignore = true
 
+[per-file-ignores]
+"docs/src/features/*/design.md" = ["MD041"]
+
 # ATX-style headings required
 [MD003]
 style = "atx"

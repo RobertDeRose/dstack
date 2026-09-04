@@ -1,24 +1,27 @@
-"""Canonical mdBook foundation and stateless documentation validation."""
+"""Feature-scoped documentation export and structural validation."""
 
 from __future__ import annotations
 
-import json
+import os
 import re
-import shutil
 import tempfile
-import tomllib
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
 
-from .core import DstackError, _assert_no_symlink_components, read_utf8_text, run, truncate_output
+from .core import (
+    BeadsClient,
+    DstackError,
+    _assert_no_symlink_components,
+    feature_identity,
+    feature_steps,
+    read_utf8_text,
+)
 from .output import emit
+from .policy import markdown_sections
 
-SUPPORTED_MDBOOK_VERSION_OUTPUT = "mdbook v0.5.4"
 LINK_PATTERN = re.compile(r"!?\[[^]]*\]\((.+)\)")
 INCLUDE_PATTERN = re.compile(r"\{\{#include\s+([^}\s]+)[^}]*\}\}")
 FENCE_PATTERN = re.compile(r"^( {0,3})(`{3,}|~{3,})")
-ADR_PATTERN = "[0-9][0-9][0-9][0-9]-*.md"
-ADR_STATUSES = frozenset({"Proposed", "Accepted"})
+FEATURE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def _is_escaped(text: str, index: int) -> bool:
@@ -68,6 +71,7 @@ def _mask_markdown_code(text: str) -> str:
         while index + width < len(masked_text) and masked_text[index + width] == "`":
             width += 1
         cursor = index + width
+        closed = False
         while cursor < len(masked_text):
             cursor = masked_text.find("`", cursor)
             if cursor < 0:
@@ -80,12 +84,10 @@ def _mask_markdown_code(text: str) -> str:
                     if masked[position] not in "\r\n":
                         masked[position] = " "
                 index = cursor + width
+                closed = True
                 break
             cursor += closing
-        else:
-            index += width
-            continue
-        if cursor < 0:
+        if not closed:
             index += width
     return "".join(masked)
 
@@ -150,222 +152,128 @@ def _raw_target(value: str) -> str:
     return value.split(maxsplit=1)[0]
 
 
-def _inside(path: Path, parent: Path, message: str) -> Path:
-    resolved = path.resolve()
-    try:
-        resolved.relative_to(parent.resolve())
-    except ValueError as exc:
-        raise DstackError(message) from exc
-    return resolved
+def _feature_paths(root: Path, feature: str) -> tuple[Path, Path, Path, Path]:
+    if not FEATURE_SLUG.fullmatch(feature):
+        raise DstackError(f"invalid feature slug: {feature!r}")
+    repository = root.expanduser().resolve()
+    source = repository / "docs" / "src"
+    directory = source / "features" / feature
+    for path, purpose in (
+        (repository, "repository root"),
+        (repository / "docs", "documentation directory"),
+        (source, "documentation source"),
+        (source / "features", "feature documentation root"),
+        (directory, "feature documentation directory"),
+    ):
+        _assert_no_symlink_components(path, purpose=purpose)
+    return source / "SUMMARY.md", directory / "index.md", directory / "design.md", repository
 
 
-def foundation_files(project: str) -> dict[str, str]:
-    title = project.replace("-", " ").replace("_", " ").strip().title() or "Project"
-    return {
-        "docs/book.toml": f'[book]\ntitle = {json.dumps(title)}\nlanguage = "en"\nsrc = "src"\n',
-        "docs/src/SUMMARY.md": (
-            "# Summary\n\n"
-            "- [Project](index.md)\n"
-            "- [Getting started](getting-started/index.md)\n"
-            "- [Operations](operations/index.md)\n"
-            "- [Architecture](architecture/index.md)\n"
-            "- [Development](development/index.md)\n"
-            "- [Reference](reference/index.md)\n"
-            "- [Architecture decisions](decisions/index.md)\n"
-        ),
-        "docs/src/index.md": f"# {title}\n\nDescribe the project and its supported users here.\n",
-        "docs/src/getting-started/index.md": (
-            "# Getting started\n\nDescribe installation and the shortest successful user path here.\n"
-        ),
-        "docs/src/operations/index.md": (
-            "# Operations\n\nDescribe configuration, deployment, operation, failure handling, and recovery here.\n"
-        ),
-        "docs/src/architecture/index.md": (
-            "# Architecture\n\nDescribe current components, boundaries, data flow, and durable invariants here.\n"
-        ),
-        "docs/src/development/index.md": (
-            "# Development\n\nDescribe how to build, test, change, validate, and release the project here.\n"
-        ),
-        "docs/src/reference/index.md": "# Reference\n\nProvide exact interfaces and configuration reference here.\n",
-        "docs/src/decisions/index.md": (
-            "# Architecture decisions\n\nRecord durable rationale as ADRs or linked decision Beads.\n"
-        ),
-    }
+def _regular_file(path: Path, purpose: str) -> str:
+    _assert_no_symlink_components(path, purpose=purpose)
+    if path.is_symlink() or not path.is_file():
+        raise DstackError(f"{purpose} must be a regular file: {path}")
+    return read_utf8_text(path, purpose=purpose)
 
 
-def create_foundation(root: Path) -> list[str]:
-    _assert_no_symlink_components(root, purpose="documentation root")
-    repository = root.resolve()
-    created: list[str] = []
-    for relative, content in foundation_files(repository.name).items():
-        path = repository / relative
-        _assert_no_symlink_components(path, purpose="documentation foundation path")
-        _inside(path.parent, repository, "documentation foundation path escapes repository")
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("x", encoding="utf-8") as handle:
-                handle.write(content)
-            created.append(relative)
-        except FileExistsError:
-            if path.is_symlink() or not path.is_file():
-                raise DstackError(f"documentation foundation path is not a regular file: {relative}")
-        except (OSError, UnicodeError) as exc:
-            raise DstackError(f"cannot create documentation foundation path {relative}: {exc}") from exc
-    return created
+def _meaningful_section(index: str, title: str) -> bool:
+    matches = [section for section in markdown_sections(index) if section.title.casefold() == title.casefold()]
+    return len(matches) == 1 and matches[0].level == 2 and len(matches[0].content.strip()) >= 12
 
 
-def configured_source(root: Path) -> tuple[str, Path]:
-    repository = root.resolve()
-    docs = _inside(repository / "docs", repository, "documentation directory escapes repository")
-    book = docs / "book.toml"
-    if book.is_symlink() or not book.is_file():
-        raise DstackError("docs/book.toml must be a regular file")
-    try:
-        payload = tomllib.loads(read_utf8_text(book, purpose="mdBook configuration"))
-    except tomllib.TOMLDecodeError as exc:
-        raise DstackError(f"invalid mdBook configuration: {book}") from exc
-    table = payload.get("book", {})
-    if not isinstance(table, dict):
-        raise DstackError("mdBook [book] configuration must be a table")
-    raw = table.get("src", "src")
-    if not isinstance(raw, str) or not raw.strip():
-        raise DstackError("mdBook [book].src must be a non-empty relative path")
-    relative = Path(raw.strip())
-    if relative.is_absolute() or ".." in relative.parts:
-        raise DstackError("mdBook [book].src must stay within docs")
-    current = docs
-    for part in relative.parts:
-        current = current / part
-        if current.is_symlink():
-            raise DstackError("mdBook [book].src must not traverse symlinks")
-    source = current.resolve()
-    try:
-        source.relative_to(docs.resolve())
-    except ValueError as exc:
-        raise DstackError("mdBook [book].src must stay within docs") from exc
-    return raw.strip(), source
+def validate_docs(root: Path, *, feature: str) -> dict[str, object]:
+    summary_path, index_path, design_path, repository = _feature_paths(root, feature)
+    summary = _regular_file(summary_path, "documentation summary")
+    index = _regular_file(index_path, "feature index")
+    design = _regular_file(design_path, "feature design")
 
-
-def _local_target(source: Path, raw: str, source_root: Path) -> Path | None:
-    target = urlsplit(_raw_target(raw))
-    if target.scheme or target.netloc:
-        return None
-    path_text = unquote(target.path)
-    if not path_text:
-        return source
-    relative = Path(path_text)
-    if relative.is_absolute():
-        raise DstackError(f"local documentation target escapes docs/src: {raw}")
-    candidate = (source.parent / relative).resolve()
-    try:
-        candidate.relative_to(source_root)
-    except ValueError as exc:
-        raise DstackError(f"local documentation target escapes docs/src: {raw}") from exc
-    if not candidate.is_file():
-        raise DstackError(f"missing local documentation target: {raw}")
-    return candidate
-
-
-def _links(path: Path) -> list[str]:
-    return markdown_values(read_utf8_text(path, purpose="documentation link source"), LINK_PATTERN)
-
-
-def validate_decision_records(source: Path) -> list[str]:
-    decisions = source / "decisions"
-    if not decisions.is_dir():
-        return []
-    records = {path.name: path for path in decisions.glob(ADR_PATTERN)}
     errors: list[str] = []
-    for path in sorted(records.values()):
-        _assert_no_symlink_components(path, purpose="decision record")
-        text = read_utf8_text(path, purpose="decision record")
-        match = re.search(r"^- \*\*Status:\*\*\s*(.+)$", text, re.MULTILINE)
-        if match is None:
-            errors.append(f"{path.name} lacks Status")
-        elif (status := match.group(1).strip()) not in ADR_STATUSES:
-            errors.append(f"{path.name} has invalid status {status!r}")
-    return errors
+    first_content = next((line.strip() for line in index.splitlines() if line.strip()), "")
+    if not re.fullmatch(r"#\s+\S.+", first_content):
+        errors.append("feature index must begin with one level-one title")
+    for title in ("Overview", "User Impact"):
+        if not _meaningful_section(index, title):
+            errors.append(f"feature index requires one meaningful level-two {title} section")
 
+    implemented = [
+        section
+        for section in markdown_sections(index)
+        if section.title.casefold() == "implemented design" and section.level == 2
+    ]
+    includes = markdown_values(index, INCLUDE_PATTERN)
+    if len(implemented) != 1 or includes != ["design.md"] or "{{#include design.md}}" not in implemented[0].content:
+        errors.append("Implemented Design must contain exactly one native include of design.md")
+    if INCLUDE_PATTERN.search(design):
+        errors.append("feature design must not contain active mdBook directives")
 
-def require_mdbook() -> str:
-    executable = shutil.which("mdbook")
-    if executable is None:
-        raise DstackError("mdbook is unavailable on PATH")
-    observed = run([executable, "--version"], cwd=Path.cwd()).stdout.strip()
-    if observed != SUPPORTED_MDBOOK_VERSION_OUTPUT:
-        raise DstackError(f"dStack requires {SUPPORTED_MDBOOK_VERSION_OUTPUT}; found {observed or '<empty output>'}")
-    return executable
-
-
-def validate_docs(root: Path, *, mdbook: str | None = None) -> dict[str, object]:
-    _assert_no_symlink_components(root, purpose="documentation root")
-    repository = root.resolve()
-    docs = _inside(repository / "docs", repository, "documentation directory escapes repository")
-    expected_source = _inside(docs / "src", repository, "documentation source escapes repository")
-
-    missing = [relative for relative in foundation_files(repository.name) if not (repository / relative).is_file()]
-    if missing:
-        raise DstackError("missing required documentation: " + ", ".join(missing))
-
-    raw_source, source = configured_source(repository)
-    if source != expected_source:
-        raise DstackError(f"mdBook [book].src must resolve to docs/src; configured source is {raw_source!r}")
-
-    errors = validate_decision_records(source)
-    summary = source / "SUMMARY.md"
-    _assert_no_symlink_components(summary, purpose="documentation summary")
-    chapters: set[Path] = set()
-    for raw in _links(summary):
-        try:
-            target = _local_target(summary, raw, source)
-        except DstackError as exc:
-            errors.append(str(exc))
-            continue
-        if target is not None and target.suffix.casefold() == ".md":
-            chapters.add(target)
-
-    markdown = set(source.rglob("*.md"))
-    for path in markdown:
-        _assert_no_symlink_components(path, purpose="documentation file")
-        for raw in _links(path):
-            try:
-                _local_target(path, raw, source)
-            except DstackError as exc:
-                errors.append(str(exc))
-
-    includes: set[Path] = set()
-    pending = list(chapters)
-    while pending:
-        path = pending.pop()
-        text = read_utf8_text(path, purpose="documentation include source")
-        for raw in markdown_values(text, INCLUDE_PATTERN):
-            try:
-                included = _local_target(path, raw.split(":", 1)[0], source)
-            except DstackError as exc:
-                errors.append(str(exc))
-                continue
-            if included is not None and included not in includes:
-                includes.add(included)
-                if included.suffix.casefold() == ".md":
-                    pending.append(included)
-
-    orphans = sorted(path.relative_to(source).as_posix() for path in markdown - chapters - includes - {summary})
-    if orphans:
-        errors.append("orphan documentation is not in SUMMARY.md: " + ", ".join(orphans))
+    targets = [_raw_target(value) for value in markdown_values(summary, LINK_PATTERN)]
+    index_target = f"features/{feature}/index.md"
+    design_target = f"features/{feature}/design.md"
+    if targets.count(index_target) != 1:
+        errors.append(f"feature requires exactly one SUMMARY link to {index_target}")
+    if design_target in targets:
+        errors.append(f"SUMMARY must not link directly to {design_target}")
     if errors:
-        raise DstackError(truncate_output("documentation validation failed: " + "; ".join(sorted(set(errors)))))
-
-    executable = mdbook or require_mdbook()
-    with tempfile.TemporaryDirectory(prefix="dstack-mdbook-") as output:
-        run([executable, "build", str(docs), "--dest-dir", output], cwd=repository)
+        raise DstackError("documentation validation failed: " + "; ".join(errors))
 
     return {
         "status": "ok",
-        "chapters": sorted(path.relative_to(source).as_posix() for path in chapters),
-        "includes": sorted(path.relative_to(source).as_posix() for path in includes),
+        "feature": feature,
+        "index": index_path.relative_to(repository).as_posix(),
+        "design": design_path.relative_to(repository).as_posix(),
+    }
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _assert_no_symlink_components(path.parent, purpose="feature documentation directory")
+    descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(raw)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except OSError as exc:
+        raise DstackError(f"cannot export feature design: {path}") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def export_design(
+    root: Path,
+    selector: str,
+    *,
+    client: BeadsClient | None = None,
+) -> dict[str, str]:
+    repository = root.expanduser().resolve()
+    if client is None:
+        from .commands import client_for
+
+        client = client_for(repository)
+        repository = client.root
+    feature_root, slug, _ = feature_identity(client, selector)
+    plan = client.show(str(feature_steps(client, str(feature_root["id"]))["plan"]["id"]))
+    design = plan.get("design")
+    if not isinstance(design, str) or not design:
+        raise DstackError(f"plan Bead {plan.get('id')} has no design to export")
+    _, _, target, repository = _feature_paths(repository, slug)
+    _atomic_write(target, design)
+    return {
+        "status": "ok",
+        "feature": str(feature_root["id"]),
+        "slug": slug,
+        "plan": str(plan["id"]),
+        "path": target.relative_to(repository).as_posix(),
     }
 
 
 def cmd_docs_validate(args: object) -> int:
-    emit(validate_docs(Path(getattr(args, "root"))))
+    emit(validate_docs(Path(getattr(args, "root")), feature=str(getattr(args, "slug"))))
+    return 0
+
+
+def cmd_docs_export(args: object) -> int:
+    emit(export_design(Path(getattr(args, "root")), str(getattr(args, "feature"))))
     return 0
