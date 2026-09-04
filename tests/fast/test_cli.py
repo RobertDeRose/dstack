@@ -14,10 +14,9 @@ def test_parser_exposes_ergonomic_commands() -> None:
     assert skills.command == "skills"
     assert skills.agent_dir == Path("/tmp/agent")
 
-    formula = parser.parse_args(["install", "formula", "--root", "/tmp/project", "--update"])
-    assert formula.command == "formula"
-    assert formula.root == Path("/tmp/project")
-    assert formula.update is True
+    formula_check = parser.parse_args(["check", "formula", "--root", "/tmp/project"])
+    assert formula_check.command == "formula"
+    assert formula_check.root == Path("/tmp/project")
 
     plan = parser.parse_args(["check", "plan", "--bead", "ds-plan"])
     assert plan.command == "plan"
@@ -68,17 +67,23 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         return command
 
     monkeypatch.setattr(cli, "cmd_install_skills", record("skills", 11))
-    monkeypatch.setattr(cli, "cmd_formula_install", record("formula", 12))
+    monkeypatch.setattr(cli, "cmd_formula_check", record("formula-check", 17))
     monkeypatch.setattr(cli, "cmd_plan_check", record("plan", 13))
     monkeypatch.setattr(cli, "cmd_commit", record("commit", 14))
     monkeypatch.setattr(cli, "cmd_worktree_ensure", record("worktree", 15))
 
     assert cli.main(["install", "skills", "--agent-dir", "/tmp/agent"]) == 11
-    assert cli.main(["install", "formula", "--root", "/tmp/project"]) == 12
+    assert cli.main(["check", "formula", "--root", "/tmp/project"]) == 17
     assert cli.main(["check", "plan", "--bead", "ds-plan"]) == 13
     assert cli.main(["commit", "--bead", "ds-task"]) == 14
     assert cli.main(["worktree", "--bead", "ds-feature"]) == 15
-    assert [name for name, _ in calls] == ["skills", "formula", "plan", "commit", "worktree"]
+    assert [name for name, _ in calls] == [
+        "skills",
+        "formula-check",
+        "plan",
+        "commit",
+        "worktree",
+    ]
 
 
 def test_init_dispatches_from_the_unified_parser(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -10,7 +10,7 @@ from typing import Sequence
 
 from .audit import cmd_audit_evidence
 from .commands import (
-    cmd_formula_install,
+    cmd_formula_check,
     cmd_init,
     cmd_plan_check,
     cmd_task_check,
@@ -78,17 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pi agent directory; defaults to PI_CODING_AGENT_DIR or ~/.pi/agent.",
     )
     skills.set_defaults(func=cmd_install_skills)
-    formula = _leaf(install_commands, "formula", "Install the packaged formula and scoped prime.")
-    _root(formula)
-    formula.add_argument(
-        "--update",
-        action="store_true",
-        help="Replace a different project formula after the caller has reviewed the packaged change.",
-    )
-    formula.set_defaults(func=cmd_formula_install)
-
-    check = _leaf(commands, "check", "Validate plans, implementation tasks, or documentation.")
+    check = _leaf(commands, "check", "Validate formula policy, plans, tasks, or documentation.")
     check_commands = check.add_subparsers(dest="command", required=True)
+    formula_check = _leaf(check_commands, "formula", "Check installed policy against the package and HEAD.")
+    _root(formula_check)
+    formula_check.set_defaults(func=cmd_formula_check)
     plan = _leaf(check_commands, "plan", "Check required plan sections, resolved questions, and audiences.")
     _root(plan)
     _bead(plan, "Plan-step Bead ID.")
