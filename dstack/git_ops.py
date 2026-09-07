@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import re
+import shlex
+import sys
 import tempfile
 from pathlib import Path
 from typing import Mapping
@@ -34,14 +36,21 @@ from .policy import (
 
 
 def staged_paths(root: Path) -> list[str]:
-    output = run(["git", "diff", "--cached", "--name-only", "--diff-filter=ACDMRTUXB"], cwd=root).stdout
-    return [line for line in output.splitlines() if line]
+    output = run(["git", "diff", "--cached", "--name-only", "--no-renames", "-z"], cwd=root).stdout
+    return [path for path in output.split("\0") if path]
 
 
 def _unstaged_paths(root: Path) -> list[str]:
-    unstaged = run(["git", "diff", "--name-only", "--diff-filter=ACDMRTUXB"], cwd=root).stdout.splitlines()
-    untracked = run(["git", "ls-files", "--others", "--exclude-standard"], cwd=root).stdout.splitlines()
-    return sorted({line for line in [*unstaged, *untracked] if line})
+    unstaged = run(["git", "diff", "--name-only", "--no-renames", "-z"], cwd=root).stdout.split("\0")
+    untracked = run(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=root).stdout.split("\0")
+    return sorted({path for path in [*unstaged, *untracked] if path})
+
+
+def _require_no_git_operation(root: Path) -> None:
+    for name in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "sequencer"):
+        raw = run(["git", "rev-parse", "--git-path", name], cwd=root).stdout.strip()
+        if (root / raw).exists():
+            raise DstackError("finish or abort the existing native Git operation before committing: " + name)
 
 
 def build_commit_message(subject: str, body: str, task_id: str) -> str:
@@ -95,6 +104,7 @@ def _message_file(message: str) -> Path:
 
 
 def _commit(root: Path, message: str, *, allow_empty: bool = False) -> str:
+    _require_no_git_operation(root)
     if allow_empty:
         dirty = [*staged_paths(root), *_unstaged_paths(root)]
         if dirty:
@@ -187,23 +197,68 @@ def _autosquash_correction(
     message: str,
     allow_empty: bool = False,
 ) -> str:
+    """Fold one correction into its exact owner, without autosquashing other work."""
+
+    _require_no_git_operation(root)
     if _published(root, target):
         raise DstackError("refusing to rewrite a task commit reachable from a remote-tracking branch")
+    parent = current_head(root, f"{target}^")
+    if run(["git", "rev-list", "--merges", f"{parent}..HEAD"], cwd=root).stdout.strip():
+        raise DstackError("correction requires linear history; reconcile merge commits with native Git first")
     fixup_message = f"amend! {target}\n\n{message.rstrip()}\n"
-    _commit(root, fixup_message, allow_empty=allow_empty)
-    result = run(
-        ["git", "rebase", "-i", "--autosquash", base],
-        cwd=root,
-        check=False,
-        env={"GIT_SEQUENCE_EDITOR": "true", "GIT_EDITOR": "true"},
-    )
+    correction = _commit(root, fixup_message, allow_empty=allow_empty)
+    # Only this initial todo edit needs the temporary helper. Once rebase starts,
+    # all recovery state lives in Git and survives removal of the helper.
+    with tempfile.TemporaryDirectory(prefix="dstack-rebase-") as directory:
+        editor = Path(directory) / "sequence.py"
+        editor.write_text(
+            "import pathlib, sys\n"
+            "path = pathlib.Path(sys.argv[1])\n"
+            "lines = path.read_text().splitlines()\n"
+            f"target, correction = {target!r}, {correction!r}\n"
+            "def matches(line, revision):\n"
+            "    parts = line.split()\n"
+            "    return len(parts) >= 2 and parts[0] == 'pick' and revision.startswith(parts[1])\n"
+            "if sum(matches(line, target) for line in lines) != 1 or "
+            "sum(matches(line, correction) for line in lines) != 1:\n"
+            "    raise SystemExit('cannot identify the selected correction in the native rebase todo')\n"
+            "result = []\n"
+            "for line in lines:\n"
+            "    if matches(line, correction):\n"
+            "        continue\n"
+            "    result.append(line)\n"
+            "    if matches(line, target):\n"
+            "        result.append('fixup -C ' + correction)\n"
+            "path.write_text('\\n'.join(result) + '\\n')\n",
+            encoding="utf-8",
+        )
+        result = run(
+            ["git", "rebase", "-i", "--no-autosquash", "--no-autostash", "--no-update-refs",
+             "--keep-empty", "--empty=keep", "--reapply-cherry-picks", parent],
+            cwd=root,
+            check=False,
+            env={"GIT_SEQUENCE_EDITOR": shlex.join([sys.executable, str(editor)]), "GIT_EDITOR": "true"},
+        )
     if result.returncode:
         details = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
         raise DstackError(
-            "autosquash stopped for deliberate conflict resolution; preserve unrelated descendant work, "
-            f"then continue or abort the native rebase: {details}"
+            "correction stopped; preserve unrelated descendant work, then continue or abort the native rebase. "
+            f"If aborted, the correction commit remains for explicit recovery: {details}"
         )
     return current_head(root)
+
+
+def _correct_or_reuse(root: Path, target: str, base: str, message: str) -> tuple[str, str]:
+    _require_no_git_operation(root)
+    paths = staged_paths(root)
+    if not paths:
+        dirty = _unstaged_paths(root)
+        if dirty:
+            raise DstackError("commit refuses unstaged or untracked paths: " + ", ".join(dirty))
+        if _commit_message(root, target).rstrip() == message.rstrip():
+            return target, "unchanged"
+    _autosquash_correction(root, target=target, base=base, message=message, allow_empty=not paths)
+    return target, "corrected"
 
 
 def _task_evidence(root: Path, base: str, task_id: str) -> list[dict[str, object]]:
@@ -254,12 +309,11 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
         mode = "created"
     elif len(evidence) == 1:
         target = str(evidence[0]["commit"])
-        _autosquash_correction(root, target=target, base=base, message=message, allow_empty=not paths)
+        _, mode = _correct_or_reuse(root, target, base, message)
         corrected = _task_evidence(root, base, close_id)
         if len(corrected) != 1:
             raise DstackError("autosquash did not leave exactly one close documentation commit")
         commit = str(corrected[0]["commit"])
-        mode = "corrected"
     else:
         raise DstackError("close step has multiple reachable commits; refusing ambiguous correction")
 
@@ -294,12 +348,11 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
         mode = "created"
     elif len(evidence) == 1:
         target = str(evidence[0]["commit"])
-        _autosquash_correction(root, target=target, base=base, message=message)
+        _, mode = _correct_or_reuse(root, target, base, message)
         corrected = _task_evidence(root, base, args.bead)
         if len(corrected) != 1:
             raise DstackError("autosquash did not leave exactly one canonical task commit")
         commit = str(corrected[0]["commit"])
-        mode = "corrected"
     else:
         raise DstackError("task has multiple reachable commits; refusing ambiguous correction")
 

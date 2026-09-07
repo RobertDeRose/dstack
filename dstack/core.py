@@ -137,8 +137,7 @@ def run(
             list(command),
             cwd=cwd,
             check=False,
-            text=True,
-            input=input_text,
+            input=input_text.encode("utf-8") if input_text is not None else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=command_env(env),
@@ -152,10 +151,15 @@ def run(
             "inspect native Git/Beads state before retrying because the operation may have partially completed"
         ) from exc
 
-    result = CommandResult(completed.returncode, completed.stdout, completed.stderr)
+    # Do not let universal-newline decoding alter Git pathnames containing CR/LF.
+    result = CommandResult(
+        completed.returncode,
+        completed.stdout.decode("utf-8", errors="surrogateescape"),
+        completed.stderr.decode("utf-8", errors="surrogateescape"),
+    )
     if check and completed.returncode != 0:
         detail = (
-            truncate_output(completed.stderr) or truncate_output(completed.stdout) or f"exit {completed.returncode}"
+            truncate_output(result.stderr) or truncate_output(result.stdout) or f"exit {completed.returncode}"
         )
         raise DstackError(f"command failed ({' '.join(command)}): {detail}")
     return result
@@ -731,8 +735,8 @@ def changed_paths(root: Path, base: str, head: str) -> list[str]:
     repository = git_root(root)
     validate_git_revision(repository, base, name="base revision")
     validate_git_revision(repository, head, name="head revision")
-    output = run(["git", "diff", "--name-only", f"{base}...{head}"], cwd=repository).stdout
-    return [line for line in output.splitlines() if line]
+    output = run(["git", "diff", "--name-only", "--no-renames", "-z", f"{base}...{head}"], cwd=repository).stdout
+    return [path for path in output.split("\0") if path]
 
 
 def reject_beads_paths(paths: Sequence[str]) -> None:
@@ -766,23 +770,30 @@ def commit_records(
     validate_git_range(repository, ref_range, name="evidence revision")
     if max_count is not None and max_count < 1:
         raise DstackError("Git evidence limit must be positive")
-    format_string = "%x1e%H%x00%s%x00%b%x00"
-    command = ["git", "log"]
+    # NUL is the only separator that cannot appear in a Git pathname. The
+    # leading empty field marks a record; its three header fields are positional.
+    command = ["git", "log", "-z", "--format=%x00%H%x00%s%x00%b"]
     if max_count is not None:
         command.append(f"--max-count={max_count}")
-    command.append(f"--format={format_string}")
     if include_paths:
-        command.append("--name-only")
+        command.extend(["--name-only", "--no-renames"])
     command.append(ref_range)
-    output = run(command, cwd=repository).stdout
+    fields = run(command, cwd=repository).stdout.split("\0")
     records: list[dict[str, Any]] = []
-    for raw in output.split("\x1e"):
-        if not raw.strip():
-            continue
-        parts = raw.split("\x00", 3)
-        if len(parts) != 4:
+    position = 0
+    while position < len(fields) - 1:
+        if fields[position] != "" or position + 3 >= len(fields):
             raise DstackError("Git evidence query returned a malformed record")
-        commit, subject, body, paths = parts
+        commit, subject, body = fields[position + 1 : position + 4]
+        position += 4
+        paths: list[str] = []
+        if include_paths:
+            while position < len(fields) and fields[position] != "":
+                value = fields[position]
+                # Git adds one formatting newline before the first path, even
+                # when that path itself starts with a newline.
+                paths.append(value.removeprefix("\n") if not paths else value)
+                position += 1
         footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Task:\s*([^\s]+)\s*$", body))
         legacy_footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Beads:\s*([^\s]+)\s*$", body))
         footer_kind = "Task" if footer_ids else None
@@ -791,7 +802,7 @@ def commit_records(
                 "commit": commit.strip(),
                 "subject": subject.strip(),
                 "body": body.rstrip("\n"),
-                "paths": [line for line in paths.splitlines() if line.strip()] if include_paths else [],
+                "paths": paths,
                 "footer_ids": footer_ids,
                 "legacy_footer_ids": legacy_footer_ids,
                 "footer_kind": footer_kind,
