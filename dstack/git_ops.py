@@ -23,8 +23,7 @@ from .core import (
     reject_beads_paths,
     run,
     serialized_repository_mutation,
-    verify_worktree_identity,
-    worktree_for_branch,
+    require_feature_worktree,
 )
 from .docs import validate_docs
 from .output import emit
@@ -131,21 +130,9 @@ def _validate_feature_branch(client: BeadsClient, task: dict[str, object]) -> tu
         raise DstackError("implementation Bead violates native graph policy: " + "; ".join(graph_errors))
 
     branch = f"feat/{slug}"
-    _require_registered_feature_worktree(client, branch)
+    require_feature_worktree(client, branch)
     return root, slug, base
 
-
-def _require_registered_feature_worktree(client: BeadsClient, branch: str) -> Path:
-    registered = worktree_for_branch(client, branch)
-    if registered is None:
-        raise DstackError(f"feature worktree is not registered for {branch}")
-    verified = verify_worktree_identity(client.root, registered, branch)
-    current = git_root(client.root).resolve()
-    if current != verified:
-        raise DstackError(
-            f"commit must run from the registered feature worktree {verified}; current worktree is {current}"
-        )
-    return verified
 
 
 def _commit_message(root: Path, revision: str) -> str:
@@ -292,7 +279,7 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
         raise DstackError("cannot document while implementation tasks remain open: " + ", ".join(open_tasks))
 
     branch = f"feat/{slug}"
-    _require_registered_feature_worktree(client, branch)
+    require_feature_worktree(client, branch)
     close_id = str(close_step["id"])
     evidence = _task_evidence(root, base, close_id)
     message = canonical_docs_message(feature_root, slug, close_id)
@@ -300,7 +287,8 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
     paths = staged_paths(root)
     if paths:
         _require_feature_docs_paths(paths, slug)
-    validate_docs(root, feature=slug)
+    plan = client.show(str(steps["plan"]["id"]))
+    validate_docs(root, feature=slug, expected_design=str(plan.get("design") or ""))
 
     if not evidence:
         if not paths:

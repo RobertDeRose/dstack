@@ -11,7 +11,6 @@ from dstack.git_ops import (
     _autosquash_correction,
     _commit,
     _require_in_progress,
-    _require_registered_feature_worktree,
     _verify_head_message,
     build_commit_message,
     canonical_docs_message,
@@ -161,21 +160,6 @@ def test_commit_rejects_beads_state_and_unstaged_changes(git_repo: Path) -> None
     subprocess.run(["git", "add", "staged.txt"], cwd=git_repo, check=True)
     with pytest.raises(DstackError, match="unstaged or untracked"):
         _commit(git_repo, build_commit_message("feat(example): change", "", "ds-123"))
-
-
-def test_commit_requires_the_registered_feature_worktree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    registered = tmp_path / "repo.feat-example"
-    current = tmp_path / "other"
-
-    class FakeClient:
-        root = current
-
-    monkeypatch.setattr(subject, "worktree_for_branch", lambda client, branch: registered)
-    monkeypatch.setattr(subject, "verify_worktree_identity", lambda root, worktree, branch: registered)
-    monkeypatch.setattr(subject, "git_root", lambda root: current)
-
-    with pytest.raises(DstackError, match="registered feature worktree"):
-        _require_registered_feature_worktree(FakeClient(), "feat/example")  # type: ignore[arg-type]
 
 
 def test_native_in_progress_status_is_required() -> None:

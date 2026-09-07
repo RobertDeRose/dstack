@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from dstack.core import DstackError
-from dstack.docs import LINK_PATTERN, export_design, markdown_values, validate_docs
+from dstack.core import DstackError, run
+from dstack.docs import export_design, markdown_links, validate_docs
 
 
 INDEX = """# Example feature
@@ -135,12 +135,17 @@ class ExportClient:
             return self.feature
         return next(step for step in self.steps if step["id"] == issue_id)
 
+    def worktrees(self) -> list[dict[str, Any]]:
+        return [{"path": str(self.root), "branch": "feat/example"}]
+
     def children(self, parent: str) -> list[dict[str, Any]]:
         assert parent == "root"
         return self.steps
 
 
-def test_export_design_writes_unique_plan_verbatim_and_atomically(tmp_path: Path) -> None:
+def test_export_design_writes_unique_plan_verbatim_and_atomically(git_repo: Path) -> None:
+    tmp_path = git_repo.with_name(git_repo.name + ".feat-example")
+    run(["git", "worktree", "add", "-b", "feat/example", str(tmp_path)], cwd=git_repo)
     design = "### Goals\n\nKeep {{ braces }} and trailing text unchanged.\n"
     client = ExportClient(tmp_path, design)
 
@@ -154,4 +159,44 @@ def test_export_design_writes_unique_plan_verbatim_and_atomically(tmp_path: Path
 
 def test_markdown_links_ignore_code_and_keep_balanced_parentheses() -> None:
     text = "[real](docs/a(b).md) ` [inline](ignored.md) `\n```\n[fenced](ignored.md)\n```\n"
-    assert markdown_values(text, LINK_PATTERN) == ["docs/a(b).md"]
+    assert markdown_links(text) == ["docs/a(b).md"]
+
+
+@pytest.mark.parametrize("design", ["", "   \n", DESIGN + "changed\n"])
+def test_docs_validate_rejects_empty_or_stale_native_export(tmp_path: Path, design: str) -> None:
+    write_feature(tmp_path, design=design)
+    with pytest.raises(DstackError, match="empty|differs from the native plan"):
+        validate_docs(tmp_path, feature="example", expected_design=DESIGN)
+
+
+def test_docs_export_refuses_primary_checkout_without_writing(git_repo: Path, tmp_path: Path) -> None:
+    worktree = git_repo.with_name(git_repo.name + ".feat-example")
+    run(["git", "worktree", "add", "-b", "feat/example", str(worktree)], cwd=git_repo)
+    client = ExportClient(git_repo, DESIGN)
+    client.worktrees = lambda: [{"path": str(worktree), "branch": "feat/example"}]  # type: ignore[method-assign]
+    with pytest.raises(DstackError, match="registered feature worktree"):
+        export_design(git_repo, "root", client=client)  # type: ignore[arg-type]
+    assert not (git_repo / "docs").exists()
+    assert not (worktree / "docs").exists()
+
+
+def test_docs_scaffold_is_repeatable_without_overwriting_prose(git_repo: Path) -> None:
+    worktree = git_repo.with_name(git_repo.name + ".feat-example")
+    run(["git", "worktree", "add", "-b", "feat/example", str(worktree)], cwd=git_repo)
+    git_repo = worktree
+    client = ExportClient(git_repo, DESIGN)
+    export_design(git_repo, "root", client=client, scaffold=True)  # type: ignore[arg-type]
+    with pytest.raises(DstackError, match="Overview"):
+        validate_docs(git_repo, feature="example")
+    index = git_repo / "docs/src/features/example/index.md"
+    index.write_text(INDEX, encoding="utf-8")
+    before = (git_repo / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
+    export_design(git_repo, "root", client=client, scaffold=True)  # type: ignore[arg-type]
+    assert index.read_text(encoding="utf-8") == INDEX
+    assert (git_repo / "docs/src/SUMMARY.md").read_text(encoding="utf-8") == before
+    assert validate_docs(git_repo, feature="example", expected_design=DESIGN)["status"] == "ok"
+
+
+def test_markdown_reference_links_and_nested_fences() -> None:
+    text = '[real][target]\n\n[target]: docs/a(b).md "Title"\n\n````md\n```\n[hidden](hidden.md)\n```\n````\n'
+    assert markdown_links(text) == ["docs/a(b).md"]

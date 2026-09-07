@@ -298,18 +298,9 @@ def _assert_no_symlink_components(path: Path, *, purpose: str) -> None:
         current = current.parent
 
 
-def read_text_file(path: Path | None) -> str:
-    if path is None:
-        return ""
-    try:
-        return path.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeError) as exc:
-        raise DstackError(f"cannot read text file: {path}") from exc
-
-
 def read_utf8_text(path: Path, *, purpose: str) -> str:
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_bytes().decode("utf-8")
     except (OSError, UnicodeError) as exc:
         raise DstackError(f"cannot read {purpose}: {path}") from exc
 
@@ -871,3 +862,16 @@ def truncate_output(value: str, *, limit: int = 4000) -> str:
     tail = remaining - head
     suffix = text[-tail:] if tail else ""
     return text[:head] + marker + suffix
+
+
+def require_feature_worktree(client: BeadsClient, branch: str) -> Path:
+    registered = worktree_for_branch(client, branch)
+    if registered is None:
+        raise DstackError(f"feature worktree is not registered for {branch}")
+    verified = verify_worktree_identity(client.root, registered, branch)
+    current = git_root(client.root).resolve()
+    if current != verified:
+        raise DstackError(
+            f"operation must run from the registered feature worktree {verified}; current worktree is {current}"
+        )
+    return verified

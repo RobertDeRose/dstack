@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from markdown_it import MarkdownIt
+
 from .core import DstackError, issue_labels, issue_type
 
 PLAN_SECTIONS = (
@@ -22,7 +24,6 @@ MAX_IMPLEMENTATION_NOTE_LENGTH = 96
 MAX_IMPLEMENTATION_BODY_LENGTH = 4000
 MAX_IMPLEMENTATION_NOTES_FIELD_LENGTH = 50000
 
-_HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 _PLACEHOLDER = re.compile(r"(?i)\b(?:todo|tbd|fixme|lorem ipsum)\b|\?\?\?|^\s*[-*]\s*\[ \]", re.MULTILINE)
 _FEATURE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _CONVENTIONAL_PREFIX = re.compile(
@@ -42,31 +43,21 @@ class MarkdownSection:
 
 def markdown_sections(text: str) -> list[MarkdownSection]:
     lines = text.splitlines()
-    headings: list[tuple[int, int, str]] = []
-    fence: str | None = None
-    for index, line in enumerate(lines):
-        stripped = line.lstrip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            marker = stripped[:3]
-            if fence is None:
-                fence = marker
-            elif marker == fence:
-                fence = None
-            continue
-        if fence is not None:
-            continue
-        match = _HEADING.match(line)
-        if match:
-            headings.append((index, len(match.group(1)), match.group(2).strip()))
+    tokens = MarkdownIt("commonmark").parse(text)
+    headings = [
+        (token.map[0], token.map[1], int(token.tag[1:]), tokens[index + 1].content.strip())
+        for index, token in enumerate(tokens)
+        if token.type == "heading_open" and token.level == 0 and token.map is not None
+    ]
 
     result: list[MarkdownSection] = []
-    for position, (line_index, level, title) in enumerate(headings):
+    for position, (_, content_start, level, title) in enumerate(headings):
         end = len(lines)
-        for next_index, next_level, _ in headings[position + 1 :]:
+        for next_index, _, next_level, _ in headings[position + 1 :]:
             if next_level <= level:
                 end = next_index
                 break
-        content = "\n".join(lines[line_index + 1 : end]).strip()
+        content = "\n".join(lines[content_start:end]).strip()
         result.append(MarkdownSection(title=title, level=level, content=content))
     return result
 
