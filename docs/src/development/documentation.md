@@ -37,3 +37,13 @@ the design. It does not enforce global book layout, orphan pages, ADR format, un
 Repository lint and pre-commit workflows own those broader checks. The final documentation commit is owned by the close
 step. Close may propose reusable Beads memory, but it writes memory only after user approval and never treats memory as
 publication or completion evidence.
+
+## Repeatable publication
+
+Use `dstack docs export-design --bead <root> --scaffold` inside the registered feature worktree. Missing directories,
+index sections, and the single SUMMARY entry are created mechanically; existing index prose is not replaced. Fill the
+empty Overview and User Impact sections before validation. The exported design remains verbatim native plan content.
+
+`dstack check docs --slug <slug>` remains a Beads-independent structural check and rejects an empty design. The docs
+commit and final audit additionally compare it with the current native plan, rejecting a stale or hand-edited export.
+Changes to approved intent still require explicit human agreement; a byte comparison is not an approval mechanism.
