@@ -35,11 +35,12 @@ plan -> review -> human approval -> implementation tasks -> close
 ```
 
 Planning captures intent in native description, design, and acceptance fields. Review reconciles memory and repository
-facts and creates native work. Implementation claims one ready task, records each completed increment as an ordered
-`Implementation:` note, uses those notes for one canonical `Task:` commit, runs the target repository's documented
-validation, and closes the task. The fixed human close-review gate keeps the final internal `audit` step blocked while
-`/close-feature` reviews and returns defects. Close resolves that gate only after review passes, then writes and
-validates feature documentation.
+facts and creates native work. Implementation resumes owned in-progress work before claiming a new ready task, reads selected task review comments,
+and keeps `Implementation:` notes as the current delivered outcome. It validates before using those notes for one
+canonical `Task:` commit and closing the task. One writer owns each feature worktree. The final internal `audit` step remains open while `/close-feature` reviews and returns defects. Native
+implementation fan-in blocks it whenever implementation work is open; close claims it only after review passes, then writes and
+validates feature documentation against the native design. Close explicitly closes the implementation epic, final
+step, and root; no second phase tracker or recovery journal exists.
 
 `/audit-project` audits current project drift and, when remediation is needed, creates and completes only the plan step
 of a normal feature before returning `/review-plan`.

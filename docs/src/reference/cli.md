@@ -90,3 +90,20 @@ dstack audit <feature> \
 Repeat `--include-task`, `--include-decision`, and `--history-for` when needed. Default task, decision, gate, commit,
 and error collections are bounded to 100 items and report truncation. Commit paths are omitted unless
 `--include-commit-paths` is explicit. Multi-issue reads are batched through native Beads commands.
+
+## Selectors, retries, and evidence size
+
+Use `--bead ID` for Bead identity across `worktree`, `commit`, `check review`, `docs export-design`, `docs commit`, and
+`audit`. Use `--slug SLUG` only for the Beads-independent documentation check. dStack intentionally keeps one selector
+vocabulary rather than maintaining parallel aliases.
+
+Audit checks all relevant evidence, regardless of feature size. Summary collections include counts and `next_offset`
+when more rows exist; pass `--offset N` to read that page. `--include-plan` supplies approved intent for close review;
+selected task/decision details explicitly include comments. Full history stays opt-in. Missing/truncated native evidence
+is an error, not an empty result. The Beads v2-default envelope still uses `schema_version: 1`, already enabled through
+`BD_JSON_ENVELOPE=1`; unsupported schema versions are rejected.
+
+Task titles default to conventional `feat` commits. A native title such as `fix: Preserve inbound timestamps` selects a
+different type without introducing labels or separate metadata. Notes retain technical punctuation; dStack enforces
+mechanical length/ownership rules, not an English verb whitelist. Clean canonical retries are no-ops; notes-only changes
+can reword unpublished commits. Correcting one task does not autosquash another task's pending fixups.

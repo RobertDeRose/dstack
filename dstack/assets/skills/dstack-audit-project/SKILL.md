@@ -15,7 +15,7 @@ not create a parallel audit ledger.
 1. Run `dstack init`, then `dstack check formula` to verify committed policy before any remediation feature is poured.
 2. Search `bd memories <focused terms> --json` and recall only relevant entries.
 3. Inspect current architecture, behavior, tests, security and operations guidance, and accepted decisions.
-4. Run the target repository's documented validation contract.
+4. Run the target repository's documented validation contract and `bd dep cycles --json` as a project-health check.
 
 Current repository documentation and accepted decisions outrank stale memory. Classify supported drift as behavior,
 documentation, test, security, operational, or decision drift. Ask the user when authority is material and ambiguous.
@@ -25,7 +25,7 @@ If no actionable drift remains, report the evidence and stop without creating a 
 
 ## Create the remediation plan
 
-For actionable drift, create one normal `dstack-feature` remediation molecule using the same identity and base-branch
+For actionable drift, resume an explicitly supplied remediation molecule before considering new work. Otherwise create one normal `dstack-feature` remediation molecule using the same identity and base-branch
 rules as `/plan-feature`. Claim only its plan step. Store:
 
 - the audit scope and observed evidence in the request description and comments;

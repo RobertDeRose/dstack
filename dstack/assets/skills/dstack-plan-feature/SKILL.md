@@ -16,8 +16,11 @@ do not create a parallel plan file in the repository.
 2. If the user supplied a feature root or descendant, resume that molecule; never pour a replacement.
 3. Otherwise choose a stable kebab-case slug and base branch (`dev` when present, otherwise `main`), then pour exactly
    one `dstack-feature` molecule with `title`, `desc`, `feature_title`, `feature_slug`, and `base_branch` variables.
-4. Label the root `workflow:feature` and `feature:<slug>`, and set `dstack.base_branch=<base>` metadata.
-5. Claim only the plan step with `bd ready --parent <root> --label dstack:step:plan --claim --json`.
+4. On creation, label the root `workflow:feature` and `feature:<slug>`, and set `dstack.base_branch=<base>` metadata.
+5. Inspect `bd mol current <root> --json` and `bd show <plan> --include-comments --json`. Resume this agent's
+   in-progress plan without claiming again. A closed plan returns `/review-plan <root>`; do not reopen it implicitly.
+   Respect other owners. Only an open, native-ready plan is claimed with
+   `bd ready --parent <root> --label dstack:step:plan --claim --json`.
 
 If identity metadata fails after pour, retry that update on the returned root. Do not add feature-creation recovery
 logic or pour another molecule.

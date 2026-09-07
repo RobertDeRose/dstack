@@ -11,7 +11,10 @@ Run only when explicitly invoked. Beads owns the graph, dependencies, approval g
 
 ## Review
 
-1. Resolve the feature and claim only its `dstack:step:review` step.
+1. Resolve the feature with `bd mol current <root> --json`. Read the plan and review step with
+   `bd show <plan> <review> --include-comments --json`. Resume this agent's in-progress review without reclaiming it;
+   respect other owners. Claim only a native-ready open review. If review is already closed, inspect the existing
+   approval state and proceed only with recorded explicit approval; do not recreate tasks or grant approval by inference.
 2. Search `bd memories <focused terms> --json`, then recall only relevant keys. Memory is advisory: current repository
    documentation and accepted feature decisions outrank stale memory.
 3. Inspect only relevant source, tests, current documentation, and decisions.
@@ -26,7 +29,10 @@ root with an exact `relates-to` dependency.
 
 ## Create implementation work
 
-Create bounded task-shaped outcomes directly under the implementation epic. Each task needs:
+First inspect existing implementation children; reconcile partial review work by ID instead of creating duplicate tasks.
+Create bounded task-shaped outcomes directly under the implementation epic. Use one native `bd create` invocation with
+`--parent`, `--no-inherit-labels`, `--labels`, `--description`, `--design`, `--acceptance`, and `--deps blocked-by:<approval>`
+so new work never temporarily lacks its approval blocker. Each task needs:
 
 - `dstack:work:implementation` and no inherited structural label;
 - a `description` containing the planned outcome, scope, and non-goals, not commit prose;
@@ -36,22 +42,23 @@ Create bounded task-shaped outcomes directly under the implementation epic. Each
 
 Leave execution `notes` empty until implementation begins. Agents append one concise, verb-led
 `Implementation: <completed increment>` fragment per meaningful delivered increment. Keep each fragment to one concrete
-change, preferably one line and no more than 96 characters. dStack strips surrounding whitespace and punctuation, then
+change, preferably one line and no more than 96 characters. dStack trims surrounding whitespace, preserves technical punctuation, then
 adds a dash-and-space prefix without wrapping. Only those ordered notes become canonical commit bullets;
 `No repository change: <specific reason>` is reserved for intentional no-change tasks.
 
-Do not add commit-type or scope labels. Add task ordering only where execution order is real. Do not add direct
-readiness edges to the final step; the formula supplies implementation fan-in and its fixed close-review gate.
+Do not add commit-type or scope labels. A plain task title defaults to `feat`; use a native title such as
+`fix: Preserve inbound timestamps` when another conventional commit type is appropriate. Add task ordering only where execution order is real. Do not add direct
+readiness edges to the final step; the formula supplies implementation fan-in.
 
 Run:
 
 ```bash
 dstack check plan --bead <plan>
-dstack check review --feature <root>
+dstack check review --bead <root>
 ```
 
-No implementation task may be ready before approval, and the native graph must be cycle-free. Close the review only
+No implementation task may be ready before approval. Let Beads validate dependency legality and readiness, including
+cross-feature blockers and native conditional dependencies. Do not reject this feature for unrelated project cycles. Close the review only
 after checks pass, then present scope, risks, decisions, and the task graph. Review never grants approval.
 
-After explicit user approval, resolve only the formula gate with await ID `approve-<slug>-plan`, claim and comment on
-the approval step, close it, and return `/implement <root>`.
+After explicit user approval, resolve only the formula gate with await ID `approve-<slug>-plan`, resume this agent's in-progress approval or claim it only when open and ready, record the approval evidence, close it, and return `/implement <root>`.
