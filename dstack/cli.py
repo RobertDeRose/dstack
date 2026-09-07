@@ -80,13 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     formula_check = _leaf(check_commands, "formula", "Check installed policy against the package and HEAD.")
     _root(formula_check)
     formula_check.set_defaults(func=cmd_formula_check)
-    plan = _leaf(check_commands, "plan", "Check required plan sections, resolved questions, and audiences.")
+    plan = _leaf(check_commands, "plan", "Check native plan fields and publishable section structure.")
     _root(plan)
     _bead(plan, "Plan-step Bead ID.")
     plan.set_defaults(func=cmd_plan_check)
     review = _leaf(check_commands, "review", "Check the complete native graph before human approval.")
     _root(review)
-    review.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
+    review.add_argument("-b", "--bead", "--feature", dest="feature", required=True, help="Feature root or descendant Bead ID.")
     review.set_defaults(func=cmd_review_check)
     task = _leaf(
         check_commands,
@@ -98,19 +98,23 @@ def build_parser() -> argparse.ArgumentParser:
     task.set_defaults(func=cmd_task_check)
     docs_check = _leaf(check_commands, "docs", "Validate one feature's documentation structure.")
     _root(docs_check)
-    docs_check.add_argument("--feature", required=True, help="Kebab-case feature slug.")
+    docs_check.add_argument("--slug", required=True, help="Kebab-case feature slug.")
     docs_check.set_defaults(func=cmd_docs_validate)
 
     docs = _leaf(commands, "docs", "Materialize reviewed feature documentation.")
     docs_commands = docs.add_subparsers(dest="command", required=True)
     export_design = _leaf(docs_commands, "export-design", "Export the reviewed plan design without rewriting it.")
     _root(export_design)
-    export_design.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
-    export_design.add_argument("--scaffold", action="store_true", help="Create missing index sections and SUMMARY link without replacing prose.")
+    export_design.add_argument("-b", "--bead", "--feature", dest="feature", required=True, help="Feature root or descendant Bead ID.")
+    export_design.add_argument(
+        "--scaffold",
+        action="store_true",
+        help="Create missing index sections and SUMMARY link without replacing prose.",
+    )
     export_design.set_defaults(func=cmd_docs_export)
     docs_commit = _leaf(docs_commands, "commit", "Commit the validated feature documentation for close.")
     _root(docs_commit)
-    docs_commit.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
+    docs_commit.add_argument("-b", "--bead", "--feature", dest="feature", required=True, help="Feature root or descendant Bead ID.")
     docs_commit.set_defaults(func=cmd_git_commit_docs)
 
     commit = _leaf(commands, "commit", "Create or correct the canonical commit for an implementation task.")
@@ -125,8 +129,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     audit = _leaf(commands, "audit", "Collect bounded repository facts for a semantic audit skill.")
     _root(audit)
-    audit.add_argument("feature", help="Feature root or descendant Bead ID.")
-    audit.add_argument("--offset", type=int, default=0, help="Page task, decision, gate, and commit summaries; checks remain complete.")
+    _bead(audit, "Feature root or descendant Bead ID.")
+    audit.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Page task, decision, gate, and commit summaries; checks remain complete.",
+    )
     audit.add_argument("--include-plan", action="store_true", help="Include the full native plan issue.")
     audit.add_argument(
         "--include-task",

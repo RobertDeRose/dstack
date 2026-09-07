@@ -128,3 +128,23 @@ def test_cli_failure_is_compact_json(git_repo: Path, capsys: pytest.CaptureFixtu
     assert result == 2
     payload = json.loads(captured.err)
     assert payload["status"] == "error"
+
+
+@pytest.mark.parametrize("command", [["check", "review"], ["docs", "export-design"], ["docs", "commit"]])
+def test_feature_commands_use_one_bead_selector(command: list[str]) -> None:
+    parser = cli.build_parser()
+    assert parser.parse_args([*command, "--bead", "root"]).bead == "root"
+    with pytest.raises(SystemExit):
+        parser.parse_args([*command, "--feature", "root"])
+
+
+def test_docs_slug_and_audit_bead_are_unambiguous(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert cli.build_parser().parse_args(["check", "docs", "--slug", "example"]).slug == "example"
+    captured: list[str] = []
+    monkeypatch.setattr(cli, "cmd_audit_evidence", lambda args: captured.append(args.bead) or 0)
+    assert cli.main(["audit", "--bead", "root"]) == 0
+    assert captured == ["root"]
+    with pytest.raises(SystemExit):
+        cli.main(["audit", "root"])
+    with pytest.raises(SystemExit):
+        cli.main(["audit"])
