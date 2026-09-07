@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan.set_defaults(func=cmd_plan_check)
     review = _leaf(check_commands, "review", "Check the complete native graph before human approval.")
     _root(review)
-    review.add_argument("-b", "--bead", "--feature", dest="feature", required=True, help="Feature root or descendant Bead ID.")
+    _bead(review, "Feature root or descendant Bead ID.")
     review.set_defaults(func=cmd_review_check)
     task = _leaf(
         check_commands,
@@ -105,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     docs_commands = docs.add_subparsers(dest="command", required=True)
     export_design = _leaf(docs_commands, "export-design", "Export the reviewed plan design without rewriting it.")
     _root(export_design)
-    export_design.add_argument("-b", "--bead", "--feature", dest="feature", required=True, help="Feature root or descendant Bead ID.")
+    _bead(export_design, "Feature root or descendant Bead ID.")
     export_design.add_argument(
         "--scaffold",
         action="store_true",
@@ -114,7 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_design.set_defaults(func=cmd_docs_export)
     docs_commit = _leaf(docs_commands, "commit", "Commit the validated feature documentation for close.")
     _root(docs_commit)
-    docs_commit.add_argument("-b", "--bead", "--feature", dest="feature", required=True, help="Feature root or descendant Bead ID.")
+    _bead(docs_commit, "Feature root or descendant Bead ID.")
     docs_commit.set_defaults(func=cmd_git_commit_docs)
 
     commit = _leaf(commands, "commit", "Create or correct the canonical commit for an implementation task.")

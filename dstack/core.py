@@ -590,10 +590,7 @@ def feature_identity(client: BeadsClient, selector: str) -> tuple[dict[str, Any]
 
 
 def implementation_task_graph_errors(
-    client: BeadsClient,
-    task: Mapping[str, Any],
-    root: Mapping[str, Any],
-    steps: Mapping[str, Mapping[str, Any]],
+    task: Mapping[str, Any], steps: Mapping[str, Mapping[str, Any]]
 ) -> list[str]:
     """Validate native graph membership without calculating task readiness."""
 
@@ -627,16 +624,13 @@ def implementation_task_graph_errors(
 
 
 def audit_fan_in_errors(
-    client: BeadsClient,
-    steps: Mapping[str, Mapping[str, Any]],
+    audit: Mapping[str, Any],
+    implementation_id: str,
     implementation_tasks: Sequence[Mapping[str, Any]],
 ) -> list[str]:
     """Verify that native ``waits-for`` is the sole implementation fan-in."""
 
     errors: list[str] = []
-    implementation_id = str(steps["implementation"].get("id") or "")
-    audit_id = str(steps["audit"].get("id") or "")
-    audit = client.show(audit_id)
     waits_for = dependency_targets(audit, "waits-for")
     if waits_for != [implementation_id]:
         errors.append(

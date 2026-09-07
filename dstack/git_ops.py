@@ -125,14 +125,13 @@ def _validate_feature_branch(client: BeadsClient, task: dict[str, object]) -> tu
     task_id = str(task.get("id") or "")
     root, slug, base = feature_identity(client, task_id)
     steps = feature_steps(client, str(root["id"]))
-    graph_errors = implementation_task_graph_errors(client, task, root, steps)
+    graph_errors = implementation_task_graph_errors(task, steps)
     if graph_errors:
         raise DstackError("implementation Bead violates native graph policy: " + "; ".join(graph_errors))
 
     branch = f"feat/{slug}"
     require_feature_worktree(client, branch)
     return root, slug, base
-
 
 
 def _commit_message(root: Path, revision: str) -> str:
@@ -300,7 +299,7 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
         _, mode = _correct_or_reuse(root, target, base, message)
         corrected = _task_evidence(root, base, close_id)
         if len(corrected) != 1:
-            raise DstackError("autosquash did not leave exactly one close documentation commit")
+            raise DstackError("correction did not leave exactly one close documentation commit")
         commit = str(corrected[0]["commit"])
     else:
         raise DstackError("close step has multiple reachable commits; refusing ambiguous correction")
@@ -339,7 +338,7 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
         _, mode = _correct_or_reuse(root, target, base, message)
         corrected = _task_evidence(root, base, args.bead)
         if len(corrected) != 1:
-            raise DstackError("autosquash did not leave exactly one canonical task commit")
+            raise DstackError("correction did not leave exactly one canonical task commit")
         commit = str(corrected[0]["commit"])
     else:
         raise DstackError("task has multiple reachable commits; refusing ambiguous correction")

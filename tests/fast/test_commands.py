@@ -146,29 +146,22 @@ No shadow controller.
     return GraphClient(issues), root, steps, task
 
 
-def test_graph_check_accepts_one_native_fan_in_and_atomic_approval_dependency() -> None:
-    client, root, steps, task = graph_fixture()
-    assert subject.graph_errors_for_task(client, task, root, steps, [task]) == []  # type: ignore[arg-type]
-
-
-def test_graph_check_rejects_inherited_structural_label_and_redundant_audit_blocker() -> None:
+def test_task_graph_check_is_local_to_membership_and_approval() -> None:
     client, root, steps, task = graph_fixture()
     assert subject.implementation_task_graph_errors(task, steps) == []
 
     task["labels"].append("dstack:step:implementation")
-    assert subject.graph_errors_for_task(client, task, root, steps, [task])  # type: ignore[arg-type]
+    assert subject.implementation_task_graph_errors(task, steps)
 
     task["labels"].remove("dstack:step:implementation")
     client.issues["audit"]["dependencies"].append({"id": "task", "dependency_type": "blocks"})
-    assert subject.graph_errors_for_task(client, task, root, steps, [task])  # type: ignore[arg-type]
+    assert subject.implementation_task_graph_errors(task, steps) == []
 
 
 def test_task_graph_check_accepts_native_conditional_readiness_edges() -> None:
     client, root, steps, task = graph_fixture()
     task["dependencies"].append({"id": "other", "dependency_type": "conditional-blocks"})
-    client.issues["other"] = {"id": "other", "issue_type": "task", "parent": "implementation"}
-
-    assert subject.graph_errors_for_task(client, task, root, steps, [task]) == []  # type: ignore[arg-type]
+    assert subject.implementation_task_graph_errors(task, steps) == []
 
 
 def test_preapproval_review_accepts_complete_blocked_graph() -> None:
@@ -177,7 +170,6 @@ def test_preapproval_review_accepts_complete_blocked_graph() -> None:
     assert (
         subject.review_graph_errors(  # type: ignore[arg-type]
             client,
-            root,
             steps,
             [task],
             ready_task_ids=[],
@@ -191,7 +183,6 @@ def test_preapproval_review_rejects_missing_work_and_false_readiness() -> None:
 
     errors = subject.review_graph_errors(  # type: ignore[arg-type]
         client,
-        root,
         steps,
         [],
         ready_task_ids=["task"],
@@ -206,4 +197,4 @@ def test_graph_check_leaves_external_readiness_to_beads(kind: str) -> None:
     client, root, steps, task = graph_fixture()
     # Deliberately absent locally: the target may be routed to another project.
     task["dependencies"].append({"id": "external-task", "dependency_type": kind})
-    assert subject.graph_errors_for_task(client, task, root, steps, [task]) == []  # type: ignore[arg-type]
+    assert subject.implementation_task_graph_errors(task, steps) == []
