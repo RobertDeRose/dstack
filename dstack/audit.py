@@ -52,13 +52,19 @@ DETAIL_FIELDS = (
     "parent",
     "parent_id",
     "close_reason",
+    "comment_count",
+    "comments_omitted",
+    "comments",
 )
 
 
 def issue_view(issue: Mapping[str, Any]) -> dict[str, Any]:
     """Return full issue content only for explicitly requested audit details."""
 
-    return {field: issue[field] for field in DETAIL_FIELDS if field in issue and issue[field] not in (None, "", [], {})}
+    result = {field: issue[field] for field in DETAIL_FIELDS if field in issue and issue[field] not in (None, "", [], {})}
+    if "comments" in issue:
+        result["comments"] = issue["comments"]
+    return result
 
 
 def issue_summary(issue: Mapping[str, Any]) -> dict[str, Any]:
@@ -119,7 +125,9 @@ def _selected_details(
     if unknown_tasks:
         raise DstackError("requested audit task is not an implementation child: " + ", ".join(unknown_tasks))
     if include_task_ids:
-        details["tasks"] = {task_id: issue_view(task_map[task_id]) for task_id in include_task_ids}
+        details["tasks"] = {
+            task_id: issue_view(client.show(task_id, include_comments=True)) for task_id in dict.fromkeys(include_task_ids)
+        }
 
     decision_map = {str(decision["id"]): decision for decision in decisions}
     unknown_decisions = sorted(set(include_decision_ids) - set(decision_map))
@@ -127,7 +135,8 @@ def _selected_details(
         raise DstackError("requested audit decision is not linked to the feature: " + ", ".join(unknown_decisions))
     if include_decision_ids:
         details["decisions"] = {
-            decision_id: issue_view(decision_map[decision_id]) for decision_id in include_decision_ids
+            decision_id: issue_view(client.show(decision_id, include_comments=True))
+            for decision_id in dict.fromkeys(include_decision_ids)
         }
 
     unknown_history = sorted(set(history_ids) - set(allowed_history))

@@ -190,3 +190,59 @@ def test_evidence_handles_empty_body_and_empty_commit(git_repo: Path) -> None:
         assert len(result) == 1
         assert result[0]["body"] == ""
         assert result[0]["paths"] == []
+
+
+@pytest.mark.parametrize("version", [2, 0, "1", True, None])
+def test_unknown_envelope_versions_fail_closed(version: object) -> None:
+    with pytest.raises(DstackError, match="unsupported JSON schema"):
+        parse_json(json.dumps({"schema_version": version, "data": []}), context="bd show")
+
+
+def test_truncated_envelope_does_not_look_like_complete_evidence() -> None:
+    payload = {"schema_version": 1, "data": [], "pagination": {"returned": 100, "total": 200, "truncated": True}}
+    with pytest.raises(DstackError, match="returned=100, total=200"):
+        parse_json(json.dumps(payload), context="bd list")
+
+
+def test_batch_reads_are_complete_beyond_one_hundred_tasks(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = BeadsClient(git_repo)
+    commands: list[list[str]] = []
+
+    def respond(command: list[str], **kwargs: object) -> CommandResult:
+        commands.append(command)
+        ids = command[2 : command.index("--json")]
+        return CommandResult(0, json.dumps({"schema_version": 1, "data": [{"id": i} for i in reversed(ids)]}), "")
+
+    monkeypatch.setattr(client, "_run", respond)
+    ids = [f"task-{index}" for index in range(205)]
+    assert [item["id"] for item in client.show_many(ids, include_comments=True)] == ids
+    assert len(commands) == 3
+    assert all("--include-comments" in command for command in commands)
+
+
+def test_optional_show_distinguishes_missing_issue_from_infrastructure_failure(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dstack.core import BeadsCommandError
+
+    client = BeadsClient(git_repo)
+    response = {"schema_version": 1, "data": {"error": "record absent", "code": "not_found"}}
+    monkeypatch.setattr(client, "_run", lambda *args, **kwargs: CommandResult(1, "", json.dumps(response)))
+    assert client.show_optional("x") is None
+    response["data"] = {"error": "database not found", "code": "connection_failed", "hint": "Run bd doctor"}
+    with pytest.raises(BeadsCommandError, match="Run bd doctor") as caught:
+        client.show_optional("x")
+    assert caught.value.code == "connection_failed"
+
+
+def test_selected_show_requests_comment_bodies(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = BeadsClient(git_repo)
+
+    def respond(command: list[str], **kwargs: object) -> CommandResult:
+        assert "--include-comments" in command
+        return CommandResult(
+            0, json.dumps({"schema_version": 1, "data": [{"id": "x", "comments": [{"text": "Fix it"}]}]}), ""
+        )
+
+    monkeypatch.setattr(client, "_run", respond)
+    assert client.show("x", include_comments=True)["comments"] == [{"text": "Fix it"}]

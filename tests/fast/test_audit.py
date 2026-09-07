@@ -40,7 +40,7 @@ class FakeClient:
         self.root = root
         self.issues = issues
 
-    def show(self, issue_id: str) -> dict[str, Any]:
+    def show(self, issue_id: str, *, include_comments: bool = False) -> dict[str, Any]:
         return self.issues[issue_id]
 
     def show_optional(self, issue_id: str) -> dict[str, Any] | None:
@@ -371,3 +371,19 @@ def test_audit_bounds_diff_stat_and_rejects_beads_paths(tmp_path: Path, monkeypa
     assert result["git"]["invalid_footer_commits"]["items"] == ["abc123"]
     assert any("Beads" in error for error in result["checks"]["errors"])
     assert any("ownership" in error for error in result["checks"]["errors"])
+
+
+def test_expanded_task_details_preserve_review_comments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, root, steps = fixture_data(tmp_path)
+    install_fakes(monkeypatch, client, root, steps)
+    client.issues["task"]["comments"] = [{"text": "Preserve inbound arrival timestamps on retry."}]
+    client.issues["task"]["comment_count"] = 1
+    result = subject.collect_audit_evidence(tmp_path, "root", include_task_ids=["task"])
+    assert result["details"]["tasks"]["task"]["comments"] == client.issues["task"]["comments"]
+
+
+def test_issue_details_distinguish_omitted_and_empty_comments() -> None:
+    assert subject.issue_view({"id": "x", "comments": []})["comments"] == []
+    result = subject.issue_view({"id": "x", "comment_count": 2, "comments_omitted": True})
+    assert result["comments_omitted"] is True
+    assert "comments" not in result

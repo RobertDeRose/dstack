@@ -217,8 +217,21 @@ def parse_json(text: str, *, context: str) -> Any:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
         raise DstackError(f"{context} returned invalid JSON") from exc
-    if isinstance(payload, dict) and payload.get("schema_version") == 1 and "data" in payload:
-        return [] if payload["data"] is None else payload["data"]
+    if isinstance(payload, dict) and "schema_version" in payload:
+        version = payload["schema_version"]
+        if type(version) is not int or version != 1:
+            raise DstackError(f"{context} returned unsupported JSON schema version {version!r}")
+        pagination = payload.get("pagination")
+        if pagination is not None:
+            if not isinstance(pagination, dict):
+                raise DstackError(f"{context} returned invalid pagination metadata")
+            if pagination.get("truncated"):
+                raise DstackError(
+                    f"{context} returned incomplete evidence: "
+                    f"returned={pagination.get('returned', 'unknown')}, total={pagination.get('total', 'unknown')}"
+                )
+        if "data" in payload:
+            return [] if payload["data"] is None else payload["data"]
     return payload
 
 
@@ -387,6 +400,35 @@ def step_by_label(children: Sequence[Mapping[str, Any]], label: str) -> dict[str
     return matches[0]
 
 
+class BeadsCommandError(DstackError):
+    """A native command failure, retaining its machine-readable classification."""
+
+    def __init__(self, message: str, *, code: str | None = None, hint: str | None = None):
+        self.code = code
+        self.hint = hint
+        super().__init__(message + (f"; {hint}" if hint else ""))
+
+
+def beads_command_error(result: CommandResult, *, context: str) -> BeadsCommandError:
+    for text in (result.stderr, result.stdout):
+        if not text.lstrip().startswith("{"):
+            continue
+        try:
+            payload = parse_json(text, context=context)
+        except DstackError:
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("error"), str):
+            code = payload.get("code")
+            hint = payload.get("hint")
+            return BeadsCommandError(
+                f"{context}: {payload['error']}",
+                code=code if isinstance(code, str) else None,
+                hint=hint if isinstance(hint, str) else None,
+            )
+    detail = truncate_output(result.stderr) or truncate_output(result.stdout) or f"exit {result.returncode}"
+    return BeadsCommandError(f"{context}: {detail}")
+
+
 class BeadsClient:
     """Small stateless adapter over the native Beads CLI."""
 
@@ -397,8 +439,10 @@ class BeadsClient:
         return run(command, cwd=self.root, **kwargs)
 
     def json(self, command: Sequence[str], *, check: bool = True) -> Any:
-        result = self._run(command, check=check)
+        result = self._run(command, check=False)
         if result.returncode != 0:
+            if check:
+                raise beads_command_error(result, context=" ".join(command))
             return None
         return parse_json(result.stdout, context=" ".join(command))
 
@@ -413,38 +457,53 @@ class BeadsClient:
             raise DstackError(f"dStack requires Beads {supported}; found {raw}")
         return raw
 
-    def show_optional(self, issue_id: str) -> dict[str, Any] | None:
-        result = self._run(["bd", "show", issue_id, "--json"], check=False)
+    def show_optional(self, issue_id: str, *, include_comments: bool = False) -> dict[str, Any] | None:
+        command = ["bd", "show", issue_id, "--json"]
+        if include_comments:
+            command.append("--include-comments")
+        result = self._run(command, check=False)
         if result.returncode != 0:
-            detail = f"{result.stdout}\n{result.stderr}".casefold()
-            if "not found" in detail or "no issues found" in detail:
+            failure = beads_command_error(result, context=f"bd show {issue_id}")
+            if failure.code == "not_found":
                 return None
-            raise DstackError(result.stderr.strip() or result.stdout.strip() or f"cannot read Bead {issue_id}")
+            # Some pinned native show failures are still plain text. Do not
+            # mistake an unrelated missing database or connection for a Bead.
+            if failure.code is None and re.search(
+                r"(?i)(?:issue|bead)\s+(?:[^\n:]+\s+)?not found|no issues found", str(failure)
+            ):
+                return None
+            raise failure
         return first_item(parse_json(result.stdout, context=f"bd show {issue_id}"), context=f"bd show {issue_id}")
 
-    def show(self, issue_id: str) -> dict[str, Any]:
-        issue = self.show_optional(issue_id)
+    def show(self, issue_id: str, *, include_comments: bool = False) -> dict[str, Any]:
+        issue = self.show_optional(issue_id, include_comments=include_comments)
         if issue is None:
             raise DstackError(f"Bead not found: {issue_id}")
         return issue
 
-    def show_many(self, issue_ids: Sequence[str]) -> builtins.list[dict[str, Any]]:
+    def show_many(
+        self, issue_ids: Sequence[str], *, include_comments: bool = False
+    ) -> builtins.list[dict[str, Any]]:
         ids = [str(issue_id) for issue_id in issue_ids]
-        if not ids:
-            return []
         if len(ids) != len(set(ids)):
             raise DstackError("batched Beads read contains duplicate IDs")
-        items = as_items(
-            self.json(["bd", "show", *ids, "--json"]),
-            context="bd show batch",
-        )
-        by_id = {str(item.get("id") or ""): item for item in items}
-        if len(by_id) != len(items):
-            raise DstackError("Beads batch response contains duplicate IDs")
-        missing = [issue_id for issue_id in ids if issue_id not in by_id]
-        if missing:
-            raise DstackError("Beads batch response omitted: " + ", ".join(missing))
-        return [by_id[issue_id] for issue_id in ids]
+        result: list[dict[str, Any]] = []
+        # Bound argv size, not the number of valid tasks or the completeness of evidence.
+        for offset in range(0, len(ids), 100):
+            batch = ids[offset : offset + 100]
+            command = ["bd", "show", *batch, "--json"]
+            if include_comments:
+                command.append("--include-comments")
+            items = as_items(self.json(command), context="bd show batch")
+            by_id = {str(item["id"]): item for item in items}
+            if len(by_id) != len(items):
+                raise DstackError("Beads batch response contains duplicate IDs")
+            missing = sorted(set(batch) - set(by_id))
+            unexpected = sorted(set(by_id) - set(batch))
+            if missing or unexpected:
+                raise DstackError(f"Beads batch response omitted: {missing}; unexpected IDs: {unexpected}")
+            result.extend(by_id[issue_id] for issue_id in batch)
+        return result
 
     def list(
         self,
