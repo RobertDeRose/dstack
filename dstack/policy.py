@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import string
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -24,21 +23,14 @@ MAX_IMPLEMENTATION_BODY_LENGTH = 4000
 MAX_IMPLEMENTATION_NOTES_FIELD_LENGTH = 50000
 
 _HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
-_PLACEHOLDER = re.compile(r"(?i)\b(?:todo|tbd|fixme|lorem ipsum)\b|<[^>\n]+>|\?\?\?|^\s*[-*]\s*\[ \]", re.MULTILINE)
+_PLACEHOLDER = re.compile(r"(?i)\b(?:todo|tbd|fixme|lorem ipsum)\b|\?\?\?|^\s*[-*]\s*\[ \]", re.MULTILINE)
 _FEATURE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-_CONVENTIONAL_PREFIX = re.compile(r"^(?:build|chore|ci|docs|feat|fix|perf|refactor|revert|test)(?:\([^)]+\))?!?:\s+")
+_CONVENTIONAL_PREFIX = re.compile(
+    r"^(?P<type>build|chore|ci|docs|feat|fix|perf|refactor|revert|test)"
+    r"(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?:\s+"
+)
 _OWNERSHIP_TOKEN = re.compile(r"(?i)\b(?:Task|Beads):\s*\S+")
 _NOTE_LINE_END = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
-_ACTION_VERBS = frozenset(
-    """
-    add adopt allow apply archive assert audit avoid autosquash batch bound build change check claim classify close collect compare
-    complete configure connect create default define delete derive detect disable document drop emit enforce ensure expose
-    export extract fail fetch fix format generate guard handle harden implement include initialize install keep limit link
-    load make mark migrate normalize omit open parse preserve prevent process publish read record reject remove replace report
-    require reset resolve restore return reword run scan select separate serialize set ship simplify split stage start stop store
-    strip support test track transform truncate update use validate verify write
-    """.split()
-)
 
 
 @dataclass(frozen=True)
@@ -113,7 +105,7 @@ def _iter_note_lines(notes: str):
 
 
 def _normalize_implementation_note(value: str) -> str:
-    return value.strip().strip(string.punctuation).strip()
+    return value.strip()
 
 
 def _lint_implementation_note(value: str) -> str:
@@ -124,9 +116,6 @@ def _lint_implementation_note(value: str) -> str:
         raise DstackError(
             f"implementation note exceeds the bounded length of {MAX_IMPLEMENTATION_NOTE_LENGTH} characters"
         )
-    first_word = re.match(r"[A-Za-z]+(?:[-'][A-Za-z]+)*", normalized)
-    if first_word is None or first_word.group(0).casefold() not in _ACTION_VERBS:
-        raise DstackError("implementation note must start with a clear action verb")
     return normalized
 
 
@@ -190,6 +179,8 @@ def validate_task_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     description = _issue_text(issue, "description")
     if not description:
         errors.append("implementation Bead description is empty")
+    if not _issue_text(issue, "design"):
+        errors.append("implementation Bead design is empty")
     try:
         execution_notes = implementation_notes(issue)
     except DstackError as exc:
@@ -226,10 +217,18 @@ def commit_subject(issue: Mapping[str, Any], feature_slug: str) -> str:
         raise DstackError(f"invalid feature slug for commit subject: {feature_slug!r}")
 
     title = _issue_text(issue, "title")
-    if _CONVENTIONAL_PREFIX.match(title):
-        raise DstackError("implementation Bead title must not include a Conventional Commit prefix")
+    prefix = _CONVENTIONAL_PREFIX.match(title)
+    kind, breaking = "feat", ""
+    if prefix:
+        scope = prefix.group("scope")
+        if scope is not None and scope != feature_slug:
+            raise DstackError("task title scope must match the feature slug")
+        kind, breaking = prefix.group("type"), prefix.group("breaking") or ""
+        title = title[prefix.end() :]
     summary = _lower_initial(title.rstrip().rstrip("."))
-    subject = f"feat({feature_slug}): {summary}"
+    if not summary or any(character in summary for character in "\r\n"):
+        raise DstackError("task title must contain one non-empty summary line")
+    subject = f"{kind}({feature_slug}){breaking}: {summary}"
     if len(subject) > COMMIT_SUBJECT_MAX:
         raise DstackError(
             f"derived commit subject is {len(subject)} characters; update the Bead title to fit {COMMIT_SUBJECT_MAX}"

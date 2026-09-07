@@ -115,6 +115,7 @@ No shadow controller.
         "issue_type": "task",
         "parent": "implementation",
         "labels": ["dstack:work:implementation", "dstack:commit:feat"],
+        "design": "Use native Beads interfaces for the accepted outcome.",
         "description": "Implement the reviewed behavior.",
         "acceptance_criteria": "The public workflow uses native readiness.",
         "dependencies": [
