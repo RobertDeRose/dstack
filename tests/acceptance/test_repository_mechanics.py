@@ -140,6 +140,8 @@ def test_worktree_commit_correction_and_task_evidence_use_native_state(real_repo
         assert "Beads:" not in message
         assert run_dstack(worktree, "check", "task", "--bead", task_id)["status"] == "ok"
 
+        retry = run_dstack(worktree, "commit", "--bead", task_id)
+        assert retry["mode"] == "unchanged" and retry["commit"] == committed["commit"]
         run_json(real_repo, "close", task_id, "--reason", "Fixture first implementation")
         run_json(real_repo, "reopen", task_id, "--reason", "Fixture correction")
         run_json(
@@ -263,5 +265,9 @@ Users receive one canonical task commit and one final documentation commit.
         assert audit["validation"]["project"]["status"] == "external"
         assert audit["validation"]["feature_docs"]["status"] == "ok"
         assert audit["git"]["close_commit"]["commit"] == corrected_docs["commit"]
+        for bead_id in (str(steps["implementation"]["id"]), str(close_step["id"]), root):
+            run_json(real_repo, "close", bead_id, "--reason", "Validated feature closure")
+        closed = run_json(real_repo, "show", str(steps["implementation"]["id"]), str(close_step["id"]), root)
+        assert all(issue["status"] == "closed" for issue in closed)
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=real_repo, check=False)

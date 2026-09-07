@@ -13,8 +13,9 @@ Run only when explicitly invoked. Beads owns the graph, dependencies, approval g
 
 1. Resolve the feature with `bd mol current <root> --json`. Read the plan and review step with
    `bd show <plan> <review> --include-comments --json`. Resume this agent's in-progress review without reclaiming it;
-   respect other owners. Claim only a native-ready open review. If review is already closed, inspect the existing
-   approval state and proceed only with recorded explicit approval; do not recreate tasks or grant approval by inference.
+   respect other owners. Claim only a native-ready open review. If review is already closed, skip the
+   remaining review and task-creation sections and go directly to Approval; do not recreate work or rerun the
+   preapproval check, which requires an in-progress review.
 2. Search `bd memories <focused terms> --json`, then recall only relevant keys. Memory is advisory: current repository
    documentation and accepted feature decisions outrank stale memory.
 3. Inspect only relevant source, tests, current documentation, and decisions.
@@ -61,4 +62,10 @@ No implementation task may be ready before approval. Let Beads validate dependen
 cross-feature blockers and native conditional dependencies. Do not reject this feature for unrelated project cycles. Close the review only
 after checks pass, then present scope, risks, decisions, and the task graph. Review never grants approval.
 
-After explicit user approval, resolve only the formula gate with await ID `approve-<slug>-plan`, resume this agent's in-progress approval or claim it only when open and ready, record the approval evidence, close it, and return `/implement <root>`.
+## Approval
+
+Read the approval step with comments. If it is already closed, preserve the recorded approval and return
+`/implement <root>` without claiming or closing it again. Otherwise require explicit user approval for the reviewed
+intent; neither invocation nor a closed review grants it. After approval, resolve only the formula gate with await ID
+`approve-<slug>-plan`, resume this agent's in-progress approval or claim it only when open and ready, record the approval
+evidence, close it, and return `/implement <root>`. Respect another agent's ownership.
