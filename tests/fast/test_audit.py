@@ -219,7 +219,7 @@ def test_audit_rejects_noncanonical_task_commit_subject(tmp_path: Path, monkeypa
     install_fakes(monkeypatch, client, root_issue, steps)
     monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
     monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
-    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(subject, "require_common_history", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         subject,
         "commit_records",
@@ -250,7 +250,7 @@ def test_audit_reports_missing_implementation_notes(tmp_path: Path, monkeypatch:
     install_fakes(monkeypatch, client, root_issue, steps)
     monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
     monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
-    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(subject, "require_common_history", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         subject,
         "commit_records",
@@ -282,7 +282,7 @@ def test_audit_rejects_legacy_and_multiple_task_footers(tmp_path: Path, monkeypa
     install_fakes(monkeypatch, client, root_issue, steps)
     monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
     monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
-    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(subject, "require_common_history", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         subject,
         "commit_records",
@@ -319,7 +319,7 @@ def test_audit_rejects_noncanonical_close_commit_message(tmp_path: Path, monkeyp
     install_fakes(monkeypatch, client, root_issue, steps)
     monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
     monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
-    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(subject, "require_common_history", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         subject,
         "commit_records",
@@ -346,7 +346,7 @@ def test_audit_bounds_diff_stat_and_rejects_beads_paths(tmp_path: Path, monkeypa
     install_fakes(monkeypatch, client, root_issue, steps)
     monkeypatch.setattr(subject, "branch_exists", lambda root, branch: True)
     monkeypatch.setattr(subject, "validate_git_revision", lambda *args, **kwargs: args[1])
-    monkeypatch.setattr(subject, "ancestry", lambda *args, **kwargs: True)
+    monkeypatch.setattr(subject, "require_common_history", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         subject,
         "commit_records",
@@ -387,3 +387,12 @@ def test_issue_details_distinguish_omitted_and_empty_comments() -> None:
     result = subject.issue_view({"id": "x", "comment_count": 2, "comments_omitted": True})
     assert result["comments_omitted"] is True
     assert "comments" not in result
+
+
+def test_audit_summary_pages_cover_all_evidence() -> None:
+    first = subject.bounded(list(range(201)))
+    second = subject.bounded(list(range(201)), offset=first["next_offset"])
+    third = subject.bounded(list(range(201)), offset=second["next_offset"])
+    assert first["items"] + second["items"] + third["items"] == list(range(201))
+    assert third["count"] == 201
+    assert "next_offset" not in third

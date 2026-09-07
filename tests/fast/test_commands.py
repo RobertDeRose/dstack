@@ -52,6 +52,10 @@ def test_worktree_ensure_delegates_creation_and_inventory_to_beads(
         assert worktree.name.endswith(".feat-native-control-plane")
         assert ["bd", "worktree", "create", str(worktree), "--branch", "feat/native-control-plane"] in observed
 
+        # An independent change on the base branch must not turn resume into a rebase requirement.
+        (git_repo / "base-progress.txt").write_text("independent change\n", encoding="utf-8")
+        original_run(["git", "add", "base-progress.txt"], cwd=git_repo)
+        original_run(["git", "commit", "-m", "chore: Advance the base independently"], cwd=git_repo)
         again = subject.ensure_branch_worktree(client, "feat/native-control-plane", "main")  # type: ignore[arg-type]
         assert again == (worktree, False, False)
     finally:
@@ -159,12 +163,12 @@ def test_graph_check_rejects_inherited_structural_label_and_redundant_audit_bloc
     assert subject.graph_errors_for_task(client, task, root, steps, [task])  # type: ignore[arg-type]
 
 
-def test_graph_check_rejects_nonstandard_readiness_edges() -> None:
+def test_task_graph_check_accepts_native_conditional_readiness_edges() -> None:
     client, root, steps, task = graph_fixture()
     task["dependencies"].append({"id": "other", "dependency_type": "conditional-blocks"})
     client.issues["other"] = {"id": "other", "issue_type": "task", "parent": "implementation"}
 
-    assert subject.graph_errors_for_task(client, task, root, steps, [task])  # type: ignore[arg-type]
+    assert subject.graph_errors_for_task(client, task, root, steps, [task]) == []  # type: ignore[arg-type]
 
 
 def test_preapproval_review_accepts_complete_blocked_graph() -> None:
@@ -177,13 +181,12 @@ def test_preapproval_review_accepts_complete_blocked_graph() -> None:
             steps,
             [task],
             ready_task_ids=[],
-            cycles=[],
         )
         == []
     )
 
 
-def test_preapproval_review_rejects_missing_work_false_readiness_and_cycles() -> None:
+def test_preapproval_review_rejects_missing_work_and_false_readiness() -> None:
     client, root, steps, task = graph_fixture()
 
     errors = subject.review_graph_errors(  # type: ignore[arg-type]
@@ -192,9 +195,15 @@ def test_preapproval_review_rejects_missing_work_false_readiness_and_cycles() ->
         steps,
         [],
         ready_task_ids=["task"],
-        cycles=[{"cycle": ["task", "approval"]}],
     )
 
     assert "review must create at least one implementation task" in errors
     assert "implementation tasks are ready before approval: task" in errors
-    assert "native Beads dependency graph contains a cycle" in errors
+
+
+@pytest.mark.parametrize("kind", ["blocks", "conditional-blocks", "waits-for"])
+def test_graph_check_leaves_external_readiness_to_beads(kind: str) -> None:
+    client, root, steps, task = graph_fixture()
+    # Deliberately absent locally: the target may be routed to another project.
+    task["dependencies"].append({"id": "external-task", "dependency_type": kind})
+    assert subject.graph_errors_for_task(client, task, root, steps, [task]) == []  # type: ignore[arg-type]
