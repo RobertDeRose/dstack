@@ -169,6 +169,10 @@ def _remove_resource(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+class IncompleteRollback(DstackError):
+    """The installer must retain its recovery copies for manual restoration."""
+
+
 def _apply_resources(
     resources: list[tuple[Path, Path]],
     stale: list[tuple[Path, str]],
@@ -202,10 +206,13 @@ def _apply_resources(
             try:
                 os.replace(backup, destination)
             except OSError as rollback_exc:
-                rollback_errors.append(f"restore {destination}: {rollback_exc}")
+                rollback_errors.append(f"restore {backup} -> {destination}: {rollback_exc}")
         if rollback_errors:
             details = "; ".join(rollback_errors)
-            raise DstackError(f"agent resource installation failed and rollback was incomplete: {details}") from exc
+            raise IncompleteRollback(
+                f"agent resource installation failed and rollback was incomplete; "
+                f"recovery copies retained at {backup_root}: {details}"
+            ) from exc
         raise
 
 
@@ -241,10 +248,17 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
         stale = _preflight_resources(skill_source, prompt_source, skills_target, prompts_target)
         skills_target.mkdir(parents=True, exist_ok=True)
         prompts_target.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix=".dstack-install-", dir=target) as raw_staging:
-            staging = Path(raw_staging)
+        staging = Path(tempfile.mkdtemp(prefix=".dstack-install-", dir=target))
+        retain = False
+        try:
             resources = _stage_resources(skill_source, prompt_source, skills_target, prompts_target, staging)
             _apply_resources(resources, stale, staging / "backup")
+        except IncompleteRollback:
+            retain = True
+            raise
+        finally:
+            if not retain:
+                shutil.rmtree(staging)
     except DstackError:
         raise
     except (OSError, UnicodeError) as exc:
