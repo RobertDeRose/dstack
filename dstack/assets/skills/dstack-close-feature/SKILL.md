@@ -19,8 +19,8 @@ operation and establish ownership of existing changes before continuing.
 Resolve native position with `bd mol current <root> --json` (or focused status queries plus `bd mol progress` for a
 large graph). Read the final step with comments and inspect its ownership. Resume this agent's in-progress final step
 without claiming again, but repeat the semantic review. A closed final step is not permission to rewrite delivered
-history: verify checks and finish any omitted structural closure only. Resolve the fixed gate by its native await ID
-`close-<slug>-review`. Preserve legacy molecules without that gate; do not migrate the graph.
+history: skip publication and claims, run project validation and `dstack audit --bead <root> --include-plan --require-docs`,
+and finish only omitted implementation-epic/root closure when those checks pass. Report failures rather than silently reopening delivered work.
 
 Collect `dstack audit --bead <root> --include-plan`. Read the approved plan and relevant accepted decisions before
 comparing intent with code; summaries alone cannot establish semantic compliance. Fetch selected decision details with

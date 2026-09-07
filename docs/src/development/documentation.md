@@ -27,9 +27,9 @@ section with exactly one native mdBook include targeting `design.md`. The design
 unique plan Bead:
 
 ```bash
-dstack docs export-design --feature <feature-root>
-dstack check docs --feature <slug>
-dstack docs commit --feature <feature-root>
+dstack docs export-design --bead <feature-root>
+dstack check docs --slug <slug>
+dstack docs commit --bead <feature-root>
 ```
 
 The feature check rejects unsafe paths, symlinks, invalid includes, duplicate navigation, and direct SUMMARY links to

@@ -108,6 +108,8 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         f"blocked-by:{steps['approval']['id']}",
         "--description-file",
         str(task_file),
+        "--design",
+        "Use the public workflow and native readiness for the accepted outcome.",
         "--acceptance",
         "The tested behavior uses native Beads readiness.",
     )
@@ -215,6 +217,8 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         f"blocked-by:{steps['approval']['id']}",
         "--description",
         "Correct one finding returned by close review.",
+        "--design",
+        "Correct the existing behavior without a secondary state mechanism.",
         "--acceptance",
         "The reviewed defect no longer occurs.",
     )

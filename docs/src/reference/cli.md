@@ -12,14 +12,14 @@ dstack init [--root PATH] [--update]
 dstack install skills [--agent-dir PATH]
 dstack check formula [--root PATH]
 dstack check plan --bead ID [--root PATH]
-dstack check review --feature ID [--root PATH]
+dstack check review --bead ID [--root PATH]
 dstack check task --bead ID [--root PATH]
-dstack check docs --feature SLUG [--root PATH]
-dstack docs export-design --feature ID [--root PATH]
-dstack docs commit --feature ID [--root PATH]
+dstack check docs --slug SLUG [--root PATH]
+dstack docs export-design --bead ID [--root PATH]
+dstack docs commit --bead ID [--root PATH]
 dstack commit -b|--bead ID [--root PATH]
 dstack worktree -b|--bead ID [--root PATH]
-dstack audit FEATURE [detail flags] [--require-docs] [--root PATH]
+dstack audit --bead ID [--offset N] [detail flags] [--require-docs] [--root PATH]
 ```
 
 Setup and deterministic checks do not create workflow issues. The workflow is activated only by an explicitly invoked
@@ -46,11 +46,11 @@ initialized Beads workspace.
 ```text
 dstack check formula
 dstack check plan --bead <plan-bead>
-dstack check review --feature <feature-root>
+dstack check review --bead <feature-root>
 dstack check task --bead <task>
-dstack check docs --feature <slug>
-dstack docs export-design --feature <feature-root>
-dstack docs commit --feature <feature-root>
+dstack check docs --slug <slug>
+dstack docs export-design --bead <feature-root>
+dstack docs commit --bead <feature-root>
 
 dstack worktree --bead <feature-or-descendant>
 dstack commit --bead <task>
@@ -60,15 +60,15 @@ Formula checks validate installed policy against the package and committed `HEAD
 to the fixed plan step and require exactly the six publishable design headings. Review checks validate the complete
 native graph and separate task fields (`description`, `design`, and `acceptance_criteria`) before approval. Task checks
 validate graph membership, approval dependencies, Git evidence, and worktree cleanliness. Target repositories own their
-documented project-validation contract. Feature-document checks validate only the approved feature index, unchanged
-exported design, and SUMMARY link; repository tooling owns whole-book builds and broader documentation policy. Worktree
-checks derive `feat/<slug>` from the feature root and verify its branch, path, repository, and base ancestry. Commit
-subjects use `feat(<slug>): <task title>`; implementation bodies contain one unwrapped bullet per ordered
-`Implementation:` fragment. Each fragment must be verb-led, one line, and no more than 96 characters; formatting strips
-surrounding whitespace and punctuation before adding a dash-and-space prefix. Each new commit contains exactly one
-`Task: <task>` trailer. Repository-changing tasks require at least one implementation note. The task must be
-`in_progress`. When a reopened task already has one unpublished commit, the same command creates a fixup and immediately
-autosquashes it from the feature base. Ambiguous evidence, unrelated dirt, conflicts, or published history stop safely.
+documented project-validation contract. Standalone feature-document checks validate structure and nonempty content;
+docs commit and audit also compare the exported design with the native plan; repository tooling owns whole-book builds and broader documentation policy. Worktree
+checks derive `feat/<slug>` from native identity and verify its branch, path, repository, and common history with the
+base. Advancing the base does not force a rebase during resume. Titles default to `feat(<slug>)`; an explicit native
+conventional title prefix selects another type. Implementation notes supply the bullets, not planned description or
+design. Each fragment is one line, no more than 96 characters, and preserves technical punctuation. Verb-led wording is
+writing guidance, not an English whitelist. Each commit has exactly one `Task:` trailer; committing requires an
+in-progress task with at least one implementation note. Corrections rewrite the exact owner and replay descendants,
+leaving unrelated fixups separate. Clean retries are no-ops; notes-only changes can reword unpublished evidence.
 `docs commit` accepts only the feature directory and its SUMMARY entry, validates them, and creates the one final
 `docs(<slug>): <feature title>` commit with no body and one internal-close-step `Task:` trailer. With one unpublished
 close-owned commit and a clean worktree, rerunning the command safely rewords stale canonical metadata. Ambiguous or
@@ -78,7 +78,7 @@ repository's external validation contract and rejects a noncanonical close commi
 ## Audit
 
 ```text
-dstack audit <feature> \
+dstack audit --bead <feature> \
   [--include-plan] \
   [--include-task ID] \
   [--include-decision ID] \

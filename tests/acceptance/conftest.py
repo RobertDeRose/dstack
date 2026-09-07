@@ -16,6 +16,8 @@ if str(ROOT) not in sys.path:
 
 BD_AVAILABLE = shutil.which("bd") is not None
 requires_bd = pytest.mark.skipif(not BD_AVAILABLE, reason="real Beads binary is not available on PATH")
+if os.environ.get("DSTACK_REQUIRE_BEADS") == "1" and not BD_AVAILABLE:
+    raise pytest.UsageError("DSTACK_REQUIRE_BEADS=1 requires the pinned native bd executable on PATH")
 
 
 def run_command(
