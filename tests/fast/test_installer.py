@@ -181,3 +181,43 @@ def test_installer_rolls_back_when_replacement_fails(tmp_path: Path, monkeypatch
 
 def _file_snapshot(root: Path) -> dict[str, bytes]:
     return {path.relative_to(root).as_posix(): path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def test_incomplete_rollback_retains_the_original_resource_and_reports_its_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "agent"
+    install_skills(target)
+    original = target / "skills/dstack-plan-feature"
+    content = "---\ndstack-managed: true\nname: dstack-plan-feature\n---\noriginal\n"
+    (original / "SKILL.md").write_text(content)
+    real_replace = installer.os.replace
+    backup: Path | None = None
+
+    def fail_install_and_restore(source: str | Path, destination: str | Path) -> None:
+        nonlocal backup
+        source, destination = Path(source), Path(destination)
+        if source == original:
+            backup = destination
+        if destination == original:
+            raise OSError("injected install/restore failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(installer.os, "replace", fail_install_and_restore)
+    with pytest.raises(DstackError, match="recovery copies retained") as caught:
+        install_skills(target)
+
+    assert backup is not None
+    assert (backup / "SKILL.md").read_text() == content
+    assert str(backup) in str(caught.value)
+    assert str(original) in str(caught.value)
+    # The error supplies everything needed to restore the exact prior resource.
+    real_replace(backup, original)
+    assert (original / "SKILL.md").read_text() == content
+
+
+def test_successful_install_cleans_temporary_recovery_copies(tmp_path: Path) -> None:
+    target = tmp_path / "agent"
+    install_skills(target)
+    install_skills(target)
+    assert not list(target.glob(".dstack-install-*"))
