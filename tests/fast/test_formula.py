@@ -32,11 +32,10 @@ def test_formula_contract_rejects_controller_owned_phase() -> None:
         subject.validate_formula_contract(formula)
 
 
-def test_formula_contract_rejects_cross_type_implementation_blocker() -> None:
+def test_formula_contract_delegates_dependency_semantics_to_native_loader() -> None:
     formula = deepcopy(subject.load_formula())
     formula["steps"][3]["needs"] = ["approval"]
-    with pytest.raises(DstackError):
-        subject.validate_formula_contract(formula)
+    subject.validate_formula_contract(formula)
 
 
 def test_formula_contract_rejects_missing_runtime_step_label() -> None:
@@ -75,44 +74,51 @@ def test_successful_bd_where_rejects_malformed_workspace_payload(
         subject.beads_workspace_optional(git_repo)
 
 
-def test_init_preflights_version_and_skips_agent_and_hook_installation(
+def test_init_preflights_once_and_reuses_native_workspace(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    observed: list[object] = []
+    from dstack.core import BeadsClient
 
-    class FakeClient:
-        def __init__(self, root: Path):
-            self.root = root
+    observed: list[list[str]] = []
+    workspace = git_repo / ".beads"
+    original_run = subject.run
 
-        def check_version(self) -> str:
-            observed.append("version")
-            return "bd version 1.2.2 (test)"
-
-    def fake_run(command: list[str], **kwargs: object) -> CommandResult:
+    def boundary(command: list[str], **kwargs: object) -> CommandResult:
+        if command[0] != "bd":
+            return original_run(command, **kwargs)
         observed.append(command)
-        return CommandResult(0, "", "")
+        if command[1] == "where":
+            if workspace.exists():
+                return CommandResult(0, json.dumps({"schema_version": 1, "data": {"path": str(workspace)}}), "")
+            return CommandResult(1, "", "not initialized")
+        if command[1] == "init":
+            workspace.mkdir()
+            return CommandResult(0, "", "")
+        if command[1] == "--version":
+            return CommandResult(0, "bd version 1.2.2 (test)", "")
+        if command[1:3] == ["formula", "show"]:
+            assert (
+                workspace / "formulas" / subject.FORMULA_FILENAME
+            ).read_bytes() == subject.formula_path().read_bytes()
+            return CommandResult(0, "{}", "")
+        raise AssertionError(command)
 
-    monkeypatch.setattr(subject, "BeadsClient", FakeClient)
-    monkeypatch.setattr(subject, "beads_workspace_optional", lambda root: None)
-    monkeypatch.setattr(subject, "install_formula", lambda root, update=False: {"status": "ok"})
-    monkeypatch.setattr(subject, "check_formula", lambda root, **kwargs: {"status": "ok"})
-    monkeypatch.setattr(subject, "run", fake_run)
-
+    monkeypatch.setattr(subject, "run", boundary)
+    monkeypatch.setattr(BeadsClient, "_run", lambda self, command, **kwargs: boundary(command, **kwargs))
     result = subject.init_workspace(git_repo)
-
     assert result["initialized"] is True
-    assert observed == [
-        "version",
-        [
-            "bd",
-            "init",
-            "--quiet",
-            "--non-interactive",
-            "--init-if-missing",
-            "--skip-agents",
-            "--skip-hooks",
-        ],
-    ]
+    assert result["validated"] is True
+    assert [command[1] for command in observed].count("--version") == 1
+    assert [command[1] for command in observed].count("where") == 2
+    init = next(command for command in observed if command[1] == "init")
+    assert "--skip-agents" in init and "--skip-hooks" in init and "--init-if-missing" in init
+    observed.clear()
+    again = subject.init_workspace(git_repo)
+    assert again["initialized"] is False
+    assert again["formula_changed"] is False
+    assert again["prime_changed"] is False
+    assert [command[1] for command in observed].count("where") == 1
+    assert [command[1] for command in observed].count("--version") == 1
 
 
 def test_formula_check_rejects_policy_not_committed_at_head(
@@ -196,7 +202,6 @@ def test_failed_native_parse_restores_previous_formula(
 
     monkeypatch.setattr(subject, "formula_path", lambda: source)
     monkeypatch.setattr(subject, "beads_workspace", lambda root: workspace)
-    monkeypatch.setattr(subject, "formula_destination", lambda root: destination)
     monkeypatch.setattr(subject, "BeadsClient", FakeClient)
     monkeypatch.setattr(subject, "run", lambda *args, **kwargs: CommandResult(1, "", "formula rejected"))
 

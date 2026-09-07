@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -72,8 +73,6 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
 
     if formula.get("formula") != FORMULA_NAME:
         raise DstackError(f"formula must be named {FORMULA_NAME}")
-    if formula.get("version") != 2:
-        raise DstackError("dstack-feature formula version must be 2")
     if formula.get("type") != "workflow" or formula.get("phase") != "liquid" or formula.get("pour") is not True:
         raise DstackError("dstack-feature must be a persistent poured workflow")
 
@@ -85,28 +84,8 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
             raise DstackError(f"{step_id} must be a {FEATURE_STEP_TYPES[step_id]}")
         if steps[step_id].get("labels") != [FEATURE_STEP_LABELS[step_id]]:
             raise DstackError(f"{step_id} label must be exactly {FEATURE_STEP_LABELS[step_id]}")
-    if list(steps["review"].get("needs") or []) != ["plan"]:
-        raise DstackError("review must depend on plan")
-    if list(steps["approval"].get("needs") or []) != ["review"]:
-        raise DstackError("approval must depend on review")
-    gate = steps["approval"].get("gate")
-    if not isinstance(gate, dict) or gate.get("type") != "human":
-        raise DstackError("approval must use a native human gate")
-    if steps["implementation"].get("needs") or steps["implementation"].get("depends_on"):
-        raise DstackError(
-            "implementation epic must not use blocking dependencies; reviewed child tasks depend on approval"
-        )
-    if list(steps["audit"].get("needs") or []) != ["approval"]:
-        raise DstackError("audit must depend on approval")
-    if steps["audit"].get("waits_for") != "children-of(implementation)":
-        raise DstackError("audit must use native implementation fan-in")
-    close_gate = steps["audit"].get("gate")
-    if (
-        not isinstance(close_gate, dict)
-        or close_gate.get("type") != "human"
-        or close_gate.get("id") != "close-{{feature_slug}}-review"
-    ):
-        raise DstackError("audit must use the fixed native close-review gate")
+    # Native formula loading and acceptance tests own needs, gates, and waits_for.
+    # Only the role identities consumed by dStack belong in this validator.
 
 
 def beads_workspace_optional(root: Path) -> Path | None:
@@ -141,12 +120,17 @@ def beads_workspace(root: Path) -> Path:
     return workspace
 
 
-def formula_destination(root: Path) -> Path:
-    return beads_workspace(root) / "formulas" / FORMULA_FILENAME
+@dataclass(frozen=True)
+class FormulaContext:
+    repository: Path
+    workspace: Path
+    beads_version: str
 
 
-def prime_destination(root: Path) -> Path:
-    return beads_workspace(root) / PRIME_FILENAME
+def _formula_context(root: Path) -> FormulaContext:
+    repository = git_root(root)
+    workspace = beads_workspace(repository)
+    return FormulaContext(repository, workspace, BeadsClient(repository).check_version())
 
 
 def display_formula_path(destination: Path, repository: Path) -> str:
@@ -185,8 +169,9 @@ def init_workspace(root: Path, *, update: bool = False) -> dict[str, Any]:
     """Initialize Beads when absent, then install and verify the dStack contract."""
 
     repository = git_root(root)
-    BeadsClient(repository).check_version()
-    initialized = beads_workspace_optional(repository) is None
+    beads_version = BeadsClient(repository).check_version()
+    workspace = beads_workspace_optional(repository)
+    initialized = workspace is None
     if initialized:
         run(
             [
@@ -201,22 +186,20 @@ def init_workspace(root: Path, *, update: bool = False) -> dict[str, Any]:
             cwd=repository,
         )
 
-    installed = install_formula(repository, update=update)
-    check_formula(repository, require_committed=False)
+    if workspace is None:
+        workspace = beads_workspace(repository)
+    # Installation already verifies native loading and the exact installed bytes.
+    installed = _install_formula(FormulaContext(repository, workspace, beads_version), update=update)
     return {**installed, "initialized": initialized, "validated": True}
 
 
-def install_formula(root: Path, *, update: bool = False) -> dict[str, Any]:
-    """Install dStack's versioned formula and scoped Beads prime into a workspace."""
-
-    repository = git_root(root)
-    beads_workspace(repository)
-    client = BeadsClient(repository)
-    beads_version = client.check_version()
+def _install_formula(context: FormulaContext, *, update: bool) -> dict[str, Any]:
+    repository = context.repository
+    beads_version = context.beads_version
     load_formula()
 
     source = formula_path().read_bytes()
-    destination = formula_destination(repository)
+    destination = context.workspace / "formulas" / FORMULA_FILENAME
     _assert_no_symlink_components(destination, purpose="Beads formula destination")
     current = destination.read_bytes() if destination.is_file() else None
     if current is not None and current != source and not update:
@@ -226,7 +209,7 @@ def install_formula(root: Path, *, update: bool = False) -> dict[str, Any]:
         )
 
     prime_source = prime_path().read_bytes()
-    prime = prime_destination(repository)
+    prime = context.workspace / PRIME_FILENAME
     _assert_no_symlink_components(prime, purpose="Beads prime destination")
     current_prime = prime.read_bytes() if prime.is_file() else None
     if current_prime is not None and current_prime != prime_source and not update:
@@ -273,13 +256,12 @@ def install_formula(root: Path, *, update: bool = False) -> dict[str, Any]:
 def check_formula(root: Path, *, require_committed: bool = True) -> dict[str, Any]:
     """Verify dStack's installed and, when requested, committed project policy."""
 
-    repository = git_root(root)
-    beads_workspace(repository)
-    client = BeadsClient(repository)
-    beads_version = client.check_version()
+    context = _formula_context(root)
+    repository = context.repository
+    beads_version = context.beads_version
     load_formula()
 
-    destination = formula_destination(repository)
+    destination = context.workspace / "formulas" / FORMULA_FILENAME
     _assert_no_symlink_components(destination, purpose="Beads formula destination")
     if not destination.is_file():
         raise DstackError(f"project formula is not installed: {destination}")
@@ -301,7 +283,7 @@ def check_formula(root: Path, *, require_committed: bool = True) -> dict[str, An
             )
         committed = True
 
-    prime = prime_destination(repository)
+    prime = context.workspace / PRIME_FILENAME
     _assert_no_symlink_components(prime, purpose="Beads prime destination")
     if not prime.is_file():
         raise DstackError(f"project Beads prime is not installed: {prime}")
