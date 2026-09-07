@@ -201,3 +201,10 @@ def test_commit_type_can_be_recorded_in_the_native_task_title(title: str, expect
     issue = valid_task()
     issue["title"] = title
     assert commit_subject(issue, "example") == expected
+
+
+def test_markdown_sections_ignore_nested_fence_and_quoted_heading_examples() -> None:
+    from dstack.policy import markdown_sections
+
+    text = "### Real\n\n````md\n```\n## Fake\n```\n````\n\n> ## Quoted\n\n### Next\nContent\n"
+    assert [section.title for section in markdown_sections(text)] == ["Real", "Next"]

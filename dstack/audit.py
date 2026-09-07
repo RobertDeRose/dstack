@@ -361,7 +361,7 @@ def collect_audit_evidence(
         if worktree_status != "clean":
             errors.append("feature worktree contains uncommitted changes")
         try:
-            feature_docs = {"status": "ok", **validate_docs(worktree, feature=slug)}
+            feature_docs = {"status": "ok", **validate_docs(worktree, feature=slug, expected_design=str(plan.get("design") or ""))}
         except DstackError as exc:
             feature_docs = {"status": "invalid", "errors": [str(exc)]}
             if require_docs:

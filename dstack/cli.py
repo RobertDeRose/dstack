@@ -106,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_design = _leaf(docs_commands, "export-design", "Export the reviewed plan design without rewriting it.")
     _root(export_design)
     export_design.add_argument("--feature", required=True, help="Feature root or descendant Bead ID.")
+    export_design.add_argument("--scaffold", action="store_true", help="Create missing index sections and SUMMARY link without replacing prose.")
     export_design.set_defaults(func=cmd_docs_export)
     docs_commit = _leaf(docs_commands, "commit", "Commit the validated feature documentation for close.")
     _root(docs_commit)

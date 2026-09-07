@@ -7,6 +7,8 @@ import re
 import tempfile
 from pathlib import Path
 
+from markdown_it import MarkdownIt
+
 from .core import (
     BeadsClient,
     DstackError,
@@ -14,142 +16,34 @@ from .core import (
     feature_identity,
     feature_steps,
     read_utf8_text,
+    require_feature_worktree,
+    serialized_repository_mutation,
 )
 from .output import emit
 from .policy import markdown_sections
 
-LINK_PATTERN = re.compile(r"!?\[[^]]*\]\((.+)\)")
 INCLUDE_PATTERN = re.compile(r"\{\{#include\s+([^}\s]+)[^}]*\}\}")
-FENCE_PATTERN = re.compile(r"^( {0,3})(`{3,}|~{3,})")
 FEATURE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
-def _is_escaped(text: str, index: int) -> bool:
-    count = 0
-    index -= 1
-    while index >= 0 and text[index] == "\\":
-        count += 1
-        index -= 1
-    return count % 2 == 1
+def markdown_links(text: str) -> list[str]:
+    """Return rendered link destinations, including reference-style links."""
+    return [
+        str(child.attrGet("href"))
+        for token in MarkdownIt("commonmark").parse(text)
+        for child in token.children or ()
+        if child.type == "link_open"
+    ]
 
 
-def _mask_markdown_code(text: str) -> str:
-    """Mask fenced and inline code while preserving offsets and line breaks."""
-
-    masked = list(text)
-    offset = 0
-    fence: tuple[str, int] | None = None
-    for line in text.splitlines(keepends=True):
-        plain = line.rstrip("\r\n")
-        match = FENCE_PATTERN.match(plain)
-        opened = False
-        if fence is None and match:
-            marker = match.group(2)
-            fence = (marker[0], len(marker))
-            opened = True
-        if fence is not None:
-            for index in range(offset, offset + len(line)):
-                if masked[index] not in "\r\n":
-                    masked[index] = " "
-            if (
-                not opened
-                and match
-                and match.group(2)[0] == fence[0]
-                and len(match.group(2)) >= fence[1]
-                and plain[match.end() :].strip() == ""
-            ):
-                fence = None
-        offset += len(line)
-
-    masked_text = "".join(masked)
-    index = 0
-    while index < len(masked_text):
-        if masked_text[index] != "`" or _is_escaped(masked_text, index):
-            index += 1
-            continue
-        width = 1
-        while index + width < len(masked_text) and masked_text[index + width] == "`":
-            width += 1
-        cursor = index + width
-        closed = False
-        while cursor < len(masked_text):
-            cursor = masked_text.find("`", cursor)
-            if cursor < 0:
-                break
-            closing = 1
-            while cursor + closing < len(masked_text) and masked_text[cursor + closing] == "`":
-                closing += 1
-            if closing == width:
-                for position in range(index, cursor + width):
-                    if masked[position] not in "\r\n":
-                        masked[position] = " "
-                index = cursor + width
-                closed = True
-                break
-            cursor += closing
-        if not closed:
-            index += width
-    return "".join(masked)
-
-
-def _link_target_spans(text: str) -> list[tuple[int, int]]:
-    masked = _mask_markdown_code(text)
-    spans: list[tuple[int, int]] = []
-    index = 0
-    while index < len(masked):
-        syntax = index
-        if masked[index] == "!":
-            if _is_escaped(masked, index) or index + 1 >= len(masked) or masked[index + 1] != "[":
-                index += 1
-                continue
-            index += 1
-        if masked[index] != "[" or _is_escaped(masked, index):
-            index = syntax + 1
-            continue
-
-        label_end = index + 1
-        while label_end < len(masked):
-            if masked[label_end] == "]" and not _is_escaped(masked, label_end):
-                break
-            label_end += 1
-        if label_end >= len(masked) or label_end + 1 >= len(masked) or masked[label_end + 1] != "(":
-            index = syntax + 1
-            continue
-
-        target_start = label_end + 2
-        cursor = target_start
-        depth = 1
-        while cursor < len(masked):
-            if _is_escaped(masked, cursor):
-                cursor += 1
-                continue
-            if masked[cursor] == "(":
-                depth += 1
-            elif masked[cursor] == ")":
-                depth -= 1
-                if depth == 0:
-                    break
-            cursor += 1
-        if depth == 0 and cursor > target_start:
-            spans.append((target_start, cursor))
-            index = cursor + 1
-        else:
-            index = syntax + 1
-    return spans
-
-
-def markdown_values(text: str, pattern: re.Pattern[str]) -> list[str]:
-    if pattern is LINK_PATTERN:
-        return [text[start:end] for start, end in _link_target_spans(text)]
-    masked = _mask_markdown_code(text)
-    return [match.group(1) for match in pattern.finditer(masked) if not _is_escaped(masked, match.start())]
-
-
-def _raw_target(value: str) -> str:
-    value = value.strip()
-    if value.startswith("<") and ">" in value:
-        return value[1 : value.index(">")]
-    return value.split(maxsplit=1)[0]
+def markdown_includes(text: str) -> list[str]:
+    return [
+        match.group(1)
+        for token in MarkdownIt("commonmark").parse(text)
+        for child in token.children or ()
+        if child.type == "text"
+        for match in INCLUDE_PATTERN.finditer(child.content)
+    ]
 
 
 def _feature_paths(root: Path, feature: str) -> tuple[Path, Path, Path, Path]:
@@ -178,16 +72,24 @@ def _regular_file(path: Path, purpose: str) -> str:
 
 def _meaningful_section(index: str, title: str) -> bool:
     matches = [section for section in markdown_sections(index) if section.title.casefold() == title.casefold()]
-    return len(matches) == 1 and matches[0].level == 2 and len(matches[0].content.strip()) >= 12
+    return (
+        len(matches) == 1
+        and matches[0].level == 2
+        and len(matches[0].content.strip()) >= 12
+    )
 
 
-def validate_docs(root: Path, *, feature: str) -> dict[str, object]:
+def validate_docs(root: Path, *, feature: str, expected_design: str | None = None) -> dict[str, object]:
     summary_path, index_path, design_path, repository = _feature_paths(root, feature)
     summary = _regular_file(summary_path, "documentation summary")
     index = _regular_file(index_path, "feature index")
     design = _regular_file(design_path, "feature design")
 
     errors: list[str] = []
+    if not design.strip():
+        errors.append("feature design must not be empty")
+    if expected_design is not None and design != expected_design:
+        errors.append("feature design differs from the native plan; export the accepted design again")
     first_content = next((line.strip() for line in index.splitlines() if line.strip()), "")
     if not re.fullmatch(r"#\s+\S.+", first_content):
         errors.append("feature index must begin with one level-one title")
@@ -200,13 +102,13 @@ def validate_docs(root: Path, *, feature: str) -> dict[str, object]:
         for section in markdown_sections(index)
         if section.title.casefold() == "implemented design" and section.level == 2
     ]
-    includes = markdown_values(index, INCLUDE_PATTERN)
+    includes = markdown_includes(index)
     if len(implemented) != 1 or includes != ["design.md"] or "{{#include design.md}}" not in implemented[0].content:
         errors.append("Implemented Design must contain exactly one native include of design.md")
     if INCLUDE_PATTERN.search(design):
         errors.append("feature design must not contain active mdBook directives")
 
-    targets = [_raw_target(value) for value in markdown_values(summary, LINK_PATTERN)]
+    targets = markdown_links(summary)
     index_target = f"features/{feature}/index.md"
     design_target = f"features/{feature}/design.md"
     if targets.count(index_target) != 1:
@@ -246,6 +148,7 @@ def export_design(
     selector: str,
     *,
     client: BeadsClient | None = None,
+    scaffold: bool = False,
 ) -> dict[str, str]:
     repository = root.expanduser().resolve()
     if client is None:
@@ -254,12 +157,36 @@ def export_design(
         client = client_for(repository)
         repository = client.root
     feature_root, slug, _ = feature_identity(client, selector)
+    repository = require_feature_worktree(client, f"feat/{slug}")
     plan = client.show(str(feature_steps(client, str(feature_root["id"]))["plan"]["id"]))
     design = plan.get("design")
-    if not isinstance(design, str) or not design:
+    if not isinstance(design, str) or not design.strip():
         raise DstackError(f"plan Bead {plan.get('id')} has no design to export")
-    _, _, target, repository = _feature_paths(repository, slug)
+    if INCLUDE_PATTERN.search(design):
+        raise DstackError("feature design must not contain active mdBook directives")
+    summary, index, target, repository = _feature_paths(repository, slug)
+    # Preflight all optional scaffolding before exporting. Existing prose is never replaced.
+    if scaffold:
+        for path, purpose in ((index, "feature index"), (summary, "documentation summary")):
+            _assert_no_symlink_components(path, purpose=purpose)
+            if path.exists():
+                _regular_file(path, purpose)
+        summary_text = _regular_file(summary, "documentation summary") if summary.exists() else "# Summary\n"
+        index_target = f"features/{slug}/index.md"
+        targets = markdown_links(summary_text)
+        if targets.count(index_target) > 1 or f"features/{slug}/design.md" in targets:
+            raise DstackError("repair duplicate or direct-design SUMMARY links before scaffolding")
+    _assert_no_symlink_components(target, purpose="feature design")
     _atomic_write(target, design)
+    if scaffold:
+        if not index.exists():
+            _atomic_write(
+                index,
+                f"# {slug}\n\n## Overview\n\n## User Impact\n\n"
+                "## Implemented Design\n\n{{#include design.md}}\n",
+            )
+        if index_target not in targets:
+            _atomic_write(summary, summary_text.rstrip() + f"\n\n- [{slug}]({index_target})\n")
     return {
         "status": "ok",
         "feature": str(feature_root["id"]),
@@ -274,6 +201,13 @@ def cmd_docs_validate(args: object) -> int:
     return 0
 
 
+@serialized_repository_mutation
 def cmd_docs_export(args: object) -> int:
-    emit(export_design(Path(getattr(args, "root")), str(getattr(args, "feature"))))
+    emit(
+        export_design(
+            Path(getattr(args, "root")),
+            str(getattr(args, "bead")),
+            scaffold=bool(getattr(args, "scaffold", False)),
+        )
+    )
     return 0
