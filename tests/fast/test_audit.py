@@ -16,6 +16,7 @@ def implementation_task() -> dict[str, Any]:
         "status": "closed",
         "issue_type": "task",
         "labels": ["dstack:work:implementation", "dstack:commit:feat"],
+        "design": "Use native Beads interfaces for the accepted outcome.",
         "description": """Implement behavior.
 
 ## Documentation impact

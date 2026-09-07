@@ -63,7 +63,7 @@ def test_task_commit_body_uses_ordered_implementation_notes() -> None:
     )
 
     assert task_commit_body(issue) == (
-        "- Preserve task identity across corrections\n- Keep commit body useful without planning prose"
+        "- Preserve task identity across corrections.\n- Keep commit body useful without planning prose."
     )
 
 
@@ -80,19 +80,18 @@ def test_task_commit_body_rejects_missing_or_malformed_implementation_notes() ->
             task_commit_body(malformed)
 
 
-def test_task_commit_body_normalizes_note_punctuation_and_keeps_each_bullet_on_one_line() -> None:
+def test_task_commit_body_preserves_punctuation_and_keeps_each_bullet_on_one_line() -> None:
     issue = task()
     issue["notes"] = "Implementation:   Add compact output.  \nImplementation: Remove Rich!\n"
 
-    assert task_commit_body(issue) == "- Add compact output\n- Remove Rich"
+    assert task_commit_body(issue) == "- Add compact output.\n- Remove Rich!"
 
 
-def test_task_commit_body_requires_an_action_verb() -> None:
+def test_task_commit_body_does_not_rewrite_prose() -> None:
     issue = task()
     issue["notes"] = "Implementation: The output is compact."
 
-    with pytest.raises(DstackError, match="action verb"):
-        task_commit_body(issue)
+    assert task_commit_body(issue) == "- The output is compact."
 
 
 def test_task_commit_body_rejects_unbounded_implementation_notes() -> None:
@@ -258,3 +257,10 @@ def test_autosquash_correction_targets_exact_commit_when_subjects_repeat(git_rep
     ).stdout.split("\x00")
     assert observed[0].strip() == "feat(old): duplicate subject\n\nTask: ds-other"
     assert observed[1].strip() == message.strip()
+
+
+@pytest.mark.parametrize("note", ["Add support for `Result<T, E>`", "Use foo()", "Keep [the API](api.md)"])
+def test_task_commit_body_preserves_technical_syntax(note: str) -> None:
+    issue = task()
+    issue["notes"] = f"Implementation: {note}"
+    assert task_commit_body(issue) == f"- {note}"

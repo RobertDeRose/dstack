@@ -39,6 +39,7 @@ def valid_task() -> dict[str, object]:
         "title": "Preserve inbound arrival timestamps",
         "issue_type": "task",
         "labels": ["dstack:work:implementation"],
+        "design": "Use the existing native interfaces for the accepted outcome.",
         "description": (
             "- Implement arrival ordering through the public queue interface.\n"
             "- Cover timestamp retention through observable tests."
@@ -124,14 +125,13 @@ def test_task_rejects_malformed_execution_notes() -> None:
     assert any("implementation note" in error for error in result["errors"])
 
 
-def test_task_rejects_non_action_implementation_notes() -> None:
+def test_task_does_not_attempt_to_grade_english_grammar() -> None:
     issue = valid_task()
     issue["notes"] = "Implementation: The output is compact."
 
     result = validate_task_issue(issue)
 
-    assert result["status"] == "invalid"
-    assert "implementation note must start with a clear action verb" in result["errors"]
+    assert result["status"] == "ok"
 
 
 def test_task_rejects_conflicting_change_modes() -> None:
@@ -169,3 +169,35 @@ def test_commit_subject_is_fixed_by_feature_slug_and_task_title() -> None:
     issue["title"] = "fix(coordinator): preserve inbound arrival timestamps"
     with pytest.raises(DstackError):
         commit_subject(issue, "native-workflow")
+
+
+@pytest.mark.parametrize("verb", ["Cache", "Retry", "Rename", "Optimize"])
+def test_notes_accept_valid_imperatives_outside_a_fixed_vocabulary(verb: str) -> None:
+    issue = valid_task()
+    issue["notes"] = f"Implementation: {verb} the selected operation."
+    assert validate_task_issue(issue)["status"] == "ok"
+
+
+def test_plan_allows_rust_generics_and_markup() -> None:
+    issue = valid_plan()
+    issue["design"] += "\nUse `Result<T, E>` and <strong>markup</strong>."
+    assert validate_plan_issue(issue)["status"] == "ok"
+
+
+def test_task_requires_accepted_design() -> None:
+    issue = valid_task()
+    issue.pop("design")
+    assert "implementation Bead design is empty" in validate_task_issue(issue)["errors"]
+
+
+@pytest.mark.parametrize(
+    "title, expected",
+    [
+        ("fix: Retry failed publication", "fix(example): retry failed publication"),
+        ("refactor(example)!: Remove obsolete API", "refactor(example)!: remove obsolete API"),
+    ],
+)
+def test_commit_type_can_be_recorded_in_the_native_task_title(title: str, expected: str) -> None:
+    issue = valid_task()
+    issue["title"] = title
+    assert commit_subject(issue, "example") == expected
