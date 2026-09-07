@@ -125,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit = _leaf(commands, "audit", "Collect bounded repository facts for a semantic audit skill.")
     _root(audit)
     audit.add_argument("feature", help="Feature root or descendant Bead ID.")
+    audit.add_argument("--offset", type=int, default=0, help="Page task, decision, gate, and commit summaries; checks remain complete.")
     audit.add_argument("--include-plan", action="store_true", help="Include the full native plan issue.")
     audit.add_argument(
         "--include-task",

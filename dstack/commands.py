@@ -10,7 +10,7 @@ from .core import (
     BeadsClient,
     DstackError,
     _assert_no_symlink_components,
-    ancestry,
+    require_common_history,
     as_items,
     audit_fan_in_errors,
     branch_exists,
@@ -35,8 +35,7 @@ from .git_ops import canonical_task_message, commit_record_matches_message
 from .output import emit
 from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
 
-MAX_TASK_EVIDENCE_COMMITS = 100
-MAX_IMPLEMENTATION_TASKS = 100
+MAX_REVIEW_ITEMS = 100
 
 
 @serialized_repository_mutation
@@ -67,8 +66,7 @@ def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -
     existing = worktree_for_branch(client, branch)
     if existing is not None:
         worktree = verify_worktree_identity(client.root, existing, branch)
-        if not ancestry(client.root, base_branch, branch):
-            raise DstackError(f"feature branch {branch} does not contain base branch {base_branch}")
+        require_common_history(client.root, base_branch, branch)
         return worktree, False, False
 
     worktree = conventional_worktree(client.root, branch)
@@ -82,8 +80,8 @@ def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -
         if not branch_exists(client.root, branch):
             run(["git", "branch", "--", branch, base_branch], cwd=client.root)
             created_branch = True
-        elif not ancestry(client.root, base_branch, branch):
-            raise DstackError(f"feature branch {branch} does not contain base branch {base_branch}")
+        else:
+            require_common_history(client.root, base_branch, branch)
 
         run(["bd", "worktree", "create", str(worktree), "--branch", branch], cwd=client.root)
         created_worktree = True
@@ -91,8 +89,7 @@ def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -
         if observed is None:
             raise DstackError(f"Beads created no discoverable worktree for {branch}")
         verified = verify_worktree_identity(client.root, observed, branch)
-        if not ancestry(client.root, base_branch, branch):
-            raise DstackError(f"created feature branch {branch} does not contain base branch {base_branch}")
+        require_common_history(client.root, base_branch, branch)
         return verified, created_branch, created_worktree
     except Exception as primary:
         cleanup: list[str] = []
@@ -162,7 +159,6 @@ def review_graph_errors(
     tasks: list[dict[str, Any]],
     *,
     ready_task_ids: list[str],
-    cycles: list[Any],
 ) -> list[str]:
     """Validate the complete native graph immediately before human approval."""
 
@@ -187,8 +183,6 @@ def review_graph_errors(
 
     if ready_task_ids:
         errors.append("implementation tasks are ready before approval: " + ", ".join(sorted(ready_task_ids)))
-    if cycles:
-        errors.append("native Beads dependency graph contains a cycle")
     return errors
 
 
@@ -196,13 +190,7 @@ def cmd_review_check(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     root, slug, _ = feature_identity(client, args.bead)
     steps = feature_steps(client, str(root["id"]))
-    tasks = implementation_tasks(
-        client,
-        str(steps["implementation"]["id"]),
-        limit=MAX_IMPLEMENTATION_TASKS + 1,
-    )
-    task_overflow = len(tasks) > MAX_IMPLEMENTATION_TASKS
-    tasks = tasks[:MAX_IMPLEMENTATION_TASKS]
+    tasks = implementation_tasks(client, str(steps["implementation"]["id"]))
     ready = as_items(
         client.json(
             [
@@ -212,31 +200,31 @@ def cmd_review_check(args: argparse.Namespace) -> int:
                 str(steps["implementation"]["id"]),
                 "--label",
                 "dstack:work:implementation",
+                "--limit",
+                "0",
                 "--json",
             ]
         ),
         context="bd ready implementation",
     )
-    cycles_payload = client.json(["bd", "dep", "cycles", "--json"])
-    if not isinstance(cycles_payload, list):
-        raise DstackError("bd dep cycles returned an unknown JSON shape")
     errors = review_graph_errors(
         client,
         root,
         steps,
         tasks,
         ready_task_ids=[str(item["id"]) for item in ready],
-        cycles=cycles_payload,
     )
-    if task_overflow:
-        errors.append(f"implementation tasks exceed the {MAX_IMPLEMENTATION_TASKS}-item review bound")
     emit(
         {
             "status": "ok" if not errors else "invalid",
             "feature": root["id"],
             "slug": slug,
-            "tasks": [str(task["id"]) for task in tasks],
-            "errors": errors,
+            "tasks": [str(task["id"]) for task in tasks[:MAX_REVIEW_ITEMS]],
+            "task_count": len(tasks),
+            "tasks_truncated": len(tasks) > MAX_REVIEW_ITEMS,
+            "errors": errors[:MAX_REVIEW_ITEMS],
+            "error_count": len(errors),
+            "errors_truncated": len(errors) > MAX_REVIEW_ITEMS,
         }
     )
     return 0 if not errors else 4
@@ -251,28 +239,12 @@ def _worktree_status(path: Path) -> dict[str, Any]:
     }
 
 
-def implementation_tasks(
-    client: BeadsClient,
-    implementation_id: str,
-    *,
-    limit: int | None = None,
-    known_task: Mapping[str, Any] | None = None,
-) -> list[dict[str, Any]]:
+def implementation_tasks(client: BeadsClient, implementation_id: str) -> list[dict[str, Any]]:
     children = sorted(
-        (
-            child
-            for child in client.children(implementation_id, limit=limit)
-            if issue_type(child) not in {"epic", "molecule", "gate"}
-        ),
-        key=lambda child: str(child.get("id") or ""),
+        (child for child in client.children(implementation_id) if issue_type(child) not in {"epic", "molecule", "gate"}),
+        key=lambda child: str(child["id"]),
     )
-    known_id = str(known_task.get("id")) if known_task is not None else None
-    requested_ids = [str(child["id"]) for child in children if str(child["id"]) != known_id]
-    loaded = {str(task["id"]): task for task in client.show_many(requested_ids)}
-    return [
-        dict(known_task) if known_task is not None and str(child["id"]) == known_id else loaded[str(child["id"])]
-        for child in children
-    ]
+    return client.show_many([str(child["id"]) for child in children])
 
 
 def graph_errors_for_task(
@@ -297,32 +269,20 @@ def cmd_task_check(args: argparse.Namespace) -> int:
 
     feature_root, slug, base = feature_identity(client, args.bead)
     steps = feature_steps(client, str(feature_root["id"]))
-    tasks = implementation_tasks(
-        client,
-        str(steps["implementation"]["id"]),
-        limit=MAX_IMPLEMENTATION_TASKS + 1,
-        known_task=task,
-    )
-    if len(tasks) > MAX_IMPLEMENTATION_TASKS:
-        errors.append(f"implementation tasks exceed the {MAX_IMPLEMENTATION_TASKS}-item evidence bound")
-        tasks = tasks[:MAX_IMPLEMENTATION_TASKS]
-    errors.extend(graph_errors_for_task(client, task, feature_root, steps, tasks))
+    # A task check needs this task and the fixed fan-in, not every sibling's body.
+    errors.extend(graph_errors_for_task(client, task, feature_root, steps, [dict(task)]))
 
     branch = f"feat/{slug}"
     validate_git_revision(client.root, base, name="task evidence base")
     validate_git_revision(client.root, branch, name="task evidence branch")
-    if not ancestry(client.root, base, branch):
-        errors.append(f"feature branch {branch} does not contain base branch {base}")
+    require_common_history(client.root, base, branch)
     evidence_range = f"{base}..{branch}"
     records = commit_records(
         client.root,
         evidence_range,
         include_paths=False,
-        max_count=MAX_TASK_EVIDENCE_COMMITS + 1,
+        owner_id=str(task["id"]),
     )
-    if len(records) > MAX_TASK_EVIDENCE_COMMITS:
-        errors.append(f"task evidence exceeds the {MAX_TASK_EVIDENCE_COMMITS}-commit bound")
-        records = records[:MAX_TASK_EVIDENCE_COMMITS]
     task_records = [record for record in records if args.bead in record.get("footer_ids", ())]
     evidence = [
         {

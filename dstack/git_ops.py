@@ -262,7 +262,7 @@ def _correct_or_reuse(root: Path, target: str, base: str, message: str) -> tuple
 
 
 def _task_evidence(root: Path, base: str, task_id: str) -> list[dict[str, object]]:
-    return [record for record in commit_records(root, f"{base}..HEAD") if task_id in record.get("footer_ids", ())]
+    return [record for record in commit_records(root, f"{base}..HEAD", owner_id=task_id) if task_id in record.get("footer_ids", ())]
 
 
 def _require_feature_docs_paths(paths: list[str], slug: str) -> None:

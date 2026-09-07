@@ -608,7 +608,6 @@ def implementation_task_graph_errors(
 
     errors: list[str] = []
     task_id = str(task.get("id") or "")
-    root_id = str(root.get("id") or "")
     implementation_id = str(steps["implementation"].get("id") or "")
     approval_id = str(steps["approval"].get("id") or "")
 
@@ -624,36 +623,12 @@ def implementation_task_graph_errors(
     if has_label(task, "dstack:step:implementation"):
         errors.append("implementation task inherited the structural dstack:step:implementation label")
 
-    unsupported_readiness_edges = sorted(
-        {
-            dependency_type(record)
-            for record in dependency_records(task)
-            if dependency_type(record) in {"conditional-blocks", "waits-for"}
-        }
-    )
-    if unsupported_readiness_edges:
-        errors.append(
-            "implementation Bead uses unsupported readiness dependencies: " + ", ".join(unsupported_readiness_edges)
-        )
-
     blockers = dependency_targets(task, "blocks")
     if approval_id not in blockers:
         errors.append(f"implementation Bead is not blocked by approval step {approval_id}")
 
-    for blocker_id in blockers:
-        if blocker_id == approval_id:
-            continue
-        blocker = client.show_optional(blocker_id)
-        if blocker is None:
-            errors.append(f"implementation Bead depends on missing blocker {blocker_id}")
-            continue
-        try:
-            blocker_root = find_feature_root(client, blocker_id)
-        except DstackError:
-            errors.append(f"implementation Bead has cross-feature blocker {blocker_id}")
-            continue
-        if str(blocker_root.get("id") or "") != root_id:
-            errors.append(f"implementation Bead has cross-feature blocker {blocker_id}")
+    # Native Beads validates blocker existence, cross-feature relationships,
+    # conditional dependencies, and readiness. Do not reconstruct that graph.
 
     if not task_id:
         errors.append("implementation Bead has no ID")
@@ -733,12 +708,9 @@ def branch_exists(root: Path, branch: str) -> bool:
     )
 
 
-def ancestry(root: Path, ancestor: str, descendant: str) -> bool:
-    repository = git_root(root)
-    return (
-        run(["git", "merge-base", "--is-ancestor", "--", ancestor, descendant], cwd=repository, check=False).returncode
-        == 0
-    )
+def require_common_history(root: Path, base: str, branch: str) -> None:
+    if run(["git", "merge-base", base, branch], cwd=root, check=False).returncode:
+        raise DstackError(f"feature branch {branch} has no common history with base branch {base}")
 
 
 def current_head(root: Path, ref: str = "HEAD") -> str:
@@ -824,6 +796,7 @@ def commit_records(
     *,
     include_paths: bool = False,
     max_count: int | None = None,
+    owner_id: str | None = None,
 ) -> list[dict[str, Any]]:
     repository = git_root(root)
     validate_git_range(repository, ref_range, name="evidence revision")
@@ -834,6 +807,8 @@ def commit_records(
     command = ["git", "log", "-z", "--format=%x00%H%x00%s%x00%b"]
     if max_count is not None:
         command.append(f"--max-count={max_count}")
+    if owner_id is not None:
+        command.extend(["--fixed-strings", f"--grep=Task: {owner_id}", f"--grep=Beads: {owner_id}"])
     if include_paths:
         command.extend(["--name-only", "--no-renames"])
     command.append(ref_range)

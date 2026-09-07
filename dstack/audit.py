@@ -9,7 +9,6 @@ from typing import Any, Mapping, Sequence
 from .commands import client_for, implementation_tasks
 from .core import (
     DstackError,
-    ancestry,
     audit_fan_in_errors,
     branch_exists,
     changed_paths,
@@ -22,6 +21,7 @@ from .core import (
     issue_labels,
     issue_type,
     reject_beads_paths,
+    require_common_history,
     run,
     truncate_output,
     validate_git_revision,
@@ -79,12 +79,14 @@ def issue_summary(issue: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def bounded(items: Sequence[Any], *, limit: int = MAX_AUDIT_ITEMS) -> dict[str, Any]:
+def bounded(items: Sequence[Any], *, limit: int = MAX_AUDIT_ITEMS, offset: int = 0) -> dict[str, Any]:
     values = list(items)
     return {
         "count": len(values),
-        "truncated": len(values) > limit,
-        "items": values[:limit],
+        "truncated": offset > 0 or len(values) > offset + limit,
+        "items": values[offset : offset + limit],
+        **({"offset": offset} if offset else {}),
+        **({"next_offset": offset + limit} if len(values) > offset + limit else {}),
     }
 
 
@@ -161,7 +163,10 @@ def collect_audit_evidence(
     history_ids: Sequence[str] = (),
     include_commit_paths: bool = False,
     require_docs: bool = False,
+    offset: int = 0,
 ) -> dict[str, Any]:
+    if offset < 0:
+        raise DstackError("audit offset must be non-negative")
     client = client_for(root_path)
     root, slug, base = feature_identity(client, selector)
     steps = feature_steps(client, str(root["id"]))
@@ -173,11 +178,9 @@ def collect_audit_evidence(
     ):
         if len(values) > MAX_AUDIT_ITEMS:
             raise DstackError(f"requested audit {name} exceed the {MAX_AUDIT_ITEMS}-item bound")
-    collection_limit = MAX_AUDIT_ITEMS + 1
     implementation = implementation_tasks(
         client,
         str(steps["implementation"]["id"]),
-        limit=collection_limit,
     )
     decisions = sorted(
         (
@@ -186,7 +189,6 @@ def collect_audit_evidence(
                 all_statuses=True,
                 labels=[f"decision:{slug}"],
                 issue_type_filter="decision",
-                limit=collection_limit,
             )
             if f"decision:{slug}" in issue_labels(issue) and str(root["id"]) in dependency_targets(issue, "relates-to")
         ),
@@ -194,15 +196,10 @@ def collect_audit_evidence(
     )
     audit_step = steps["audit"]
     gate_ids = sorted(set(dependency_targets(audit_step, "blocks")))
-    if len(gate_ids) > MAX_AUDIT_ITEMS:
-        errors.append(f"audit gates exceed the {MAX_AUDIT_ITEMS}-item evidence bound")
     gates = sorted(
-        (issue for issue in client.show_many(gate_ids[:collection_limit]) if issue_type(issue) == "gate"),
+        (issue for issue in client.show_many(gate_ids) if issue_type(issue) == "gate"),
         key=lambda issue: str(issue.get("id") or ""),
     )
-    for name, items in (("implementation tasks", implementation), ("decisions", decisions), ("gates", gates)):
-        if len(items) > MAX_AUDIT_ITEMS:
-            errors.append(f"audit {name} exceed the {MAX_AUDIT_ITEMS}-item evidence bound")
 
     plan = client.show(str(steps["plan"]["id"]))
     plan_validation = validate_plan_issue(plan)
@@ -257,19 +254,14 @@ def collect_audit_evidence(
         try:
             validate_git_revision(client.root, base, name="audit base branch")
             validate_git_revision(client.root, branch, name="audit feature branch")
-            if not ancestry(client.root, base, branch):
-                errors.append(f"feature branch {branch} does not contain base branch {base}")
+            require_common_history(client.root, base, branch)
             range_value = f"{base}..{branch}"
             records = commit_records(
                 client.root,
                 range_value,
                 include_paths=include_commit_paths,
-                max_count=MAX_AUDIT_ITEMS + 1,
             )
             paths = changed_paths(client.root, base, branch)
-            if len(records) > MAX_AUDIT_ITEMS:
-                git["commits_truncated"] = True
-                errors.append(f"audit commit evidence exceeds the {MAX_AUDIT_ITEMS}-commit bound")
             try:
                 reject_beads_paths(paths)
             except DstackError as exc:
@@ -288,7 +280,7 @@ def collect_audit_evidence(
                 {
                     "range": range_value,
                     "commit_count": len(records),
-                    "commits": bounded(compact_commits),
+                    "commits": bounded(compact_commits, offset=offset),
                     "changed_path_count": len(paths),
                     "diff_stat": truncate_output(diff_stat(client.root, base, branch)),
                 }
@@ -402,9 +394,9 @@ def collect_audit_evidence(
             "status": plan_validation["status"],
             "errors": plan_validation["errors"],
         },
-        "implementation_tasks": bounded(task_rows),
-        "decisions": bounded([issue_summary(issue) for issue in decisions]),
-        "gates": bounded([issue_summary(issue) for issue in gates]),
+        "implementation_tasks": bounded(task_rows, offset=offset),
+        "decisions": bounded([issue_summary(issue) for issue in decisions], offset=offset),
+        "gates": bounded([issue_summary(issue) for issue in gates], offset=offset),
         "git": git,
         "validation": {
             "project": project_validation,
@@ -426,6 +418,7 @@ def cmd_audit_evidence(args: argparse.Namespace) -> int:
         history_ids=args.history_for,
         include_commit_paths=args.include_commit_paths,
         require_docs=args.require_docs,
+        offset=getattr(args, "offset", 0),
     )
     emit(payload)
     return 0 if payload["checks"]["status"] == "ok" else 4
