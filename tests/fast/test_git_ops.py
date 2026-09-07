@@ -326,3 +326,28 @@ def test_beads_path_guard_handles_literal_git_paths(git_repo: Path, name: str) -
     assert subject.staged_paths(git_repo) == [f".beads/{name}"]
     with pytest.raises(DstackError, match="Beads configuration or runtime state"):
         _commit(git_repo, "feat: wrong\n\nTask: a\n")
+
+
+def test_stopped_correction_keeps_native_rebase_state_and_abort_preserves_fixup(git_repo: Path) -> None:
+    from dstack.core import run
+
+    path = git_repo / "overlap.txt"
+    path.write_text("first\n", encoding="utf-8")
+    run(["git", "add", "overlap.txt"], cwd=git_repo)
+    target = _commit(git_repo, build_commit_message("feat(example): first", "- Add first outcome.", "task-a"))
+    path.write_text("second\n", encoding="utf-8")
+    run(["git", "add", "overlap.txt"], cwd=git_repo)
+    _commit(git_repo, build_commit_message("feat(example): second", "- Add second outcome.", "task-b"))
+    path.write_text("corrected\n", encoding="utf-8")
+    run(["git", "add", "overlap.txt"], cwd=git_repo)
+    with pytest.raises(DstackError, match="native rebase"):
+        _autosquash_correction(git_repo, target=target, base="main",
+                              message=build_commit_message("feat(example): corrected", "- Correct first outcome.", "task-a"))
+    assert run(["git", "status", "--porcelain"], cwd=git_repo).stdout
+    with pytest.raises(DstackError, match="existing native Git operation"):
+        _commit(git_repo, build_commit_message("feat(example): forbidden", "", "other"))
+    run(["git", "rebase", "--abort"], cwd=git_repo)
+    assert path.read_text(encoding="utf-8") == "corrected\n"
+    assert run(["git", "log", "-1", "--format=%s"], cwd=git_repo).stdout.startswith("amend! ")
+    messages = run(["git", "log", "--format=%B"], cwd=git_repo).stdout
+    assert "Task: task-b" in messages

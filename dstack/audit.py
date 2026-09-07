@@ -18,7 +18,6 @@ from .core import (
     feature_identity,
     feature_steps,
     implementation_task_graph_errors,
-    issue_labels,
     issue_type,
     reject_beads_paths,
     require_common_history,
@@ -182,19 +181,17 @@ def collect_audit_evidence(
         client,
         str(steps["implementation"]["id"]),
     )
+    decision_candidates = client.list(all_statuses=True, labels=[f"decision:{slug}"], issue_type_filter="decision")
+    # Native list summaries need not include dependencies; hydrate candidates before filtering links.
     decisions = sorted(
         (
             issue
-            for issue in client.list(
-                all_statuses=True,
-                labels=[f"decision:{slug}"],
-                issue_type_filter="decision",
-            )
-            if f"decision:{slug}" in issue_labels(issue) and str(root["id"]) in dependency_targets(issue, "relates-to")
+            for issue in client.show_many([str(issue["id"]) for issue in decision_candidates])
+            if str(root["id"]) in dependency_targets(issue, "relates-to")
         ),
         key=lambda issue: str(issue.get("id") or ""),
     )
-    audit_step = steps["audit"]
+    audit_step = client.show(str(steps["audit"]["id"]))
     gate_ids = sorted(set(dependency_targets(audit_step, "blocks")))
     gates = sorted(
         (issue for issue in client.show_many(gate_ids) if issue_type(issue) == "gate"),
@@ -210,7 +207,7 @@ def collect_audit_evidence(
     no_change_by_task: dict[str, str | None] = {}
     for task in implementation:
         validation = validate_task_issue(task)
-        graph_errors = implementation_task_graph_errors(client, task, root, steps)
+        graph_errors = implementation_task_graph_errors(task, steps)
         task_errors = [*validation["errors"], *graph_errors]
         try:
             execution_notes = implementation_notes(task)
@@ -236,7 +233,7 @@ def collect_audit_evidence(
         if str(task.get("status") or "") != "closed":
             errors.append(f"implementation task {task['id']} is not closed")
 
-    fan_in_errors = audit_fan_in_errors(client, steps, implementation)
+    fan_in_errors = audit_fan_in_errors(audit_step, str(steps["implementation"]["id"]), implementation)
     errors.extend(fan_in_errors)
 
     branch = f"feat/{slug}"

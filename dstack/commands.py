@@ -154,7 +154,6 @@ def cmd_plan_check(args: argparse.Namespace) -> int:
 
 def review_graph_errors(
     client: BeadsClient,
-    root: Mapping[str, Any],
     steps: Mapping[str, Mapping[str, Any]],
     tasks: list[dict[str, Any]],
     *,
@@ -178,8 +177,9 @@ def review_graph_errors(
     for task in tasks:
         validation = validate_task_issue(task)
         errors.extend(f"{task.get('id')}: {error}" for error in validation["errors"])
-        errors.extend(implementation_task_graph_errors(client, task, root, steps))
-    errors.extend(audit_fan_in_errors(client, steps, tasks))
+        errors.extend(implementation_task_graph_errors(task, steps))
+    audit = client.show(str(steps["audit"]["id"]))
+    errors.extend(audit_fan_in_errors(audit, str(steps["implementation"]["id"]), tasks))
 
     if ready_task_ids:
         errors.append("implementation tasks are ready before approval: " + ", ".join(sorted(ready_task_ids)))
@@ -209,7 +209,6 @@ def cmd_review_check(args: argparse.Namespace) -> int:
     )
     errors = review_graph_errors(
         client,
-        root,
         steps,
         tasks,
         ready_task_ids=[str(item["id"]) for item in ready],
@@ -247,18 +246,6 @@ def implementation_tasks(client: BeadsClient, implementation_id: str) -> list[di
     return client.show_many([str(child["id"]) for child in children])
 
 
-def graph_errors_for_task(
-    client: BeadsClient,
-    task: Mapping[str, Any],
-    feature_root: Mapping[str, Any],
-    steps: Mapping[str, Mapping[str, Any]],
-    tasks: list[dict[str, Any]],
-) -> list[str]:
-    errors = implementation_task_graph_errors(client, task, feature_root, steps)
-    errors.extend(audit_fan_in_errors(client, steps, tasks))
-    return errors
-
-
 def cmd_task_check(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     task = client.show(args.bead)
@@ -269,8 +256,7 @@ def cmd_task_check(args: argparse.Namespace) -> int:
 
     feature_root, slug, base = feature_identity(client, args.bead)
     steps = feature_steps(client, str(feature_root["id"]))
-    # A task check needs this task and the fixed fan-in, not every sibling's body.
-    errors.extend(graph_errors_for_task(client, task, feature_root, steps, [dict(task)]))
+    errors.extend(implementation_task_graph_errors(task, steps))
 
     branch = f"feat/{slug}"
     validate_git_revision(client.root, base, name="task evidence base")
