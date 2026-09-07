@@ -264,3 +264,81 @@ def test_task_commit_body_preserves_technical_syntax(note: str) -> None:
     issue = task()
     issue["notes"] = f"Implementation: {note}"
     assert task_commit_body(issue) == f"- {note}"
+
+
+def git(root: Path, *args: str) -> str:
+    return subprocess.check_output(["git", *args], cwd=root).decode().strip()
+
+
+def commit_file(root: Path, name: str, content: str, subject_line: str) -> str:
+    (root / name).write_text(content, encoding="utf-8")
+    git(root, "add", "--", name)
+    git(root, "commit", "-qm", subject_line)
+    return git(root, "rev-parse", "HEAD")
+
+
+def test_correction_does_not_autosquash_another_tasks_pending_fixup(git_repo: Path) -> None:
+    base = git(git_repo, "rev-parse", "HEAD")
+    target = commit_file(git_repo, "a", "first\n", "feat: A")
+    commit_file(git_repo, "b", "first\n", "feat: B")
+    commit_file(git_repo, "b", "second\n", "fixup! feat: B")
+    commit_file(git_repo, "c", "third\n", "feat: C")
+    (git_repo / "a").write_text("corrected\n", encoding="utf-8")
+    git(git_repo, "add", "a")
+    message = build_commit_message("fix(example): correct A", "- Keep technical syntax `Result<T, E>`.", "a")
+
+    _autosquash_correction(git_repo, target=target, base=base, message=message)
+
+    assert git(git_repo, "log", "--reverse", "--format=%s", f"{base}..HEAD").splitlines() == [
+        "fix(example): correct A",
+        "feat: B",
+        "fixup! feat: B",
+        "feat: C",
+    ]
+    assert (git_repo / "a").read_text() == "corrected\n"
+    assert (git_repo / "b").read_text() == "second\n"
+    assert (git_repo / "c").read_text() == "third\n"
+
+
+def test_canonical_retry_is_a_noop_and_notes_only_correction_rewords(git_repo: Path) -> None:
+    base = git(git_repo, "rev-parse", "HEAD")
+    (git_repo / "a").write_text("first\n", encoding="utf-8")
+    git(git_repo, "add", "a")
+    message = build_commit_message("feat(example): add A", "- Add A.", "a")
+    target = _commit(git_repo, message)
+    descendant = commit_file(git_repo, "b", "second\n", "feat: B")
+
+    assert subject._correct_or_reuse(git_repo, target, base, message) == (target, "unchanged")
+    assert git(git_repo, "rev-parse", "HEAD") == descendant
+    updated = build_commit_message("fix(example): add A", "- Preserve A().", "a")
+    assert subject._correct_or_reuse(git_repo, target, base, updated)[1] == "corrected"
+    assert git(git_repo, "log", "--format=%s", f"{base}..HEAD").splitlines() == ["feat: B", "fix(example): add A"]
+    assert git(git_repo, "show", "HEAD~1:a") == "first"
+    assert git(git_repo, "show", "HEAD:b") == "second"
+
+
+def test_correction_refuses_published_evidence_without_mutating(git_repo: Path) -> None:
+    target = commit_file(git_repo, "a", "first", "feat: A")
+    git(git_repo, "update-ref", "refs/remotes/origin/feat/example", target)
+    (git_repo / "a").write_text("correction")
+    git(git_repo, "add", "a")
+    with pytest.raises(DstackError, match="remote-tracking"):
+        _autosquash_correction(git_repo, target=target, base=base, message="corrected")
+    assert git(git_repo, "rev-parse", "HEAD") == target
+    assert git(git_repo, "diff", "--cached", "--name-only") == "a"
+
+
+def test_commit_refuses_an_existing_native_operation(git_repo: Path) -> None:
+    (git_repo / ".git/rebase-merge").mkdir()
+    with pytest.raises(DstackError, match="existing native Git operation"):
+        subject._correct_or_reuse(git_repo, "HEAD", "HEAD~1", "anything")
+
+
+@pytest.mark.parametrize("name", ["tab\tfile", "line\nfile", 'quoted"file', "cr\rfile", "\nleading", "record\x1efile"])
+def test_beads_path_guard_handles_literal_git_paths(git_repo: Path, name: str) -> None:
+    (git_repo / ".beads").mkdir()
+    (git_repo / ".beads" / name).write_text("runtime")
+    git(git_repo, "add", ".beads")
+    assert subject.staged_paths(git_repo) == [f".beads/{name}"]
+    with pytest.raises(DstackError, match="Beads configuration or runtime state"):
+        _commit(git_repo, "feat: wrong\n\nTask: a\n")

@@ -170,3 +170,23 @@ def test_beads_client_requires_exact_tested_version(git_repo: Path, monkeypatch:
 
     with pytest.raises(DstackError):
         client.check_version()
+
+
+@pytest.mark.parametrize("name", ["tab\tfile", "line\nfile", 'quoted"file', "cr\rfile", "\nleading", "record\x1efile", "raw\udcff"])
+def test_evidence_preserves_literal_pathnames(git_repo: Path, name: str) -> None:
+    from dstack.core import changed_paths
+
+    (git_repo / name).write_text("content")
+    subprocess.run(["git", "add", "--", name], cwd=git_repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "feat: add file", "-m", "Task: x"], cwd=git_repo, check=True)
+    assert changed_paths(git_repo, "HEAD~1", "HEAD") == [name]
+    assert commit_records(git_repo, "HEAD~1..HEAD", include_paths=True)[0]["paths"] == [name]
+
+
+def test_evidence_handles_empty_body_and_empty_commit(git_repo: Path) -> None:
+    subprocess.run(["git", "commit", "--allow-empty", "-qm", "empty"], cwd=git_repo, check=True)
+    for include_paths in (False, True):
+        result = commit_records(git_repo, "HEAD~1..HEAD", include_paths=include_paths)
+        assert len(result) == 1
+        assert result[0]["body"] == ""
+        assert result[0]["paths"] == []
