@@ -90,7 +90,7 @@ def run(
     return result
 
 
-def _assert_no_symlink_components(path: Path, *, purpose: str) -> None:
+def assert_no_symlink_components(path: Path, *, purpose: str) -> None:
     current = Path(path)
     while True:
         if current.is_symlink():

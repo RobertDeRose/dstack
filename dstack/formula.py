@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .beads import BeadsClient, beads_workspace, beads_workspace_optional, run_beads
-from .core import DstackError, _assert_no_symlink_components, run
+from .core import DstackError, assert_no_symlink_components, run
 from .git_state import git_root
 from .workflow import FEATURE_STEP_LABELS, FEATURE_STEP_TYPES
 
@@ -103,7 +103,7 @@ def display_formula_path(destination: Path, repository: Path) -> str:
 
 
 def _atomic_write(path: Path, content: bytes, *, purpose: str = "Beads formula destination") -> None:
-    _assert_no_symlink_components(path, purpose=purpose)
+    assert_no_symlink_components(path, purpose=purpose)
     mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -162,7 +162,7 @@ def _install_formula(context: FormulaContext, *, update: bool) -> dict[str, Any]
 
     source = formula_path().read_bytes()
     destination = context.workspace / "formulas" / FORMULA_FILENAME
-    _assert_no_symlink_components(destination, purpose="Beads formula destination")
+    assert_no_symlink_components(destination, purpose="Beads formula destination")
     current = destination.read_bytes() if destination.is_file() else None
     if current is not None and current != source and not update:
         raise DstackError(
@@ -172,7 +172,7 @@ def _install_formula(context: FormulaContext, *, update: bool) -> dict[str, Any]
 
     prime_source = prime_path().read_bytes()
     prime = context.workspace / PRIME_FILENAME
-    _assert_no_symlink_components(prime, purpose="Beads prime destination")
+    assert_no_symlink_components(prime, purpose="Beads prime destination")
     current_prime = prime.read_bytes() if prime.is_file() else None
     if current_prime is not None and current_prime != prime_source and not update:
         raise DstackError(
@@ -224,7 +224,7 @@ def check_formula(root: Path) -> dict[str, Any]:
     load_formula()
 
     destination = context.workspace / "formulas" / FORMULA_FILENAME
-    _assert_no_symlink_components(destination, purpose="Beads formula destination")
+    assert_no_symlink_components(destination, purpose="Beads formula destination")
     if not destination.is_file():
         raise DstackError(f"project formula is not installed: {destination}")
     packaged_formula = formula_path().read_bytes()
@@ -243,7 +243,7 @@ def check_formula(root: Path) -> dict[str, Any]:
         )
 
     prime = context.workspace / PRIME_FILENAME
-    _assert_no_symlink_components(prime, purpose="Beads prime destination")
+    assert_no_symlink_components(prime, purpose="Beads prime destination")
     if not prime.is_file():
         raise DstackError(f"project Beads prime is not installed: {prime}")
     if prime.read_bytes() != prime_path().read_bytes():

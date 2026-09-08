@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .core import CommandResult, DstackError, _assert_no_symlink_components, run, truncate_output
+from .core import CommandResult, DstackError, assert_no_symlink_components, run, truncate_output
 from .git_state import git_root
 
 SUPPORTED_BEADS_VERSION = (1, 2, 2)
@@ -331,7 +331,7 @@ def beads_workspace_optional(root: Path) -> Path | None:
     workspace = Path(payload["path"]).expanduser()
     if not workspace.is_absolute():
         workspace = repository / workspace
-    _assert_no_symlink_components(workspace, purpose="Beads workspace")
+    assert_no_symlink_components(workspace, purpose="Beads workspace")
     resolved = workspace.resolve()
     if resolved.name != ".beads" or not resolved.is_dir():
         raise DstackError(f"bd where returned an invalid Beads workspace: {resolved}")
