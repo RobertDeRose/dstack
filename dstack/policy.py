@@ -10,7 +10,6 @@ from markdown_it import MarkdownIt
 
 from .beads import issue_labels, issue_type
 from .core import DstackError
-from .git_state import reject_beads_paths
 
 PLAN_SECTIONS = (
     "Goals",
@@ -32,6 +31,21 @@ _CONVENTIONAL_PREFIX = re.compile(
     r"(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?:\s+"
 )
 _NOTE_LINE_END = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
+
+
+def reject_beads_paths(paths: Sequence[str]) -> None:
+    committed_policy = {
+        ".beads/PRIME.md",
+        ".beads/formulas/dstack-feature.formula.toml",
+    }
+    invalid = sorted(
+        path for path in paths if (path == ".beads" or path.startswith(".beads/")) and path not in committed_policy
+    )
+    if invalid:
+        raise DstackError(
+            "implementation commits may not include Beads configuration or runtime state; "
+            "commit intentional Beads maintenance separately: " + ", ".join(invalid)
+        )
 
 
 @dataclass(frozen=True)

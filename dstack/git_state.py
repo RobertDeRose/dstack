@@ -235,21 +235,6 @@ def changed_paths(root: Path, base: str, head: str) -> list[str]:
     return [path for path in output.split("\0") if path]
 
 
-def reject_beads_paths(paths: Sequence[str]) -> None:
-    committed_policy = {
-        ".beads/PRIME.md",
-        ".beads/formulas/dstack-feature.formula.toml",
-    }
-    invalid = sorted(
-        path for path in paths if (path == ".beads" or path.startswith(".beads/")) and path not in committed_policy
-    )
-    if invalid:
-        raise DstackError(
-            "implementation commits may not include Beads configuration or runtime state; "
-            "commit intentional Beads maintenance separately: " + ", ".join(invalid)
-        )
-
-
 def diff_stat(root: Path, base: str, head: str) -> str:
     repository = git_root(root)
     return run(["git", "diff", "--shortstat", f"{base}...{head}"], cwd=repository).stdout.strip()

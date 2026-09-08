@@ -14,10 +14,10 @@ from dstack.git_state import (
     commit_records,
     diff_stat,
     footer_mapping,
-    reject_beads_paths,
     repository_mutation_lock,
     worktree_for_branch,
 )
+from dstack.policy import reject_beads_paths
 from dstack.workflow import feature_identity
 
 
