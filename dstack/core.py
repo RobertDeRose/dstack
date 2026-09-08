@@ -25,7 +25,7 @@ class CommandResult:
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 120.0
 
 
-def command_timeout(command: Sequence[str]) -> float:
+def command_timeout() -> float:
     override = os.environ.get("DSTACK_COMMAND_TIMEOUT_SECONDS", "").strip()
     if override:
         try:
@@ -56,7 +56,7 @@ def run(
 ) -> CommandResult:
     if not command:
         raise DstackError("cannot run an empty command")
-    effective_timeout = command_timeout(command) if timeout is None else timeout
+    effective_timeout = command_timeout() if timeout is None else timeout
     if not math.isfinite(effective_timeout) or effective_timeout <= 0:
         raise DstackError("command timeout must be positive and finite")
     try:

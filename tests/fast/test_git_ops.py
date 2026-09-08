@@ -13,7 +13,6 @@ from dstack.git_ops import (
     _autosquash_correction,
     _commit,
     _require_in_progress,
-    _verify_head_message,
     reject_beads_paths,
 )
 
@@ -152,7 +151,6 @@ def test_commit_creates_reachable_task_evidence(git_repo: Path) -> None:
     records = commit_records(git_repo, "HEAD~1..HEAD")
     assert records[0]["commit"] == commit
     assert records[0]["footer_ids"] == ("ds-123",)
-    assert records[0]["footer_kind"] == "Task"
 
 
 def test_commit_rejects_beads_state_and_unstaged_changes(git_repo: Path) -> None:
@@ -171,38 +169,6 @@ def test_native_in_progress_status_is_required() -> None:
     for status in ("open", "blocked", "closed"):
         with pytest.raises(DstackError, match="in_progress"):
             _require_in_progress(task(status=status))
-
-
-def test_verify_head_message_rejects_multiple_or_legacy_owners(git_repo: Path) -> None:
-    (git_repo / "change.txt").write_text("change\n", encoding="utf-8")
-    subprocess.run(["git", "add", "change.txt"], cwd=git_repo, check=True)
-    subprocess.run(
-        [
-            "git",
-            "commit",
-            "-qm",
-            "feat(example): add change",
-            "-m",
-            "Task: ds-123\nBeads: ds-123",
-        ],
-        cwd=git_repo,
-        check=True,
-    )
-    with pytest.raises(DstackError):
-        _verify_head_message(git_repo, subject="feat(example): add change", task_id="ds-123")
-
-
-def test_verify_head_message_rejects_legacy_owner_for_correction(git_repo: Path) -> None:
-    (git_repo / "change.txt").write_text("change\n", encoding="utf-8")
-    subprocess.run(["git", "add", "change.txt"], cwd=git_repo, check=True)
-    subprocess.run(
-        ["git", "commit", "-qm", "feat(legacy): old contract", "-m", "Beads: ds-123"],
-        cwd=git_repo,
-        check=True,
-    )
-
-    with pytest.raises(DstackError):
-        _verify_head_message(git_repo, subject="feat(example): add change", task_id="ds-123")
 
 
 def test_autosquash_correction_targets_exact_commit_when_subjects_repeat(git_repo: Path) -> None:

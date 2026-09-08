@@ -214,12 +214,10 @@ class BeadsClient:
     def _run(self, command: Sequence[str], **kwargs: Any) -> CommandResult:
         return run_beads(command, cwd=self.root, **kwargs)
 
-    def json(self, command: Sequence[str], *, check: bool = True) -> Any:
+    def json(self, command: Sequence[str]) -> Any:
         result = self._run(command, check=False)
         if result.returncode != 0:
-            if check:
-                raise beads_command_error(result, context=" ".join(command))
-            return None
+            raise beads_command_error(result, context=" ".join(command))
         return parse_json(result.stdout, context=" ".join(command))
 
     def version(self) -> str:
