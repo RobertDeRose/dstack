@@ -12,8 +12,10 @@ from dstack.core import CommandResult, command_env
 LOWER_LEVEL_MODULES = (
     "beads.py",
     "docs.py",
+    "formula.py",
     "git_ops.py",
     "git_state.py",
+    "policy.py",
     "task_validation.py",
     "workflow.py",
 )
