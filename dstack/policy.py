@@ -1,4 +1,4 @@
-"""Deterministic plan, task, and transitional commit-policy validation."""
+"""Mechanical plan, task, and commit-format validation; skills assess meaning."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ MAX_IMPLEMENTATION_NOTE_LENGTH = 96
 MAX_IMPLEMENTATION_BODY_LENGTH = 4000
 MAX_IMPLEMENTATION_NOTES_FIELD_LENGTH = 50000
 
-_PLACEHOLDER = re.compile(r"(?i)\b(?:todo|tbd|fixme|lorem ipsum)\b|\?\?\?|^\s*[-*]\s*\[ \]", re.MULTILINE)
 _FEATURE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _CONVENTIONAL_PREFIX = re.compile(
     r"^(?P<type>build|chore|ci|docs|feat|fix|perf|refactor|revert|test)"
@@ -62,13 +61,6 @@ def markdown_sections(text: str) -> list[MarkdownSection]:
     return result
 
 
-def _sections_by_title(text: str) -> dict[str, list[MarkdownSection]]:
-    result: dict[str, list[MarkdownSection]] = {}
-    for section in markdown_sections(text):
-        result.setdefault(section.title.casefold(), []).append(section)
-    return result
-
-
 def _issue_text(issue: Mapping[str, Any], field: str) -> str:
     value = issue.get(field)
     return str(value).strip() if isinstance(value, str) else ""
@@ -95,12 +87,8 @@ def _iter_note_lines(notes: str):
         yield notes[start:]
 
 
-def _normalize_implementation_note(value: str) -> str:
-    return value.strip()
-
-
 def _lint_implementation_note(value: str) -> str:
-    normalized = _normalize_implementation_note(value)
+    normalized = value.strip()
     if not normalized:
         raise DstackError("implementation note must contain text after Implementation:")
     if len(normalized) > MAX_IMPLEMENTATION_NOTE_LENGTH:
@@ -123,16 +111,15 @@ def validate_plan_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     if not design:
         errors.append("native Beads design field is empty")
     else:
-        all_sections = markdown_sections(design)
-        if any(section.level < 3 for section in all_sections):
+        sections = [section for section in markdown_sections(design) if section.level <= 3]
+        if any(section.level < 3 for section in sections):
             errors.append("publishable plan headings must begin at level three")
         expected_headings = [(3, title.casefold()) for title in PLAN_SECTIONS]
-        observed_headings = [(section.level, section.title.casefold()) for section in all_sections]
+        observed_headings = [(section.level, section.title.casefold()) for section in sections]
         if observed_headings != expected_headings:
             errors.append("plan headings must be exactly the publishable section set")
-        sections = _sections_by_title(design)
         for required in PLAN_SECTIONS:
-            matches = sections.get(required.casefold(), [])
+            matches = [section for section in sections if section.title.casefold() == required.casefold()]
             if not matches:
                 errors.append(f"missing plan section: {required}")
             elif len(matches) > 1:
@@ -142,14 +129,10 @@ def validate_plan_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
                     errors.append(f"plan section must be level-three: {required}")
                 if not matches[0].content:
                     errors.append(f"empty plan section: {required}")
-        if _PLACEHOLDER.search(design):
-            errors.append("plan contains an unresolved placeholder or unchecked item")
 
     acceptance = _issue_text(issue, "acceptance_criteria")
     if not acceptance:
         errors.append("native Beads acceptance criteria are empty")
-    elif _PLACEHOLDER.search(acceptance):
-        errors.append("acceptance criteria contain a placeholder or unchecked item")
 
     return {
         "status": "ok" if not errors else "invalid",
@@ -182,8 +165,6 @@ def validate_task_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
     acceptance = _issue_text(issue, "acceptance_criteria")
     if not acceptance:
         errors.append("implementation Bead acceptance criteria are empty")
-    elif _PLACEHOLDER.search(acceptance):
-        errors.append("acceptance criteria contain a placeholder or unchecked item")
 
     return {
         "status": "ok" if not errors else "invalid",
@@ -200,14 +181,12 @@ def _lower_initial(value: str) -> str:
 
 
 def commit_subject(issue: Mapping[str, Any], feature_slug: str) -> str:
-    validation = validate_task_issue(issue)
-    errors = [error for error in validation["errors"] if "title" in error]
-    if errors:
-        raise DstackError("cannot derive commit subject: " + "; ".join(errors))
+    title = _issue_text(issue, "title")
+    if not title:
+        raise DstackError("cannot derive commit subject: implementation Bead title is empty")
     if not _FEATURE_SLUG.fullmatch(feature_slug):
         raise DstackError(f"invalid feature slug for commit subject: {feature_slug!r}")
 
-    title = _issue_text(issue, "title")
     prefix = _CONVENTIONAL_PREFIX.match(title)
     kind, breaking = "feat", ""
     if prefix:

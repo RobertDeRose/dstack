@@ -57,7 +57,9 @@ dstack commit --bead <task>
 ```
 
 Formula checks validate installed policy against the package and committed `HEAD`. Plan checks bind the requested Bead
-to the fixed plan step and require exactly the six publishable design headings. Review checks validate the complete
+to the fixed plan step and require the six level-three publishable sections, allowing nested subsections. They do not
+classify prose keywords or checkbox syntax as unresolved decisions; skills and human gates own that judgment.
+Review checks validate the complete
 native graph and separate task fields (`description`, `design`, and `acceptance_criteria`) before approval. Task checks
 validate graph membership, approval dependencies, Git evidence, and worktree cleanliness. Target repositories own their
 documented project-validation contract. Standalone feature-document checks validate structure and nonempty content;
