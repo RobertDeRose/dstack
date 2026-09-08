@@ -28,7 +28,7 @@ def main() -> int:
     elif args[:2] == ["worktree", "list"]:
         value = data["worktrees"]
     elif args[:1] == ["show"]:
-        ids = [arg for arg in args[1:] if not arg.startswith("--")]
+        ids = [data.get("aliases", {}).get(arg, arg) for arg in args[1:] if not arg.startswith("--")]
         missing = [issue_id for issue_id in ids if issue_id not in issues]
         if missing:
             print(

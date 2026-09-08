@@ -249,12 +249,13 @@ def implementation_tasks(client: BeadsClient, implementation_id: str) -> list[di
 def cmd_task_check(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     task = client.show(args.bead)
+    task_id = str(task["id"])
     result = validate_task_issue(task)
     errors = list(result["errors"])
     if str(task.get("status") or "") != "in_progress":
         errors.append("implementation task must be in_progress during validation")
 
-    feature_root, slug, base = feature_identity(client, args.bead)
+    feature_root, slug, base = feature_identity(client, task_id)
     steps = feature_steps(client, str(feature_root["id"]))
     errors.extend(implementation_task_graph_errors(task, steps))
 
@@ -267,9 +268,9 @@ def cmd_task_check(args: argparse.Namespace) -> int:
         client.root,
         evidence_range,
         include_paths=False,
-        owner_id=str(task["id"]),
+        owner_id=task_id,
     )
-    task_records = [record for record in records if args.bead in record.get("footer_ids", ())]
+    task_records = [record for record in records if task_id in record.get("footer_ids", ())]
     evidence = [
         {
             "commit": str(record["commit"]),
@@ -309,8 +310,8 @@ def cmd_task_check(args: argparse.Namespace) -> int:
         str(record["commit"])
         for record in records
         if (
-            args.bead in record.get("legacy_footer_ids", ())
-            or (args.bead in record.get("footer_ids", ()) and tuple(record.get("footer_ids", ())) != (args.bead,))
+            task_id in record.get("legacy_footer_ids", ())
+            or (task_id in record.get("footer_ids", ()) and tuple(record.get("footer_ids", ())) != (task_id,))
         )
     )
     if invalid_footer_commits:

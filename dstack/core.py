@@ -68,48 +68,6 @@ def command_timeout(command: Sequence[str]) -> float:
     return COMMAND_TIMEOUT_SECONDS.get(executable, 120.0)
 
 
-def command_may_mutate(command: Sequence[str]) -> bool:
-    if len(command) < 2:
-        return False
-    executable = Path(str(command[0])).name
-    action = str(command[1])
-    if executable == "git":
-        return action in {
-            "add",
-            "am",
-            "branch",
-            "checkout",
-            "commit",
-            "fetch",
-            "merge",
-            "mv",
-            "push",
-            "rebase",
-            "reset",
-            "restore",
-            "rm",
-            "switch",
-            "tag",
-            "worktree",
-        }
-    if executable == "bd":
-        return action in {
-            "close",
-            "comment",
-            "comments",
-            "create",
-            "delete",
-            "dep",
-            "gate",
-            "init",
-            "mol",
-            "reopen",
-            "update",
-            "worktree",
-        } or (action == "ready" and "--claim" in command)
-    return False
-
-
 def command_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ)
     env["BD_JSON_ENVELOPE"] = "1"

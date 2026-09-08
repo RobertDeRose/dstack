@@ -246,3 +246,8 @@ def test_selected_show_requests_comment_bodies(git_repo: Path, monkeypatch: pyte
 
     monkeypatch.setattr(client, "_run", respond)
     assert client.show("x", include_comments=True)["comments"] == [{"text": "Fix it"}]
+
+
+def test_configured_rebase_is_still_reported_as_mutating() -> None:
+    assert command_may_mutate(["git", "-c", "rebase.abbreviateCommands=false", "rebase", "-i", "HEAD~1"])
+    assert not command_may_mutate(["git", "-c", "color.ui=false", "log"])
