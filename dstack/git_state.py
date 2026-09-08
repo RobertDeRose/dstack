@@ -40,14 +40,7 @@ _repository_lock_state = threading.local()
 def repository_mutation_lock(root: Path):
     """Serialize dStack repository mutations across linked worktrees."""
 
-    repository = git_root(root)
-    common = run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=repository).stdout.strip()
-    if not common:
-        raise DstackError("Git common directory is unavailable")
-    common_path = Path(common)
-    if not common_path.is_absolute():
-        common_path = (repository / common_path).resolve()
-    lock_path = common_path / "dstack-mutation.lock"
+    lock_path = git_common_dir(root) / "dstack-mutation.lock"
     key = str(lock_path.resolve(strict=False))
     held = getattr(_repository_lock_state, "held", None)
     if held is None:

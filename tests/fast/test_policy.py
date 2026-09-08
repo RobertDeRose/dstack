@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from dstack.core import DstackError
-from dstack.policy import PLAN_SECTIONS, commit_subject, validate_plan_issue, validate_task_issue
+from dstack.policy import PLAN_SECTIONS, commit_subject, implementation_notes, validate_plan_issue, validate_task_issue
 
 
 PLAN_CONTENT = {
@@ -176,6 +176,16 @@ def test_notes_accept_valid_imperatives_outside_a_fixed_vocabulary(verb: str) ->
     issue = valid_task()
     issue["notes"] = f"Implementation: {verb} the selected operation."
     assert validate_task_issue(issue)["status"] == "ok"
+
+
+@pytest.mark.parametrize(
+    "separator",
+    ["\r\n", "\n", "\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"],
+)
+def test_implementation_notes_use_python_line_boundaries(separator: str) -> None:
+    issue = valid_task()
+    issue["notes"] = separator.join(("Implementation: First outcome.", "Implementation: Second outcome."))
+    assert implementation_notes(issue) == ["First outcome.", "Second outcome."]
 
 
 def test_plan_allows_rust_generics_and_markup() -> None:
