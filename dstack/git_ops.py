@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import re
 import shlex
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from .beads import BeadsClient, client_for, issue_type
 from .core import DstackError, run
@@ -22,12 +21,12 @@ from .git_state import (
     serialized_repository_mutation,
 )
 from .workflow import feature_identity, feature_steps, implementation_task_graph_errors
-from .docs import markdown_links, validate_docs, validate_docs_revision
+from .docs import publication_changed, validate_docs, validate_docs_revision
 from .output import emit
 from .policy import (
-    MAX_IMPLEMENTATION_BODY_LENGTH,
-    commit_subject,
-    implementation_notes,
+    canonical_docs_message,
+    canonical_task_message,
+    validate_commit_paths,
     validate_task_issue,
 )
 
@@ -47,32 +46,6 @@ def _require_no_git_operation(root: Path) -> None:
     operation = git_operation(root)
     if operation:
         raise DstackError("finish or abort the existing native Git operation before committing: " + operation)
-
-
-def build_commit_message(subject: str, body: str, task_id: str) -> str:
-    if not subject or "\n" in subject:
-        raise DstackError("commit subject must be one non-empty line")
-    if not task_id or task_id != task_id.strip() or any(character.isspace() for character in task_id):
-        raise DstackError("Task ID must be one non-empty token")
-    if re.search(r"(?im)^(?:Task|Beads):\s*", body):
-        raise DstackError("commit body must not contain an ownership footer; dStack adds it")
-    parts = [subject]
-    if body.strip():
-        parts.extend(["", body.strip()])
-    parts.extend(["", f"Task: {task_id}"])
-    return "\n".join(parts).rstrip() + "\n"
-
-
-def task_commit_body(task: Mapping[str, object]) -> str:
-    notes = implementation_notes(task)
-    if not notes:
-        raise DstackError("implementation task requires at least one Implementation note before committing")
-    body = "\n".join(f"- {note}" for note in notes)
-    if len(body) > MAX_IMPLEMENTATION_BODY_LENGTH:
-        raise DstackError(
-            f"implementation commit body exceeds the bounded limit of {MAX_IMPLEMENTATION_BODY_LENGTH} characters"
-        )
-    return body
 
 
 def _require_in_progress(task: Mapping[str, object]) -> None:
@@ -133,25 +106,6 @@ def _validate_feature_branch(client: BeadsClient, task: dict[str, object]) -> tu
 
 def _commit_message(root: Path, revision: str) -> str:
     return run(["git", "show", "-s", "--format=%B", revision], cwd=root).stdout.rstrip("\n")
-
-
-def canonical_docs_message(feature: Mapping[str, object], slug: str, task_id: str) -> str:
-    title = str(feature.get("title") or "").strip().removeprefix("Feature: ").strip()
-    if not title or "\n" in title:
-        raise DstackError("feature title must be one non-empty line for the documentation commit")
-    return build_commit_message(f"docs({slug}): {title}", "", task_id)
-
-
-def canonical_task_message(task: Mapping[str, object], slug: str) -> str:
-    task_id = str(task.get("id") or "")
-    return build_commit_message(commit_subject(task, slug), task_commit_body(task), task_id)
-
-
-def commit_record_matches_message(record: Mapping[str, object], message: str) -> bool:
-    subject = str(record.get("subject") or "")
-    body = str(record.get("body") or "")
-    observed = f"{subject}\n\n{body}" if body else subject
-    return observed.rstrip() == message.rstrip()
 
 
 def _verify_commit_message(root: Path, revision: str, *, message: str) -> None:
@@ -261,38 +215,6 @@ def _task_evidence(root: Path, base: str, task_id: str) -> list[dict[str, Any]]:
         for record in commit_records(root, f"{base}..HEAD", owner_id=task_id, include_paths=True)
         if task_id in record.get("footer_ids", ())
     ]
-
-
-def validate_commit_paths(paths: Sequence[str], slug: str, *, documentation: bool) -> None:
-    """Enforce only the Beads-state exclusion and the feature publication boundary."""
-
-    reject_beads_paths(paths)
-    directory = f"docs/src/features/{slug}"
-    if documentation:
-        invalid = [path for path in paths if path != "docs/src/SUMMARY.md" and not path.startswith(directory + "/")]
-        if invalid:
-            raise DstackError("close documentation commit contains non-feature paths: " + ", ".join(invalid))
-    else:
-        invalid = [path for path in paths if path == directory or path.startswith(directory + "/")]
-        if invalid:
-            raise DstackError(
-                "feature publication belongs to the close step, not an implementation task: " + ", ".join(invalid)
-            )
-
-
-def publication_changed(root: Path, base: str, head: str, slug: str) -> bool:
-    """Do not demand an empty close commit for publication already inherited from the base."""
-
-    changed = run(
-        ["git", "diff", "--name-only", "-z", f"{base}...{head}", "--", f"docs/src/features/{slug}"], cwd=root
-    ).stdout
-    if changed:
-        return True
-    ancestor = run(["git", "merge-base", base, head], cwd=root).stdout.strip()
-    summary = run(["git", "show", f"{ancestor}:docs/src/SUMMARY.md"], cwd=root, check=False)
-    # Current publication is validated separately. Unrelated SUMMARY changes do
-    # not require a close commit when this feature's navigation already existed.
-    return summary.returncode != 0 or markdown_links(summary.stdout).count(f"features/{slug}/index.md") != 1
 
 
 def _validate_staged_docs(root: Path, slug: str, expected_design: str) -> None:

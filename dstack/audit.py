@@ -26,15 +26,14 @@ from .workflow import (
     feature_steps,
     implementation_tasks,
 )
-from .docs import validate_docs_revision
-from .git_ops import (
+from .docs import publication_changed, validate_docs_revision
+from .policy import (
     canonical_docs_message,
     commit_record_matches_message,
-    publication_changed,
     validate_commit_paths,
+    validate_plan_issue,
 )
 from .output import emit
-from .policy import validate_plan_issue
 from .task_validation import validate_implementation_task
 
 MAX_AUDIT_ITEMS = 100

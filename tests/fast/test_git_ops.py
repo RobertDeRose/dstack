@@ -8,15 +8,13 @@ import pytest
 from dstack import git_ops as subject
 from dstack.core import DstackError
 from dstack.git_state import commit_records
+from dstack.policy import build_commit_message, canonical_docs_message, task_commit_body
 from dstack.git_ops import (
     _autosquash_correction,
     _commit,
     _require_in_progress,
     _verify_head_message,
-    build_commit_message,
-    canonical_docs_message,
     reject_beads_paths,
-    task_commit_body,
 )
 
 

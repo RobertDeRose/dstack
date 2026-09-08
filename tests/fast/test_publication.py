@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from dstack.core import run
-from dstack.git_ops import canonical_docs_message, canonical_task_message
+from dstack.policy import canonical_docs_message, canonical_task_message
 
 if TYPE_CHECKING:
     from conftest import FeatureRepository
