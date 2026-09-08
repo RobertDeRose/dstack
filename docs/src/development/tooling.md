@@ -22,3 +22,23 @@ This repository chooses hk as its project-validation contract; dStack does not i
 it as a CLI runtime dependency. Skills run each target repository's documented validation command. hk owns formatting,
 linting, type checking, tests, and documentation validation here. Its Beads hooks integrate through native `bd hooks`
 commands.
+
+## Internal boundaries
+
+The Python package keeps native authority and workflow policy separate:
+
+- `core.py` contains generic process and filesystem primitives. It has no Beads environment or workflow policy.
+- `beads.py` is the thin native Beads adapter. It injects the supported JSON-envelope environment, performs workspace
+  and version preflight, and uses complete lifecycle reads where recovery requires them.
+- `git_state.py` reads Git/worktree/evidence state and serializes repository mutations. Native interrupted operations
+  remain Git state; this layer detects them without creating a recovery journal.
+- `workflow.py` derives feature identity, fixed steps, implementation children, and graph invariants from Beads data.
+- `task_validation.py` is the shared implementation-task evidence validator used by both `check task` and `audit`.
+- `commands.py` and `audit.py` orchestrate those lower-level operations; lower-level modules must not import command
+  handlers.
+
+Keep these boundaries narrow. Do not add repository/service abstractions or duplicate Git/Beads state to make recovery
+easier. Restartability is reconstructed from the native stores.
+
+Fast tests include architectural checks for these import and environment boundaries and shared task-evidence tests. The
+acceptance suite remains responsible for real Beads/Git recovery behavior.

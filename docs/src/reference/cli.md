@@ -58,25 +58,26 @@ dstack commit --bead <task>
 
 Formula checks validate installed policy against the package and committed `HEAD`. Plan checks bind the requested Bead
 to the fixed plan step and require the six level-three publishable sections, allowing nested subsections. They do not
-classify prose keywords or checkbox syntax as unresolved decisions; skills and human gates own that judgment.
-Review checks validate the complete
-native graph and separate task fields (`description`, `design`, and `acceptance_criteria`) before approval. Task checks
-validate graph membership, approval dependencies, Git evidence, and worktree cleanliness. Target repositories own their
-documented project-validation contract. Standalone feature-document checks validate structure and nonempty content;
-docs commit and audit also compare the exported design with the native plan; repository tooling owns whole-book builds and broader documentation policy. Worktree
-checks derive `feat/<slug>` from native identity and verify its branch, path, repository, and common history with the
-base. Advancing the base does not force a rebase during resume. Titles default to `feat(<slug>)`; an explicit native
-conventional title prefix selects another type. Implementation notes supply the bullets, not planned description or
-design. Each fragment is one line, no more than 96 characters, and preserves technical punctuation. Verb-led wording is
-writing guidance, not an English whitelist. Each commit has exactly one `Task:` trailer; committing requires an
-in-progress task with at least one implementation note. Corrections rewrite the exact owner and replay descendants,
-leaving unrelated fixups separate. Clean retries are no-ops; notes-only changes can reword unpublished evidence.
-`docs commit` accepts only the feature directory and its SUMMARY entry. Both new and reused documentation commits
-must have permitted paths and the canonical `docs(<slug>): <feature title>` message with one close-step `Task:` trailer.
-With one unpublished close-owned commit and a clean worktree, rerunning the command can reword its title. Ambiguous or
-published evidence stops without rewriting. If validated publication is already inherited unchanged from the base,
-no new commit is required: the result has `mode: unchanged` and `commit: null`. dStack does not generate empty
-publication commits.
+classify prose keywords or checkbox syntax as unresolved decisions; skills and human gates own that judgment. Review
+checks validate the complete native graph and separate task fields (`description`, `design`, and `acceptance_criteria`)
+before approval. Task checks validate graph membership, approval dependencies, delivered-outcome notes, canonical Git
+ownership and paths, and worktree cleanliness. Audit reuses the same implementation-task evidence validator, so task
+checks and audit cannot drift to different canonical-commit rules. An intentional `No repository change:` task must own
+zero canonical commits. Target repositories own their documented project-validation contract. Standalone
+feature-document checks validate structure and nonempty content; docs commit and audit also compare the exported design
+with the native plan. Repository tooling owns whole-book builds and broader documentation policy. Worktree checks derive
+`feat/<slug>` from native identity and verify its branch, path, repository, and common history with the base. Advancing
+the base does not force a rebase during resume. Titles default to `feat(<slug>)`; an explicit native conventional title
+prefix selects another type. Implementation notes supply the bullets, not planned description or design. Each fragment
+is one line, no more than 96 characters, and preserves technical punctuation. Verb-led wording is writing guidance, not
+an English whitelist. Each commit has exactly one `Task:` trailer; committing requires an in-progress task with at least
+one implementation note. Corrections rewrite the exact owner and replay descendants, leaving unrelated fixups separate.
+Clean retries are no-ops; notes-only changes can reword unpublished evidence. `docs commit` accepts only the feature
+directory and its SUMMARY entry. Both new and reused documentation commits must have permitted paths and the canonical
+`docs(<slug>): <feature title>` message with one close-step `Task:` trailer. With one unpublished close-owned commit and
+a clean worktree, rerunning the command can reword its title. Ambiguous or published evidence stops without rewriting.
+If validated publication is already inherited unchanged from the base, no new commit is required: the result has
+`mode: unchanged` and `commit: null`. dStack does not generate empty publication commits.
 
 `audit --require-docs` requires close ownership when the feature publication changed. It validates exported content
 against the native plan, checks publication paths in each commit, and rejects forbidden Beads state anywhere in the
@@ -115,8 +116,10 @@ vocabulary rather than maintaining parallel aliases.
 Audit checks all relevant evidence, regardless of feature size. Summary collections include counts and `next_offset`
 when more rows exist; pass `--offset N` to read that page. `--include-plan` supplies approved intent for close review;
 use focused native reads for task comments, decisions, and history. Missing/truncated native evidence is an error, not
-an empty result. The Beads v2-default envelope still uses `schema_version: 1`, already enabled through
-`BD_JSON_ENVELOPE=1`; unsupported schema versions are rejected.
+an empty result. Native Beads lifecycle list reads are deliberately unbounded (`--limit 0`) and include all statuses so
+restart/recovery cannot silently omit older or in-progress work. The Beads v2-default envelope still uses
+`schema_version: 1`; the Beads adapter enables it with `BD_JSON_ENVELOPE=1` only for `bd` commands. Generic process and
+Git execution do not receive Beads-specific environment policy. Unsupported schema versions are rejected.
 
 Task titles default to conventional `feat` commits. A native title such as `fix: Preserve inbound timestamps` selects a
 different type without introducing labels or separate metadata. Notes retain technical punctuation; dStack enforces

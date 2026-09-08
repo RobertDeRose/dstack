@@ -25,9 +25,16 @@ claiming the final step; native implementation fan-in blocks that step whenever 
 are created only for actual approval or material ambiguity. Git trailers provide one-way task evidence when a task
 commit is required.
 
+The installed `PRIME.md` defines only the universal interaction contract: activation, native authority, generic dStack
+invocation, failure handling, and resume/recovery. Each workflow skill documents only the dStack operations needed by
+that stage, when to invoke them, and concise examples. Exact flags and deterministic mechanics belong to the CLI help
+and command-reference documentation rather than being repeated across skills.
+
 ## Consequences
 
 Workflow recovery uses Beads and Git directly only for an explicitly activated dStack workflow. dStack setup must not
 install generic Beads agent instructions or automatic `bd prime` hooks; projects initialize Beads with `--skip-agents`.
 Current product behavior is documented in the mdBook under `docs/`. Deterministic checks remain small, stateless, and
-independently testable. Semantic review and authorization remain with skills and the user.
+independently testable. Recovery paths are required behavior even when they are not exercised during normal execution:
+dStack detects native interrupted Git/Beads state, preserves it, and makes safe retries idempotent where possible rather
+than creating a shadow recovery store. Semantic review and authorization remain with skills and the user.
