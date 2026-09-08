@@ -10,88 +10,92 @@ disable-model-invocation: true
 Run only when explicitly invoked. Beads is the next-work authority; do not maintain another task list or calculate
 readiness.
 
-## Start or resume
+## dStack operations
 
-Run `dstack worktree --bead <feature-or-descendant>` and enter the returned worktree. A `recovery_required` result
-locates interrupted work; it does not authorize edits or another commit. Inspect `git status` and deliberately finish
-or abort the native Git operation before claiming work. Preserve existing edits and staged content and establish their
-ownership. One agent writes a feature worktree at a time; the CLI's short mutation lock does not protect concurrent
-editing or staging. Do not claim more work while another writer owns this worktree.
+Use these dStack commands in this stage:
 
-Resolve the implementation epic and inspect native position with `bd mol current <root> --json`. For a large graph,
-use `bd mol progress <root> --json` and the focused in-progress query instead of loading every step:
+```bash
+dstack worktree --bead <feature-or-descendant>
+dstack commit --bead <task>
+dstack check task --bead <task>
+```
+
+Enter the worktree returned by `dstack worktree` before editing. If it reports `recovery_required`, follow the common
+recovery contract in `PRIME.md` before claiming work or invoking `dstack commit`.
+
+After a repository-changing task is implemented, validated, and staged, run `dstack commit`, then `dstack check task`.
+For an intentional no-change task, record only `No repository change: <specific reason>`, skip `dstack commit`, and run
+the task check.
+
+Example after a completed increment:
+
+```bash
+bd note <task> "Implementation: Preserve inbound arrival timestamps"
+dstack commit --bead <task>
+dstack check task --bead <task>
+```
+
+A clean retry of `dstack commit` may return unchanged. If commit correction reports an interrupted native Git operation,
+resolve that operation before invoking another mutating dStack command.
+
+## Select work
+
+Inspect native position with `bd mol current <root> --json`. For a large graph use `bd mol progress <root> --json` and a
+focused in-progress query:
 
 ```bash
 bd list --parent <implementation> --status in_progress --label dstack:work:implementation --limit 0 --json
 ```
 
-Resume the explicitly selected task, or the one in-progress task owned by this agent. Never steal another assignee's
-claim or infer completion from an empty ready queue. If ownership is ambiguous, report the candidates. For a closed
-selected task, verify its result and stop rather than claiming unrelated work. For an explicitly selected open task,
-resolve its canonical ID, confirm it appears in the native ready results, then claim that exact ID with
-`bd update <task> --claim --json`; do not substitute another task. Report native blockers if it is not ready.
-Only when no task was selected and no task should be resumed, claim one native ready task:
+Resume the explicitly selected task, or this agent's in-progress task, before claiming new work. Never steal another
+assignee's claim or infer completion from an empty ready queue. If ownership is ambiguous, report the candidates. A
+closed selected task is verified and reported; do not substitute unrelated work.
+
+For an explicitly selected open task, resolve its canonical ID, confirm it is native-ready, then claim that exact ID:
+
+```bash
+bd update <task> --claim --json
+```
+
+Only when no task was selected and nothing should be resumed, claim one ready implementation task:
 
 ```bash
 bd ready --parent <implementation> --label dstack:work:implementation --claim --json
 bd show <task> --include-comments --json
 ```
 
-Read the selected task's description, design, acceptance, notes, and review comments even on resume. Read relevant
-accepted decisions and direct blocker details only as needed. If nothing is ready, report native blockers using
-`bd ready --parent <implementation> --label dstack:work:implementation --explain --json`. Never claim the final step.
-
-Implement the smallest complete accepted outcome. Add behavioral tests before production code when practical. Keep code,
-tests, configuration, and existing current documentation aligned, but do not create or update
-`docs/src/features/<slug>/`; `/close-feature` writes feature publication only after review passes.
-
-Use native task notes as the execution record. After each meaningful delivered increment, append one concise, verb-led
-fragment:
+If nothing is ready, report native blockers with:
 
 ```bash
-bd note <task> "Implementation: Add compact output"
+bd ready --parent <implementation> --label dstack:work:implementation --explain --json
 ```
 
-Keep each fragment to one concrete change, preferably one line and no more than 96 characters. Omit articles,
-transitions, filler, rationale, and unnecessary implementation detail. Only ordered `Implementation:` notes become
-commit bullets; dStack trims surrounding whitespace only, preserves technical punctuation, and adds a dash-and-space prefix without
-wrapping. Do not copy planned description or design prose into notes, and do not put `Task:` or `Beads:` ownership
-footers in note text. For an intentional no-change outcome, use only `No repository change: <specific reason>`.
+Never claim the final step.
 
-Notes describe the current delivered outcome, not a growing correction history. On rework, preserve still-true bullets
-and replace obsolete ones through native `bd update --notes`; keep review findings and correction rationale in comments.
-Keep durable repository rationale in linked decision Beads. Do not duplicate these sources in a second log.
+## Implement
+
+Read the selected task's description, design, acceptance criteria, notes, and review comments on every resume. Read
+relevant decisions and direct blockers only as needed. Implement the smallest complete accepted outcome. Add behavioral
+tests before production code when practical, then run the repository's documented validation contract. Keep code, tests,
+configuration, and existing current documentation aligned, but leave `docs/src/features/<slug>/` to `/close-feature`.
+
+Use native task notes as the delivered-outcome record. Append one concrete `Implementation:` fragment for each
+meaningful completed increment. Keep it concise, preferably one line and no more than 96 characters. Do not copy planned
+description/design prose into notes. On rework, preserve still-true fragments and replace obsolete ones through native
+notes; keep review rationale in comments and durable rationale in linked decisions. Do not place `Task:` or `Beads:`
+ownership footers in note text.
 
 For ambiguity, comment on the task and ask rather than guessing. Separate significant work becomes a native task linked
 with `discovered-from`.
 
-## Commit and validate
+## Finish
 
-Run the repository's documented project validation before committing. Review the complete diff, then stage only
-task-owned paths. A resumed task may already have its canonical commit; a clean retry is safe. Run:
-
-```bash
-dstack commit --bead <task>
-dstack check task --bead <task>
-```
-
-The commit command first verifies that the current directory is the Beads-registered conventional feature worktree, then
-derives `<type>(<slug>): <task title>` (`feat` by default; an optional conventional prefix in the native title selects
-`fix`, `refactor`, or another supported type), one bullet per ordered `Implementation:` note, and exactly one `Task: <task>`
-trailer. It refuses repository-changing tasks without an implementation note; planned description and design are never
-commit material. Notes and generated bodies are bounded, and ownership footer text in notes is rejected. `Beads:`
-footers are not ownership evidence. On a reopened task with one reachable unpublished canonical commit, it rewrites only that owning commit and replays descendants without autosquashing unrelated fixups. With no staged
-changes, an unchanged message is a no-op and changed notes/title reword the commit. A stopped rebase remains native Git
-state: inspect `git status` and use `git rebase --continue` or `--abort`, not another dStack commit invocation. After
-abort, inspect the retained correction commit before retrying; never rewrite published or ambiguous history.
-
-dStack does not impose hk or mdBook. For an intentional no-change task, skip the commit command and record `No repository change: <specific reason>` in native notes before checking.
-
-Close the task only after all checks pass:
+Review the complete diff and stage only task-owned paths before the dStack commit/check sequence. Close the task only
+after the repository validation and `dstack check task` pass:
 
 ```bash
 bd close <task> --reason 'Accepted outcome implemented and validated'
 ```
 
-Implement one task by default. With explicit `--all`, repeat this native resume/claim procedure sequentially until no implementation
-task is ready, then report blockers or `/close-feature <root>`.
+Implement one task by default. With explicit `--all`, repeat the same resume/claim procedure sequentially until no
+implementation task is ready, then report blockers or `/close-feature <root>`.

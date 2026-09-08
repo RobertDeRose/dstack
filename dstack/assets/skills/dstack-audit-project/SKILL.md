@@ -7,33 +7,42 @@ disable-model-invocation: true
 
 # Audit project
 
-Run only when explicitly invoked. This operation audits the current repository rather than an existing feature and does
-not create a parallel audit ledger.
+Run only when explicitly invoked. This audits the current repository rather than an existing feature and does not create
+a parallel audit ledger.
+
+## dStack operations
+
+Use these dStack commands when remediation is required:
+
+```bash
+dstack init
+dstack check formula
+dstack check plan --bead <plan>
+```
+
+Initialization and formula validation must succeed before pouring a new remediation molecule. Run the plan check after
+recording the remediation plan and before closing its plan step.
 
 ## Assess
 
-1. Run `dstack init`, then `dstack check formula` to verify committed policy before any remediation feature is poured.
-2. Search `bd memories <focused terms> --json` and recall only relevant entries.
-3. Inspect current architecture, behavior, tests, security and operations guidance, and accepted decisions.
-4. Run the target repository's documented validation contract and `bd dep cycles --json` as a project-health check.
+Search `bd memories <focused terms> --json` and recall only relevant entries. Inspect current architecture, behavior,
+tests, security and operations guidance, and accepted decisions. Run the target repository's documented validation
+contract and `bd dep cycles --json` as a project-health check.
 
 Current repository documentation and accepted decisions outrank stale memory. Classify supported drift as behavior,
 documentation, test, security, operational, or decision drift. Ask the user when authority is material and ambiguous.
-Propose memory corrections or retirement, and mutate memory only after explicit approval.
+Memory corrections require explicit approval.
 
 If no actionable drift remains, report the evidence and stop without creating a feature.
 
 ## Create the remediation plan
 
-For actionable drift, resume an explicitly supplied remediation molecule before considering new work. Otherwise create one normal `dstack-feature` remediation molecule using the same identity and base-branch
-rules as `/plan-feature`. Claim only its plan step. Store:
+Resume an explicitly supplied remediation molecule before considering new work. Otherwise create one normal
+`dstack-feature` remediation molecule using `/plan-feature` identity and base-branch rules, then claim only its plan
+step. Store the audit scope and evidence in description/comments, observable remediation outcomes in acceptance
+criteria, and a publishable six-section design beginning at heading level three.
 
-- the audit scope and observed evidence in the request description and comments;
-- observable remediation outcomes in acceptance criteria; and
-- a publishable design beginning at heading level three with Goals, User-facing behavior, Implemented design,
-  Compatibility and constraints, Validation, and Non-goals.
-
-Resolve material questions before finalizing. Run `dstack check plan --bead <plan>`, then close only the plan step. Do
-not create implementation tasks, approve scope, or implement remediation during project audit.
+Resolve material questions, run `dstack check plan --bead <plan>`, then close only the plan step. Do not create
+implementation tasks, approve scope, or implement remediation during project audit.
 
 Return the remediation root, findings, decisions, and `/review-plan <root>`.

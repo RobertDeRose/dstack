@@ -9,63 +9,66 @@ disable-model-invocation: true
 
 Run only when explicitly invoked. Beads owns the graph, dependencies, approval gate, and ready frontier.
 
-## Review
+## dStack operations
 
-1. Resolve the feature with `bd mol current <root> --json`. Read the plan and review step with
-   `bd show <plan> <review> --include-comments --json`. Resume this agent's in-progress review without reclaiming it;
-   respect other owners. Claim only a native-ready open review. If review is already closed, skip the
-   remaining review and task-creation sections and go directly to Approval; do not recreate work or rerun the
-   preapproval check, which requires an in-progress review.
-2. Search `bd memories <focused terms> --json`, then recall only relevant keys. Memory is advisory: current repository
-   documentation and accepted feature decisions outrank stale memory.
-3. Inspect only relevant source, tests, current documentation, and decisions.
-4. When useful, review independently from implementation, documentation, and risk perspectives, then store only the
-   synthesized findings in Beads.
-
-Correct clear plan defects. Ask the user when repository facts, accepted intent, and memory leave material authority
-ambiguous. With user approval, correct or retire stale memory; never use memory as live workflow state.
-
-Record durable decisions as native decision Beads labeled `decision:<slug>` and connect each decision to the feature
-root with an exact `relates-to` dependency.
-
-## Create implementation work
-
-First inspect existing implementation children; reconcile partial review work by ID instead of creating duplicate tasks.
-Create bounded task-shaped outcomes directly under the implementation epic. Use one native `bd create` invocation with
-`--parent`, `--no-inherit-labels`, `--labels`, `--description`, `--design`, `--acceptance`, and `--deps blocked-by:<approval>`
-so new work never temporarily lacks its approval blocker. Each task needs:
-
-- `dstack:work:implementation` and no inherited structural label;
-- a `description` containing the planned outcome, scope, and non-goals, not commit prose;
-- a `design` containing the accepted approach, invariants, and boundaries;
-- observable `acceptance_criteria` describing the behavior that proves completion;
-- real `blocked-by` dependencies, including a direct blocker on the approval step.
-
-Leave execution `notes` empty until implementation begins. Agents append one concise, verb-led
-`Implementation: <completed increment>` fragment per meaningful delivered increment. Keep each fragment to one concrete
-change, preferably one line and no more than 96 characters. dStack trims surrounding whitespace, preserves technical punctuation, then
-adds a dash-and-space prefix without wrapping. Only those ordered notes become canonical commit bullets;
-`No repository change: <specific reason>` is reserved for intentional no-change tasks.
-
-Do not add commit-type or scope labels. A plain task title defaults to `feat`; use a native title such as
-`fix: Preserve inbound timestamps` when another conventional commit type is appropriate. Add task ordering only where execution order is real. Do not add direct
-readiness edges to the final step; the formula supplies implementation fan-in.
-
-Run:
+Use these dStack commands after reconciling the reviewed plan and task graph:
 
 ```bash
 dstack check plan --bead <plan>
 dstack check review --bead <root>
 ```
 
+Both must pass before closing the review step. The review check validates the fixed workflow steps, implementation task
+shape, approval blockers, final fan-in, and that implementation work is not ready before approval.
+
+## Review
+
+Resolve the feature with `bd mol current <root> --json`. Read the plan and review step with
+`bd show <plan> <review> --include-comments --json`. Resume this agent's in-progress review without reclaiming it and
+respect other owners. Claim only a native-ready open review. If review is already closed, do not recreate tasks or rerun
+the preapproval check; continue to Approval.
+
+Search `bd memories <focused terms> --json`, then recall only relevant keys. Current repository documentation and
+accepted decisions outrank stale memory. Inspect only relevant source, tests, documentation, and decisions. When useful,
+review independently from implementation, documentation, and risk perspectives, then keep only synthesized findings.
+Correct clear plan defects; ask the user when authority remains materially ambiguous. Memory corrections require user
+approval.
+
+Record durable decisions as native decision Beads labeled `decision:<slug>` and link each to the feature root with one
+exact `relates-to` dependency.
+
+## Create implementation work
+
+Inspect existing implementation children first and reconcile partial review work by ID instead of creating duplicates.
+Create bounded task-shaped outcomes directly under the implementation epic. Use one native `bd create` invocation with
+`--parent`, `--no-inherit-labels`, `--labels`, `--description`, `--design`, `--acceptance`, and
+`--deps blocked-by:<approval>` so a new task never temporarily lacks its approval blocker.
+
+Each task needs:
+
+- `dstack:work:implementation` and no inherited structural label;
+- planned scope and non-goals in `description`, not commit prose;
+- accepted approach, invariants, and boundaries in `design`;
+- observable outcomes in `acceptance_criteria`; and
+- real native dependencies, including the direct approval blocker.
+
+Leave execution notes empty. During implementation, delivered repository work is recorded as ordered
+`Implementation: <completed increment>` notes; `No repository change: <specific reason>` is reserved for an intentional
+no-change task. Do not create commit-type or scope labels. A conventional prefix in the task title may select a
+non-`feat` commit type when appropriate.
+
+Add ordering dependencies only where execution order is real. Do not add direct readiness edges from implementation
+tasks to the final step; the formula owns implementation fan-in.
+
 No implementation task may be ready before approval. Let Beads validate dependency legality and readiness, including
-cross-feature blockers and native conditional dependencies. Do not reject this feature for unrelated project cycles. Close the review only
-after checks pass, then present scope, risks, decisions, and the task graph. Review never grants approval.
+cross-feature blockers and native conditional dependencies; unrelated project cycles do not invalidate this feature. Run
+the two dStack checks above, then close the review step and present scope, risks, decisions, and the task graph. Review
+never grants approval.
 
 ## Approval
 
-Read the approval step with comments. If it is already closed, preserve the recorded approval and return
-`/implement <root>` without claiming or closing it again. Otherwise require explicit user approval for the reviewed
-intent; neither invocation nor a closed review grants it. After approval, resolve only the formula gate with await ID
-`approve-<slug>-plan`, resume this agent's in-progress approval or claim it only when open and ready, record the approval
-evidence, close it, and return `/implement <root>`. Respect another agent's ownership.
+Read the approval step with comments. If it is already closed, preserve its recorded approval and return
+`/implement <root>`. Otherwise require explicit user approval for the reviewed intent; neither invocation nor a closed
+review grants it. Resolve only the formula gate with await ID `approve-<slug>-plan`, resume this agent's in-progress
+approval or claim it only when open and ready, record the approval evidence, close it, and return `/implement <root>`.
+Respect another agent's ownership.
