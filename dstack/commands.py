@@ -14,7 +14,6 @@ from .core import (
     as_items,
     audit_fan_in_errors,
     branch_exists,
-    changed_paths,
     commit_records,
     conventional_worktree,
     feature_identity,
@@ -22,7 +21,6 @@ from .core import (
     git_operation,
     implementation_task_graph_errors,
     issue_type,
-    reject_beads_paths,
     run,
     serialized_repository_mutation,
     truncate_output,
@@ -31,8 +29,8 @@ from .core import (
     verify_worktree_identity,
     worktree_for_branch,
 )
-from .formula import beads_workspace, check_formula, init_workspace, install_formula
-from .git_ops import canonical_task_message, commit_record_matches_message
+from .formula import beads_workspace, check_formula, init_workspace
+from .git_ops import canonical_task_message, commit_record_matches_message, validate_commit_paths
 from .output import emit
 from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
 
@@ -270,7 +268,7 @@ def cmd_task_check(args: argparse.Namespace) -> int:
     records = commit_records(
         client.root,
         evidence_range,
-        include_paths=False,
+        include_paths=True,
         owner_id=task_id,
     )
     task_records = [record for record in records if task_id in record.get("footer_ids", ())]
@@ -281,10 +279,11 @@ def cmd_task_check(args: argparse.Namespace) -> int:
         }
         for record in task_records
     ]
-    try:
-        reject_beads_paths(changed_paths(client.root, base, branch))
-    except DstackError as exc:
-        errors.append(str(exc))
+    for record in task_records:
+        try:
+            validate_commit_paths(record["paths"], slug, documentation=False)
+        except DstackError as exc:
+            errors.append(f"{record['commit']}: {exc}")
 
     notes_valid = True
     try:

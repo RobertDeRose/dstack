@@ -63,10 +63,11 @@ After the complete review passes and every implementation task is closed:
    verbatim and creates only missing index sections and the SUMMARY link. Existing prose is not overwritten.
 4. Fill or update the index title, `Overview`, and `User Impact` from the accepted outcome. Keep the single native
    `{{#include design.md}}` under `Implemented Design`; do not rewrite the exported design or duplicate its prose.
-5. Run `dstack check docs --slug <slug>` and the repository's documentation validation.
-6. Stage only that feature directory and SUMMARY entry, then run `dstack docs commit --bead <root>`. The generated
-   commit is `docs(<slug>): <feature title>`, has no body, and carries one final-step `Task:` trailer.
-7. Run `dstack audit --bead <root> --include-plan --require-docs`.
+4. Run `dstack check docs --slug <slug>` and the repository's documentation validation.
+5. Stage only that feature directory and SUMMARY entry, then run `dstack docs commit --bead <root>`. The generated
+   commit is `docs(<slug>): <feature title>`, has no body, and carries one final-step `Task:` trailer. If valid
+   publication is inherited unchanged from the base, accept the no-op result; do not create an empty commit.
+6. Run `dstack audit --bead <root> --include-plan --require-docs`.
 
 If one unpublished close-owned commit already exists but its stored feature title is stale, rerun the docs commit
 command from a clean worktree to reword it. Never rewrite ambiguous or published close evidence.
@@ -76,5 +77,4 @@ only after explicit approval; memory is never completion evidence.
 
 After all checks pass, close the implementation epic explicitly, then the final step, then the molecule root, skipping
 already-closed items on resume. Do not use a project-wide epic cleanup sweep. Read their native statuses to verify
-closure; an empty ready queue does not prove completion. Report validations, decisions, corrections, final commit, and
-native status. Merge or push only when separately authorized.
+closure; an empty ready queue does not prove completion. Report validations, decisions, corrections, the final commit or unchanged inherited publication, and native status. Merge or push only when separately authorized.

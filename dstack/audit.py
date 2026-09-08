@@ -19,7 +19,6 @@ from .core import (
     feature_steps,
     implementation_task_graph_errors,
     issue_type,
-    reject_beads_paths,
     require_common_history,
     run,
     truncate_output,
@@ -28,7 +27,13 @@ from .core import (
     worktree_for_branch,
 )
 from .docs import validate_docs
-from .git_ops import canonical_docs_message, canonical_task_message, commit_record_matches_message
+from .git_ops import (
+    canonical_docs_message,
+    canonical_task_message,
+    commit_record_matches_message,
+    publication_changed,
+    validate_commit_paths,
+)
 from .output import emit
 from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
 
@@ -170,12 +175,13 @@ def collect_audit_evidence(
                 include_paths=True,
             )
             paths = changed_paths(client.root, base, branch)
-            try:
-                reject_beads_paths(paths)
-            except DstackError as exc:
-                errors.append(str(exc))
             compact_commits: list[dict[str, Any]] = []
             for record in records:
+                try:
+                    validate_commit_paths(record["paths"], slug,
+                                          documentation=record.get("footer_ids") == (str(audit_step["id"]),))
+                except DstackError as exc:
+                    errors.append(f"{record['commit']}: {exc}")
                 row = {
                     "commit": str(record["commit"]),
                     "subject": str(record["subject"]),
@@ -266,6 +272,10 @@ def collect_audit_evidence(
             errors.append("feature worktree contains uncommitted changes")
         try:
             feature_docs = {"status": "ok", **validate_docs(worktree, feature=slug, expected_design=str(plan.get("design") or ""))}
+            if require_docs and not close_commits and publication_changed(client.root, base, branch, slug):
+                errors.append(
+                    f"changed feature publication requires one canonical documentation commit owned by {close_id}"
+                )
         except DstackError as exc:
             feature_docs = {"status": "invalid", "errors": [str(exc)]}
             if require_docs:

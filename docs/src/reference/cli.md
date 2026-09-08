@@ -69,11 +69,18 @@ design. Each fragment is one line, no more than 96 characters, and preserves tec
 writing guidance, not an English whitelist. Each commit has exactly one `Task:` trailer; committing requires an
 in-progress task with at least one implementation note. Corrections rewrite the exact owner and replay descendants,
 leaving unrelated fixups separate. Clean retries are no-ops; notes-only changes can reword unpublished evidence.
-`docs commit` accepts only the feature directory and its SUMMARY entry, validates them, and creates the one final
-`docs(<slug>): <feature title>` commit with no body and one internal-close-step `Task:` trailer. With one unpublished
-close-owned commit and a clean worktree, rerunning the command safely rewords stale canonical metadata. Ambiguous or
-published evidence stops without rewriting. `audit --require-docs` distinguishes feature-document checks from the target
-repository's external validation contract and rejects a noncanonical close commit.
+`docs commit` accepts only the feature directory and its SUMMARY entry. Both new and reused documentation commits
+must have permitted paths and the canonical `docs(<slug>): <feature title>` message with one close-step `Task:` trailer.
+With one unpublished close-owned commit and a clean worktree, rerunning the command can reword its title. Ambiguous or
+published evidence stops without rewriting. If validated publication is already inherited unchanged from the base,
+no new commit is required: the result has `mode: unchanged` and `commit: null`. dStack does not generate empty
+publication commits.
+
+`audit --require-docs` requires close ownership when the feature publication changed. It validates exported content
+against the native plan, checks publication paths in each commit, and rejects forbidden Beads state anywhere in the
+feature history, including files later removed. Implementation commit and task checks reject the feature publication
+directory, but still permit ordinary current-documentation changes outside it. Whole-book and project validation remain
+owned by the target repository.
 
 ## Audit
 

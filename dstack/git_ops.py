@@ -8,7 +8,7 @@ import shlex
 import sys
 import tempfile
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping, Sequence
 
 from .core import (
     BeadsClient,
@@ -26,7 +26,7 @@ from .core import (
     serialized_repository_mutation,
     require_feature_worktree,
 )
-from .docs import validate_docs
+from .docs import markdown_links, validate_docs
 from .output import emit
 from .policy import (
     MAX_IMPLEMENTATION_BODY_LENGTH,
@@ -259,16 +259,44 @@ def _correct_or_reuse(root: Path, target: str, base: str, message: str) -> tuple
     return target, "corrected"
 
 
-def _task_evidence(root: Path, base: str, task_id: str) -> list[dict[str, object]]:
-    return [record for record in commit_records(root, f"{base}..HEAD", owner_id=task_id) if task_id in record.get("footer_ids", ())]
+def _task_evidence(root: Path, base: str, task_id: str) -> list[dict[str, Any]]:
+    return [
+        record
+        for record in commit_records(root, f"{base}..HEAD", owner_id=task_id, include_paths=True)
+        if task_id in record.get("footer_ids", ())
+    ]
 
 
-def _require_feature_docs_paths(paths: list[str], slug: str) -> None:
-    prefix = f"docs/src/features/{slug}/"
-    allowed = {"docs/src/SUMMARY.md"}
-    invalid = [path for path in paths if path not in allowed and not path.startswith(prefix)]
-    if invalid:
-        raise DstackError("close documentation commit contains non-feature paths: " + ", ".join(invalid))
+def validate_commit_paths(paths: Sequence[str], slug: str, *, documentation: bool) -> None:
+    """Enforce only the Beads-state exclusion and the feature publication boundary."""
+
+    reject_beads_paths(paths)
+    directory = f"docs/src/features/{slug}"
+    if documentation:
+        invalid = [path for path in paths if path != "docs/src/SUMMARY.md" and not path.startswith(directory + "/")]
+        if invalid:
+            raise DstackError("close documentation commit contains non-feature paths: " + ", ".join(invalid))
+    else:
+        invalid = [path for path in paths if path == directory or path.startswith(directory + "/")]
+        if invalid:
+            raise DstackError(
+                "feature publication belongs to the close step, not an implementation task: " + ", ".join(invalid)
+            )
+
+
+def publication_changed(root: Path, base: str, head: str, slug: str) -> bool:
+    """Do not demand an empty close commit for publication already inherited from the base."""
+
+    changed = run(
+        ["git", "diff", "--name-only", "-z", f"{base}...{head}", "--", f"docs/src/features/{slug}"], cwd=root
+    ).stdout
+    if changed:
+        return True
+    ancestor = run(["git", "merge-base", base, head], cwd=root).stdout.strip()
+    summary = run(["git", "show", f"{ancestor}:docs/src/SUMMARY.md"], cwd=root, check=False)
+    # Current publication is validated separately. Unrelated SUMMARY changes do
+    # not require a close commit when this feature's navigation already existed.
+    return summary.returncode != 0 or markdown_links(summary.stdout).count(f"features/{slug}/index.md") != 1
 
 
 @serialized_repository_mutation
@@ -297,16 +325,25 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
     message = canonical_docs_message(feature_root, slug, close_id)
 
     paths = staged_paths(root)
-    if paths:
-        _require_feature_docs_paths(paths, slug)
+    validate_commit_paths(paths, slug, documentation=True)
+    for record in evidence:
+        validate_commit_paths(record["paths"], slug, documentation=True)
     plan = client.show(str(steps["plan"]["id"]))
     validate_docs(root, feature=slug, expected_design=str(plan.get("design") or ""))
 
     if not evidence:
-        if not paths:
-            raise DstackError("no staged feature documentation changes to commit")
-        commit = _commit(root, message)
-        mode = "created"
+        if paths:
+            commit = _commit(root, message)
+            mode = "created"
+        else:
+            dirty = _unstaged_paths(root)
+            if dirty:
+                raise DstackError("commit refuses unstaged or untracked paths: " + ", ".join(dirty))
+            if publication_changed(root, base, "HEAD", slug):
+                raise DstackError(
+                    "publication changed without a close-owned commit; inspect Git ownership before retrying"
+                )
+            commit, mode = None, "unchanged"
     elif len(evidence) == 1:
         target = str(evidence[0]["commit"])
         _, mode = _correct_or_reuse(root, target, base, message)
@@ -317,8 +354,13 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
     else:
         raise DstackError("close step has multiple reachable commits; refusing ambiguous correction")
 
-    _verify_commit_message(root, commit, message=message)
-    subject = message.splitlines()[0]
+    if commit is not None:
+        records = _task_evidence(root, base, close_id)
+        if len(records) != 1:
+            raise DstackError("close step must own exactly one documentation commit after publication")
+        validate_commit_paths(records[0]["paths"], slug, documentation=True)
+        _verify_commit_message(root, commit, message=message)
+    subject = message.splitlines()[0] if commit is not None else None
     emit(
         {
             "status": "ok",
@@ -343,6 +385,9 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
     _require_in_progress(task)
     feature_root, slug, base = _validate_feature_branch(client, task)
     evidence = _task_evidence(root, base, task_id)
+    validate_commit_paths(staged_paths(root), slug, documentation=False)
+    for record in evidence:
+        validate_commit_paths(record["paths"], slug, documentation=False)
     message = canonical_task_message(task, slug)
 
     if not evidence:
@@ -358,6 +403,10 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
     else:
         raise DstackError("task has multiple reachable commits; refusing ambiguous correction")
 
+    records = _task_evidence(root, base, task_id)
+    if len(records) != 1:
+        raise DstackError("implementation task must own exactly one canonical commit after committing")
+    validate_commit_paths(records[0]["paths"], slug, documentation=False)
     _verify_commit_message(root, commit, message=message)
     canonical_subject = _commit_message(root, commit).splitlines()[0]
     emit(

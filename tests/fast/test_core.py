@@ -11,7 +11,7 @@ from dstack.core import (
     BeadsClient,
     CommandResult,
     DstackError,
-    command_may_mutate,
+    run,
     commit_records,
     feature_identity,
     footer_mapping,
@@ -248,6 +248,17 @@ def test_selected_show_requests_comment_bodies(git_repo: Path, monkeypatch: pyte
     assert client.show("x", include_comments=True)["comments"] == [{"text": "Fix it"}]
 
 
-def test_configured_rebase_is_still_reported_as_mutating() -> None:
-    assert command_may_mutate(["git", "-c", "rebase.abbreviateCommands=false", "rebase", "-i", "HEAD~1"])
-    assert not command_may_mutate(["git", "-c", "color.ui=false", "log"])
+def test_commit_paths_include_content_introduced_by_a_merge(git_repo: Path) -> None:
+    initial = run(["git", "rev-parse", "HEAD"], cwd=git_repo).stdout.strip()
+    run(["git", "commit", "--allow-empty", "-m", "Advance base"], cwd=git_repo)
+    parent = run(["git", "rev-parse", "HEAD"], cwd=git_repo).stdout.strip()
+    (git_repo / "merge-only.txt").write_text("introduced during merge\n", encoding="utf-8")
+    run(["git", "add", "merge-only.txt"], cwd=git_repo)
+    tree = run(["git", "write-tree"], cwd=git_repo).stdout.strip()
+    merged = run(
+        ["git", "commit-tree", tree, "-p", parent, "-p", initial],
+        cwd=git_repo,
+        input_text="feat(example): merge behavior\n\nTask: task\n",
+    ).stdout.strip()
+    records = commit_records(git_repo, f"{parent}..{merged}", include_paths=True)
+    assert len(records) == 1 and records[0]["paths"] == ["merge-only.txt"]
