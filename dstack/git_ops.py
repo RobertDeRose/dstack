@@ -219,8 +219,20 @@ def _autosquash_correction(
             encoding="utf-8",
         )
         result = run(
-            ["git", "rebase", "-i", "--no-autosquash", "--no-autostash", "--no-update-refs",
-             "--keep-empty", "--empty=keep", "--reapply-cherry-picks", parent],
+            [
+                "git",
+                "-c",
+                "rebase.abbreviateCommands=false",
+                "rebase",
+                "-i",
+                "--no-autosquash",
+                "--no-autostash",
+                "--no-update-refs",
+                "--keep-empty",
+                "--empty=keep",
+                "--reapply-cherry-picks",
+                parent,
+            ],
             cwd=root,
             check=False,
             env={"GIT_SEQUENCE_EDITOR": shlex.join([sys.executable, str(editor)]), "GIT_EDITOR": "true"},
@@ -325,9 +337,10 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
     client = BeadsClient(root)
     client.check_version()
     task = client.show(args.bead)
+    task_id = str(task["id"])
     _require_in_progress(task)
     feature_root, slug, base = _validate_feature_branch(client, task)
-    evidence = _task_evidence(root, base, args.bead)
+    evidence = _task_evidence(root, base, task_id)
     message = canonical_task_message(task, slug)
 
     if not evidence:
@@ -336,7 +349,7 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
     elif len(evidence) == 1:
         target = str(evidence[0]["commit"])
         _, mode = _correct_or_reuse(root, target, base, message)
-        corrected = _task_evidence(root, base, args.bead)
+        corrected = _task_evidence(root, base, task_id)
         if len(corrected) != 1:
             raise DstackError("correction did not leave exactly one canonical task commit")
         commit = str(corrected[0]["commit"])
@@ -349,7 +362,7 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
         {
             "status": "ok",
             "mode": mode,
-            "bead": args.bead,
+            "bead": task_id,
             "feature": feature_root["id"],
             "commit": commit,
             "subject": canonical_subject,

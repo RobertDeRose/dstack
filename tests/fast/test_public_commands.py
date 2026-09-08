@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from typing import TYPE_CHECKING
 
 from dstack.core import run
@@ -69,3 +71,33 @@ def test_review_uses_native_dependency_policy_and_hydrates_task_intent(public_fe
     issues["task"]["dependencies"].append({"id": "external-project-task", "dependency_type": "conditional-blocks"})
     result = public_feature.invoke("check", "review", "--bead", "root")
     assert result["status"] == "ok" and result["tasks"] == ["task"]
+
+
+@pytest.mark.parametrize("abbreviated_commands", [False, True])
+def test_partial_id_correction_keeps_one_canonical_owner(
+    public_feature: FeatureRepository,
+    abbreviated_commands: bool,
+) -> None:
+    task = public_feature.data["issues"]["task"]
+    task.update(status="in_progress", notes="Implementation: Deliver the accepted outcome.")
+    public_feature.data["aliases"] = {"ta": "task"}
+    run(["git", "config", "rebase.abbreviateCommands", str(abbreviated_commands).lower()], cwd=public_feature.worktree)
+    path = public_feature.worktree / "outcome.txt"
+    path.write_text("initial\n", encoding="utf-8")
+    run(["git", "add", "outcome.txt"], cwd=public_feature.worktree)
+    original = public_feature.invoke("commit", "--bead", "ta")
+    assert original["bead"] == "task"
+    assert public_feature.invoke("commit", "--bead", "ta")["mode"] == "unchanged"
+
+    path.write_text("corrected\n", encoding="utf-8")
+    run(["git", "add", "outcome.txt"], cwd=public_feature.worktree)
+    task["notes"] = "Implementation: Preserve the corrected outcome."
+    corrected = public_feature.invoke("commit", "--bead", "ta")
+    assert corrected["mode"] == "corrected" and corrected["bead"] == "task"
+    assert corrected["commit"] != original["commit"]
+    messages = run(["git", "log", "main..HEAD", "--format=%B"], cwd=public_feature.worktree).stdout
+    assert messages.count("Task: task") == 1 and "amend!" not in messages
+    checked = public_feature.invoke("check", "task", "--bead", "ta")
+    assert checked["bead"] == "task" and len(checked["evidence"]["commits"]) == 1
+    assert run(["git", "config", "--get", "rebase.abbreviateCommands"],
+               cwd=public_feature.worktree).stdout.strip() == str(abbreviated_commands).lower()
