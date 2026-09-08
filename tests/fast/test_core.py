@@ -15,6 +15,7 @@ from dstack.git_state import (
     diff_stat,
     footer_mapping,
     reject_beads_paths,
+    repository_mutation_lock,
     worktree_for_branch,
 )
 from dstack.workflow import feature_identity
@@ -29,6 +30,12 @@ def test_timeout_error_does_not_classify_native_command_semantics(
     monkeypatch.setattr(subprocess, "run", timeout)
     with pytest.raises(DstackError, match="inspect native command state before retrying"):
         run(["bd", "show", "task"], cwd=git_repo, timeout=1)
+
+
+def test_repository_mutation_lock_does_not_relabel_body_os_errors(git_repo: Path) -> None:
+    with pytest.raises(OSError, match="body failure"):
+        with repository_mutation_lock(git_repo):
+            raise OSError("body failure")
 
 
 def test_show_many_batches_one_native_read_and_preserves_requested_order(
