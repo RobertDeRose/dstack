@@ -24,9 +24,10 @@ history: skip publication and claims, run project validation and `dstack audit -
 and finish only omitted implementation-epic/root closure when those checks pass. Report failures rather than silently reopening delivered work.
 
 Collect `dstack audit --bead <root> --include-plan`. Read the approved plan and relevant accepted decisions before
-comparing intent with code; summaries alone cannot establish semantic compliance. Fetch selected decision details with
-`--include-decision <id>`. Expand `--include-task <id>` (including review comments) or `--history-for <id>` only when
-needed. Follow returned summary `next_offset` with `--offset`; each invocation still validates all evidence.
+comparing intent with code; summaries alone cannot establish semantic compliance. Read selected tasks or decisions with
+`bd show <id> --include-comments --json`, history with `bd history <id> --json`, and commit details with `git show <sha>`.
+Do not recollect the whole audit merely to read one issue. Follow summary `next_offset` with `--offset` when necessary;
+checks still cover all evidence. Rerun the complete audit after corrections and publication.
 Run the repository's project validation. Compare intent, decisions, tasks, canonical commits, tests, code, and current
 documentation. Documentation and accepted decisions outrank stale memory. Audit collection is not semantic approval.
 

@@ -33,37 +33,6 @@ from .output import emit
 from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
 
 MAX_AUDIT_ITEMS = 100
-DETAIL_FIELDS = (
-    "id",
-    "title",
-    "status",
-    "issue_type",
-    "type",
-    "priority",
-    "assignee",
-    "description",
-    "design",
-    "acceptance_criteria",
-    "notes",
-    "labels",
-    "metadata",
-    "dependencies",
-    "parent",
-    "parent_id",
-    "close_reason",
-    "comment_count",
-    "comments_omitted",
-    "comments",
-)
-
-
-def issue_view(issue: Mapping[str, Any]) -> dict[str, Any]:
-    """Return full issue content only for explicitly requested audit details."""
-
-    result = {field: issue[field] for field in DETAIL_FIELDS if field in issue and issue[field] not in (None, "", [], {})}
-    if "comments" in issue:
-        result["comments"] = issue["comments"]
-    return result
 
 
 def issue_summary(issue: Mapping[str, Any]) -> dict[str, Any]:
@@ -105,62 +74,11 @@ def _footer_mapping(records: Sequence[Mapping[str, Any]]) -> dict[str, list[dict
     return result
 
 
-def _selected_details(
-    *,
-    include_plan: bool,
-    include_task_ids: Sequence[str],
-    include_decision_ids: Sequence[str],
-    history_ids: Sequence[str],
-    plan: Mapping[str, Any],
-    tasks: Sequence[Mapping[str, Any]],
-    decisions: Sequence[Mapping[str, Any]],
-    allowed_history: Mapping[str, Mapping[str, Any]],
-    client: Any,
-) -> dict[str, Any]:
-    details: dict[str, Any] = {}
-    if include_plan:
-        details["plan"] = issue_view(plan)
-
-    task_map = {str(task["id"]): task for task in tasks}
-    unknown_tasks = sorted(set(include_task_ids) - set(task_map))
-    if unknown_tasks:
-        raise DstackError("requested audit task is not an implementation child: " + ", ".join(unknown_tasks))
-    if include_task_ids:
-        details["tasks"] = {
-            task_id: issue_view(client.show(task_id, include_comments=True)) for task_id in dict.fromkeys(include_task_ids)
-        }
-
-    decision_map = {str(decision["id"]): decision for decision in decisions}
-    unknown_decisions = sorted(set(include_decision_ids) - set(decision_map))
-    if unknown_decisions:
-        raise DstackError("requested audit decision is not linked to the feature: " + ", ".join(unknown_decisions))
-    if include_decision_ids:
-        details["decisions"] = {
-            decision_id: issue_view(client.show(decision_id, include_comments=True))
-            for decision_id in dict.fromkeys(include_decision_ids)
-        }
-
-    unknown_history = sorted(set(history_ids) - set(allowed_history))
-    if unknown_history:
-        raise DstackError("requested history issue is outside the feature graph: " + ", ".join(unknown_history))
-    if history_ids:
-        history: dict[str, Any] = {}
-        for issue_id in history_ids:
-            value = client.history(issue_id)
-            history[issue_id] = bounded(value) if isinstance(value, list) else value
-        details["history"] = history
-    return details
-
-
 def collect_audit_evidence(
     root_path: Path,
     selector: str,
     *,
     include_plan: bool = False,
-    include_task_ids: Sequence[str] = (),
-    include_decision_ids: Sequence[str] = (),
-    history_ids: Sequence[str] = (),
-    include_commit_paths: bool = False,
     require_docs: bool = False,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -170,13 +88,6 @@ def collect_audit_evidence(
     root, slug, base = feature_identity(client, selector)
     steps = feature_steps(client, str(root["id"]))
     errors: list[str] = []
-    for name, values in (
-        ("task details", include_task_ids),
-        ("decision details", include_decision_ids),
-        ("history details", history_ids),
-    ):
-        if len(values) > MAX_AUDIT_ITEMS:
-            raise DstackError(f"requested audit {name} exceed the {MAX_AUDIT_ITEMS}-item bound")
     implementation = implementation_tasks(
         client,
         str(steps["implementation"]["id"]),
@@ -256,7 +167,7 @@ def collect_audit_evidence(
             records = commit_records(
                 client.root,
                 range_value,
-                include_paths=include_commit_paths,
+                include_paths=True,
             )
             paths = changed_paths(client.root, base, branch)
             try:
@@ -270,8 +181,6 @@ def collect_audit_evidence(
                     "subject": str(record["subject"]),
                     "footer_ids": list(record.get("footer_ids", ())),
                 }
-                if include_commit_paths:
-                    row["paths"] = bounded(list(record.get("paths", [])))
                 compact_commits.append(row)
             git.update(
                 {
@@ -282,8 +191,6 @@ def collect_audit_evidence(
                     "diff_stat": truncate_output(diff_stat(client.root, base, branch)),
                 }
             )
-            if include_commit_paths:
-                git["changed_paths"] = bounded(paths)
         except DstackError as exc:
             errors.append(str(exc))
 
@@ -364,19 +271,6 @@ def collect_audit_evidence(
             if require_docs:
                 errors.append("feature documentation validation failed")
 
-    allowed_history = {str(item["id"]): item for item in [root, *steps.values(), *implementation, *decisions, *gates]}
-    details = _selected_details(
-        include_plan=include_plan,
-        include_task_ids=include_task_ids,
-        include_decision_ids=include_decision_ids,
-        history_ids=history_ids,
-        plan=plan,
-        tasks=implementation,
-        decisions=decisions,
-        allowed_history=allowed_history,
-        client=client,
-    )
-
     payload: dict[str, Any] = {
         "status": "collected",
         "checks": {
@@ -400,8 +294,9 @@ def collect_audit_evidence(
             "feature_docs": feature_docs,
         },
     }
-    if details:
-        payload["details"] = details
+    if include_plan:
+        # The plan is already loaded for validation; avoid a second native read at close.
+        payload["details"] = {"plan": plan}
     return payload
 
 
@@ -410,10 +305,6 @@ def cmd_audit_evidence(args: argparse.Namespace) -> int:
         args.root,
         args.bead,
         include_plan=args.include_plan,
-        include_task_ids=args.include_task,
-        include_decision_ids=args.include_decision,
-        history_ids=args.history_for,
-        include_commit_paths=args.include_commit_paths,
         require_docs=args.require_docs,
         offset=getattr(args, "offset", 0),
     )

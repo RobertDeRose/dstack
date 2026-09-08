@@ -19,7 +19,7 @@ dstack docs export-design --bead ID [--root PATH]
 dstack docs commit --bead ID [--root PATH]
 dstack commit -b|--bead ID [--root PATH]
 dstack worktree -b|--bead ID [--root PATH]
-dstack audit --bead ID [--offset N] [detail flags] [--require-docs] [--root PATH]
+dstack audit --bead ID [--offset N] [--include-plan] [--require-docs] [--root PATH]
 ```
 
 Setup and deterministic checks do not create workflow issues. The workflow is activated only by an explicitly invoked
@@ -78,18 +78,16 @@ repository's external validation contract and rejects a noncanonical close commi
 ## Audit
 
 ```text
-dstack audit --bead <feature> \
-  [--include-plan] \
-  [--include-task ID] \
-  [--include-decision ID] \
-  [--history-for ID] \
-  [--include-commit-paths] \
-  [--require-docs]
+dstack audit --bead <feature> [--include-plan] [--offset N] [--require-docs]
 ```
 
-Repeat `--include-task`, `--include-decision`, and `--history-for` when needed. Default task, decision, gate, commit,
-and error collections are bounded to 100 items and report truncation. Commit paths are omitted unless
-`--include-commit-paths` is explicit. Multi-issue reads are batched through native Beads commands.
+Audit validates Beads-to-Git and publication evidence, not semantic compliance. Task, decision, gate, and commit
+summaries are bounded to 100 rows per page; all evidence is checked regardless of the page. Error output is capped with
+the total count reported. The already-loaded plan is available through `--include-plan` for semantic close review.
+
+Read task and decision details with `bd show ID --include-comments --json`, issue history with `bd history ID --json`,
+and commit contents with `git show SHA`. Audit does not wrap these native detail interfaces. The former
+`--include-task`, `--include-decision`, `--history-for`, and `--include-commit-paths` options have been removed.
 
 ## Selectors, retries, and evidence size
 
@@ -99,8 +97,8 @@ vocabulary rather than maintaining parallel aliases.
 
 Audit checks all relevant evidence, regardless of feature size. Summary collections include counts and `next_offset`
 when more rows exist; pass `--offset N` to read that page. `--include-plan` supplies approved intent for close review;
-selected task/decision details explicitly include comments. Full history stays opt-in. Missing/truncated native evidence
-is an error, not an empty result. The Beads v2-default envelope still uses `schema_version: 1`, already enabled through
+use focused native reads for task comments, decisions, and history. Missing/truncated native evidence is an error, not
+an empty result. The Beads v2-default envelope still uses `schema_version: 1`, already enabled through
 `BD_JSON_ENVELOPE=1`; unsupported schema versions are rejected.
 
 Task titles default to conventional `feat` commits. A native title such as `fix: Preserve inbound timestamps` selects a
