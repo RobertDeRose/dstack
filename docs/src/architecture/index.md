@@ -37,9 +37,10 @@ writes require user approval.
 ### dStack CLI
 
 dStack commands read current Beads, Git, and filesystem facts on each invocation. They batch multi-issue Beads reads,
-bound default evidence, omit commit paths unless requested, and validate structure, branch and worktree identity, Git
-evidence, and feature documentation. They perform no workflow-state calculation. Skills run the target repository's
-documented project-validation contract.
+bound default evidence, and validate structure, branch and worktree identity, Git evidence, and feature documentation.
+Selected issue history and commit-path inspection stay on native Beads and Git commands rather than a duplicate audit
+detail interface. They perform no workflow-state calculation. Skills run the target repository's documented
+project-validation contract.
 
 ## Persistent information
 
