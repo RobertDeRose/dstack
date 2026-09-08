@@ -1,46 +1,42 @@
-# dStack Beads context
+# dStack workflow contract
 
-This project uses Beads only for an explicitly activated dStack workflow.
-
-## Activation
-
-Do not infer activation from `.beads`, installed skills, this file, or `bd` availability. For ordinary requests, do not
-run `bd`, create issues, or require initialization.
-
-Only `/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`, or an explicit request to use
-dStack activates workflow tracking. An explicitly requested dStack command performs only its documented deterministic
-mechanics.
-
-Do not install generic Beads agent instructions or hooks. Do not run `bd prime` automatically.
+This project uses dStack only when `/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`, or
+an explicit request activates it. Do not infer activation from `.beads`, installed skills, this file, or `bd`
+availability. Outside an active workflow, do not run Beads or create workflow state.
 
 ## Authority
 
-Within an active workflow, Beads owns plans, decisions, tasks, dependencies, gates, claims, readiness, completion, and
-durable project memory. Git owns repository content, branches, worktrees, and history. Current repository documentation
-and accepted decisions outrank stale memory.
+Beads owns plans, decisions, tasks, dependencies, gates, claims, readiness, completion, and durable workflow memory. Git
+owns repository content, branches, worktrees, and history. Current repository documentation and accepted decisions
+outrank stale memory. Never create a parallel task list, readiness cache, commit map, audit packet, recovery journal, or
+other shadow workflow state.
 
-Use the feature-scoped native queue and dStack's deterministic checks. Never maintain a Markdown task list, readiness
-cache, commit map, audit packet, or other shadow workflow state.
+dStack owns deterministic mechanics and validation. Skills and the agent own semantic work: planning, review,
+implementation, validation choices, and questions that require user authority.
 
-## Memory exception
+## Using dStack
 
-`/review-plan` and `/audit-project` may search and recall only targeted Beads memories. `/close-feature` may propose a
-reusable memory addition, correction, or retirement, but it must show the exact change and receive user approval before
-writing. Memory is advisory context, not live status or completion evidence.
-
-## Lifecycle
+When the active skill names a dStack operation, use that operation instead of reproducing its mechanics with direct
+`git`, `bd`, or filesystem commands. Use only the arguments shown by the skill or `dstack <command> --help`; do not
+invent flags or alternate command sequences.
 
 ```text
-plan -> review -> human approval -> implementation tasks -> close
+dstack <command> [arguments]
 ```
 
-Planning captures intent in native description, design, and acceptance fields. Review reconciles memory and repository
-facts and creates native work. Implementation resumes owned in-progress work before claiming a new ready task, reads selected task review comments,
-and keeps `Implementation:` notes as the current delivered outcome. It validates before using those notes for one
-canonical `Task:` commit and closing the task. One writer owns each feature worktree. The final internal `audit` step remains open while `/close-feature` reviews and returns defects. Native
-implementation fan-in blocks it whenever implementation work is open; close claims it only after review passes, then writes and
-validates feature documentation against the native design. Close explicitly closes the implementation epic, final
-step, and root; no second phase tracker or recovery journal exists.
+A nonzero exit means the operation failed. Read the diagnostic and preserve the native state it reports. Do not bypass a
+failed invariant manually and then continue as though dStack succeeded.
 
-`/audit-project` audits current project drift and, when remediation is needed, creates and completes only the plan step
-of a normal feature before returning `/review-plan`.
+## Resume and recovery
+
+Resume existing Beads work before claiming or creating replacement work. If `dstack worktree` reports
+`recovery_required`, enter the returned worktree, inspect `git status`, and finish or deliberately abort the reported
+native Git operation before another mutating dStack command. dStack may make retries idempotent, but recovery state
+remains in Git and Beads rather than a dStack-owned journal.
+
+Only one agent writes a feature worktree at a time. Preserve existing edits and staged content until ownership is clear.
+
+## Memory
+
+Use memory only when the active skill explicitly permits it. Memory is advisory context, never live status or completion
+evidence. Any memory write requires the authority described by that skill.
