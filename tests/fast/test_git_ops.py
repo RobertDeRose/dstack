@@ -72,11 +72,16 @@ def test_task_commit_body_rejects_missing_or_malformed_implementation_notes() ->
     with pytest.raises(DstackError, match="Implementation"):
         task_commit_body(missing)
 
-    for notes in ("Implementation:", "Implementation: Include Task: ds-123", "Implementation: Include Beads: ds-123"):
-        malformed = task()
-        malformed["notes"] = notes
-        with pytest.raises(DstackError, match="note"):
-            task_commit_body(malformed)
+    malformed = task()
+    malformed["notes"] = "Implementation:"
+    with pytest.raises(DstackError, match="note"):
+        task_commit_body(malformed)
+
+
+def test_task_commit_body_preserves_literal_ownership_terms_in_technical_prose() -> None:
+    issue = task()
+    issue["notes"] = "Implementation: Parse the Task: trailer without scanning the entire commit."
+    assert task_commit_body(issue) == "- Parse the Task: trailer without scanning the entire commit."
 
 
 def test_task_commit_body_preserves_punctuation_and_keeps_each_bullet_on_one_line() -> None:

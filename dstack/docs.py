@@ -17,12 +17,17 @@ from .core import (
     feature_steps,
     read_utf8_text,
     require_feature_worktree,
+    run,
     serialized_repository_mutation,
 )
 from .output import emit
 from .policy import markdown_sections
 
-INCLUDE_PATTERN = re.compile(r"\{\{#include\s+([^}\s]+)[^}]*\}\}")
+MDBOOK_HELPER_PATTERN = re.compile(
+    r"(?<!\\)\{\{\s*#\s*(include|rustdoc_include|playground|playpen)\s+([^}\s]+)[^}]*\}\}",
+    re.IGNORECASE,
+)
+INCLUDE_PATTERN = re.compile(r"(?<!\\)\{\{\s*#\s*include\s+([^}\s]+)[^}]*\}\}", re.IGNORECASE)
 FEATURE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -37,13 +42,17 @@ def markdown_links(text: str) -> list[str]:
 
 
 def markdown_includes(text: str) -> list[str]:
-    return [
-        match.group(1)
-        for token in MarkdownIt("commonmark").parse(text)
-        for child in token.children or ()
-        if child.type == "text"
-        for match in INCLUDE_PATTERN.finditer(child.content)
-    ]
+    """Return active mdBook include targets from raw chapter input.
+
+    mdBook expands helpers before Markdown rendering, including helpers inside
+    fenced code blocks. A leading backslash escapes a helper.
+    """
+    return [match.group(1) for match in INCLUDE_PATTERN.finditer(text)]
+
+
+def markdown_file_helpers(text: str) -> list[tuple[str, str]]:
+    """Return active mdBook helpers that can read another file."""
+    return [(match.group(1).casefold(), match.group(2)) for match in MDBOOK_HELPER_PATTERN.finditer(text)]
 
 
 def _feature_paths(root: Path, feature: str) -> tuple[Path, Path, Path, Path]:
@@ -75,12 +84,16 @@ def _nonempty_section(index: str, title: str) -> bool:
     return len(matches) == 1 and matches[0].level == 2 and bool(matches[0].content.strip())
 
 
-def validate_docs(root: Path, *, feature: str, expected_design: str | None = None) -> dict[str, object]:
-    summary_path, index_path, design_path, repository = _feature_paths(root, feature)
-    summary = _regular_file(summary_path, "documentation summary")
-    index = _regular_file(index_path, "feature index")
-    design = _regular_file(design_path, "feature design")
-
+def _validate_docs_content(
+    *,
+    feature: str,
+    summary: str,
+    index: str,
+    design: str,
+    expected_design: str | None,
+    index_name: str,
+    design_name: str,
+) -> dict[str, object]:
     errors: list[str] = []
     if not design.strip():
         errors.append("feature design must not be empty")
@@ -98,11 +111,15 @@ def validate_docs(root: Path, *, feature: str, expected_design: str | None = Non
         for section in markdown_sections(index)
         if section.title.casefold() == "implemented design" and section.level == 2
     ]
-    includes = markdown_includes(index)
-    if len(implemented) != 1 or includes != ["design.md"] or "{{#include design.md}}" not in implemented[0].content:
+    helpers = markdown_file_helpers(index)
+    if (
+        len(implemented) != 1
+        or helpers != [("include", "design.md")]
+        or "{{#include design.md}}" not in implemented[0].content
+    ):
         errors.append("Implemented Design must contain exactly one native include of design.md")
-    if INCLUDE_PATTERN.search(design):
-        errors.append("feature design must not contain active mdBook directives")
+    if markdown_file_helpers(design):
+        errors.append("feature design must not contain active mdBook file directives")
 
     targets = markdown_links(summary)
     index_target = f"features/{feature}/index.md"
@@ -114,12 +131,61 @@ def validate_docs(root: Path, *, feature: str, expected_design: str | None = Non
     if errors:
         raise DstackError("documentation validation failed: " + "; ".join(errors))
 
-    return {
-        "status": "ok",
-        "feature": feature,
-        "index": index_path.relative_to(repository).as_posix(),
-        "design": design_path.relative_to(repository).as_posix(),
-    }
+    return {"status": "ok", "feature": feature, "index": index_name, "design": design_name}
+
+
+def validate_docs(root: Path, *, feature: str, expected_design: str | None = None) -> dict[str, object]:
+    summary_path, index_path, design_path, repository = _feature_paths(root, feature)
+    return _validate_docs_content(
+        feature=feature,
+        summary=_regular_file(summary_path, "documentation summary"),
+        index=_regular_file(index_path, "feature index"),
+        design=_regular_file(design_path, "feature design"),
+        expected_design=expected_design,
+        index_name=index_path.relative_to(repository).as_posix(),
+        design_name=design_path.relative_to(repository).as_posix(),
+    )
+
+
+def _git_text(root: Path, revision: str, path: str, *, purpose: str) -> str:
+    entry = run(["git", "ls-tree", "-z", revision, "--", path], cwd=root, check=False)
+    if entry.returncode or not entry.stdout:
+        raise DstackError(f"{purpose} is missing from Git revision {revision}: {path}")
+    record = entry.stdout.rstrip("\0")
+    metadata, separator, recorded_path = record.partition("\t")
+    fields = metadata.split()
+    if not separator or recorded_path != path or len(fields) != 3 or fields[1] != "blob":
+        raise DstackError(f"{purpose} is not a regular Git file at revision {revision}: {path}")
+    if fields[0] == "120000":
+        raise DstackError(f"{purpose} must not be a symlink in Git revision {revision}: {path}")
+    content = run(["git", "show", f"{revision}:{path}"], cwd=root, check=False)
+    if content.returncode:
+        raise DstackError(f"cannot read {purpose} from Git revision {revision}: {path}")
+    try:
+        return content.stdout.encode("utf-8", errors="surrogateescape").decode("utf-8")
+    except UnicodeError as exc:
+        raise DstackError(f"cannot decode {purpose} from Git revision {revision}: {path}") from exc
+
+
+def validate_docs_revision(
+    root: Path, *, feature: str, revision: str, expected_design: str | None = None
+) -> dict[str, object]:
+    """Validate the exact documentation tree stored by Git at revision."""
+    if not FEATURE_SLUG.fullmatch(feature):
+        raise DstackError(f"invalid feature slug: {feature!r}")
+    repository = root.expanduser().resolve()
+    summary = "docs/src/SUMMARY.md"
+    index = f"docs/src/features/{feature}/index.md"
+    design = f"docs/src/features/{feature}/design.md"
+    return _validate_docs_content(
+        feature=feature,
+        summary=_git_text(repository, revision, summary, purpose="documentation summary"),
+        index=_git_text(repository, revision, index, purpose="feature index"),
+        design=_git_text(repository, revision, design, purpose="feature design"),
+        expected_design=expected_design,
+        index_name=index,
+        design_name=design,
+    )
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -210,8 +276,8 @@ def export_design(
     design = plan.get("design")
     if not isinstance(design, str) or not design.strip():
         raise DstackError(f"plan Bead {plan.get('id')} has no design to export")
-    if INCLUDE_PATTERN.search(design):
-        raise DstackError("feature design must not contain active mdBook directives")
+    if markdown_file_helpers(design):
+        raise DstackError("feature design must not contain active mdBook file directives")
     summary, index, target, repository = _feature_paths(repository, slug)
     # Preflight all optional scaffolding before exporting. Existing prose is never replaced.
     if scaffold:

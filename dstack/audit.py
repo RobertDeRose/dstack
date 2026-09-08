@@ -26,7 +26,7 @@ from .core import (
     verify_worktree_identity,
     worktree_for_branch,
 )
-from .docs import validate_docs
+from .docs import validate_docs_revision
 from .git_ops import (
     canonical_docs_message,
     canonical_task_message,
@@ -271,7 +271,12 @@ def collect_audit_evidence(
         if worktree_status != "clean":
             errors.append("feature worktree contains uncommitted changes")
         try:
-            feature_docs = {"status": "ok", **validate_docs(worktree, feature=slug, expected_design=str(plan.get("design") or ""))}
+            feature_docs = {
+                "status": "ok",
+                **validate_docs_revision(
+                    client.root, feature=slug, revision=branch, expected_design=str(plan.get("design") or "")
+                ),
+            }
             if require_docs and not close_commits and publication_changed(client.root, base, branch, slug):
                 errors.append(
                     f"changed feature publication requires one canonical documentation commit owned by {close_id}"

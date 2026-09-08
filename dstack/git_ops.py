@@ -26,12 +26,13 @@ from .core import (
     serialized_repository_mutation,
     require_feature_worktree,
 )
-from .docs import markdown_links, validate_docs
+from .docs import markdown_links, validate_docs, validate_docs_revision
 from .output import emit
 from .policy import (
     MAX_IMPLEMENTATION_BODY_LENGTH,
     commit_subject,
     implementation_notes,
+    validate_task_issue,
 )
 
 
@@ -299,6 +300,19 @@ def publication_changed(root: Path, base: str, head: str, slug: str) -> bool:
     return summary.returncode != 0 or markdown_links(summary.stdout).count(f"features/{slug}/index.md") != 1
 
 
+def _validate_staged_docs(root: Path, slug: str, expected_design: str) -> None:
+    """Validate the exact tree that Git would commit, not merely working files."""
+    tree = run(["git", "write-tree"], cwd=root).stdout.strip()
+    validate_docs_revision(root, feature=slug, revision=tree, expected_design=expected_design)
+
+
+def _require_valid_task(task: Mapping[str, object]) -> None:
+    result = validate_task_issue(task)
+    errors = [str(error) for error in result.get("errors", [])]
+    if errors:
+        raise DstackError("implementation Bead is mechanically invalid: " + "; ".join(errors))
+
+
 @serialized_repository_mutation
 def cmd_git_commit_docs(args: argparse.Namespace) -> int:
     root = git_root(args.root)
@@ -329,7 +343,9 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
     for record in evidence:
         validate_commit_paths(record["paths"], slug, documentation=True)
     plan = client.show(str(steps["plan"]["id"]))
-    validate_docs(root, feature=slug, expected_design=str(plan.get("design") or ""))
+    expected_design = str(plan.get("design") or "")
+    validate_docs(root, feature=slug, expected_design=expected_design)
+    _validate_staged_docs(root, slug, expected_design)
 
     if not evidence:
         if paths:
@@ -354,6 +370,8 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
     else:
         raise DstackError("close step has multiple reachable commits; refusing ambiguous correction")
 
+    revision = commit or "HEAD"
+    validate_docs_revision(root, feature=slug, revision=revision, expected_design=expected_design)
     if commit is not None:
         records = _task_evidence(root, base, close_id)
         if len(records) != 1:
@@ -383,6 +401,7 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
     task = client.show(args.bead)
     task_id = str(task["id"])
     _require_in_progress(task)
+    _require_valid_task(task)
     feature_root, slug, base = _validate_feature_branch(client, task)
     evidence = _task_evidence(root, base, task_id)
     validate_commit_paths(staged_paths(root), slug, documentation=False)

@@ -29,7 +29,6 @@ _CONVENTIONAL_PREFIX = re.compile(
     r"^(?P<type>build|chore|ci|docs|feat|fix|perf|refactor|revert|test)"
     r"(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?:\s+"
 )
-_OWNERSHIP_TOKEN = re.compile(r"(?i)\b(?:Task|Beads):\s*\S+")
 _NOTE_LINE_END = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 
 
@@ -216,8 +215,6 @@ def implementation_notes(issue: Mapping[str, Any]) -> list[str]:
         candidate = line.strip()
         if not candidate:
             continue
-        if _OWNERSHIP_TOKEN.search(candidate):
-            raise DstackError("implementation notes must not contain Task: or Beads: ownership footers")
         if not candidate.startswith(prefix):
             continue
         value = _lint_implementation_note(candidate.removeprefix(prefix))
