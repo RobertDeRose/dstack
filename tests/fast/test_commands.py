@@ -17,6 +17,12 @@ class WorktreeClient:
     def worktrees(self) -> list[dict[str, Any]]:
         return list(self.items)
 
+    def create_worktree(self, path: Path, branch: str) -> CommandResult:
+        raise NotImplementedError
+
+    def remove_worktree(self, path: Path) -> CommandResult:
+        raise NotImplementedError
+
 
 def test_worktree_ensure_delegates_creation_and_inventory_to_beads(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
@@ -25,22 +31,20 @@ def test_worktree_ensure_delegates_creation_and_inventory_to_beads(
     original_run = subject.run
     observed: list[list[str]] = []
 
-    def fake_run(command: list[str] | tuple[str, ...], **kwargs: Any) -> CommandResult:
-        values = list(command)
-        observed.append(values)
-        if values[:3] == ["bd", "worktree", "create"]:
-            path = Path(values[3])
-            branch = values[5]
-            result = original_run(["git", "worktree", "add", str(path), branch], cwd=git_repo)
-            client.items = [{"path": str(path), "branch": branch}]
-            return result
-        if values[:3] == ["bd", "worktree", "remove"]:
-            result = original_run(["git", "worktree", "remove", "--force", values[3]], cwd=git_repo, check=False)
-            client.items = []
-            return result
-        return original_run(values, **kwargs)
+    def create_worktree(path: Path, branch: str) -> CommandResult:
+        observed.append(["bd", "worktree", "create", str(path), "--branch", branch])
+        result = original_run(["git", "worktree", "add", str(path), branch], cwd=git_repo)
+        client.items = [{"path": str(path), "branch": branch}]
+        return result
 
-    monkeypatch.setattr(subject, "run", fake_run)
+    def remove_worktree(path: Path) -> CommandResult:
+        observed.append(["bd", "worktree", "remove", str(path), "--force"])
+        result = original_run(["git", "worktree", "remove", "--force", str(path)], cwd=git_repo, check=False)
+        client.items = []
+        return result
+
+    monkeypatch.setattr(client, "create_worktree", create_worktree)
+    monkeypatch.setattr(client, "remove_worktree", remove_worktree)
     worktree, created_branch, created_worktree = subject.ensure_branch_worktree(
         client,  # type: ignore[arg-type]
         "feat/native-control-plane",

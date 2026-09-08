@@ -8,7 +8,8 @@ from typing import Any, Mapping
 
 from markdown_it import MarkdownIt
 
-from .core import DstackError, issue_labels, issue_type
+from .beads import issue_labels, issue_type
+from .core import DstackError
 
 PLAN_SECTIONS = (
     "Goals",

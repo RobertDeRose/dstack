@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from dstack import beads
 from dstack import formula as subject
 from dstack.core import CommandResult, DstackError
 
@@ -55,7 +56,7 @@ def test_formula_contract_rejects_wrong_fixed_step_type() -> None:
 
 
 def test_failed_bd_where_is_absent_only_without_workspace(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(subject, "run", lambda *args, **kwargs: CommandResult(1, "", "database is unhealthy"))
+    monkeypatch.setattr(beads, "run_beads", lambda *args, **kwargs: CommandResult(1, "", "database is unhealthy"))
 
     assert subject.beads_workspace_optional(git_repo) is None
 
@@ -68,17 +69,13 @@ def test_failed_bd_where_is_absent_only_without_workspace(git_repo: Path, monkey
 def test_successful_bd_where_rejects_malformed_workspace_payload(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch, payload: object
 ) -> None:
-    monkeypatch.setattr(subject, "run", lambda *args, **kwargs: CommandResult(0, json.dumps(payload), ""))
+    monkeypatch.setattr(beads, "run_beads", lambda *args, **kwargs: CommandResult(0, json.dumps(payload), ""))
 
     with pytest.raises(DstackError, match="invalid Beads workspace payload"):
         subject.beads_workspace_optional(git_repo)
 
 
-def test_init_preflights_once_and_reuses_native_workspace(
-    git_repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from dstack.core import BeadsClient
-
+def test_init_preflights_once_and_reuses_native_workspace(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     observed: list[list[str]] = []
     workspace = git_repo / ".beads"
     original_run = subject.run
@@ -103,8 +100,8 @@ def test_init_preflights_once_and_reuses_native_workspace(
             return CommandResult(0, "{}", "")
         raise AssertionError(command)
 
-    monkeypatch.setattr(subject, "run", boundary)
-    monkeypatch.setattr(BeadsClient, "_run", lambda self, command, **kwargs: boundary(command, **kwargs))
+    monkeypatch.setattr(beads, "run_beads", boundary)
+    monkeypatch.setattr(subject, "run_beads", boundary)
     result = subject.init_workspace(git_repo)
     assert result["initialized"] is True
     assert result["validated"] is True
@@ -203,7 +200,7 @@ def test_failed_native_parse_restores_previous_formula(
     monkeypatch.setattr(subject, "formula_path", lambda: source)
     monkeypatch.setattr(subject, "beads_workspace", lambda root: workspace)
     monkeypatch.setattr(subject, "BeadsClient", FakeClient)
-    monkeypatch.setattr(subject, "run", lambda *args, **kwargs: CommandResult(1, "", "formula rejected"))
+    monkeypatch.setattr(subject, "run_beads", lambda *args, **kwargs: CommandResult(1, "", "formula rejected"))
 
     with pytest.raises(DstackError):
         subject._install_formula(subject.FormulaContext(git_repo, workspace, "bd version 1.2.2 (test)"), update=True)
@@ -255,7 +252,7 @@ def test_formula_update_invokes_only_native_formula_verification(
     monkeypatch.setattr(subject, "formula_path", lambda: source)
     monkeypatch.setattr(subject, "beads_workspace", lambda root: workspace)
     monkeypatch.setattr(subject, "BeadsClient", FakeClient)
-    monkeypatch.setattr(subject, "run", fake_run)
+    monkeypatch.setattr(subject, "run_beads", fake_run)
 
     result = subject._install_formula(
         subject.FormulaContext(git_repo, workspace, "bd version 1.2.2 (test)"), update=False

@@ -6,36 +6,36 @@ import argparse
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .commands import client_for, implementation_tasks
-from .core import (
-    DstackError,
-    audit_fan_in_errors,
+from .beads import client_for, dependency_targets, issue_type
+from .core import DstackError, truncate_output
+from .git_state import (
     branch_exists,
     changed_paths,
     commit_records,
-    dependency_targets,
     diff_stat,
-    feature_identity,
-    feature_steps,
-    implementation_task_graph_errors,
-    issue_type,
+    footer_mapping,
     require_common_history,
-    run,
-    truncate_output,
     validate_git_revision,
     verify_worktree_identity,
     worktree_for_branch,
+    worktree_status,
+)
+from .workflow import (
+    audit_fan_in_errors,
+    feature_identity,
+    feature_steps,
+    implementation_tasks,
 )
 from .docs import validate_docs_revision
 from .git_ops import (
     canonical_docs_message,
-    canonical_task_message,
     commit_record_matches_message,
     publication_changed,
     validate_commit_paths,
 )
 from .output import emit
-from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
+from .policy import validate_plan_issue
+from .task_validation import validate_implementation_task
 
 MAX_AUDIT_ITEMS = 100
 
@@ -63,22 +63,6 @@ def bounded(items: Sequence[Any], *, limit: int = MAX_AUDIT_ITEMS, offset: int =
     }
 
 
-def _footer_mapping(records: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """Return compact Beads-to-commit evidence without duplicating changed paths."""
-
-    result: dict[str, list[dict[str, Any]]] = {}
-    for record in records:
-        for bead_id in record.get("footer_ids", ()):
-            result.setdefault(str(bead_id), []).append(
-                {
-                    "commit": str(record.get("commit") or ""),
-                    "subject": str(record.get("subject") or ""),
-                    "body": str(record.get("body") or ""),
-                }
-            )
-    return result
-
-
 def collect_audit_evidence(
     root_path: Path,
     selector: str,
@@ -97,7 +81,7 @@ def collect_audit_evidence(
         client,
         str(steps["implementation"]["id"]),
     )
-    decision_candidates = client.list(all_statuses=True, labels=[f"decision:{slug}"], issue_type_filter="decision")
+    decision_candidates = client.list_issues(labels=[f"decision:{slug}"], issue_type_filter="decision")
     # Native list summaries need not include dependencies; hydrate candidates before filtering links.
     decisions = sorted(
         (
@@ -120,34 +104,6 @@ def collect_audit_evidence(
         errors.append("feature plan violates dStack policy")
 
     task_rows: list[dict[str, Any]] = []
-    no_change_by_task: dict[str, str | None] = {}
-    for task in implementation:
-        validation = validate_task_issue(task)
-        graph_errors = implementation_task_graph_errors(task, steps)
-        task_errors = [*validation["errors"], *graph_errors]
-        try:
-            execution_notes = implementation_notes(task)
-        except DstackError:
-            execution_notes = []
-            no_change = None
-        else:
-            no_change = no_repository_change_reason(task)
-        no_change_by_task[str(task["id"])] = no_change
-        if not no_change and execution_notes == [] and not any("implementation note" in error for error in task_errors):
-            task_errors.append("implementation task requires at least one Implementation note before committing")
-        task_rows.append(
-            {
-                **issue_summary(task),
-                "validation": {
-                    "status": "ok" if not task_errors else "invalid",
-                    "errors": task_errors,
-                },
-            }
-        )
-        if task_errors:
-            errors.append(f"implementation task {task['id']} violates dStack policy or graph invariants")
-        if str(task.get("status") or "") != "closed":
-            errors.append(f"implementation task {task['id']} is not closed")
 
     fan_in_errors = audit_fan_in_errors(audit_step, str(steps["implementation"]["id"]), implementation)
     errors.extend(fan_in_errors)
@@ -160,6 +116,9 @@ def collect_audit_evidence(
     }
     records: list[dict[str, Any]] = []
     paths: list[str] = []
+    task_ids = {str(task["id"]) for task in implementation}
+    close_id = str(audit_step["id"])
+    accepted_ids = {*task_ids, close_id}
 
     if not git["branch_present"]:
         errors.append(f"feature branch is missing: {branch}")
@@ -177,11 +136,12 @@ def collect_audit_evidence(
             paths = changed_paths(client.root, base, branch)
             compact_commits: list[dict[str, Any]] = []
             for record in records:
-                try:
-                    validate_commit_paths(record["paths"], slug,
-                                          documentation=record.get("footer_ids") == (str(audit_step["id"]),))
-                except DstackError as exc:
-                    errors.append(f"{record['commit']}: {exc}")
+                owners = tuple(record.get("footer_ids", ()))
+                if not (len(owners) == 1 and owners[0] in task_ids):
+                    try:
+                        validate_commit_paths(record["paths"], slug, documentation=owners == (close_id,))
+                    except DstackError as exc:
+                        errors.append(f"{record['commit']}: {exc}")
                 row = {
                     "commit": str(record["commit"]),
                     "subject": str(record["subject"]),
@@ -200,28 +160,26 @@ def collect_audit_evidence(
         except DstackError as exc:
             errors.append(str(exc))
 
-    task_ids = {str(task["id"]) for task in implementation}
-    close_id = str(audit_step["id"])
-    accepted_ids = {*task_ids, close_id}
-    mapping = _footer_mapping(records)
-    for row, task in zip(task_rows, implementation, strict=True):
+    mapping = footer_mapping(records)
+    for task in implementation:
         task_id = str(task["id"])
-        commits = mapping.get(task_id, [])
-        row["commit_count"] = len(commits)
-        row["commits"] = bounded([{"commit": item["commit"], "subject": item["subject"]} for item in commits])
-        expected_count = 0 if no_change_by_task.get(task_id) is not None else 1
-        if len(commits) != expected_count:
-            errors.append(
-                f"implementation task {task_id} must own {expected_count} canonical commit(s); observed {len(commits)}"
-            )
-        elif commits:
-            try:
-                expected_message = canonical_task_message(task, slug)
-            except DstackError:
-                errors.append(f"implementation task {task_id} commit message is not canonical")
-            else:
-                if not commit_record_matches_message(commits[0], expected_message):
-                    errors.append(f"implementation task {task_id} commit message is not canonical")
+        validation = validate_implementation_task(task, steps, slug, records)
+        task_errors = list(validation["errors"])
+        if str(task.get("status") or "") != "closed":
+            task_errors.append(f"implementation task {task_id} is not closed")
+        task_rows.append(
+            {
+                **issue_summary(task),
+                "validation": {
+                    "status": "ok" if not task_errors else "invalid",
+                    "errors": task_errors,
+                },
+                "commit_count": len(validation["records"]),
+                "commits": bounded(validation["commits"]),
+            }
+        )
+        if task_errors:
+            errors.extend(f"{task_id}: {error}" for error in task_errors)
 
     close_commits = mapping.get(close_id, [])
     git["close_commit"] = close_commits[0] if len(close_commits) == 1 else None
@@ -261,14 +219,9 @@ def collect_audit_evidence(
         errors.append(f"feature worktree is not registered for {branch}")
     else:
         worktree = verify_worktree_identity(client.root, worktree_path, branch)
-        status = run(["git", "status", "--short", "--untracked-files=all"], cwd=worktree, check=False)
-        worktree_status = "clean" if status.returncode == 0 and not status.stdout.strip() else "dirty"
-        git["worktree"] = {
-            "status": worktree_status,
-            "path": str(worktree),
-            "details": truncate_output(status.stderr) or truncate_output(status.stdout),
-        }
-        if worktree_status != "clean":
+        status = worktree_status(worktree)
+        git["worktree"] = {"path": str(worktree), **status}
+        if status["status"] != "clean":
             errors.append("feature worktree contains uncommitted changes")
         try:
             feature_docs = {
