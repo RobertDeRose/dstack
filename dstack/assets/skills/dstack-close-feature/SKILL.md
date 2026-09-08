@@ -31,30 +31,36 @@ after accepted publication is committed or confirmed unchanged.
 
 Resolve native position with `bd mol current <root> --json` or focused status queries plus `bd mol progress` for a large
 graph. Read the final step with comments and inspect its ownership. Resume this agent's in-progress final step without
-claiming again, but repeat semantic review. Do not claim the final step merely because native fan-in makes it ready.
+claiming again, but repeat semantic review. Do not claim the final step merely because native readiness exposes it.
 
 If the final step is already closed, do not rewrite delivered history or rerun publication/claim operations. Run project
 validation and the final dStack audit, then complete only omitted implementation-epic/root closure if those checks pass.
 Report failures rather than reopening delivered work.
 
-Run `dstack audit --bead <root> --include-plan`. Read the approved plan and relevant accepted decisions before
-comparing intent with code. Use focused `bd show`, `bd history`, and `git show` reads for additional detail rather than
-recollecting the whole audit. Follow `next_offset` when a summary is paged. Compare intent, decisions, tasks, canonical commits,
-tests, code, and current documentation; current documentation and accepted decisions outrank stale memory. Run the
-repository's documented validation contract. Audit collection is evidence, not semantic approval.
+Before the first audit, inspect every implementation child and ensure the final step directly depends on it with a
+native `blocks` edge. Add any missing edge with `bd dep add <audit> <task> --type blocks`; this also repairs an older
+molecule or an interrupted task-creation sequence without creating replacement workflow state.
+
+Run `dstack audit --bead <root> --include-plan`. Read the approved plan and relevant accepted decisions before comparing
+intent with code. Use focused `bd show`, `bd history`, and `git show` reads for additional detail rather than
+recollecting the whole audit. Follow `next_offset` when a summary is paged. Compare intent, decisions, tasks, canonical
+commits, tests, code, and current documentation; current documentation and accepted decisions outrank stale memory. Run
+the repository's documented validation contract. Audit collection is evidence, not semantic approval.
 
 Do not write feature publication until this review passes.
 
 ## Return findings
 
-For a clear defect owned by an implementation task, read existing comments, record the evidence and acceptance gap
-once, reopen and unassign the task so native readiness can expose it, release an in-progress final step through native
-status/assignee fields if necessary, and return `/implement <root>`.
+For a clear defect owned by an implementation task, read existing comments, record the evidence and acceptance gap once,
+ensure the final step still directly depends on that task, reopen and unassign the task so native readiness can expose
+it, release an in-progress final step through native status/assignee fields if necessary, and return
+`/implement <root>`.
 
 For an unowned finding, create one bounded implementation child with `dstack:work:implementation`, planned scope in
 `description`, accepted approach in `design`, observable `acceptance_criteria`, the direct approval blocker, and a
-`discovered-from` link to the close step. Leave execution notes empty and create at most one correction for each
-finding.
+`discovered-from` link to the close step. Immediately run `bd dep add <audit> <task> --type blocks`; if interrupted
+after creation, repair that missing edge on resume before trusting final-step readiness. Leave execution notes empty and
+create at most one correction for each finding.
 
 For material ambiguity, comment with the contradiction, create a native human gate that directly blocks the close step
 without secondary parentage, and ask one focused question. Record the accepted decision after the answer. If it changes

@@ -142,7 +142,7 @@ No shadow controller.
             "parent": "root",
             "dependencies": [
                 {"id": "approval", "dependency_type": "blocks"},
-                {"id": "implementation", "dependency_type": "waits-for"},
+                {"id": "task", "dependency_type": "blocks"},
             ],
         },
         "task": task,
@@ -158,7 +158,6 @@ def test_task_graph_check_is_local_to_membership_and_approval() -> None:
     assert subject.implementation_task_graph_errors(task, steps)
 
     task["labels"].remove("dstack:step:implementation")
-    client.issues["audit"]["dependencies"].append({"id": "task", "dependency_type": "blocks"})
     assert subject.implementation_task_graph_errors(task, steps) == []
 
 
@@ -180,6 +179,37 @@ def test_preapproval_review_accepts_complete_blocked_graph() -> None:
         )
         == []
     )
+
+
+def test_preapproval_review_accepts_legacy_waits_for_with_direct_blocker() -> None:
+    client, root, steps, task = graph_fixture()
+    client.issues["audit"]["dependencies"].append({"id": "implementation", "dependency_type": "waits-for"})
+
+    assert (
+        subject.review_graph_errors(  # type: ignore[arg-type]
+            client,
+            steps,
+            [task],
+            ready_task_ids=[],
+        )
+        == []
+    )
+
+
+def test_preapproval_review_rejects_missing_persistent_close_blocker() -> None:
+    client, root, steps, task = graph_fixture()
+    client.issues["audit"]["dependencies"] = [
+        dependency for dependency in client.issues["audit"]["dependencies"] if dependency.get("id") != task["id"]
+    ]
+
+    errors = subject.review_graph_errors(  # type: ignore[arg-type]
+        client,
+        steps,
+        [task],
+        ready_task_ids=[],
+    )
+
+    assert "audit must be directly blocked by every implementation task; missing blockers: task" in errors
 
 
 def test_preapproval_review_rejects_missing_work_and_false_readiness() -> None:

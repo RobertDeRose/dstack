@@ -21,7 +21,7 @@ from .git_state import (
     worktree_status,
 )
 from .workflow import (
-    audit_fan_in_errors,
+    audit_completion_dependency_errors,
     feature_identity,
     feature_steps,
     implementation_tasks,
@@ -105,8 +105,8 @@ def collect_audit_evidence(
 
     task_rows: list[dict[str, Any]] = []
 
-    fan_in_errors = audit_fan_in_errors(audit_step, str(steps["implementation"]["id"]), implementation)
-    errors.extend(fan_in_errors)
+    completion_dependency_errors = audit_completion_dependency_errors(audit_step, implementation)
+    errors.extend(completion_dependency_errors)
 
     branch = f"feat/{slug}"
     git: dict[str, Any] = {

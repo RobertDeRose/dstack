@@ -13,8 +13,8 @@ plan -> review -> approval -> implementation -> close
 ```
 
 The implementation step is an epic containing dynamic tasks. Review creates each task with a direct blocker on the
-approval step. The final `audit` step has one `children-of(implementation)` waits-for dependency; there is no fixed
-close-review gate.
+approval step and then makes that task a persistent direct blocker of the final `audit` step. The formula itself only
+sequences `audit` after approval; there is no fixed close-review gate or `waits-for` fan-in.
 
 ## Planning
 
@@ -65,11 +65,12 @@ separate native gate that directly blocks the close step without secondary paren
 intent, close records a decision, updates the plan design and owning task acceptance criteria, and reopens that task for
 `/implement`. An unowned changed outcome instead becomes a bounded correction task.
 
-The close skill reviews before claiming the final step. When every current implementation child is closed, native
-`children-of(implementation)` fan-in may expose the final step as ready; close deliberately leaves it unclaimed during
-semantic review. A defect reopens its owning task for `/implement`, which blocks the still-open final step again through
-the same native fan-in. Once review is clean and every implementation task is closed, close claims or resumes the final
-step.
+The close skill reviews before claiming the final step. Each implementation task remains a native blocker of the final
+step even after it closes, so reopening it removes close from ready work again without rebuilding the graph. A new
+correction task receives the same direct blocker immediately after creation. On resume, close repairs any missing
+blocker edge before trusting final-step readiness; this covers interrupted task creation and active molecules poured
+before formula version 4. Once review is clean and every implementation task is closed, close claims or resumes the
+final step.
 
 Only after review passes does close export the design, write the minimal feature documentation, and run feature-document
 validation separately from the repository's own project validation. `dstack docs commit --bead <feature-root>` creates

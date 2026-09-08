@@ -6,10 +6,11 @@ phase journal, commit map, lease database, or replay protocol.
 ## Interrupted sessions
 
 Enter the feature worktree with `dstack worktree --bead <root>`. Its reuse does not require merging every subsequent
-base-branch change. A `recovery_required` result returns the existing path and native Git operation without repairing it.
-Enter that path and resolve the native operation before claiming or committing more work. Arbitrary detached checkouts
-are not adopted as feature worktrees. Inspect `git status`, the selected issue with `bd show <task> --include-comments --json`, and native
-workflow position with `bd mol current <root> --json`. For a large graph, prefer `bd mol progress` and a focused
+base-branch change. A `recovery_required` result returns the existing path and native Git operation without repairing
+it. Enter that path and resolve the native operation before claiming or committing more work. Arbitrary detached
+checkouts are not adopted as feature worktrees. Inspect `git status`, the selected issue with
+`bd show <task> --include-comments --json`, and native workflow position with `bd mol current <root> --json`. For a
+large graph, prefer `bd mol progress` and a focused
 `bd list --parent <implementation> --status in_progress --label dstack:work:implementation --limit 0 --json` query.
 
 Resume work owned by the current agent before calling `bd ready --claim`. Ready work excludes in-progress tasks. Never
@@ -31,12 +32,15 @@ repository rationale in linked decision Beads. Obsolete notes must not remain as
 
 ## Interrupted close
 
-Repeat semantic review against the approved plan and relevant accepted decisions. Resume an owned in-progress final
-step instead of claiming it again. Enter its registered feature worktree before exporting documentation. Re-run
-`dstack docs export-design --bead <root> --scaffold` to recreate missing structure without replacing existing prose.
-Run documentation validation and `dstack audit --bead <root> --include-plan --require-docs` before closing the
-implementation epic, final step, and root in that order. Skip already-closed steps; inspect status rather than inferring
-completion from an empty ready queue. Merge and push require separate authorization.
+Repeat semantic review against the approved plan and relevant accepted decisions. Before trusting final-step readiness,
+verify that every implementation child remains a direct native blocker of the final step and repair any missing edge;
+this is sufficient to recover an interruption between task creation and blocker attachment without a dStack-owned
+journal. Resume an owned in-progress final step instead of claiming it again. Enter its registered feature worktree
+before exporting documentation. Re-run `dstack docs export-design --bead <root> --scaffold` to recreate missing
+structure without replacing existing prose. Run documentation validation and
+`dstack audit --bead <root> --include-plan --require-docs` before closing the implementation epic, final step, and root
+in that order. Skip already-closed steps; inspect status rather than inferring completion from an empty ready queue.
+Merge and push require separate authorization.
 
 ## Resource installation
 

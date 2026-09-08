@@ -25,7 +25,7 @@ from .formula import check_formula, init_workspace
 from .output import emit
 from .policy import validate_plan_issue, validate_task_issue
 from .workflow import (
-    audit_fan_in_errors,
+    audit_completion_dependency_errors,
     feature_identity,
     feature_steps,
     implementation_task_graph_errors,
@@ -170,7 +170,7 @@ def review_graph_errors(
         errors.extend(f"{task.get('id')}: {error}" for error in validation["errors"])
         errors.extend(implementation_task_graph_errors(task, steps))
     audit = client.show(str(steps["audit"]["id"]))
-    errors.extend(audit_fan_in_errors(audit, str(steps["implementation"]["id"]), tasks))
+    errors.extend(audit_completion_dependency_errors(audit, tasks))
 
     if ready_task_ids:
         errors.append("implementation tasks are ready before approval: " + ", ".join(sorted(ready_task_ids)))

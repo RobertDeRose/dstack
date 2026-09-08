@@ -6,7 +6,7 @@ Beads owns every durable workflow transition. The molecule records planning,
 independent plan review, human approval, implementation work, and final close.
 dStack supplies only deterministic repository mechanics and validators.
 """
-version = 3
+version = 4
 type = "workflow"
 phase = "liquid"
 pour = true
@@ -89,10 +89,10 @@ labels = ["dstack:step:implementation"]
 description = """
 Structural container for reviewed implementation tasks. Beads 1.2.2 rejects
 blocking dependencies between task and epic issue types, so this epic has no
-approval dependency. Each native child task is created atomically with a blocker
-on the task-shaped approval milestone and owns one bounded accepted outcome.
-Native waits-for
-fan-in on the final close step is the sole implementation-completion dependency.
+approval dependency. Each native child task is created with a blocker on the
+task-shaped approval milestone and becomes a persistent direct blocker of the
+final close step. Those ordinary blocking edges remain after completion so a
+reopened task blocks close again without a secondary readiness mechanism.
 """
 
 [[steps]]
@@ -101,7 +101,6 @@ title = "Close {{feature_title}}"
 type = "task"
 priority = 1
 needs = ["approval"]
-waits_for = "children-of(implementation)"
 labels = ["dstack:step:audit"]
 description = """
 Review approved intent, decisions, implementation tasks, commits, tests, and

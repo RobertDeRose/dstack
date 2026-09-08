@@ -31,10 +31,11 @@ requires explicit user approval.
   conventional-commit type with an explicit native title prefix. Each task owns one commit with exactly one `Task:`
   trailer; an unambiguous unpublished correction rewrites only that owning commit and replays descendants without
   autosquashing unrelated fixups. Legacy `Beads:` footers are not ownership evidence.
-- `/close-feature` performs semantic review before claiming the final internal `audit` step. Native implementation
-  fan-in blocks that step whenever implementation work is open. Close returns defects to their owner, creates one bounded
-  task for unowned findings, and creates directly blocking human gates only for material ambiguity. Changed intent updates
-  the plan and owning task before implementation resumes.
+- `/close-feature` performs semantic review before claiming the final internal `audit` step. Every implementation task
+  remains a persistent ordinary blocker of that step, so reopening a task blocks close again without rebuilding workflow
+  state. Close returns defects to their owner, creates one bounded task for unowned findings, and creates directly
+  blocking human gates only for material ambiguity. Changed intent updates the plan and owning task before
+  implementation resumes.
 - After review passes, close exports the native design verbatim, writes the minimal feature index and SUMMARY link,
   validates documentation separately from project checks, creates one close-owned `docs(feature-slug): feature title`
   commit with no body, and closes the native feature.
@@ -47,10 +48,11 @@ requires explicit user approval.
 
 This is an intentional workflow-contract change. `/audit-feature` becomes `/close-feature`; `/audit-project` returns as
 an independent planning operation; the final formula step keeps its stable `audit` identity; formula version 3 removes
-the fixed close-review gate from new molecules and relies on native implementation fan-in; active molecules retain the
-graph they were poured with. Python 3.14 and Beads 1.2.2 are the tested runtime
-boundary. `dstack init [--update]` is the single project-policy installation path; Bead selectors use `--bead` and
-standalone documentation checks use `--slug`. dStack does not require target repositories to use hk or mdBook.
+the fixed close-review gate from new molecules. Formula version 4 replaces `waits-for` fan-in with persistent direct
+implementation-task blockers on the final step; active molecules retain the graph they were poured with and repair any
+missing direct blocker when review or close resumes. Python 3.14 and Beads 1.2.2 are the tested runtime boundary.
+`dstack init [--update]` is the single project-policy installation path; Bead selectors use `--bead` and standalone
+documentation checks use `--slug`. dStack does not require target repositories to use hk or mdBook.
 
 Formula and PRIME files are reviewed project policy. Canonical implementation and close documentation commits use one
 `Task:` trailer and no longer require task commit-type, scope, or documentation-audience labels. Legacy `Beads:` footers
@@ -61,8 +63,8 @@ are not ownership evidence.
 Focused tests cover workspace failure handling, formula policy, lean plan and task validation, native graph readiness,
 gates, decisions, commit creation and correction, bounded evidence, transactional skill installation, feature-document
 export, and minimal documentation structure. Real-Beads acceptance tests exercise initialization, molecule flow,
-claiming, fan-in, worktrees, canonical commits, corrections, and close documentation. This repository validates with
-`uv run pytest`, `hk check -a`, and its release check, including installation from the built wheel.
+claiming, persistent close blockers, worktrees, canonical commits, corrections, and close documentation. This repository
+validates with `uv run pytest`, `hk check -a`, and its release check, including installation from the built wheel.
 
 ### Non-goals
 

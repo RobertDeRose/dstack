@@ -15,6 +15,7 @@ def test_prime_owns_only_common_dstack_contract() -> None:
     prime = (ASSETS / "PRIME.md").read_text(encoding="utf-8")
 
     assert "dstack <command> [arguments]" in prime
+    assert "explicitly activated dStack workflow" in prime
     assert "recovery_required" in prime
     assert "Git owns repository content" in prime
     assert "Beads owns plans" in prime
@@ -59,3 +60,14 @@ def test_implementation_skill_does_not_explain_commit_rewrite_internals() -> Non
     skill = _skill("dstack-implement")
     for implementation_detail in ("GIT_SEQUENCE_EDITOR", "sequence editor", "autosquash", "replay descendants"):
         assert implementation_detail not in skill
+
+
+def test_review_and_close_skills_preserve_persistent_native_close_blockers() -> None:
+    review = _skill("dstack-review-plan")
+    close = _skill("dstack-close-feature")
+
+    command = "bd dep add <audit> <task> --type blocks"
+    assert command in review
+    assert command in close
+    assert "later reopen blocks close again" in review
+    assert "interrupted task-creation sequence" in close

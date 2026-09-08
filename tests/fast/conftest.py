@@ -97,30 +97,61 @@ def public_feature(git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPat
         for name in ("plan", "review", "approval", "implementation", "audit")
     }
     roles["implementation"]["status"] = "open"
-    roles["audit"].update(status="in_progress", dependencies=[
-        {"id": "approval", "dependency_type": "blocks"},
-        {"id": "implementation", "dependency_type": "waits-for"},
-        {"id": "gate", "dependency_type": "blocks"},
-    ])
-    roles["plan"].update(description="Deliver the reviewed behavior.",
-                         design="\n\n".join(f"### {title}\n\nUse native evidence for this outcome." for title in PLAN_SECTIONS) + "\n",
-                         acceptance_criteria="The requested outcome is observable.")
-    task = {"id": "task", "title": "Implement behavior", "status": "closed", "parent": "implementation",
-            "issue_type": "task", "labels": ["dstack:work:implementation"], "description": "Implement behavior.",
-            "design": "Use native ownership and acceptance criteria.", "acceptance_criteria": "The behavior is tested.",
-            "notes": "No repository change: The accepted investigation requires no changes.",
-            "dependencies": [{"id": "approval", "dependency_type": "blocks"}],
-            "comments": [{"text": "Review correction: preserve inbound timestamps."}]}
-    decision = {"id": "decision", "title": "Use native state", "status": "closed", "issue_type": "decision",
-                "labels": ["decision:example"], "description": "Accepted durable rationale.",
-                "dependencies": [{"id": "root", "dependency_type": "relates-to"}]}
-    data = {"workspace": str(workspace), "worktrees": [{"path": str(worktree), "branch": "feat/example"}],
-            "issues": {**roles, "task": task, "decision": decision,
-                       "unrelated": {**decision, "id": "unrelated", "dependencies": []},
-                       "gate": {"id": "gate", "issue_type": "gate", "status": "closed", "title": "Review gate"},
-                       "root": {"id": "root", "title": "Feature: Example", "issue_type": "molecule", "status": "open",
-                                "labels": ["workflow:feature", "feature:example"],
-                                "metadata": {"dstack.base_branch": "main"}}}}
+    roles["audit"].update(
+        status="in_progress",
+        dependencies=[
+            {"id": "approval", "dependency_type": "blocks"},
+            {"id": "task", "dependency_type": "blocks"},
+            {"id": "gate", "dependency_type": "blocks"},
+        ],
+    )
+    roles["plan"].update(
+        description="Deliver the reviewed behavior.",
+        design="\n\n".join(f"### {title}\n\nUse native evidence for this outcome." for title in PLAN_SECTIONS) + "\n",
+        acceptance_criteria="The requested outcome is observable.",
+    )
+    task = {
+        "id": "task",
+        "title": "Implement behavior",
+        "status": "closed",
+        "parent": "implementation",
+        "issue_type": "task",
+        "labels": ["dstack:work:implementation"],
+        "description": "Implement behavior.",
+        "design": "Use native ownership and acceptance criteria.",
+        "acceptance_criteria": "The behavior is tested.",
+        "notes": "No repository change: The accepted investigation requires no changes.",
+        "dependencies": [{"id": "approval", "dependency_type": "blocks"}],
+        "comments": [{"text": "Review correction: preserve inbound timestamps."}],
+    }
+    decision = {
+        "id": "decision",
+        "title": "Use native state",
+        "status": "closed",
+        "issue_type": "decision",
+        "labels": ["decision:example"],
+        "description": "Accepted durable rationale.",
+        "dependencies": [{"id": "root", "dependency_type": "relates-to"}],
+    }
+    data = {
+        "workspace": str(workspace),
+        "worktrees": [{"path": str(worktree), "branch": "feat/example"}],
+        "issues": {
+            **roles,
+            "task": task,
+            "decision": decision,
+            "unrelated": {**decision, "id": "unrelated", "dependencies": []},
+            "gate": {"id": "gate", "issue_type": "gate", "status": "closed", "title": "Review gate"},
+            "root": {
+                "id": "root",
+                "title": "Feature: Example",
+                "issue_type": "molecule",
+                "status": "open",
+                "labels": ["workflow:feature", "feature:example"],
+                "metadata": {"dstack.base_branch": "main"},
+            },
+        },
+    }
     catalog, calls = tmp_path / "beads.json", tmp_path / "calls.jsonl"
     stub_dir = tmp_path / "stub-bin"
     stub_dir.mkdir()
