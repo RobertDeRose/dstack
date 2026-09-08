@@ -30,7 +30,6 @@ _CONVENTIONAL_PREFIX = re.compile(
     r"^(?P<type>build|chore|ci|docs|feat|fix|perf|refactor|revert|test)"
     r"(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?:\s+"
 )
-_NOTE_LINE_END = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
 
 
 def reject_beads_paths(paths: Sequence[str]) -> None:
@@ -91,15 +90,6 @@ def _bounded_notes_text(issue: Mapping[str, Any]) -> str:
             f"{MAX_IMPLEMENTATION_NOTES_FIELD_LENGTH} characters"
         )
     return value
-
-
-def _iter_note_lines(notes: str):
-    start = 0
-    for match in _NOTE_LINE_END.finditer(notes):
-        yield notes[start : match.start()]
-        start = match.end()
-    if start < len(notes):
-        yield notes[start:]
 
 
 def _lint_implementation_note(value: str) -> str:
@@ -289,7 +279,7 @@ def implementation_notes(issue: Mapping[str, Any]) -> list[str]:
     notes = _bounded_notes_text(issue)
     result: list[str] = []
     prefix = "Implementation:"
-    for line in _iter_note_lines(notes):
+    for line in notes.splitlines():
         candidate = line.strip()
         if not candidate:
             continue

@@ -128,7 +128,7 @@ def _autosquash_correction(
     target: str,
     message: str,
     allow_empty: bool = False,
-) -> str:
+) -> None:
     """Fold one correction into its exact owner, without autosquashing other work."""
 
     _require_no_git_operation(root)
@@ -189,10 +189,9 @@ def _autosquash_correction(
             "correction stopped; preserve unrelated descendant work, then continue or abort the native rebase. "
             f"If aborted, the correction commit remains for explicit recovery: {details}"
         )
-    return current_head(root)
 
 
-def _correct_or_reuse(root: Path, target: str, message: str) -> tuple[str, str]:
+def _correct_or_reuse(root: Path, target: str, message: str) -> str:
     _require_no_git_operation(root)
     paths = staged_paths(root)
     if not paths:
@@ -200,9 +199,9 @@ def _correct_or_reuse(root: Path, target: str, message: str) -> tuple[str, str]:
         if dirty:
             raise DstackError("commit refuses unstaged or untracked paths: " + ", ".join(dirty))
         if _commit_message(root, target).rstrip() == message.rstrip():
-            return target, "unchanged"
+            return "unchanged"
     _autosquash_correction(root, target=target, message=message, allow_empty=not paths)
-    return target, "corrected"
+    return "corrected"
 
 
 def _task_evidence(root: Path, base: str, task_id: str) -> list[dict[str, Any]]:
@@ -274,7 +273,7 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
             commit, mode = None, "unchanged"
     elif len(evidence) == 1:
         target = str(evidence[0]["commit"])
-        _, mode = _correct_or_reuse(root, target, message)
+        mode = _correct_or_reuse(root, target, message)
         corrected = _task_evidence(root, base, close_id)
         if len(corrected) != 1:
             raise DstackError("correction did not leave exactly one close documentation commit")
@@ -325,7 +324,7 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
         mode = "created"
     elif len(evidence) == 1:
         target = str(evidence[0]["commit"])
-        _, mode = _correct_or_reuse(root, target, message)
+        mode = _correct_or_reuse(root, target, message)
         corrected = _task_evidence(root, base, task_id)
         if len(corrected) != 1:
             raise DstackError("correction did not leave exactly one canonical task commit")

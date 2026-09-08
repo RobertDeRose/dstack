@@ -261,10 +261,10 @@ def test_canonical_retry_is_a_noop_and_notes_only_correction_rewords(git_repo: P
     target = _commit(git_repo, message)
     descendant = commit_file(git_repo, "b", "second\n", "feat: B")
 
-    assert subject._correct_or_reuse(git_repo, target, message) == (target, "unchanged")
+    assert subject._correct_or_reuse(git_repo, target, message) == "unchanged"
     assert git(git_repo, "rev-parse", "HEAD") == descendant
     updated = build_commit_message("fix(example): add A", "- Preserve A().", "a")
-    assert subject._correct_or_reuse(git_repo, target, updated)[1] == "corrected"
+    assert subject._correct_or_reuse(git_repo, target, updated) == "corrected"
     assert git(git_repo, "log", "--format=%s", f"{base}..HEAD").splitlines() == ["feat: B", "fix(example): add A"]
     assert git(git_repo, "show", "HEAD~1:a") == "first"
     assert git(git_repo, "show", "HEAD:b") == "second"
