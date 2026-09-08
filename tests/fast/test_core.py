@@ -172,15 +172,27 @@ def test_beads_client_requires_exact_tested_version(git_repo: Path, monkeypatch:
         client.check_version()
 
 
-@pytest.mark.parametrize("name", ["tab\tfile", "line\nfile", 'quoted"file', "cr\rfile", "\nleading", "record\x1efile", "raw\udcff"])
+@pytest.mark.parametrize(
+    "name", ["tab\tfile", "line\nfile", 'quoted"file', "cr\rfile", "\nleading", "record\x1efile", "raw\udcff"]
+)
 def test_evidence_preserves_literal_pathnames(git_repo: Path, name: str) -> None:
     from dstack.core import changed_paths
 
-    (git_repo / name).write_text("content")
-    subprocess.run(["git", "add", "--", name], cwd=git_repo, check=True)
-    subprocess.run(["git", "commit", "-qm", "feat: add file", "-m", "Task: x"], cwd=git_repo, check=True)
-    assert changed_paths(git_repo, "HEAD~1", "HEAD") == [name]
-    assert commit_records(git_repo, "HEAD~1..HEAD", include_paths=True)[0]["paths"] == [name]
+    # Test Git's stored pathnames, not the host filesystem's filename restrictions.
+    # In particular, APFS cannot create the raw non-UTF-8 filename on disk.
+    blob = run(["git", "hash-object", "-w", "--stdin"], cwd=git_repo, input_text="content").stdout.strip()
+    subprocess.run(
+        ["git", "update-index", "-z", "--index-info"],
+        cwd=git_repo,
+        check=True,
+        input=f"100644 {blob}\t{name}\0".encode("utf-8", errors="surrogateescape"),
+    )
+    tree = run(["git", "write-tree"], cwd=git_repo).stdout.strip()
+    commit = run(
+        ["git", "commit-tree", tree, "-p", "HEAD", "-m", "feat: add file", "-m", "Task: x"], cwd=git_repo
+    ).stdout.strip()
+    assert changed_paths(git_repo, "HEAD", commit) == [name]
+    assert commit_records(git_repo, f"HEAD..{commit}", include_paths=True)[0]["paths"] == [name]
 
 
 def test_evidence_handles_empty_body_and_empty_commit(git_repo: Path) -> None:
