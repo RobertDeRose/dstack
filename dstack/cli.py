@@ -142,7 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument(
         "--require-docs",
         action="store_true",
-        help="Treat missing or invalid feature documentation as a failed close check.",
+        help="Require valid publication and close ownership for changed feature documentation.",
     )
     audit.epilog = (
         "Read selected details natively: bd show ID --include-comments --json, "

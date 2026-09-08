@@ -68,10 +68,10 @@ the same native fan-in. Once review is clean and every implementation task is cl
 step.
 
 Only after review passes does close export the design, write the minimal feature documentation, and run feature-document
-validation separately from the repository's own project validation. `dstack docs commit --bead <feature-root>`
-creates the one allowed close-owned `docs(<slug>): <feature title>` commit with no body and a `Task:` trailer for the
-final step. Rerunning it with one unpublished close commit and a clean worktree rewords stale canonical metadata without
-creating duplicate evidence.
+validation separately from the repository's own project validation. `dstack docs commit --bead <feature-root>` creates
+the one allowed close-owned `docs(<slug>): <feature title>` commit with no body and a `Task:` trailer for the final
+step. Rerunning it with one unpublished close commit and a clean worktree rewords stale canonical metadata without
+creating duplicate evidence. Valid publication inherited unchanged from the base needs no new or empty close commit.
 
 Close operates in the registered feature worktree. Documentation scaffolding is repeatable and does not replace prose;
 the design export is checked against Beads at commit and final audit. After validation, explicitly close the

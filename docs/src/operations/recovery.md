@@ -6,7 +6,9 @@ phase journal, commit map, lease database, or replay protocol.
 ## Interrupted sessions
 
 Enter the feature worktree with `dstack worktree --bead <root>`. Its reuse does not require merging every subsequent
-base-branch change. Inspect `git status`, the selected issue with `bd show <task> --include-comments --json`, and native
+base-branch change. A `recovery_required` result returns the existing path and native Git operation without repairing it.
+Enter that path and resolve the native operation before claiming or committing more work. Arbitrary detached checkouts
+are not adopted as feature worktrees. Inspect `git status`, the selected issue with `bd show <task> --include-comments --json`, and native
 workflow position with `bd mol current <root> --json`. For a large graph, prefer `bd mol progress` and a focused
 `bd list --parent <implementation> --status in_progress --label dstack:work:implementation --limit 0 --json` query.
 

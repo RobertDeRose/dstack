@@ -776,7 +776,7 @@ def commit_records(
     if owner_id is not None:
         command.extend(["--fixed-strings", f"--grep=Task: {owner_id}", f"--grep=Beads: {owner_id}"])
     if include_paths:
-        command.extend(["--name-only", "--no-renames"])
+        command.extend(["--name-only", "--no-renames", "--diff-merges=first-parent"])
     command.append(ref_range)
     fields = run(command, cwd=repository).stdout.split("\0")
     records: list[dict[str, Any]] = []

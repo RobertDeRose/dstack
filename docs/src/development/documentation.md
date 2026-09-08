@@ -47,3 +47,8 @@ empty Overview and User Impact sections before validation. The exported design r
 `dstack check docs --slug <slug>` remains a Beads-independent structural check and rejects an empty design. The docs
 commit and final audit additionally compare it with the current native plan, rejecting a stale or hand-edited export.
 Changes to approved intent still require explicit human agreement; a byte comparison is not an approval mechanism.
+
+Publication ownership is checked in both new and reused commits. Application changes cannot be hidden in a close-owned
+commit, and implementation tasks cannot own the feature publication directory. When validated publication is already
+inherited unchanged from the base, close does not create an empty commit. A new feature publication or its newly added
+SUMMARY entry requires a canonical close-owned commit; `audit --require-docs` verifies that distinction from Git.
