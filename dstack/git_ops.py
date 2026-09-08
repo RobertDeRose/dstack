@@ -114,10 +114,6 @@ def _verify_commit_message(root: Path, revision: str, *, message: str) -> None:
         raise DstackError("canonical commit does not match the deterministic message contract")
 
 
-def _verify_head_message(root: Path, *, subject: str, task_id: str) -> None:
-    _verify_commit_message(root, "HEAD", message=build_commit_message(subject, "", task_id))
-
-
 def _published(root: Path, revision: str) -> bool:
     refs = run(
         ["git", "for-each-ref", "--contains", revision, "--format=%(refname)", "refs/remotes"],

@@ -260,18 +260,13 @@ def commit_records(
     ref_range: str,
     *,
     include_paths: bool = False,
-    max_count: int | None = None,
     owner_id: str | None = None,
 ) -> list[dict[str, Any]]:
     repository = git_root(root)
     validate_git_range(repository, ref_range, name="evidence revision")
-    if max_count is not None and max_count < 1:
-        raise DstackError("Git evidence limit must be positive")
     # NUL is the only separator that cannot appear in a Git pathname. The
     # leading empty field marks a record; its three header fields are positional.
     command = ["git", "log", "-z", "--format=%x00%H%x00%s%x00%b"]
-    if max_count is not None:
-        command.append(f"--max-count={max_count}")
     if owner_id is not None:
         command.extend(["--fixed-strings", f"--grep=Task: {owner_id}", f"--grep=Beads: {owner_id}"])
     if include_paths:
@@ -295,7 +290,6 @@ def commit_records(
                 position += 1
         footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Task:\s*([^\s]+)\s*$", body))
         legacy_footer_ids = tuple(match.group(1) for match in re.finditer(r"(?m)^Beads:\s*([^\s]+)\s*$", body))
-        footer_kind = "Task" if footer_ids else None
         records.append(
             {
                 "commit": commit.strip(),
@@ -304,7 +298,6 @@ def commit_records(
                 "paths": paths,
                 "footer_ids": footer_ids,
                 "legacy_footer_ids": legacy_footer_ids,
-                "footer_kind": footer_kind,
             }
         )
     return records

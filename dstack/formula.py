@@ -215,8 +215,8 @@ def _install_formula(context: FormulaContext, *, update: bool) -> dict[str, Any]
     }
 
 
-def check_formula(root: Path, *, require_committed: bool = True) -> dict[str, Any]:
-    """Verify dStack's installed and, when requested, committed project policy."""
+def check_formula(root: Path) -> dict[str, Any]:
+    """Verify dStack's installed and committed project policy."""
 
     context = _formula_context(root)
     repository = context.repository
@@ -231,19 +231,16 @@ def check_formula(root: Path, *, require_committed: bool = True) -> dict[str, An
     if destination.read_bytes() != packaged_formula:
         raise DstackError(f"project formula differs from the packaged dStack contract: {destination}")
 
-    committed = False
-    if require_committed:
-        relative_formula = Path(".beads") / "formulas" / FORMULA_FILENAME
-        observed = run(
-            ["git", "show", f"HEAD:{relative_formula.as_posix()}"],
-            cwd=repository,
-            check=False,
+    relative_formula = Path(".beads") / "formulas" / FORMULA_FILENAME
+    observed = run(
+        ["git", "show", f"HEAD:{relative_formula.as_posix()}"],
+        cwd=repository,
+        check=False,
+    )
+    if observed.returncode != 0 or observed.stdout.encode() != packaged_formula:
+        raise DstackError(
+            f"project formula must match the committed HEAD policy before feature work: {relative_formula}"
         )
-        if observed.returncode != 0 or observed.stdout.encode() != packaged_formula:
-            raise DstackError(
-                f"project formula must match the committed HEAD policy before feature work: {relative_formula}"
-            )
-        committed = True
 
     prime = context.workspace / PRIME_FILENAME
     _assert_no_symlink_components(prime, purpose="Beads prime destination")
@@ -258,6 +255,6 @@ def check_formula(root: Path, *, require_committed: bool = True) -> dict[str, An
         "root": str(repository),
         "beads_version": beads_version,
         "formula": display_formula_path(destination, repository),
-        "formula_committed": committed,
+        "formula_committed": True,
         "prime": display_formula_path(prime, repository),
     }

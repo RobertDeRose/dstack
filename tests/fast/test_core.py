@@ -96,7 +96,6 @@ def test_git_evidence_ignores_legacy_beads_footers(git_repo: Path) -> None:
 
     records = commit_records(git_repo, "HEAD~2..HEAD", include_paths=True)
 
-    assert [record["footer_kind"] for record in records] == ["Task", None]
     assert records[0]["footer_ids"] == ("ds-task",)
     assert records[1]["footer_ids"] == ()
     assert records[1]["legacy_footer_ids"] == ("ds-legacy",)
