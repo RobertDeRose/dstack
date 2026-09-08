@@ -80,6 +80,7 @@ def collect_audit_evidence(
         client,
         str(steps["implementation"]["id"]),
     )
+    task_ids = {str(task["id"]) for task in implementation}
     decision_candidates = client.list_issues(labels=[f"decision:{slug}"], issue_type_filter="decision")
     # Native list summaries need not include dependencies; hydrate candidates before filtering links.
     decisions = sorted(
@@ -91,7 +92,8 @@ def collect_audit_evidence(
         key=lambda issue: str(issue.get("id") or ""),
     )
     audit_step = client.show(str(steps["audit"]["id"]))
-    gate_ids = sorted(set(dependency_targets(audit_step, "blocks")))
+    known_non_gates = {*task_ids, str(steps["approval"]["id"])}
+    gate_ids = sorted(set(dependency_targets(audit_step, "blocks")) - known_non_gates)
     gates = sorted(
         (issue for issue in client.show_many(gate_ids) if issue_type(issue) == "gate"),
         key=lambda issue: str(issue.get("id") or ""),
@@ -115,7 +117,6 @@ def collect_audit_evidence(
     }
     records: list[dict[str, Any]] = []
     paths: list[str] = []
-    task_ids = {str(task["id"]) for task in implementation}
     close_id = str(audit_step["id"])
     accepted_ids = {*task_ids, close_id}
 
