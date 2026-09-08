@@ -16,7 +16,6 @@ from .git_state import (
     current_head,
     git_operation,
     git_root,
-    reject_beads_paths,
     require_feature_worktree,
     serialized_repository_mutation,
 )
@@ -26,6 +25,7 @@ from .output import emit
 from .policy import (
     canonical_docs_message,
     canonical_task_message,
+    reject_beads_paths,
     validate_commit_paths,
     validate_task_issue,
 )
