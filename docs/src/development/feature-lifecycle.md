@@ -22,8 +22,9 @@ close-review gate.
 work. It records the original request in the plan description, a publishable design fragment in the design field,
 observable outcomes in acceptance criteria, and material questions and answers in native comments. The design contains
 exactly six level-three headings: Goals, User-facing behavior, Implemented design, Compatibility and constraints,
-Validation, and Non-goals. Planning focuses on user intent; it does not broadly inspect the repository or create
-implementation tasks.
+Validation, and Non-goals. Nested subsections are allowed within those sections. Mechanical checks validate fields and
+structure, not whether prose represents an unresolved decision. Planning focuses on user intent; it does not broadly
+inspect the repository or create implementation tasks.
 
 Planning closes only after its questions are resolved and `dstack check plan --bead <plan-bead>` succeeds.
 

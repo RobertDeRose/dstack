@@ -84,15 +84,15 @@ def test_plan_rejects_sections_outside_the_publishable_set() -> None:
     assert "plan headings must be exactly the publishable section set" in result["errors"]
 
 
-def test_plan_rejects_missing_request_acceptance_and_placeholders() -> None:
+def test_plan_rejects_missing_request_and_acceptance() -> None:
     issue = valid_plan()
     issue["description"] = ""
-    issue["acceptance_criteria"] = "TODO"
+    issue["acceptance_criteria"] = ""
     result = validate_plan_issue(issue)
 
     assert result["status"] == "invalid"
     assert "native Beads description is empty" in result["errors"]
-    assert "acceptance criteria contain a placeholder or unchecked item" in result["errors"]
+    assert "native Beads acceptance criteria are empty" in result["errors"]
 
 
 def test_task_requires_only_native_shape_and_observable_acceptance() -> None:
@@ -208,3 +208,31 @@ def test_markdown_sections_ignore_nested_fence_and_quoted_heading_examples() -> 
 
     text = "### Real\n\n````md\n```\n## Fake\n```\n````\n\n> ## Quoted\n\n### Next\nContent\n"
     assert [section.title for section in markdown_sections(text)] == ["Real", "Next"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The `bd todo` command returns the accepted tasks.",
+        "Preserve literal TODO and FIXME comments in source examples.",
+        "Keep the string '???' and checkbox syntax: - [ ] Example.",
+        "TODO",
+    ],
+)
+def test_structural_checks_do_not_guess_resolution_from_prose(text: str) -> None:
+    plan = valid_plan()
+    plan["design"] += "\n" + text
+    plan["acceptance_criteria"] = text
+    task = valid_task()
+    task["acceptance_criteria"] = text
+    assert validate_plan_issue(plan)["status"] == "ok"
+    assert validate_task_issue(task)["status"] == "ok"
+
+
+def test_publishable_plan_allows_subsections_inside_required_sections() -> None:
+    plan = valid_plan()
+    plan["design"] = str(plan["design"]).replace(
+        "### Implemented design\n",
+        "### Implemented design\n\n#### Components\n\n##### Validation\n",
+    )
+    assert validate_plan_issue(plan)["status"] == "ok"
