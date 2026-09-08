@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .beads import BeadsClient, as_items, client_for
-from .core import DstackError, _assert_no_symlink_components, run
+from .core import DstackError, assert_no_symlink_components, run
 from .git_state import (
     branch_exists,
     commit_records,
@@ -59,7 +59,7 @@ def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -
         return worktree, False, False
 
     worktree = conventional_worktree(client.root, branch)
-    _assert_no_symlink_components(worktree, purpose="feature worktree")
+    assert_no_symlink_components(worktree, purpose="feature worktree")
     if worktree.exists():
         raise DstackError(f"conventional worktree path exists but Beads does not register it for {branch}: {worktree}")
 

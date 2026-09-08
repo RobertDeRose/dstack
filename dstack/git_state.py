@@ -10,7 +10,7 @@ from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
-from .core import DstackError, _assert_no_symlink_components, read_utf8_text, run, truncate_output
+from .core import DstackError, assert_no_symlink_components, read_utf8_text, run, truncate_output
 
 if TYPE_CHECKING:
     from .beads import BeadsClient
@@ -199,7 +199,7 @@ def verify_worktree_identity(
 ) -> Path:
     repository = git_root(root)
     validate_git_branch(repository, branch)
-    _assert_no_symlink_components(worktree, purpose="worktree")
+    assert_no_symlink_components(worktree, purpose="worktree")
     resolved = worktree.resolve()
     expected = conventional_worktree(repository, branch).resolve()
     if conventional and resolved != expected:

@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from .core import DstackError
+from .core import DstackError, assert_no_symlink_components
 from .output import emit
 
 MANAGED_KEY = "dstack-managed"
@@ -35,18 +35,8 @@ def default_agent_dir() -> Path:
     return Path(configured).expanduser() if configured else Path.home() / ".pi" / "agent"
 
 
-def _assert_no_symlink(path: Path) -> None:
-    current = path
-    while True:
-        if current.is_symlink():
-            raise DstackError(f"managed destination must not be a symlink: {path}")
-        if current.parent == current:
-            return
-        current = current.parent
-
-
 def _frontmatter(path: Path) -> dict[str, str]:
-    _assert_no_symlink(path)
+    assert_no_symlink_components(path, purpose="managed destination")
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -79,7 +69,7 @@ def _stale_owned_resources(skills_target: Path, prompts_target: Path) -> list[tu
 
     stale: list[tuple[Path, str]] = []
     for target, kind in ((skills_target, "skills"), (prompts_target, "prompts")):
-        _assert_no_symlink(target)
+        assert_no_symlink_components(target, purpose="managed destination")
         if target.exists() and not target.is_dir():
             raise DstackError(f"agent {kind} destination is not a directory: {target}")
 
@@ -87,7 +77,7 @@ def _stale_owned_resources(skills_target: Path, prompts_target: Path) -> list[tu
         for directory in sorted(skills_target.iterdir()):
             if not directory.is_dir() or directory.name in CURRENT_SKILLS:
                 continue
-            _assert_no_symlink(directory)
+            assert_no_symlink_components(directory, purpose="managed destination")
             skill = directory / "SKILL.md"
             if skill.is_file() and _owned_skill(skill, directory.name):
                 stale.append((directory, f"skills/{directory.name}"))
@@ -96,7 +86,7 @@ def _stale_owned_resources(skills_target: Path, prompts_target: Path) -> list[tu
         for prompt in sorted(prompts_target.glob("*.md")):
             if prompt.name in CURRENT_PROMPTS:
                 continue
-            _assert_no_symlink(prompt)
+            assert_no_symlink_components(prompt, purpose="managed destination")
             if _owned_prompt(prompt, prompt.stem):
                 stale.append((prompt, f"prompts/{prompt.name}"))
     return stale
@@ -119,7 +109,7 @@ def _preflight_resources(
             raise DstackError(f"packaged skill must disable model invocation: {name}")
 
         destination = skills_target / name
-        _assert_no_symlink(destination)
+        assert_no_symlink_components(destination, purpose="managed destination")
         if destination.exists():
             installed = destination / "SKILL.md"
             if not destination.is_dir() or not installed.is_file() or not _owned_skill(installed, name):
@@ -132,7 +122,7 @@ def _preflight_resources(
             raise DstackError(f"packaged prompt lacks dStack ownership marker: {name}")
 
         destination = prompts_target / name
-        _assert_no_symlink(destination)
+        assert_no_symlink_components(destination, purpose="managed destination")
         if destination.exists() and (not destination.is_file() or not _owned_prompt(destination, expected_name)):
             raise DstackError(f"refusing to replace user-owned prompt: {destination}")
     return stale
@@ -240,7 +230,7 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
     _verify_packaged_manifest(skill_source, prompt_source)
 
     original_target = agent_dir.expanduser()
-    _assert_no_symlink(original_target)
+    assert_no_symlink_components(original_target, purpose="managed destination")
     target = original_target.resolve()
     skills_target = target / "skills"
     prompts_target = target / "prompts"

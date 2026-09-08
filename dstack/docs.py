@@ -10,7 +10,7 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 
 from .beads import BeadsClient, client_for
-from .core import DstackError, _assert_no_symlink_components, read_utf8_text, run
+from .core import DstackError, assert_no_symlink_components, read_utf8_text, run
 from .git_state import require_feature_worktree, serialized_repository_mutation
 from .workflow import feature_identity, feature_steps
 from .output import emit
@@ -76,12 +76,12 @@ def _feature_paths(root: Path, feature: str) -> tuple[Path, Path, Path, Path]:
         (source / "features", "feature documentation root"),
         (directory, "feature documentation directory"),
     ):
-        _assert_no_symlink_components(path, purpose=purpose)
+        assert_no_symlink_components(path, purpose=purpose)
     return source / "SUMMARY.md", directory / "index.md", directory / "design.md", repository
 
 
 def _regular_file(path: Path, purpose: str) -> str:
-    _assert_no_symlink_components(path, purpose=purpose)
+    assert_no_symlink_components(path, purpose=purpose)
     if path.is_symlink() or not path.is_file():
         raise DstackError(f"{purpose} must be a regular file: {path}")
     return read_utf8_text(path, purpose=purpose)
@@ -198,7 +198,7 @@ def validate_docs_revision(
 
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    _assert_no_symlink_components(path.parent, purpose="feature documentation directory")
+    assert_no_symlink_components(path.parent, purpose="feature documentation directory")
     descriptor, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(raw)
     try:
@@ -288,7 +288,7 @@ def export_design(
     # Preflight all optional scaffolding before exporting. Existing prose is never replaced.
     if scaffold:
         for path, purpose in ((index, "feature index"), (summary, "documentation summary")):
-            _assert_no_symlink_components(path, purpose=purpose)
+            assert_no_symlink_components(path, purpose=purpose)
         index_text = _regular_file(index, "feature index") if index.exists() else ""
         scaffolded_index = _scaffold_index(index_text, slug)
         summary_text = _regular_file(summary, "documentation summary") if summary.exists() else "# Summary\n"
@@ -296,7 +296,7 @@ def export_design(
         targets = markdown_links(summary_text)
         if targets.count(index_target) > 1 or f"features/{slug}/design.md" in targets:
             raise DstackError("repair duplicate or direct-design SUMMARY links before scaffolding")
-    _assert_no_symlink_components(target, purpose="feature design")
+    assert_no_symlink_components(target, purpose="feature design")
     _atomic_write(target, design)
     if scaffold:
         if scaffolded_index != index_text:
