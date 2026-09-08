@@ -104,8 +104,24 @@ def test_validate_docs_requires_exact_native_include_and_rejects_design_directiv
         "```markdown\n{{#include design.md}}\n```\n",
     ):
         (feature / "design.md").write_text(design, encoding="utf-8")
-        with pytest.raises(DstackError, match="must not contain active mdBook directives"):
+        with pytest.raises(DstackError, match="must not contain active mdBook file directives"):
             validate_docs(tmp_path, feature="example")
+
+
+def test_validate_docs_matches_mdbook_file_helper_semantics(tmp_path: Path) -> None:
+    feature = write_feature(tmp_path)
+    fenced = INDEX + "\n```text\n{{#include ../../../../../secret.txt}}\n```\n"
+    (feature / "index.md").write_text(fenced, encoding="utf-8")
+    with pytest.raises(DstackError, match="exactly one native include"):
+        validate_docs(tmp_path, feature="example")
+
+    (feature / "index.md").write_text(INDEX, encoding="utf-8")
+    (feature / "design.md").write_text("{{#rustdoc_include ../../../../../secret.rs}}\n", encoding="utf-8")
+    with pytest.raises(DstackError, match="active mdBook file directives"):
+        validate_docs(tmp_path, feature="example")
+
+    (feature / "design.md").write_text(r"\{{#include ignored.md}}" + "\n", encoding="utf-8")
+    assert validate_docs(tmp_path, feature="example")["status"] == "ok"
 
 
 class ExportClient:

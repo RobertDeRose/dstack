@@ -156,3 +156,15 @@ def test_worktree_entry_does_not_adopt_an_arbitrary_detached_checkout(public_fea
     rejected = public_feature.invoke("worktree", "--bead", "root", primary=True, expected=2)
     assert "path exists" in rejected["error"]
     assert public_feature.worktree.is_dir()
+
+
+def test_commit_rejects_mechanically_invalid_task_before_mutating_history(public_feature: FeatureRepository) -> None:
+    task = public_feature.data["issues"]["task"]
+    task.update(status="in_progress", notes="Implementation: Implement the accepted outcome.", design="")
+    target = public_feature.worktree / "invalid-task.txt"
+    target.write_text("change\n", encoding="utf-8")
+    run(["git", "add", "invalid-task.txt"], cwd=public_feature.worktree)
+    before = run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout.strip()
+    rejected = public_feature.invoke("commit", "--bead", "task", expected=2)
+    assert "implementation Bead design is empty" in rejected["error"]
+    assert run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout.strip() == before

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -136,3 +137,46 @@ def test_new_navigation_needs_close_ownership_even_when_design_was_inherited(pub
     assert "without a close-owned commit" in rejected["error"]
     audited = public_feature.invoke("audit", "--bead", "root", "--require-docs", expected=4)
     assert any("requires one canonical documentation commit" in error for error in audited["checks"]["errors"])
+
+
+def test_docs_commit_requires_exported_design_in_the_staged_tree(public_feature: FeatureRepository) -> None:
+    exclude = public_feature.repo / ".git/info/exclude"
+    exclude.write_text(exclude.read_text(encoding="utf-8") + "docs/src/features/example/design.md\n", encoding="utf-8")
+    publication(public_feature)
+    before = run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout.strip()
+    rejected = public_feature.invoke("docs", "commit", "--bead", "root", expected=2)
+    assert "feature design is missing from Git revision" in rejected["error"]
+    assert run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout.strip() == before
+
+
+def test_docs_commit_validates_the_resulting_commit_after_hooks(public_feature: FeatureRepository) -> None:
+    publication(public_feature)
+    common = run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=public_feature.worktree
+    ).stdout.strip()
+    hook = Path(common) / "hooks/pre-commit"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text(
+        "#!/bin/sh\nprintf '\\nHook mutation.\\n' >> docs/src/features/example/design.md\n"
+        "git add docs/src/features/example/design.md\n",
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    before = run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout.strip()
+    rejected = public_feature.invoke("docs", "commit", "--bead", "root", expected=2)
+    after = run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout.strip()
+    assert after != before
+    assert "differs from the native plan" in rejected["error"]
+    committed = run(["git", "show", f"{after}:docs/src/features/example/design.md"], cwd=public_feature.worktree).stdout
+    assert "Hook mutation." in committed
+
+
+def test_audit_validates_committed_publication_not_ignored_working_files(public_feature: FeatureRepository) -> None:
+    exclude = public_feature.repo / ".git/info/exclude"
+    exclude.write_text(exclude.read_text(encoding="utf-8") + "docs/src/features/example/design.md\n", encoding="utf-8")
+    publication(public_feature)
+    message = canonical_docs_message(public_feature.data["issues"]["root"], "example", "audit")
+    run(["git", "commit", "-F", "-"], cwd=public_feature.worktree, input_text=message)
+    audited = public_feature.invoke("audit", "--bead", "root", "--require-docs", expected=4)
+    assert audited["validation"]["feature_docs"]["status"] == "invalid"
+    assert "feature documentation validation failed" in audited["checks"]["errors"]
