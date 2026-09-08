@@ -19,16 +19,10 @@ def run_beads(
     *,
     cwd: Path,
     check: bool = True,
-    env: Mapping[str, str] | None = None,
-    **kwargs: Any,
 ) -> CommandResult:
     if not command or Path(str(command[0])).name != "bd":
         raise DstackError("Beads adapter may only execute bd commands")
-    beads_env = {"BD_JSON_ENVELOPE": "1"}
-    if env:
-        beads_env.update(env)
-    kwargs.setdefault("timeout", 180.0)
-    return run(command, cwd=cwd, check=check, env=beads_env, **kwargs)
+    return run(command, cwd=cwd, check=check, env={"BD_JSON_ENVELOPE": "1"}, timeout=180.0)
 
 
 def parse_json(text: str, *, context: str) -> Any:
@@ -211,8 +205,8 @@ class BeadsClient:
     def __init__(self, root: Path):
         self.root = git_root(root)
 
-    def _run(self, command: Sequence[str], **kwargs: Any) -> CommandResult:
-        return run_beads(command, cwd=self.root, **kwargs)
+    def _run(self, command: Sequence[str], *, check: bool = True) -> CommandResult:
+        return run_beads(command, cwd=self.root, check=check)
 
     def json(self, command: Sequence[str]) -> Any:
         result = self._run(command, check=False)
@@ -231,31 +225,23 @@ class BeadsClient:
             raise DstackError(f"dStack requires Beads {supported}; found {raw}")
         return raw
 
-    def show_optional(self, issue_id: str, *, include_comments: bool = False) -> dict[str, Any] | None:
+    def show(self, issue_id: str) -> dict[str, Any]:
         command = ["bd", "show", issue_id, "--json"]
-        if include_comments:
-            command.append("--include-comments")
         result = self._run(command, check=False)
         if result.returncode != 0:
             failure = beads_command_error(result, context=f"bd show {issue_id}")
             if failure.code == "not_found":
-                return None
+                raise DstackError(f"Bead not found: {issue_id}") from failure
             # Some pinned native show failures are still plain text. Do not
             # mistake an unrelated missing database or connection for a Bead.
             if failure.code is None and re.search(
                 r"(?i)(?:issue|bead)\s+(?:[^\n:]+\s+)?not found|no issues found", str(failure)
             ):
-                return None
+                raise DstackError(f"Bead not found: {issue_id}") from failure
             raise failure
         return first_item(parse_json(result.stdout, context=f"bd show {issue_id}"), context=f"bd show {issue_id}")
 
-    def show(self, issue_id: str, *, include_comments: bool = False) -> dict[str, Any]:
-        issue = self.show_optional(issue_id, include_comments=include_comments)
-        if issue is None:
-            raise DstackError(f"Bead not found: {issue_id}")
-        return issue
-
-    def show_many(self, issue_ids: Sequence[str], *, include_comments: bool = False) -> list[dict[str, Any]]:
+    def show_many(self, issue_ids: Sequence[str]) -> list[dict[str, Any]]:
         ids = [str(issue_id) for issue_id in issue_ids]
         if len(ids) != len(set(ids)):
             raise DstackError("batched Beads read contains duplicate IDs")
@@ -264,8 +250,6 @@ class BeadsClient:
         for offset in range(0, len(ids), 100):
             batch = ids[offset : offset + 100]
             command = ["bd", "show", *batch, "--json"]
-            if include_comments:
-                command.append("--include-comments")
             items = as_items(self.json(command), context="bd show batch")
             by_id = {str(item["id"]): item for item in items}
             if len(by_id) != len(items):
