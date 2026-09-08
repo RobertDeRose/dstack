@@ -13,8 +13,9 @@ but this skill provides its public close behavior.
 ## Review before claiming
 
 Run `dstack worktree --bead <feature-or-descendant>` and enter the returned worktree before any publication writes.
-Respect the single-writer boundary. Inspect `git status`; finish or deliberately abort an interrupted native Git
-operation and establish ownership of existing changes before continuing.
+Respect the single-writer boundary. A `recovery_required` result locates the interrupted worktree without repairing it.
+Inspect `git status`; finish or deliberately abort the native Git operation and establish ownership of existing changes
+before continuing. Do not claim work or write publication files during recovery.
 
 Resolve native position with `bd mol current <root> --json` (or focused status queries plus `bd mol progress` for a
 large graph). Read the final step with comments and inspect its ownership. Resume this agent's in-progress final step

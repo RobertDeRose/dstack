@@ -99,5 +99,60 @@ def test_partial_id_correction_keeps_one_canonical_owner(
     assert messages.count("Task: task") == 1 and "amend!" not in messages
     checked = public_feature.invoke("check", "task", "--bead", "ta")
     assert checked["bead"] == "task" and len(checked["evidence"]["commits"]) == 1
-    assert run(["git", "config", "--get", "rebase.abbreviateCommands"],
-               cwd=public_feature.worktree).stdout.strip() == str(abbreviated_commands).lower()
+    assert (
+        run(["git", "config", "--get", "rebase.abbreviateCommands"], cwd=public_feature.worktree).stdout.strip()
+        == str(abbreviated_commands).lower()
+    )
+
+
+@pytest.mark.parametrize("reported_branch", ["feat/example", ""])
+def test_worktree_entry_resumes_a_conflicted_correction(
+    public_feature: FeatureRepository,
+    reported_branch: str,
+) -> None:
+    task = public_feature.data["issues"]["task"]
+    task.update(status="in_progress", notes="Implementation: Add the first outcome.")
+    path = public_feature.worktree / "overlap.txt"
+    path.write_text("first\n", encoding="utf-8")
+    run(["git", "add", "overlap.txt"], cwd=public_feature.worktree)
+    public_feature.invoke("commit", "--bead", "task")
+    public_feature.commit(
+        "feat(example): later behavior\n\nTask: later\n", path="overlap.txt", content="first\nlater\n"
+    )
+    path.write_text("corrected\nlater\n", encoding="utf-8")
+    run(["git", "add", "overlap.txt"], cwd=public_feature.worktree)
+    task["notes"] = "Implementation: Correct the first outcome."
+    stopped = public_feature.invoke("commit", "--bead", "task", expected=2)
+    assert "correction stopped" in stopped["error"]
+    assert run(["git", "symbolic-ref", "--quiet", "HEAD"], cwd=public_feature.worktree, check=False).returncode
+    public_feature.data["worktrees"][0]["branch"] = reported_branch
+    located = public_feature.invoke("worktree", "--bead", "root", primary=True)
+    assert located["worktree"] == str(public_feature.worktree)
+    assert located["status"] == "recovery_required" and located["git_operation"] == "rebase-merge"
+    assert not located["created_branch"] and not located["created_worktree"]
+    blocked = public_feature.invoke("commit", "--bead", "task", expected=2)
+    assert "finish or abort" in blocked["error"]
+    # Resolve the selected correction, then preserve the later task during replay.
+    path.write_text("corrected\n", encoding="utf-8")
+    run(["git", "add", "overlap.txt"], cwd=public_feature.worktree)
+    continued = run(
+        ["git", "rebase", "--continue"], cwd=public_feature.worktree, check=False, env={"GIT_EDITOR": "true"}
+    )
+    assert continued.returncode != 0
+    path.write_text("corrected\nlater\n", encoding="utf-8")
+    run(["git", "add", "overlap.txt"], cwd=public_feature.worktree)
+    run(["git", "rebase", "--continue"], cwd=public_feature.worktree, env={"GIT_EDITOR": "true"})
+    public_feature.data["worktrees"][0]["branch"] = "feat/example"
+    assert public_feature.invoke("worktree", "--bead", "root", primary=True)["status"] == "ok"
+    checked = public_feature.invoke("check", "task", "--bead", "task")
+    assert len(checked["evidence"]["commits"]) == 1
+    assert path.read_text(encoding="utf-8") == "corrected\nlater\n"
+    assert public_feature.invoke("commit", "--bead", "task")["mode"] == "unchanged"
+
+
+def test_worktree_entry_does_not_adopt_an_arbitrary_detached_checkout(public_feature: FeatureRepository) -> None:
+    run(["git", "switch", "--detach"], cwd=public_feature.worktree)
+    public_feature.data["worktrees"][0]["branch"] = ""
+    rejected = public_feature.invoke("worktree", "--bead", "root", primary=True, expected=2)
+    assert "path exists" in rejected["error"]
+    assert public_feature.worktree.is_dir()

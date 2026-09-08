@@ -122,7 +122,9 @@ def build_parser() -> argparse.ArgumentParser:
     _bead(commit, "Implementation Bead ID.")
     commit.set_defaults(func=cmd_git_commit)
 
-    worktree = _leaf(commands, "worktree", "Create or verify the feature worktree for a Bead.")
+    worktree = _leaf(
+        commands, "worktree", "Locate the feature worktree, report native recovery, or create it if absent."
+    )
     _root(worktree)
     _bead(worktree, "Feature root or descendant Bead ID.")
     worktree.set_defaults(func=cmd_worktree_ensure)

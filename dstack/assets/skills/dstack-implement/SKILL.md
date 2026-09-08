@@ -12,9 +12,11 @@ readiness.
 
 ## Start or resume
 
-Run `dstack worktree --bead <feature-or-descendant>` and enter the returned worktree. One agent writes a feature
-worktree at a time; the CLI's short mutation lock does not protect concurrent editing or staging. Do not claim more
-work while another writer owns this worktree.
+Run `dstack worktree --bead <feature-or-descendant>` and enter the returned worktree. A `recovery_required` result
+locates interrupted work; it does not authorize edits or another commit. Inspect `git status` and deliberately finish
+or abort the native Git operation before claiming work. Preserve existing edits and staged content and establish their
+ownership. One agent writes a feature worktree at a time; the CLI's short mutation lock does not protect concurrent
+editing or staging. Do not claim more work while another writer owns this worktree.
 
 Resolve the implementation epic and inspect native position with `bd mol current <root> --json`. For a large graph,
 use `bd mol progress <root> --json` and the focused in-progress query instead of loading every step:
@@ -25,8 +27,10 @@ bd list --parent <implementation> --status in_progress --label dstack:work:imple
 
 Resume the explicitly selected task, or the one in-progress task owned by this agent. Never steal another assignee's
 claim or infer completion from an empty ready queue. If ownership is ambiguous, report the candidates. For a closed
-selected task, verify its result and stop rather than claiming unrelated work. Only when no task should be resumed,
-claim one native ready task:
+selected task, verify its result and stop rather than claiming unrelated work. For an explicitly selected open task,
+resolve its canonical ID, confirm it appears in the native ready results, then claim that exact ID with
+`bd update <task> --claim --json`; do not substitute another task. Report native blockers if it is not ready.
+Only when no task was selected and no task should be resumed, claim one native ready task:
 
 ```bash
 bd ready --parent <implementation> --label dstack:work:implementation --claim --json
@@ -36,9 +40,6 @@ bd show <task> --include-comments --json
 Read the selected task's description, design, acceptance, notes, and review comments even on resume. Read relevant
 accepted decisions and direct blocker details only as needed. If nothing is ready, report native blockers using
 `bd ready --parent <implementation> --label dstack:work:implementation --explain --json`. Never claim the final step.
-
-Inspect `git status` before editing. Complete or deliberately abort an interrupted native Git operation before another
-commit attempt. Preserve existing edits and staged content; determine their task ownership before touching them.
 
 Implement the smallest complete accepted outcome. Add behavioral tests before production code when practical. Keep code,
 tests, configuration, and existing current documentation aligned, but do not create or update

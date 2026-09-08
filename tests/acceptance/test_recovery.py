@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .conftest import pour_feature, requires_bd, run_command, run_json
+from .conftest import pour_feature, requires_bd, run_command, run_dstack, run_json
 
 
 @requires_bd
@@ -32,3 +32,25 @@ def test_review_comment_survives_reopen_and_explicit_json_read(real_repo: Path) 
     detailed = run_json(real_repo, "show", plan, "--include-comments")
     assert finding not in json.dumps(plain)
     assert finding in json.dumps(detailed)
+
+
+@requires_bd
+def test_worktree_entry_locates_native_detached_rebase(real_repo: Path) -> None:
+    root, _ = pour_feature(real_repo, slug="resume-rebase")
+    worktree = Path(run_dstack(real_repo, "worktree", "--bead", root)["worktree"])
+    for directory, content in ((worktree, "feature\n"), (real_repo, "base\n")):
+        (directory / "README.md").write_text(content, encoding="utf-8")
+        run_command(["git", "add", "README.md"], cwd=directory)
+        run_command(["git", "commit", "-m", "Change readme"], cwd=directory)
+    conflict = run_command(["git", "rebase", "main"], cwd=worktree, check=False)
+    assert conflict.returncode != 0
+    located = run_dstack(real_repo, "worktree", "--bead", root)
+    assert located["status"] == "recovery_required"
+    assert located["git_operation"] == "rebase-merge"
+    assert Path(located["worktree"]) == worktree
+    assert not located["created_worktree"] and not located["created_branch"]
+    (worktree / "README.md").write_text("base and feature\n", encoding="utf-8")
+    run_command(["git", "add", "README.md"], cwd=worktree)
+    run_command(["git", "rebase", "--continue"], cwd=worktree, env={"GIT_EDITOR": "true"})
+    assert run_dstack(real_repo, "worktree", "--bead", root)["status"] == "ok"
+    assert (worktree / "README.md").read_text(encoding="utf-8") == "base and feature\n"

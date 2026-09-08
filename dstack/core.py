@@ -661,8 +661,40 @@ def current_head(root: Path, ref: str = "HEAD") -> str:
     return run(["git", "rev-parse", "--verify", "--end-of-options", ref], cwd=repository).stdout.strip()
 
 
+def git_operation(root: Path) -> str | None:
+    """Report Git's own interrupted-operation marker without managing its state."""
+
+    directory = Path(run(["git", "rev-parse", "--absolute-git-dir"], cwd=root).stdout.strip())
+    return next(
+        (
+            name
+            for name in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "sequencer")
+            if (directory / name).exists()
+        ),
+        None,
+    )
+
+
+def _rebasing_branch(worktree: Path) -> str | None:
+    directory = Path(run(["git", "rev-parse", "--absolute-git-dir"], cwd=worktree).stdout.strip())
+    for backend in ("rebase-merge", "rebase-apply"):
+        head_name = directory / backend / "head-name"
+        if head_name.is_file():
+            ref = read_utf8_text(head_name, purpose="native rebase branch").strip()
+            if ref.startswith("refs/heads/"):
+                return ref.removeprefix("refs/heads/")
+    return None
+
+
 def worktree_for_branch(client: BeadsClient, branch: str) -> Path | None:
-    matches = [Path(str(item["path"])) for item in client.worktrees() if item.get("branch") == branch]
+    matches = []
+    for item in client.worktrees():
+        path = Path(str(item["path"]))
+        # Native Beads reports no branch while Git's rebase has detached HEAD.
+        if item.get("branch") == branch or (
+            not item.get("branch") and path.is_dir() and _rebasing_branch(path) == branch
+        ):
+            matches.append(path)
     if len(matches) > 1:
         raise DstackError(f"multiple worktrees are registered for {branch}")
     return matches[0] if matches else None
@@ -681,6 +713,7 @@ def verify_worktree_identity(
     branch: str,
     *,
     conventional: bool = True,
+    allow_rebase: bool = False,
 ) -> Path:
     repository = git_root(root)
     validate_git_branch(repository, branch)
@@ -693,12 +726,10 @@ def verify_worktree_identity(
         raise DstackError(f"worktree repository identity mismatch for {branch}: {resolved}")
     top = run(["git", "rev-parse", "--show-toplevel"], cwd=resolved, check=False)
     active = run(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=resolved, check=False)
-    if (
-        top.returncode
-        or Path(top.stdout.strip()).resolve() != resolved
-        or active.returncode
-        or active.stdout.strip() != branch
-    ):
+    branch_matches = active.returncode == 0 and active.stdout.strip() == branch
+    if allow_rebase and active.returncode:
+        branch_matches = _rebasing_branch(resolved) == branch
+    if top.returncode or Path(top.stdout.strip()).resolve() != resolved or not branch_matches:
         raise DstackError(
             f"worktree identity mismatch for {branch}: path={resolved}, branch={active.stdout.strip() or '<detached>'}"
         )
