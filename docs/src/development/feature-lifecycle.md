@@ -46,21 +46,24 @@ Technical punctuation is preserved; there is no English verb whitelist. Review r
 rationale in linked decision Beads rather than duplicate commit prose.
 
 Run the repository's documented validation before committing. Each repository-changing task owns one canonical commit
-with a `Task:` trailer. A conventional native title prefix selects the type; otherwise it defaults to `feat`. Reopened
-corrections revise obsolete notes and amend only the owning unpublished commit, replaying descendants without absorbing
-unrelated fixups. Clean retries are no-ops. `dstack check task --bead <task>` verifies selected evidence, graph membership,
-and cleanliness without hydrating every sibling. Close the task only after all checks pass. Implementation updates
-current documentation but leaves the feature publication under `docs/src/features/<slug>/` to close review.
+with a `Task:` trailer. An intentional no-repository-change task owns zero canonical commits and records exactly why no
+repository change was required. A conventional native title prefix selects the type; otherwise it defaults to `feat`.
+Reopened corrections revise obsolete notes and amend only the owning unpublished commit, replaying descendants without
+absorbing unrelated fixups. Clean retries are no-ops. `dstack check task --bead <task>` and feature audit use the same
+task-evidence validator for graph policy, delivered-outcome notes, commit ownership, changed paths, and intentional
+no-change evidence. The task check additionally verifies the selected feature worktree is clean without hydrating every
+sibling. Close the task only after all checks pass. Implementation updates current documentation but leaves the feature
+publication under `docs/src/features/<slug>/` to close review.
 
 ## Close
 
 The public `/close-feature` operation reviews the feature before claiming the final step. Its internal ID and label
-remain `audit` and `dstack:step:audit`. Close collects bounded facts with
-`dstack audit --bead <root> --include-plan`, reads the plan and relevant accepted decisions, compares the delivered repository with approved intent, and returns clear defects to their owning task.
-Unowned findings become one new implementation child; material ambiguity becomes a separate native gate that directly
-blocks the close step without secondary parentage. When the answer changes approved intent, close records a decision,
-updates the plan design and owning task acceptance criteria, and reopens that task for `/implement`. An unowned changed
-outcome instead becomes a bounded correction task.
+remain `audit` and `dstack:step:audit`. Close collects bounded facts with `dstack audit --bead <root> --include-plan`,
+reads the plan and relevant accepted decisions, compares the delivered repository with approved intent, and returns
+clear defects to their owning task. Unowned findings become one new implementation child; material ambiguity becomes a
+separate native gate that directly blocks the close step without secondary parentage. When the answer changes approved
+intent, close records a decision, updates the plan design and owning task acceptance criteria, and reopens that task for
+`/implement`. An unowned changed outcome instead becomes a bounded correction task.
 
 The close skill reviews before claiming the final step. When every current implementation child is closed, native
 `children-of(implementation)` fan-in may expose the final step as ready; close deliberately leaves it unclaimed during

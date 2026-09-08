@@ -73,7 +73,9 @@ dstack audit --bead <feature> [--offset N] [--include-plan] [--require-docs]
 
 Agent-facing operational commands emit deterministic JSON. Top-level help, version, unknown-command, and argparse output
 remains human-readable. Beads commands remain the authority for workflow transitions; dStack only validates or performs
-the mechanics required by the skills.
+the mechanics required by the skills. The installed `PRIME.md` defines the universal dStack interaction and native
+recovery contract. Each skill adds only its stage-specific dStack commands and examples; exact command syntax remains
+authoritative in CLI help and the command reference.
 
 ## Documentation
 
