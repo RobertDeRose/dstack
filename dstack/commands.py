@@ -19,6 +19,7 @@ from .core import (
     conventional_worktree,
     feature_identity,
     feature_steps,
+    git_operation,
     implementation_task_graph_errors,
     issue_type,
     reject_beads_paths,
@@ -65,7 +66,7 @@ def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -
 
     existing = worktree_for_branch(client, branch)
     if existing is not None:
-        worktree = verify_worktree_identity(client.root, existing, branch)
+        worktree = verify_worktree_identity(client.root, existing, branch, allow_rebase=True)
         require_common_history(client.root, base_branch, branch)
         return worktree, False, False
 
@@ -125,9 +126,11 @@ def cmd_worktree_ensure(args: argparse.Namespace) -> int:
     root, slug, base = feature_identity(client, args.bead)
     branch = f"feat/{slug}"
     worktree, created_branch, created_worktree = ensure_branch_worktree(client, branch, base)
+    operation = git_operation(worktree)
     emit(
         {
-            "status": "ok",
+            "status": "recovery_required" if operation else "ok",
+            "git_operation": operation,
             "feature": root["id"],
             "branch": branch,
             "base_branch": base,

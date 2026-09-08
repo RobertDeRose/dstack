@@ -18,6 +18,7 @@ from .core import (
     feature_identity,
     feature_steps,
     git_root,
+    git_operation,
     implementation_task_graph_errors,
     issue_type,
     reject_beads_paths,
@@ -46,10 +47,9 @@ def _unstaged_paths(root: Path) -> list[str]:
 
 
 def _require_no_git_operation(root: Path) -> None:
-    for name in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "sequencer"):
-        raw = run(["git", "rev-parse", "--git-path", name], cwd=root).stdout.strip()
-        if (root / raw).exists():
-            raise DstackError("finish or abort the existing native Git operation before committing: " + name)
+    operation = git_operation(root)
+    if operation:
+        raise DstackError("finish or abort the existing native Git operation before committing: " + operation)
 
 
 def build_commit_message(subject: str, body: str, task_id: str) -> str:
@@ -274,6 +274,7 @@ def _require_feature_docs_paths(paths: list[str], slug: str) -> None:
 @serialized_repository_mutation
 def cmd_git_commit_docs(args: argparse.Namespace) -> int:
     root = git_root(args.root)
+    _require_no_git_operation(root)
     client = BeadsClient(root)
     client.check_version()
     feature_root, slug, base = feature_identity(client, args.bead)
@@ -334,6 +335,7 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
 @serialized_repository_mutation
 def cmd_git_commit(args: argparse.Namespace) -> int:
     root = git_root(args.root)
+    _require_no_git_operation(root)
     client = BeadsClient(root)
     client.check_version()
     task = client.show(args.bead)
