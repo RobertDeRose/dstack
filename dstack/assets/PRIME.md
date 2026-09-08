@@ -43,5 +43,4 @@ complete.
 ## Memory
 
 Use memory only when the active skill explicitly permits it. Memory is advisory context, never live status or completion
-evidence. Current repository documentation and accepted decisions outrank stale memory. Any memory write or correction
-requires explicit user approval.
+evidence. Any memory write or correction requires explicit user approval.

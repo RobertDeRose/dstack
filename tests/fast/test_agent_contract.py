@@ -32,6 +32,7 @@ def test_prime_owns_only_common_dstack_contract() -> None:
     assert "Never take another" in prime
     assert "empty ready queue" in prime
     assert "requires explicit user approval" in prime
+    assert prime.count("Current repository documentation and accepted decisions outrank stale memory") == 1
 
     for stage_specific_command in (
         "dstack commit --bead",
