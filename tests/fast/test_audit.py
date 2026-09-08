@@ -7,7 +7,7 @@ import pytest
 
 from dstack.audit import bounded
 from dstack.core import run
-from dstack.git_ops import canonical_task_message
+from dstack.policy import canonical_task_message
 
 if TYPE_CHECKING:
     from conftest import FeatureRepository

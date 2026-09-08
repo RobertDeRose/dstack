@@ -5,8 +5,14 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from .core import DstackError
-from .git_ops import canonical_task_message, commit_record_matches_message, validate_commit_paths
-from .policy import implementation_notes, no_repository_change_reason, validate_task_issue
+from .policy import (
+    canonical_task_message,
+    commit_record_matches_message,
+    implementation_notes,
+    no_repository_change_reason,
+    validate_commit_paths,
+    validate_task_issue,
+)
 from .workflow import implementation_task_graph_errors
 
 

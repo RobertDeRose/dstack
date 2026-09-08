@@ -33,6 +33,20 @@ def test_lower_layers_do_not_import_command_handlers() -> None:
     assert offenders == []
 
 
+def test_read_only_validation_does_not_import_git_mutation_layer() -> None:
+    package = Path(__file__).parents[2] / "dstack"
+    offenders: list[str] = []
+    for name in ("audit.py", "task_validation.py"):
+        path = package / name
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module in {"git_ops", "dstack.git_ops"}:
+                offenders.append(name)
+            elif isinstance(node, ast.Import) and any(alias.name == "dstack.git_ops" for alias in node.names):
+                offenders.append(name)
+    assert offenders == []
+
+
 def test_generic_command_environment_has_no_beads_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BD_JSON_ENVELOPE", raising=False)
     assert "BD_JSON_ENVELOPE" not in command_env()

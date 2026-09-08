@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dstack.git_ops import canonical_task_message
+from dstack.policy import canonical_task_message
 from dstack.task_validation import validate_implementation_task
 
 

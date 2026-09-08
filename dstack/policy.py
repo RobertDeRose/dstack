@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from markdown_it import MarkdownIt
 
 from .beads import issue_labels, issue_type
 from .core import DstackError
+from .git_state import reject_beads_paths
 
 PLAN_SECTIONS = (
     "Goals",
@@ -204,6 +205,68 @@ def commit_subject(issue: Mapping[str, Any], feature_slug: str) -> str:
             f"derived commit subject is {len(subject)} characters; update the Bead title to fit {COMMIT_SUBJECT_MAX}"
         )
     return subject
+
+
+def build_commit_message(subject: str, body: str, task_id: str) -> str:
+    if not subject or "\n" in subject:
+        raise DstackError("commit subject must be one non-empty line")
+    if not task_id or task_id != task_id.strip() or any(character.isspace() for character in task_id):
+        raise DstackError("Task ID must be one non-empty token")
+    if re.search(r"(?im)^(?:Task|Beads):\s*", body):
+        raise DstackError("commit body must not contain an ownership footer; dStack adds it")
+    parts = [subject]
+    if body.strip():
+        parts.extend(["", body.strip()])
+    parts.extend(["", f"Task: {task_id}"])
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def task_commit_body(task: Mapping[str, object]) -> str:
+    notes = implementation_notes(task)
+    if not notes:
+        raise DstackError("implementation task requires at least one Implementation note before committing")
+    body = "\n".join(f"- {note}" for note in notes)
+    if len(body) > MAX_IMPLEMENTATION_BODY_LENGTH:
+        raise DstackError(
+            f"implementation commit body exceeds the bounded limit of {MAX_IMPLEMENTATION_BODY_LENGTH} characters"
+        )
+    return body
+
+
+def canonical_docs_message(feature: Mapping[str, object], slug: str, task_id: str) -> str:
+    title = str(feature.get("title") or "").strip().removeprefix("Feature: ").strip()
+    if not title or "\n" in title:
+        raise DstackError("feature title must be one non-empty line for the documentation commit")
+    return build_commit_message(f"docs({slug}): {title}", "", task_id)
+
+
+def canonical_task_message(task: Mapping[str, object], slug: str) -> str:
+    task_id = str(task.get("id") or "")
+    return build_commit_message(commit_subject(task, slug), task_commit_body(task), task_id)
+
+
+def commit_record_matches_message(record: Mapping[str, object], message: str) -> bool:
+    subject = str(record.get("subject") or "")
+    body = str(record.get("body") or "")
+    observed = f"{subject}\n\n{body}" if body else subject
+    return observed.rstrip() == message.rstrip()
+
+
+def validate_commit_paths(paths: Sequence[str], slug: str, *, documentation: bool) -> None:
+    """Enforce only the Beads-state exclusion and the feature publication boundary."""
+
+    reject_beads_paths(paths)
+    directory = f"docs/src/features/{slug}"
+    if documentation:
+        invalid = [path for path in paths if path != "docs/src/SUMMARY.md" and not path.startswith(directory + "/")]
+        if invalid:
+            raise DstackError("close documentation commit contains non-feature paths: " + ", ".join(invalid))
+    else:
+        invalid = [path for path in paths if path == directory or path.startswith(directory + "/")]
+        if invalid:
+            raise DstackError(
+                "feature publication belongs to the close step, not an implementation task: " + ", ".join(invalid)
+            )
 
 
 def implementation_notes(issue: Mapping[str, Any]) -> list[str]:

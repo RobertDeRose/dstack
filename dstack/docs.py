@@ -34,6 +34,21 @@ def markdown_links(text: str) -> list[str]:
     ]
 
 
+def publication_changed(root: Path, base: str, head: str, slug: str) -> bool:
+    """Report whether this feature publication differs from the inherited base state."""
+
+    changed = run(
+        ["git", "diff", "--name-only", "-z", f"{base}...{head}", "--", f"docs/src/features/{slug}"], cwd=root
+    ).stdout
+    if changed:
+        return True
+    ancestor = run(["git", "merge-base", base, head], cwd=root).stdout.strip()
+    summary = run(["git", "show", f"{ancestor}:docs/src/SUMMARY.md"], cwd=root, check=False)
+    # Current publication is validated separately. Unrelated SUMMARY changes do
+    # not require a close commit when this feature's navigation already existed.
+    return summary.returncode != 0 or markdown_links(summary.stdout).count(f"features/{slug}/index.md") != 1
+
+
 def markdown_includes(text: str) -> list[str]:
     """Return active mdBook include targets from raw chapter input.
 
