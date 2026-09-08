@@ -70,13 +70,9 @@ def _regular_file(path: Path, purpose: str) -> str:
     return read_utf8_text(path, purpose=purpose)
 
 
-def _meaningful_section(index: str, title: str) -> bool:
+def _nonempty_section(index: str, title: str) -> bool:
     matches = [section for section in markdown_sections(index) if section.title.casefold() == title.casefold()]
-    return (
-        len(matches) == 1
-        and matches[0].level == 2
-        and len(matches[0].content.strip()) >= 12
-    )
+    return len(matches) == 1 and matches[0].level == 2 and bool(matches[0].content.strip())
 
 
 def validate_docs(root: Path, *, feature: str, expected_design: str | None = None) -> dict[str, object]:
@@ -94,8 +90,8 @@ def validate_docs(root: Path, *, feature: str, expected_design: str | None = Non
     if not re.fullmatch(r"#\s+\S.+", first_content):
         errors.append("feature index must begin with one level-one title")
     for title in ("Overview", "User Impact"):
-        if not _meaningful_section(index, title):
-            errors.append(f"feature index requires one meaningful level-two {title} section")
+        if not _nonempty_section(index, title):
+            errors.append(f"feature index requires one nonempty level-two {title} section")
 
     implemented = [
         section
@@ -143,6 +139,58 @@ def _atomic_write(path: Path, content: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _scaffold_index(text: str, slug: str) -> str:
+    """Insert unambiguous missing structure; never rewrite or rearrange prose."""
+    if not text.strip():
+        text = f"# {slug}\n"
+    lines = text.splitlines(keepends=True)
+    tokens = MarkdownIt("commonmark").parse(text)
+    headings = [
+        (token.map[0], int(token.tag[1:]), tokens[position + 1].content.strip().casefold())
+        for position, token in enumerate(tokens)
+        if token.type == "heading_open" and token.level == 0 and token.map is not None
+    ]
+    titles = ("Overview", "User Impact", "Implemented Design")
+    positions: dict[str, int] = {}
+    for title in titles:
+        matches = [(start, level) for start, level, name in headings if name == title.casefold()]
+        if len(matches) > 1 or (matches and matches[0][1] != 2):
+            raise DstackError(f"repair duplicate or non-level-two {title} headings before scaffolding")
+        if matches:
+            positions[title] = matches[0][0]
+
+    includes = markdown_includes(text)
+    implemented = next(
+        (section for section in markdown_sections(text) if section.title.casefold() == "implemented design"),
+        None,
+    )
+    if includes and (
+        includes != ["design.md"] or implemented is None or "{{#include design.md}}" not in implemented.content
+    ):
+        raise DstackError("repair duplicate, noncanonical, or misplaced design includes before scaffolding")
+
+    additions: dict[int, list[str]] = {}
+    for order, title in enumerate(titles):
+        if title not in positions:
+            insert_at = min(
+                (positions[later] for later in titles[order + 1 :] if later in positions), default=len(lines)
+            )
+            content = f"## {title}\n"
+            if title == "Implemented Design":
+                content += "\n{{#include design.md}}\n"
+            additions.setdefault(insert_at, []).append(content)
+    if "Implemented Design" in positions and not includes:
+        start = positions["Implemented Design"]
+        end = next((line for line, level, _ in headings if line > start and level <= 2), len(lines))
+        additions.setdefault(end, []).append("{{#include design.md}}\n")
+
+    # Reverse insertion keeps source offsets valid and every existing line intact.
+    for position in sorted(additions, reverse=True):
+        suffix = "\n" if position < len(lines) else ""
+        lines[position:position] = ["\n\n" + "\n".join(additions[position]) + suffix]
+    return "".join(lines)
+
+
 def export_design(
     root: Path,
     selector: str,
@@ -169,8 +217,8 @@ def export_design(
     if scaffold:
         for path, purpose in ((index, "feature index"), (summary, "documentation summary")):
             _assert_no_symlink_components(path, purpose=purpose)
-            if path.exists():
-                _regular_file(path, purpose)
+        index_text = _regular_file(index, "feature index") if index.exists() else ""
+        scaffolded_index = _scaffold_index(index_text, slug)
         summary_text = _regular_file(summary, "documentation summary") if summary.exists() else "# Summary\n"
         index_target = f"features/{slug}/index.md"
         targets = markdown_links(summary_text)
@@ -179,12 +227,8 @@ def export_design(
     _assert_no_symlink_components(target, purpose="feature design")
     _atomic_write(target, design)
     if scaffold:
-        if not index.exists():
-            _atomic_write(
-                index,
-                f"# {slug}\n\n## Overview\n\n## User Impact\n\n"
-                "## Implemented Design\n\n{{#include design.md}}\n",
-            )
+        if scaffolded_index != index_text:
+            _atomic_write(index, scaffolded_index)
         if index_target not in targets:
             _atomic_write(summary, summary_text.rstrip() + f"\n\n- [{slug}]({index_target})\n")
     return {
