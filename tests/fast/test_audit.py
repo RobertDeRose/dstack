@@ -45,6 +45,16 @@ def test_audit_reuses_loaded_plan_and_leaves_detail_reads_to_beads(public_featur
     assert set(result["details"]) == {"plan"}
 
 
+def test_audit_does_not_rehydrate_known_task_blockers_as_gate_candidates(public_feature: FeatureRepository) -> None:
+    public_feature.invoke("audit", "--bead", "root")
+    calls = [json.loads(line) for line in public_feature.calls.read_text().splitlines()]
+    task_reads = [call for call in calls if call[:1] == ["show"] and "task" in call]
+    gate_reads = [call for call in calls if call[:1] == ["show"] and "gate" in call]
+
+    assert len(task_reads) == 1
+    assert gate_reads == [["show", "gate", "--json"]]
+
+
 @pytest.mark.parametrize("field,value", [("status", "open"), ("notes", ""), ("design", "")])
 def test_audit_rejects_incomplete_native_task(public_feature: FeatureRepository, field: str, value: str) -> None:
     public_feature.data["issues"]["task"][field] = value
