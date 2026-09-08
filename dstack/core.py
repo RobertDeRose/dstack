@@ -487,14 +487,6 @@ class BeadsClient:
     ) -> builtins.list[dict[str, Any]]:
         return self.list(all_statuses=all_statuses, parent=parent, limit=limit)
 
-    def history(self, issue_id: str) -> Any:
-        result = self._run(["bd", "history", issue_id, "--json"], check=False)
-        if result.returncode != 0:
-            return {
-                "status": "unavailable",
-                "error": result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}",
-            }
-        return parse_json(result.stdout, context=f"bd history {issue_id}")
 
     def worktrees(self) -> builtins.list[dict[str, Any]]:
         payload = self.json(["bd", "worktree", "list", "--json"])

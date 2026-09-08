@@ -140,35 +140,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     audit.add_argument("--include-plan", action="store_true", help="Include the full native plan issue.")
     audit.add_argument(
-        "--include-task",
-        action="append",
-        default=[],
-        metavar="ID",
-        help="Include one full implementation issue; repeat for additional tasks.",
-    )
-    audit.add_argument(
-        "--include-decision",
-        action="append",
-        default=[],
-        metavar="ID",
-        help="Include one full decision issue; repeat for additional decisions.",
-    )
-    audit.add_argument(
-        "--history-for",
-        action="append",
-        default=[],
-        metavar="ID",
-        help="Include native Beads history for one feature issue; repeat as needed.",
-    )
-    audit.add_argument(
-        "--include-commit-paths",
-        action="store_true",
-        help="Include per-commit and aggregate changed paths.",
-    )
-    audit.add_argument(
         "--require-docs",
         action="store_true",
         help="Treat missing or invalid feature documentation as a failed close check.",
+    )
+    audit.epilog = (
+        "Read selected details natively: bd show ID --include-comments --json, "
+        "bd history ID --json, or git show COMMIT."
     )
     audit.set_defaults(func=cmd_audit_evidence)
 
