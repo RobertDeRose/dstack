@@ -7,8 +7,6 @@ disable-model-invocation: true
 
 # Plan feature
 
-Run only when explicitly invoked. Beads owns the plan and workflow state; do not create a parallel plan file.
-
 ## dStack operations
 
 Use these dStack commands in this stage:
@@ -29,9 +27,9 @@ stable kebab-case slug and base branch (`dev` when present, otherwise `main`), t
 molecule with `title`, `desc`, `feature_title`, `feature_slug`, and `base_branch` variables. Label the root
 `workflow:feature` and `feature:<slug>`, and set `dstack.base_branch=<base>` metadata.
 
-Inspect `bd mol current <root> --json` and `bd show <plan> --include-comments --json`. Resume this agent's in-progress
-plan without claiming again. A closed plan returns `/review-plan <root>`; do not reopen it implicitly. Respect other
-owners. Claim only an open native-ready plan with:
+Inspect `bd mol current <root> --json` and `bd show <plan> --include-comments --json`. A closed plan returns
+`/review-plan <root>`; do not reopen it implicitly. Otherwise continue an existing in-progress plan or claim an open
+native-ready plan with:
 
 ```bash
 bd ready --parent <root> --label dstack:step:plan --claim --json

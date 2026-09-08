@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 
 ASSETS = Path(__file__).parents[2] / "dstack" / "assets"
@@ -11,6 +12,11 @@ def _skill(name: str) -> str:
     return (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
 
 
+def _documented_dstack_operations(skill: str) -> set[str]:
+    section = skill.split("## dStack operations", 1)[1].split("\n## ", 1)[0]
+    return set(re.findall(r"(?m)^dstack [^\n]+$", section))
+
+
 def test_prime_owns_only_common_dstack_contract() -> None:
     prime = (ASSETS / "PRIME.md").read_text(encoding="utf-8")
 
@@ -19,6 +25,9 @@ def test_prime_owns_only_common_dstack_contract() -> None:
     assert "recovery_required" in prime
     assert "Git owns repository content" in prime
     assert "Beads owns plans" in prime
+    assert "Never take another" in prime
+    assert "empty ready queue" in prime
+    assert "requires explicit user approval" in prime
 
     for stage_specific_command in (
         "dstack commit --bead",
@@ -52,8 +61,22 @@ def test_each_skill_documents_only_its_required_dstack_surface() -> None:
     for name, commands in expected.items():
         skill = _skill(name)
         assert "## dStack operations" in skill
-        for command in commands:
-            assert command in skill
+        assert _documented_dstack_operations(skill) == set(commands)
+
+
+def test_skills_do_not_repeat_common_prime_policy() -> None:
+    repeated_common_policy = (
+        "Run only when explicitly invoked",
+        "Current repository documentation and accepted decisions outrank stale memory",
+        "empty ready queue",
+        "recovery_required",
+        "Memory corrections require",
+        "write them only after user approval",
+    )
+    for path in SKILLS.glob("*/SKILL.md"):
+        skill = path.read_text(encoding="utf-8")
+        for phrase in repeated_common_policy:
+            assert phrase not in skill, f"{path.name} repeats common PRIME policy: {phrase}"
 
 
 def test_implementation_skill_does_not_explain_commit_rewrite_internals() -> None:
