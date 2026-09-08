@@ -1,8 +1,9 @@
 # dStack workflow contract
 
-This project uses dStack only when `/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`, or
-an explicit request activates it. Do not infer activation from `.beads`, installed skills, this file, or `bd`
-availability. Outside an active workflow, do not run Beads or create workflow state.
+This project uses dStack only inside an explicitly activated dStack workflow: `/plan-feature`, `/review-plan`,
+`/implement`, `/close-feature`, `/audit-project`, or an explicit request to use dStack. Do not infer activation from
+`.beads`, installed skills, this file, or `bd` availability. Outside an active workflow, do not run Beads or create
+workflow state.
 
 ## Authority
 

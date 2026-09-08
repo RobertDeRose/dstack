@@ -8,7 +8,7 @@ The explicit lifecycle is `/plan-feature`, `/review-plan`, human approval, `/imp
 
 Planning records intent, review reconciles that intent with targeted repository and memory evidence, and implementation
 claims one native ready task at a time. Close performs the holistic delivery review before publishing feature
-documentation. Native gates protect human approval and material ambiguity; implementation fan-in controls final close
+documentation. Native gates protect human approval and material ambiguity; persistent task blockers control final close
 readiness.
 
 ## User Impact

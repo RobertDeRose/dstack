@@ -97,6 +97,7 @@ def test_worktree_commit_correction_and_task_evidence_use_native_state(real_repo
         "A reachable canonical commit contains one bullet per implementation note and exactly one matching Task trailer.",
     )
     task_id = str(task["id"])
+    run_command(["bd", "dep", "add", str(steps["audit"]["id"]), task_id, "--type", "blocks"], cwd=real_repo)
     approve_feature(real_repo, root, steps)
     claimed = run_json(
         real_repo,
@@ -144,6 +145,17 @@ def test_worktree_commit_correction_and_task_evidence_use_native_state(real_repo
         assert retry["mode"] == "unchanged" and retry["commit"] == committed["commit"]
         run_json(real_repo, "close", task_id, "--reason", "Fixture first implementation")
         run_json(real_repo, "reopen", task_id, "--reason", "Fixture correction")
+        assert (
+            run_json(
+                real_repo,
+                "ready",
+                "--parent",
+                root,
+                "--label",
+                "dstack:step:audit",
+            )
+            == []
+        )
         run_json(
             real_repo,
             "update",
@@ -191,17 +203,6 @@ def test_worktree_commit_correction_and_task_evidence_use_native_state(real_repo
         assert "paths" not in checked["evidence"]["commits"][0]
 
         run_json(real_repo, "close", task_id, "--reason", "Clean close review")
-        assert (
-            run_json(
-                real_repo,
-                "ready",
-                "--parent",
-                root,
-                "--label",
-                "dstack:step:audit",
-            )
-            == []
-        )
         close_step = run_json(
             real_repo,
             "ready",

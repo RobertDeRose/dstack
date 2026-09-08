@@ -114,6 +114,7 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         "The tested behavior uses native Beads readiness.",
     )
     task_id = str(task["id"])
+    run_command(["bd", "dep", "add", str(steps["audit"]["id"]), task_id, "--type", "blocks"], cwd=real_repo)
     assert "dstack:step:implementation" not in task.get("labels", [])
     assert "dstack:commit:feat" not in task.get("labels", [])
     assert (
@@ -201,7 +202,7 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
 
     # Close reviews before claiming the now-ready final step. A correction
     # discovered during that review becomes a native implementation child and
-    # the existing waits-for fan-in blocks the still-open final step again.
+    # a persistent ordinary blocker immediately removes close from ready work.
     late_task = run_json(
         real_repo,
         "create",
@@ -223,6 +224,10 @@ def test_native_beads_graph_is_the_only_ready_work_authority(real_repo: Path, tm
         "The reviewed defect no longer occurs.",
     )
     assert late_task["status"] == "open"
+    run_command(
+        ["bd", "dep", "add", str(steps["audit"]["id"]), str(late_task["id"]), "--type", "blocks"],
+        cwd=real_repo,
+    )
     assert (
         run_json(
             real_repo,

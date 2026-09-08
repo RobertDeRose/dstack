@@ -19,7 +19,7 @@ dstack check review --bead <root>
 ```
 
 Both must pass before closing the review step. The review check validates the fixed workflow steps, implementation task
-shape, approval blockers, final fan-in, and that implementation work is not ready before approval.
+shape, approval blockers, persistent close blockers, and that implementation work is not ready before approval.
 
 ## Review
 
@@ -42,7 +42,10 @@ exact `relates-to` dependency.
 Inspect existing implementation children first and reconcile partial review work by ID instead of creating duplicates.
 Create bounded task-shaped outcomes directly under the implementation epic. Use one native `bd create` invocation with
 `--parent`, `--no-inherit-labels`, `--labels`, `--description`, `--design`, `--acceptance`, and
-`--deps blocked-by:<approval>` so a new task never temporarily lacks its approval blocker.
+`--deps blocked-by:<approval>` so a new task never temporarily lacks its approval blocker. Immediately make the final
+step depend on the new task with `bd dep add <audit> <task> --type blocks`. Preserve that edge after the task closes so
+a later reopen blocks close again. On resume, repair a missing edge on an existing child before continuing rather than
+creating a replacement task.
 
 Each task needs:
 
@@ -57,8 +60,8 @@ Leave execution notes empty. During implementation, delivered repository work is
 no-change task. Do not create commit-type or scope labels. A conventional prefix in the task title may select a
 non-`feat` commit type when appropriate.
 
-Add ordering dependencies only where execution order is real. Do not add direct readiness edges from implementation
-tasks to the final step; the formula owns implementation fan-in.
+Add ordering dependencies only where execution order is real. Every implementation task must remain a direct native
+blocker of the final step; `dstack check review --bead <root>` rejects a task that lacks that completion edge.
 
 No implementation task may be ready before approval. Let Beads validate dependency legality and readiness, including
 cross-feature blockers and native conditional dependencies; unrelated project cycles do not invalidate this feature. Run

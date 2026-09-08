@@ -67,6 +67,15 @@ def test_audit_checks_real_noncanonical_and_ambiguous_commits(public_feature: Fe
     assert any("canonical" in error or "ownership" in error for error in result["checks"]["errors"])
 
 
+def test_audit_rejects_missing_persistent_close_blocker(public_feature: FeatureRepository) -> None:
+    audit = public_feature.data["issues"]["audit"]
+    audit["dependencies"] = [dependency for dependency in audit["dependencies"] if dependency.get("id") != "task"]
+    result = public_feature.invoke("audit", "--bead", "root", expected=4)
+    assert any(
+        "audit must be directly blocked by every implementation task" in error for error in result["checks"]["errors"]
+    )
+
+
 def test_audit_rejects_noncanonical_close_commit(public_feature: FeatureRepository) -> None:
     public_feature.commit("docs(example): Incorrect title\n\nTask: audit\n")
     result = public_feature.invoke("audit", "--bead", "root", expected=4)
@@ -90,15 +99,26 @@ def test_audit_checks_raw_git_paths_and_bounds_diff_stat(public_feature: Feature
 def test_feature_size_limits_bound_output_not_validity(public_feature: FeatureRepository) -> None:
     issues = public_feature.data["issues"]
     prototype = issues.pop("task")
+    audit_dependencies = issues["audit"]["dependencies"]
+    issues["audit"]["dependencies"] = [
+        dependency for dependency in audit_dependencies if dependency.get("id") != "task"
+    ]
     tree = run(["git", "rev-parse", "HEAD^{tree}"], cwd=public_feature.worktree).stdout.strip()
     parent = run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout.strip()
     for index in range(100):
         task = {**prototype, "id": f"task-{index:03d}", "notes": f"Implementation: Implement accepted outcome {index}."}
         issues[task["id"]] = task
-        parent = run(["git", "commit-tree", tree, "-p", parent], cwd=public_feature.worktree,
-                     input_text=canonical_task_message(task, "example")).stdout.strip()
-    parent = run(["git", "commit-tree", tree, "-p", parent], cwd=public_feature.worktree,
-                 input_text="docs(example): Example\n\nTask: audit\n").stdout.strip()
+        issues["audit"]["dependencies"].append({"id": task["id"], "dependency_type": "blocks"})
+        parent = run(
+            ["git", "commit-tree", tree, "-p", parent],
+            cwd=public_feature.worktree,
+            input_text=canonical_task_message(task, "example"),
+        ).stdout.strip()
+    parent = run(
+        ["git", "commit-tree", tree, "-p", parent],
+        cwd=public_feature.worktree,
+        input_text="docs(example): Example\n\nTask: audit\n",
+    ).stdout.strip()
     run(["git", "reset", "--hard", parent], cwd=public_feature.worktree)
     first = public_feature.invoke("audit", "--bead", "root")
     second = public_feature.invoke("audit", "--bead", "root", "--offset", "100")

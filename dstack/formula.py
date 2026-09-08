@@ -78,7 +78,7 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
             raise DstackError(f"{step_id} must be a {FEATURE_STEP_TYPES[step_id]}")
         if steps[step_id].get("labels") != [FEATURE_STEP_LABELS[step_id]]:
             raise DstackError(f"{step_id} label must be exactly {FEATURE_STEP_LABELS[step_id]}")
-    # Native formula loading and acceptance tests own needs, gates, and waits_for.
+    # Native formula loading and acceptance tests own needs and gate semantics.
     # Only the role identities consumed by dStack belong in this validator.
 
 

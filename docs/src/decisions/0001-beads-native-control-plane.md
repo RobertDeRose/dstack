@@ -20,10 +20,10 @@ plan -> review -> human approval -> implementation tasks -> close
 ```
 
 The controller stores no workflow database, readiness cache, task manifest, audit snapshot, or commit mapping. Native
-Beads relationships and gates determine readiness and completion. The close skill performs semantic review before
-claiming the final step; native implementation fan-in blocks that step whenever implementation work is open. Human gates
-are created only for actual approval or material ambiguity. Git trailers provide one-way task evidence when a task
-commit is required.
+Beads relationships and gates determine readiness and completion. Every implementation task is a persistent ordinary
+blocker of the final step; the edge remains after completion so reopening the task blocks close again. Human gates are
+created only for actual approval or material ambiguity. Git trailers provide one-way task evidence when a task commit is
+required.
 
 The installed `PRIME.md` defines only the universal interaction contract: activation, native authority, generic dStack
 invocation, failure handling, and resume/recovery. Each workflow skill documents only the dStack operations needed by

@@ -15,14 +15,14 @@ def test_packaged_formula_has_one_native_five_step_graph() -> None:
     formula = subject.load_formula()
     steps = {step["id"]: step for step in formula["steps"]}
     assert formula["formula"] == "dstack-feature"
-    assert formula["version"] == 3
+    assert formula["version"] == 4
     assert set(steps) == set(subject.EXPECTED_STEPS)
     assert steps["approval"]["gate"]["type"] == "human"
     assert steps["implementation"]["type"] == "epic"
     assert "needs" not in steps["implementation"]
     assert steps["audit"]["title"].startswith("Close ")
     assert steps["audit"]["labels"] == ["dstack:step:audit"]
-    assert steps["audit"]["waits_for"] == "children-of(implementation)"
+    assert "waits_for" not in steps["audit"]
     assert "gate" not in steps["audit"]
 
 

@@ -98,26 +98,21 @@ def implementation_task_graph_errors(task: Mapping[str, Any], steps: Mapping[str
     return errors
 
 
-def audit_fan_in_errors(
+def audit_completion_dependency_errors(
     audit: Mapping[str, Any],
-    implementation_id: str,
     implementation_tasks: Sequence[Mapping[str, Any]],
 ) -> list[str]:
-    """Verify that native ``waits-for`` is the sole implementation fan-in."""
+    """Verify persistent native blockers from every implementation task to close."""
 
     errors: list[str] = []
-    waits_for = dependency_targets(audit, "waits-for")
-    if waits_for != [implementation_id]:
+    task_ids = {str(task.get("id") or "") for task in implementation_tasks if task.get("id")}
+    blockers = set(dependency_targets(audit, "blocks"))
+    missing = sorted(task_ids - blockers)
+    if missing:
         errors.append(
-            f"audit must have exactly one waits-for dependency on {implementation_id}; observed {waits_for or '<none>'}"
+            "audit must be directly blocked by every implementation task; missing blockers: " + ", ".join(missing)
         )
 
-    task_ids = {str(task.get("id") or "") for task in implementation_tasks}
-    redundant: set[str] = set()
-    for relation in ("blocks", "conditional-blocks"):
-        redundant.update(task_ids.intersection(dependency_targets(audit, relation)))
-    if redundant:
-        errors.append("audit has redundant direct task readiness edges: " + ", ".join(sorted(redundant)))
     return errors
 
 
