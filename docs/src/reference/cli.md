@@ -15,7 +15,7 @@ dstack check plan --bead ID [--root PATH]
 dstack check review --bead ID [--root PATH]
 dstack check task --bead ID [--root PATH]
 dstack check docs --slug SLUG [--root PATH]
-dstack docs export-design --bead ID [--root PATH]
+dstack docs export-design --bead ID [--scaffold] [--root PATH]
 dstack docs commit --bead ID [--root PATH]
 dstack commit -b|--bead ID [--root PATH]
 dstack worktree -b|--bead ID [--root PATH]
@@ -83,6 +83,14 @@ against the native plan, checks publication paths in each commit, and rejects fo
 feature history, including files later removed. Implementation commit and task checks reject the feature publication
 directory, but still permit ordinary current-documentation changes outside it. Whole-book and project validation remain
 owned by the target repository.
+
+## Publication scaffolding
+
+`docs export-design --scaffold` fills unambiguous missing index sections, the design include, and the SUMMARY link.
+Existing prose and section order are preserved. Duplicate required headings, wrong heading levels, and misplaced or
+noncanonical includes must be repaired explicitly; an ambiguous scaffold fails before any publication file is written.
+Scaffolding does not write product prose or rearrange a document. The agent supplies nonempty Overview and User Impact
+content, then runs structural checks and the repository's mdBook validation. No arbitrary minimum prose length is used.
 
 ## Audit
 

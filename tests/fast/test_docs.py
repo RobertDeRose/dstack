@@ -59,13 +59,11 @@ def test_validate_docs_accepts_minimal_feature_contract(tmp_path: Path) -> None:
     }
 
 
-def test_validate_docs_rejects_unsafe_slug_symlink_and_weak_sections(tmp_path: Path) -> None:
+def test_validate_docs_rejects_unsafe_slug_symlink_and_empty_sections(tmp_path: Path) -> None:
     with pytest.raises(DstackError, match="feature slug"):
         validate_docs(tmp_path, feature="../outside")
 
-    feature = write_feature(
-        tmp_path, index=INDEX.replace("This feature gives users a deterministic workflow.", "Short")
-    )
+    feature = write_feature(tmp_path, index=INDEX.replace("This feature gives users a deterministic workflow.", ""))
     with pytest.raises(DstackError, match="Overview"):
         validate_docs(tmp_path, feature="example")
 

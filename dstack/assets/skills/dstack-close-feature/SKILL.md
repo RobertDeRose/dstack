@@ -57,11 +57,12 @@ affected outcome, create the bounded correction described above before resolving
 
 After the complete review passes and every implementation task is closed:
 
-1. Resolve the fixed close-review gate. For a legacy molecule without it, skip only this operation.
-2. Resume this agent's in-progress final step or claim the open, now-ready `dstack:step:audit` step.
-3. Run `dstack docs export-design --bead <root> --scaffold` from the feature worktree. This exports the native design
-   verbatim and creates only missing index sections and the SUMMARY link. Existing prose is not overwritten.
-4. Fill or update the index title, `Overview`, and `User Impact` from the accepted outcome. Keep the single native
+1. Resume this agent's in-progress final step or claim the open, now-ready `dstack:step:audit` step. Do not claim it
+   before semantic review passes merely because native fan-in makes it ready.
+2. Run `dstack docs export-design --bead <root> --scaffold` from the feature worktree. This exports the native design
+   verbatim and fills unambiguous missing index sections, the design include, and the SUMMARY link. Existing prose
+   is not overwritten or rearranged; repair reported duplicate headings or misplaced includes explicitly.
+3. Fill or update the index title, `Overview`, and `User Impact` from the accepted outcome. Keep the single native
    `{{#include design.md}}` under `Implemented Design`; do not rewrite the exported design or duplicate its prose.
 4. Run `dstack check docs --slug <slug>` and the repository's documentation validation.
 5. Stage only that feature directory and SUMMARY entry, then run `dstack docs commit --bead <root>`. The generated
