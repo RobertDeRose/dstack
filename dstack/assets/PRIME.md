@@ -30,14 +30,18 @@ failed invariant manually and then continue as though dStack succeeded.
 
 ## Resume and recovery
 
-Resume existing Beads work before claiming or creating replacement work. If `dstack worktree` reports
-`recovery_required`, enter the returned worktree, inspect `git status`, and finish or deliberately abort the reported
-native Git operation before another mutating dStack command. dStack may make retries idempotent, but recovery state
-remains in Git and Beads rather than a dStack-owned journal.
+Resume this agent's existing in-progress Beads work before claiming or creating replacement work. Never take another
+owner's claim; report the candidates when ownership is ambiguous. If `dstack worktree` reports `recovery_required`,
+enter the returned worktree, inspect `git status`, and finish or deliberately abort the reported native Git operation
+before another mutating dStack command. dStack may make retries idempotent, but recovery state remains in Git and Beads
+rather than a dStack-owned journal.
 
 Only one agent writes a feature worktree at a time. Preserve existing edits and staged content until ownership is clear.
+Native status is authoritative for completion; an empty ready queue does not by itself prove a task or workflow is
+complete.
 
 ## Memory
 
 Use memory only when the active skill explicitly permits it. Memory is advisory context, never live status or completion
-evidence. Any memory write requires the authority described by that skill.
+evidence. Current repository documentation and accepted decisions outrank stale memory. Any memory write or correction
+requires explicit user approval.

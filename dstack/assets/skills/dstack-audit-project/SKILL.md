@@ -7,8 +7,7 @@ disable-model-invocation: true
 
 # Audit project
 
-Run only when explicitly invoked. This audits the current repository rather than an existing feature and does not create
-a parallel audit ledger.
+This audits the current repository rather than an existing feature.
 
 ## dStack operations
 
@@ -29,9 +28,8 @@ Search `bd memories <focused terms> --json` and recall only relevant entries. In
 tests, security and operations guidance, and accepted decisions. Run the target repository's documented validation
 contract and `bd dep cycles --json` as a project-health check.
 
-Current repository documentation and accepted decisions outrank stale memory. Classify supported drift as behavior,
-documentation, test, security, operational, or decision drift. Ask the user when authority is material and ambiguous.
-Memory corrections require explicit approval.
+Classify supported drift as behavior, documentation, test, security, operational, or decision drift. Ask the user when
+authority is material and ambiguous.
 
 If no actionable drift remains, report the evidence and stop without creating a feature.
 

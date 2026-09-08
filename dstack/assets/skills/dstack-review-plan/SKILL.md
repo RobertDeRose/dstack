@@ -7,8 +7,6 @@ disable-model-invocation: true
 
 # Review plan
 
-Run only when explicitly invoked. Beads owns the graph, dependencies, approval gate, and ready frontier.
-
 ## dStack operations
 
 Use these dStack commands after reconciling the reviewed plan and task graph:
@@ -24,15 +22,14 @@ shape, approval blockers, persistent close blockers, and that implementation wor
 ## Review
 
 Resolve the feature with `bd mol current <root> --json`. Read the plan and review step with
-`bd show <plan> <review> --include-comments --json`. Resume this agent's in-progress review without reclaiming it and
-respect other owners. Claim only a native-ready open review. If review is already closed, do not recreate tasks or rerun
-the preapproval check; continue to Approval.
+`bd show <plan> <review> --include-comments --json`. If review is already closed, do not recreate tasks or rerun the
+preapproval check; continue to Approval. Otherwise continue an in-progress review or claim only a native-ready open
+review.
 
-Search `bd memories <focused terms> --json`, then recall only relevant keys. Current repository documentation and
-accepted decisions outrank stale memory. Inspect only relevant source, tests, documentation, and decisions. When useful,
-review independently from implementation, documentation, and risk perspectives, then keep only synthesized findings.
-Correct clear plan defects; ask the user when authority remains materially ambiguous. Memory corrections require user
-approval.
+Search `bd memories <focused terms> --json`, then recall only relevant keys. Inspect only relevant source, tests,
+documentation, and decisions. When useful, review independently from implementation, documentation, and risk
+perspectives, then keep only synthesized findings. Correct clear plan defects; ask the user when authority remains
+materially ambiguous.
 
 Record durable decisions as native decision Beads labeled `decision:<slug>` and link each to the feature root with one
 exact `relates-to` dependency.
@@ -72,6 +69,5 @@ never grants approval.
 
 Read the approval step with comments. If it is already closed, preserve its recorded approval and return
 `/implement <root>`. Otherwise require explicit user approval for the reviewed intent; neither invocation nor a closed
-review grants it. Resolve only the formula gate with await ID `approve-<slug>-plan`, resume this agent's in-progress
-approval or claim it only when open and ready, record the approval evidence, close it, and return `/implement <root>`.
-Respect another agent's ownership.
+review grants it. Resolve only the formula gate with await ID `approve-<slug>-plan`, continue an in-progress approval or
+claim it only when open and ready, record the approval evidence, close it, and return `/implement <root>`.

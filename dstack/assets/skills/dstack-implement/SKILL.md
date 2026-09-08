@@ -7,9 +7,6 @@ disable-model-invocation: true
 
 # Implement
 
-Run only when explicitly invoked. Beads is the next-work authority; do not maintain another task list or calculate
-readiness.
-
 ## dStack operations
 
 Use these dStack commands in this stage:
@@ -20,8 +17,7 @@ dstack commit --bead <task>
 dstack check task --bead <task>
 ```
 
-Enter the worktree returned by `dstack worktree` before editing. If it reports `recovery_required`, follow the common
-recovery contract in `PRIME.md` before claiming work or invoking `dstack commit`.
+Enter the worktree returned by `dstack worktree` before editing.
 
 After a repository-changing task is implemented, validated, and staged, run `dstack commit`, then `dstack check task`.
 For an intentional no-change task, record only `No repository change: <specific reason>`, skip `dstack commit`, and run
@@ -35,8 +31,7 @@ dstack commit --bead <task>
 dstack check task --bead <task>
 ```
 
-A clean retry of `dstack commit` may return unchanged. If commit correction reports an interrupted native Git operation,
-resolve that operation before invoking another mutating dStack command.
+A clean retry of `dstack commit` may return unchanged.
 
 ## Select work
 
@@ -47,9 +42,8 @@ focused in-progress query:
 bd list --parent <implementation> --status in_progress --label dstack:work:implementation --limit 0 --json
 ```
 
-Resume the explicitly selected task, or this agent's in-progress task, before claiming new work. Never steal another
-assignee's claim or infer completion from an empty ready queue. If ownership is ambiguous, report the candidates. A
-closed selected task is verified and reported; do not substitute unrelated work.
+Use the explicitly selected task when supplied. Otherwise continue the in-progress implementation task surfaced by the
+query before claiming new ready work. A closed selected task is verified and reported; do not substitute unrelated work.
 
 For an explicitly selected open task, resolve its canonical ID, confirm it is native-ready, then claim that exact ID:
 
