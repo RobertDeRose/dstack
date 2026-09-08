@@ -12,13 +12,17 @@ def _skill(name: str) -> str:
     return (SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
 
 
+def _semantic_text(text: str) -> str:
+    return " ".join(text.split())
+
+
 def _documented_dstack_operations(skill: str) -> set[str]:
     section = skill.split("## dStack operations", 1)[1].split("\n## ", 1)[0]
     return set(re.findall(r"(?m)^dstack [^\n]+$", section))
 
 
 def test_prime_owns_only_common_dstack_contract() -> None:
-    prime = (ASSETS / "PRIME.md").read_text(encoding="utf-8")
+    prime = _semantic_text((ASSETS / "PRIME.md").read_text(encoding="utf-8"))
 
     assert "dstack <command> [arguments]" in prime
     assert "explicitly activated dStack workflow" in prime
@@ -74,7 +78,7 @@ def test_skills_do_not_repeat_common_prime_policy() -> None:
         "write them only after user approval",
     )
     for path in SKILLS.glob("*/SKILL.md"):
-        skill = path.read_text(encoding="utf-8")
+        skill = _semantic_text(path.read_text(encoding="utf-8"))
         for phrase in repeated_common_policy:
             assert phrase not in skill, f"{path.name} repeats common PRIME policy: {phrase}"
 
@@ -86,8 +90,8 @@ def test_implementation_skill_does_not_explain_commit_rewrite_internals() -> Non
 
 
 def test_review_and_close_skills_preserve_persistent_native_close_blockers() -> None:
-    review = _skill("dstack-review-plan")
-    close = _skill("dstack-close-feature")
+    review = _semantic_text(_skill("dstack-review-plan"))
+    close = _semantic_text(_skill("dstack-close-feature"))
 
     command = "bd dep add <audit> <task> --type blocks"
     assert command in review
