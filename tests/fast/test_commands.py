@@ -73,9 +73,6 @@ class GraphClient:
     def show(self, issue_id: str) -> dict[str, Any]:
         return self.issues[issue_id]
 
-    def show_optional(self, issue_id: str) -> dict[str, Any] | None:
-        return self.issues.get(issue_id)
-
 
 def graph_fixture() -> tuple[GraphClient, dict[str, Any], dict[str, dict[str, Any]], dict[str, Any]]:
     root = {
