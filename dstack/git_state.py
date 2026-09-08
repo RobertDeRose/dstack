@@ -59,16 +59,22 @@ def repository_mutation_lock(root: Path):
 
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+", encoding="utf-8") as handle:
+        handle = lock_path.open("a+", encoding="utf-8")
+        try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            held.add(key)
-            try:
-                yield
-            finally:
-                held.remove(key)
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            handle.close()
+            raise
     except OSError as exc:
         raise DstackError(f"cannot acquire repository mutation lock: {lock_path}") from exc
+
+    with handle:
+        held.add(key)
+        try:
+            yield
+        finally:
+            held.remove(key)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def serialized_repository_mutation(func: Callable[..., int]) -> Callable[..., int]:
