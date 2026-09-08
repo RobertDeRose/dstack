@@ -38,8 +38,7 @@ dstack install skills [--agent-dir PATH]
 
 `install skills` installs or updates the five hidden dStack skills and public prompts under the configured Pi agent
 directory. It preflights every managed destination and rolls back replacements and stale-resource removal if
-installation fails. `install formula` installs or verifies the packaged formula and scoped prime in an already
-initialized Beads workspace.
+installation fails. Project formula and scoped PRIME installation remain the responsibility of `dstack init`.
 
 ## Checks and repository operations
 

@@ -32,8 +32,13 @@ The Python package keeps native authority and workflow policy separate:
   and version preflight, and uses complete lifecycle reads where recovery requires them.
 - `git_state.py` reads Git/worktree/evidence state and serializes repository mutations. Native interrupted operations
   remain Git state; this layer detects them without creating a recovery journal.
+- `policy.py` owns mechanical plan, task, commit-message, and commit-path policy. Read-only validators consume these
+  rules without depending on the mutating Git command layer.
+- `docs.py` owns feature-publication structure and detects whether publication differs from the inherited base state.
 - `workflow.py` derives feature identity, fixed steps, implementation children, and graph invariants from Beads data.
-- `task_validation.py` is the shared implementation-task evidence validator used by both `check task` and `audit`.
+- `task_validation.py` composes read-only workflow, policy, and Git evidence into the shared implementation-task
+  validator used by both `check task` and `audit`.
+- `git_ops.py` owns state-changing Git commit/correction operations and verifies them against `policy.py` and `docs.py`.
 - `commands.py` and `audit.py` orchestrate those lower-level operations; lower-level modules must not import command
   handlers.
 

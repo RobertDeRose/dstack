@@ -26,9 +26,10 @@ created only for actual approval or material ambiguity. Git trailers provide one
 required.
 
 The installed `PRIME.md` defines only the universal interaction contract: activation, native authority, generic dStack
-invocation, failure handling, and resume/recovery. Each workflow skill documents only the dStack operations needed by
-that stage, when to invoke them, and concise examples. Exact flags and deterministic mechanics belong to the CLI help
-and command-reference documentation rather than being repeated across skills.
+invocation, failure handling, claim ownership, resume/recovery, completion evidence, and memory-write authority. Each
+workflow skill documents only the dStack operations and semantic steps needed by that stage. Exact flags and
+deterministic mechanics belong to the CLI help and command-reference documentation rather than being repeated across
+skills.
 
 ## Consequences
 
