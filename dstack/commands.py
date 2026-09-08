@@ -6,33 +6,32 @@ import argparse
 from pathlib import Path
 from typing import Any, Mapping
 
-from .core import (
-    BeadsClient,
-    DstackError,
-    _assert_no_symlink_components,
-    require_common_history,
-    as_items,
-    audit_fan_in_errors,
+from .beads import BeadsClient, as_items, client_for
+from .core import DstackError, _assert_no_symlink_components, run
+from .git_state import (
     branch_exists,
     commit_records,
     conventional_worktree,
-    feature_identity,
-    feature_steps,
     git_operation,
-    implementation_task_graph_errors,
-    issue_type,
-    run,
+    require_common_history,
     serialized_repository_mutation,
-    truncate_output,
     validate_git_branch,
     validate_git_revision,
     verify_worktree_identity,
     worktree_for_branch,
+    worktree_status,
 )
-from .formula import beads_workspace, check_formula, init_workspace
-from .git_ops import canonical_task_message, commit_record_matches_message, validate_commit_paths
+from .formula import check_formula, init_workspace
 from .output import emit
-from .policy import implementation_notes, no_repository_change_reason, validate_plan_issue, validate_task_issue
+from .policy import validate_plan_issue, validate_task_issue
+from .workflow import (
+    audit_fan_in_errors,
+    feature_identity,
+    feature_steps,
+    implementation_task_graph_errors,
+    implementation_tasks,
+)
+from .task_validation import validate_implementation_task
 
 MAX_REVIEW_ITEMS = 100
 
@@ -41,15 +40,6 @@ MAX_REVIEW_ITEMS = 100
 def cmd_init(args: argparse.Namespace) -> int:
     emit(init_workspace(args.root, update=args.update))
     return 0
-
-
-def client_for(root: Path) -> BeadsClient:
-    repository = Path(root).expanduser()
-    beads_workspace(repository)
-    client = BeadsClient(repository)
-    client.check_version()
-    return client
-
 
 
 def cmd_formula_check(args: argparse.Namespace) -> int:
@@ -82,7 +72,7 @@ def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -
         else:
             require_common_history(client.root, base_branch, branch)
 
-        run(["bd", "worktree", "create", str(worktree), "--branch", branch], cwd=client.root)
+        client.create_worktree(worktree, branch)
         created_worktree = True
         observed = worktree_for_branch(client, branch)
         if observed is None:
@@ -99,7 +89,7 @@ def ensure_branch_worktree(client: BeadsClient, branch: str, base_branch: str) -
 
         retained = observed or (worktree if worktree.exists() else None)
         if created_worktree and observed is not None and observed.resolve() == worktree.resolve():
-            result = run(["bd", "worktree", "remove", str(worktree), "--force"], cwd=client.root, check=False)
+            result = client.remove_worktree(worktree)
             if result.returncode:
                 cleanup.append(result.stderr.strip() or result.stdout.strip() or "worktree removal failed")
             retained = worktree if worktree.exists() else None
@@ -230,36 +220,13 @@ def cmd_review_check(args: argparse.Namespace) -> int:
     return 0 if not errors else 4
 
 
-def _worktree_status(path: Path) -> dict[str, Any]:
-    result = run(["git", "status", "--short", "--untracked-files=all"], cwd=path, check=False)
-    return {
-        "status": "clean" if result.returncode == 0 and not result.stdout.strip() else "dirty",
-        "returncode": result.returncode,
-        "details": truncate_output(result.stderr) or truncate_output(result.stdout),
-    }
-
-
-def implementation_tasks(client: BeadsClient, implementation_id: str) -> list[dict[str, Any]]:
-    children = sorted(
-        (child for child in client.children(implementation_id) if issue_type(child) not in {"epic", "molecule", "gate"}),
-        key=lambda child: str(child["id"]),
-    )
-    return client.show_many([str(child["id"]) for child in children])
-
-
 def cmd_task_check(args: argparse.Namespace) -> int:
     client = client_for(args.root)
     task = client.show(args.bead)
     task_id = str(task["id"])
-    result = validate_task_issue(task)
-    errors = list(result["errors"])
-    if str(task.get("status") or "") != "in_progress":
-        errors.append("implementation task must be in_progress during validation")
 
     feature_root, slug, base = feature_identity(client, task_id)
     steps = feature_steps(client, str(feature_root["id"]))
-    errors.extend(implementation_task_graph_errors(task, steps))
-
     branch = f"feat/{slug}"
     validate_git_revision(client.root, base, name="task evidence base")
     validate_git_revision(client.root, branch, name="task evidence branch")
@@ -271,56 +238,10 @@ def cmd_task_check(args: argparse.Namespace) -> int:
         include_paths=True,
         owner_id=task_id,
     )
-    task_records = [record for record in records if task_id in record.get("footer_ids", ())]
-    evidence = [
-        {
-            "commit": str(record["commit"]),
-            "subject": str(record["subject"]),
-        }
-        for record in task_records
-    ]
-    for record in task_records:
-        try:
-            validate_commit_paths(record["paths"], slug, documentation=False)
-        except DstackError as exc:
-            errors.append(f"{record['commit']}: {exc}")
-
-    notes_valid = True
-    try:
-        execution_notes = implementation_notes(task)
-    except DstackError as exc:
-        notes_valid = False
-        execution_notes = []
-        errors.append(str(exc))
-    no_change = no_repository_change_reason(task) if notes_valid else None
-    if notes_valid and not no_change and not execution_notes:
-        errors.append("implementation task requires at least one Implementation note before committing")
-    if not evidence and not no_change:
-        errors.append("no reachable Git commit references this task and no `No repository change:` reason is recorded")
-    elif len(evidence) > 1:
-        errors.append("implementation task must have exactly one reachable canonical commit")
-    elif evidence:
-        try:
-            expected_message = canonical_task_message(task, slug)
-        except DstackError:
-            errors.append("implementation task commit does not match the deterministic message contract")
-        else:
-            if not commit_record_matches_message(task_records[0], expected_message):
-                errors.append("implementation task commit does not match the deterministic message contract")
-
-    invalid_footer_commits = sorted(
-        str(record["commit"])
-        for record in records
-        if (
-            task_id in record.get("legacy_footer_ids", ())
-            or (task_id in record.get("footer_ids", ()) and tuple(record.get("footer_ids", ())) != (task_id,))
-        )
-    )
-    if invalid_footer_commits:
-        errors.append(
-            "task evidence commits must contain exactly one ownership footer for this task: "
-            + ", ".join(invalid_footer_commits)
-        )
+    validation = validate_implementation_task(task, steps, slug, records)
+    errors = list(validation["errors"])
+    if str(task.get("status") or "") != "in_progress":
+        errors.append("implementation task must be in_progress during validation")
 
     worktree_path = worktree_for_branch(client, branch)
     worktree: dict[str, Any]
@@ -329,10 +250,11 @@ def cmd_task_check(args: argparse.Namespace) -> int:
         errors.append(f"feature worktree is not registered for {branch}")
     else:
         verified = verify_worktree_identity(client.root, worktree_path, branch)
-        worktree = {"branch": branch, "path": str(verified), **_worktree_status(verified)}
+        worktree = {"branch": branch, "path": str(verified), **worktree_status(verified)}
         if worktree["status"] != "clean":
             errors.append("feature worktree contains uncommitted changes")
 
+    result = dict(validation["policy"])
     result.update(
         {
             "status": "ok" if not errors else "invalid",
@@ -344,9 +266,9 @@ def cmd_task_check(args: argparse.Namespace) -> int:
             },
             "evidence": {
                 "range": evidence_range,
-                "commits": evidence,
-                "no_repository_change": no_change,
-                "invalid_footer_commits": invalid_footer_commits,
+                "commits": validation["commits"],
+                "no_repository_change": validation["no_repository_change"],
+                "invalid_footer_commits": validation["invalid_footer_commits"],
             },
             "worktree": worktree,
         }

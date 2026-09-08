@@ -10,22 +10,18 @@ import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .core import (
-    BeadsClient,
-    DstackError,
+from .beads import BeadsClient, client_for, issue_type
+from .core import DstackError, run
+from .git_state import (
     commit_records,
     current_head,
-    feature_identity,
-    feature_steps,
-    git_root,
     git_operation,
-    implementation_task_graph_errors,
-    issue_type,
+    git_root,
     reject_beads_paths,
-    run,
-    serialized_repository_mutation,
     require_feature_worktree,
+    serialized_repository_mutation,
 )
+from .workflow import feature_identity, feature_steps, implementation_task_graph_errors
 from .docs import markdown_links, validate_docs, validate_docs_revision
 from .output import emit
 from .policy import (
@@ -180,7 +176,6 @@ def _autosquash_correction(
     root: Path,
     *,
     target: str,
-    base: str,
     message: str,
     allow_empty: bool = False,
 ) -> str:
@@ -247,7 +242,7 @@ def _autosquash_correction(
     return current_head(root)
 
 
-def _correct_or_reuse(root: Path, target: str, base: str, message: str) -> tuple[str, str]:
+def _correct_or_reuse(root: Path, target: str, message: str) -> tuple[str, str]:
     _require_no_git_operation(root)
     paths = staged_paths(root)
     if not paths:
@@ -256,7 +251,7 @@ def _correct_or_reuse(root: Path, target: str, base: str, message: str) -> tuple
             raise DstackError("commit refuses unstaged or untracked paths: " + ", ".join(dirty))
         if _commit_message(root, target).rstrip() == message.rstrip():
             return target, "unchanged"
-    _autosquash_correction(root, target=target, base=base, message=message, allow_empty=not paths)
+    _autosquash_correction(root, target=target, message=message, allow_empty=not paths)
     return target, "corrected"
 
 
@@ -317,8 +312,7 @@ def _require_valid_task(task: Mapping[str, object]) -> None:
 def cmd_git_commit_docs(args: argparse.Namespace) -> int:
     root = git_root(args.root)
     _require_no_git_operation(root)
-    client = BeadsClient(root)
-    client.check_version()
+    client = client_for(root)
     feature_root, slug, base = feature_identity(client, args.bead)
     steps = feature_steps(client, str(feature_root["id"]))
     close_step = client.show(str(steps["audit"]["id"]))
@@ -362,7 +356,7 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
             commit, mode = None, "unchanged"
     elif len(evidence) == 1:
         target = str(evidence[0]["commit"])
-        _, mode = _correct_or_reuse(root, target, base, message)
+        _, mode = _correct_or_reuse(root, target, message)
         corrected = _task_evidence(root, base, close_id)
         if len(corrected) != 1:
             raise DstackError("correction did not leave exactly one close documentation commit")
@@ -396,8 +390,7 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
 def cmd_git_commit(args: argparse.Namespace) -> int:
     root = git_root(args.root)
     _require_no_git_operation(root)
-    client = BeadsClient(root)
-    client.check_version()
+    client = client_for(root)
     task = client.show(args.bead)
     task_id = str(task["id"])
     _require_in_progress(task)
@@ -414,7 +407,7 @@ def cmd_git_commit(args: argparse.Namespace) -> int:
         mode = "created"
     elif len(evidence) == 1:
         target = str(evidence[0]["commit"])
-        _, mode = _correct_or_reuse(root, target, base, message)
+        _, mode = _correct_or_reuse(root, target, message)
         corrected = _task_evidence(root, base, task_id)
         if len(corrected) != 1:
             raise DstackError("correction did not leave exactly one canonical task commit")

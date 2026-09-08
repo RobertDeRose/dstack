@@ -7,20 +7,17 @@ from typing import Any
 
 import pytest
 
-from dstack.core import (
-    BeadsClient,
-    CommandResult,
-    DstackError,
-    run,
+from dstack.beads import BeadsClient, BeadsCommandError, parse_beads_version, parse_json
+from dstack.core import CommandResult, DstackError, run, truncate_output
+from dstack.git_state import (
+    changed_paths,
     commit_records,
-    feature_identity,
+    diff_stat,
     footer_mapping,
-    parse_beads_version,
-    parse_json,
     reject_beads_paths,
-    truncate_output,
     worktree_for_branch,
 )
+from dstack.workflow import feature_identity
 
 
 def test_timeout_error_does_not_classify_native_command_semantics(
@@ -30,7 +27,7 @@ def test_timeout_error_does_not_classify_native_command_semantics(
         raise subprocess.TimeoutExpired(["bd", "show", "task"], 1)
 
     monkeypatch.setattr(subprocess, "run", timeout)
-    with pytest.raises(DstackError, match="inspect native Git/Beads state before retrying"):
+    with pytest.raises(DstackError, match="inspect native command state before retrying"):
         run(["bd", "show", "task"], cwd=git_repo, timeout=1)
 
 
@@ -101,7 +98,7 @@ def test_git_evidence_ignores_legacy_beads_footers(git_repo: Path) -> None:
         {
             "commit": records[0]["commit"],
             "subject": "feat: add feature",
-            "paths": ["feature.txt"],
+            "body": "Task: ds-task",
         }
     ]
 
@@ -111,8 +108,6 @@ def test_diff_stat_is_bounded(git_repo: Path) -> None:
         (git_repo / f"file-{index:03}.txt").write_text("change\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=git_repo, check=True)
     subprocess.run(["git", "commit", "-qm", "feat: add files"], cwd=git_repo, check=True)
-
-    from dstack.core import diff_stat
 
     assert len(diff_stat(git_repo, "HEAD~1", "HEAD")) <= 4000
 
@@ -163,7 +158,7 @@ def test_truncated_command_output_preserves_root_cause_and_tail() -> None:
 
 
 def test_beads_client_requires_exact_tested_version(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from dstack import core as subject
+    from dstack import beads as subject
 
     client = subject.BeadsClient(git_repo)
     monkeypatch.setattr(client, "version", lambda: "bd version 1.3.0 (future)")
@@ -176,8 +171,6 @@ def test_beads_client_requires_exact_tested_version(git_repo: Path, monkeypatch:
     "name", ["tab\tfile", "line\nfile", 'quoted"file', "cr\rfile", "\nleading", "record\x1efile", "raw\udcff"]
 )
 def test_evidence_preserves_literal_pathnames(git_repo: Path, name: str) -> None:
-    from dstack.core import changed_paths
-
     # Test Git's stored pathnames, not the host filesystem's filename restrictions.
     # In particular, APFS cannot create the raw non-UTF-8 filename on disk.
     blob = run(["git", "hash-object", "-w", "--stdin"], cwd=git_repo, input_text="content").stdout.strip()
@@ -235,8 +228,6 @@ def test_batch_reads_are_complete_beyond_one_hundred_tasks(git_repo: Path, monke
 def test_optional_show_distinguishes_missing_issue_from_infrastructure_failure(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from dstack.core import BeadsCommandError
-
     client = BeadsClient(git_repo)
     response = {"schema_version": 1, "data": {"error": "record absent", "code": "not_found"}}
     monkeypatch.setattr(client, "_run", lambda *args, **kwargs: CommandResult(1, "", json.dumps(response)))

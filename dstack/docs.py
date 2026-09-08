@@ -9,17 +9,10 @@ from pathlib import Path
 
 from markdown_it import MarkdownIt
 
-from .core import (
-    BeadsClient,
-    DstackError,
-    _assert_no_symlink_components,
-    feature_identity,
-    feature_steps,
-    read_utf8_text,
-    require_feature_worktree,
-    run,
-    serialized_repository_mutation,
-)
+from .beads import BeadsClient, client_for
+from .core import DstackError, _assert_no_symlink_components, read_utf8_text, run
+from .git_state import require_feature_worktree, serialized_repository_mutation
+from .workflow import feature_identity, feature_steps
 from .output import emit
 from .policy import markdown_sections
 
@@ -266,8 +259,6 @@ def export_design(
 ) -> dict[str, str]:
     repository = root.expanduser().resolve()
     if client is None:
-        from .commands import client_for
-
         client = client_for(repository)
         repository = client.root
     feature_root, slug, _ = feature_identity(client, selector)

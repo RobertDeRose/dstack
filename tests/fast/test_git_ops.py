@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from dstack import git_ops as subject
-from dstack.core import DstackError, commit_records
+from dstack.core import DstackError
+from dstack.git_state import commit_records
 from dstack.git_ops import (
     _autosquash_correction,
     _commit,
@@ -235,7 +236,7 @@ def test_autosquash_correction_targets_exact_commit_when_subjects_repeat(git_rep
         "ds-123",
     )
 
-    _autosquash_correction(git_repo, target=target, base=base, message=message)
+    _autosquash_correction(git_repo, target=target, message=message)
 
     observed = subprocess.run(
         ["git", "log", "--reverse", "--format=%B%x00", f"{base}..HEAD"],
@@ -276,7 +277,7 @@ def test_correction_does_not_autosquash_another_tasks_pending_fixup(git_repo: Pa
     git(git_repo, "add", "a")
     message = build_commit_message("fix(example): correct A", "- Keep technical syntax `Result<T, E>`.", "a")
 
-    _autosquash_correction(git_repo, target=target, base=base, message=message)
+    _autosquash_correction(git_repo, target=target, message=message)
 
     assert git(git_repo, "log", "--reverse", "--format=%s", f"{base}..HEAD").splitlines() == [
         "fix(example): correct A",
@@ -297,10 +298,10 @@ def test_canonical_retry_is_a_noop_and_notes_only_correction_rewords(git_repo: P
     target = _commit(git_repo, message)
     descendant = commit_file(git_repo, "b", "second\n", "feat: B")
 
-    assert subject._correct_or_reuse(git_repo, target, base, message) == (target, "unchanged")
+    assert subject._correct_or_reuse(git_repo, target, message) == (target, "unchanged")
     assert git(git_repo, "rev-parse", "HEAD") == descendant
     updated = build_commit_message("fix(example): add A", "- Preserve A().", "a")
-    assert subject._correct_or_reuse(git_repo, target, base, updated)[1] == "corrected"
+    assert subject._correct_or_reuse(git_repo, target, updated)[1] == "corrected"
     assert git(git_repo, "log", "--format=%s", f"{base}..HEAD").splitlines() == ["feat: B", "fix(example): add A"]
     assert git(git_repo, "show", "HEAD~1:a") == "first"
     assert git(git_repo, "show", "HEAD:b") == "second"
@@ -312,7 +313,7 @@ def test_correction_refuses_published_evidence_without_mutating(git_repo: Path) 
     (git_repo / "a").write_text("correction")
     git(git_repo, "add", "a")
     with pytest.raises(DstackError, match="remote-tracking"):
-        _autosquash_correction(git_repo, target=target, base=base, message="corrected")
+        _autosquash_correction(git_repo, target=target, message="corrected")
     assert git(git_repo, "rev-parse", "HEAD") == target
     assert git(git_repo, "diff", "--cached", "--name-only") == "a"
 
@@ -320,7 +321,7 @@ def test_correction_refuses_published_evidence_without_mutating(git_repo: Path) 
 def test_commit_refuses_an_existing_native_operation(git_repo: Path) -> None:
     (git_repo / ".git/rebase-merge").mkdir()
     with pytest.raises(DstackError, match="existing native Git operation"):
-        subject._correct_or_reuse(git_repo, "HEAD", "HEAD~1", "anything")
+        subject._correct_or_reuse(git_repo, "HEAD", "anything")
 
 
 @pytest.mark.parametrize("name", ["tab\tfile", "line\nfile", 'quoted"file', "cr\rfile", "\nleading", "record\x1efile"])
@@ -346,8 +347,11 @@ def test_stopped_correction_keeps_native_rebase_state_and_abort_preserves_fixup(
     path.write_text("corrected\n", encoding="utf-8")
     run(["git", "add", "overlap.txt"], cwd=git_repo)
     with pytest.raises(DstackError, match="native rebase"):
-        _autosquash_correction(git_repo, target=target, base="main",
-                              message=build_commit_message("feat(example): corrected", "- Correct first outcome.", "task-a"))
+        _autosquash_correction(
+            git_repo,
+            target=target,
+            message=build_commit_message("feat(example): corrected", "- Correct first outcome.", "task-a"),
+        )
     assert run(["git", "status", "--porcelain"], cwd=git_repo).stdout
     with pytest.raises(DstackError, match="existing native Git operation"):
         _commit(git_repo, build_commit_message("feat(example): forbidden", "", "other"))

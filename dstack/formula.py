@@ -9,16 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .core import (
-    FEATURE_STEP_LABELS,
-    FEATURE_STEP_TYPES,
-    BeadsClient,
-    DstackError,
-    _assert_no_symlink_components,
-    git_root,
-    parse_json,
-    run,
-)
+from .beads import BeadsClient, beads_workspace, beads_workspace_optional, run_beads
+from .core import DstackError, _assert_no_symlink_components, run
+from .git_state import git_root
+from .workflow import FEATURE_STEP_LABELS, FEATURE_STEP_TYPES
 
 FORMULA_NAME = "dstack-feature"
 FORMULA_FILENAME = f"{FORMULA_NAME}.formula.toml"
@@ -88,38 +82,6 @@ def validate_formula_contract(formula: Mapping[str, Any]) -> None:
     # Only the role identities consumed by dStack belong in this validator.
 
 
-def beads_workspace_optional(root: Path) -> Path | None:
-    """Resolve the authoritative workspace through native ``bd where``."""
-
-    repository = git_root(root)
-    result = run(["bd", "where", "--json"], cwd=repository, check=False)
-    if result.returncode != 0 or not result.stdout.strip():
-        if (repository / ".beads").exists():
-            details = result.stderr.strip() or result.stdout.strip() or "bd where returned no workspace"
-            raise DstackError(f"existing Beads workspace is unhealthy: {details}")
-        return None
-    payload = parse_json(result.stdout, context="bd where")
-    if not isinstance(payload, dict) or not isinstance(payload.get("path"), str) or not payload["path"].strip():
-        raise DstackError("bd where returned an invalid Beads workspace payload")
-    workspace = Path(payload["path"]).expanduser()
-    if not workspace.is_absolute():
-        workspace = repository / workspace
-    _assert_no_symlink_components(workspace, purpose="Beads workspace")
-    resolved = workspace.resolve()
-    if resolved.name != ".beads" or not resolved.is_dir():
-        raise DstackError(f"bd where returned an invalid Beads workspace: {resolved}")
-    return resolved
-
-
-def beads_workspace(root: Path) -> Path:
-    workspace = beads_workspace_optional(root)
-    if workspace is None:
-        raise DstackError(
-            "Beads is not initialized for this repository; run `dstack init` before using this lower-level command"
-        )
-    return workspace
-
-
 @dataclass(frozen=True)
 class FormulaContext:
     repository: Path
@@ -160,7 +122,7 @@ def _atomic_write(path: Path, content: bytes, *, purpose: str = "Beads formula d
 
 
 def _verify_native_formula(repository: Path) -> None:
-    parsed = run(["bd", "formula", "show", FORMULA_NAME, "--json"], cwd=repository, check=False)
+    parsed = run_beads(["bd", "formula", "show", FORMULA_NAME, "--json"], cwd=repository, check=False)
     if parsed.returncode != 0:
         raise DstackError(parsed.stderr.strip() or parsed.stdout.strip() or "Beads rejected the installed formula")
 
@@ -173,7 +135,7 @@ def init_workspace(root: Path, *, update: bool = False) -> dict[str, Any]:
     workspace = beads_workspace_optional(repository)
     initialized = workspace is None
     if initialized:
-        run(
+        run_beads(
             [
                 "bd",
                 "init",
