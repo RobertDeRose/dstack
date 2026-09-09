@@ -4,11 +4,11 @@ Documentation is part of the product and changes with the behavior it describes.
 
 ## Audiences
 
-- **End users:** installation, configuration, usage, operations, and troubleshooting.
+- **Users:** installation, configuration, usage, operations, and troubleshooting.
 - **Developers:** architecture, interfaces, data flow, invariants, tests, and extension points.
 
-Durable architecture and design rationale belongs in accepted decisions and targeted Beads memory rather than a
-mandatory per-task future-agent classification.
+Durable architecture and design rationale belongs in accepted decisions and focused Beads memory rather than a mandatory
+per-task future-agent classification.
 
 ## Current truth
 
@@ -17,38 +17,35 @@ operations explain how to use it; reference pages state exact contracts; develop
 validate it. Current documentation and accepted decisions outrank stale memory.
 
 Use Beads for live plans, tasks, decisions, blockers, claims, and readiness only inside an explicitly activated dStack
-workflow. Do not copy those facts into Markdown.
+workflow. Do not copy those changing facts into Markdown.
 
 ## Feature documentation
 
-Close writes stable reader-facing feature documentation under `docs/src/features/<slug>/` only after implementation
-review passes. `index.md` contains a title, meaningful Overview and User Impact sections, and an Implemented Design
-section with exactly one native mdBook include targeting `design.md`. The design file is exported verbatim from the
-unique plan Bead:
+Close writes reader-facing feature documentation under `docs/src/features/<slug>/` only after semantic review passes.
+`index.md` contains a title, meaningful Overview and User Impact sections, and an Implemented Design section with exactly
+one mdBook include targeting `design.md`. The design file is exported verbatim from the feature's plan issue:
 
 ```bash
-dstack docs export-design --bead <feature-root>
+dstack docs export-design --bead <feature>
 dstack check docs --slug <slug>
-dstack docs commit --bead <feature-root>
+dstack docs commit --bead <feature>
 ```
 
-The feature check rejects unsafe paths, symlinks, invalid includes, duplicate navigation, and direct SUMMARY links to
-the design. It does not enforce global book layout, orphan pages, ADR format, unrelated links, or an mdBook build.
-Repository lint and pre-commit workflows own those broader checks. The final documentation commit is owned by the close
-step. Close may propose reusable Beads memory, but it writes memory only after user approval and never treats memory as
-publication or completion evidence.
+The structural documentation check rejects unsafe paths, symlinks, invalid includes, duplicate navigation, and direct
+`SUMMARY.md` links to the design. It does not enforce global book layout, orphan pages, ADR format, unrelated links, or
+an mdBook build. Repository lint and pre-commit workflows own those broader checks.
 
 ## Repeatable publication
 
-Use `dstack docs export-design --bead <root> --scaffold` inside the registered feature worktree. Missing directories,
-index sections, and the single SUMMARY entry are created mechanically; existing index prose is not replaced. Fill the
-empty Overview and User Impact sections before validation. The exported design remains verbatim native plan content.
+Use `dstack docs export-design --bead <feature> --scaffold` inside the registered feature worktree. Missing directories,
+index sections, and the single `SUMMARY.md` entry are created mechanically; existing index prose is not replaced. Fill
+Overview and User Impact before validation. The exported design remains exactly the accepted plan design.
 
-`dstack check docs --slug <slug>` remains a Beads-independent structural check and rejects an empty design. The docs
-commit and final audit additionally compare it with the current native plan, rejecting a stale or hand-edited export.
-Changes to approved intent still require explicit human agreement; a byte comparison is not an approval mechanism.
+`dstack check docs --slug <slug>` is a Beads-independent structural check. `dstack docs commit` and
+`dstack check feature --bead <feature> --require-docs` additionally compare the exported design with the current plan and
+reject stale or hand-edited content. A byte comparison is validation, not approval; changed intent still requires the
+user's agreement.
 
-Publication ownership is checked in both new and reused commits. Application changes cannot be hidden in a close-owned
-commit, and implementation tasks cannot own the feature publication directory. When validated publication is already
-inherited unchanged from the base, close does not create an empty commit. A new feature publication or its newly added
-SUMMARY entry requires a canonical close-owned commit; `audit --require-docs` verifies that distinction from Git.
+Application changes cannot be hidden in a close-owned documentation commit, and implementation tasks cannot own the
+feature-documentation directory. When valid documentation is already inherited unchanged from the base, close does not
+create an empty commit. New or changed feature documentation requires canonical close ownership.
