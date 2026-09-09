@@ -36,18 +36,11 @@ Continue with [Getting Started](docs/src/getting-started/index.md) for the featu
 
 - [Getting Started](docs/src/getting-started/index.md)
 - [Interrupted Skill Recovery](docs/src/recovery.md)
+- [Security](docs/src/security/index.md)
 - [Architecture](docs/src/architecture/index.md)
-- [Development and Contributions](docs/src/development/index.md)
+- [Development](docs/src/development/index.md)
 - [References](docs/src/reference/index.md)
 
 ## Development
 
-This repository uses `uv`, hk, and mdBook for its own validation:
-
-```bash
-uv run pytest
-uv run pytest tests/acceptance
-hk check -a
-```
-
-Use `-n 0` for a serial pytest run. Acceptance tests require Beads 1.2.2 on `PATH`.
+See [Development](docs/src/development/index.md) for the repository development and contribution documentation.
