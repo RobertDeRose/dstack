@@ -7,6 +7,7 @@ import pytest
 
 from dstack.core import DstackError, run
 from dstack.docs import export_design, markdown_links, validate_docs
+from dstack.policy import PLAN_SECTIONS, markdown_sections
 
 
 INDEX = """# Example feature
@@ -232,3 +233,25 @@ def test_mdbook_landing_page_keeps_theme_aware_logo() -> None:
 
     for name in ("dstack_logo.png", "dstack_logo_neon_blue.png", "dstack_logo_neon_orange.png"):
         assert (root / "docs/src/assets/img" / name).is_file()
+
+
+@pytest.mark.parametrize("feature", ["beads-native-control-plane", "lean-workflow-refinement"])
+def test_implemented_feature_records_use_feature_publication_contract(feature: str) -> None:
+    root = Path(__file__).resolve().parents[2]
+
+    assert validate_docs(root, feature=feature)["status"] == "ok"
+
+    design = (root / "docs/src/features" / feature / "design.md").read_text(encoding="utf-8")
+    sections = [section.title for section in markdown_sections(design) if section.level == 3]
+    assert sections == list(PLAN_SECTIONS)
+
+
+def test_implemented_features_live_under_references_without_adr_navigation() -> None:
+    root = Path(__file__).resolve().parents[2]
+    summary = (root / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
+
+    assert "[Implemented Features](reference/implemented-features.md)" in summary
+    assert "[Beads-native control plane](features/beads-native-control-plane/index.md)" in summary
+    assert "[Lean workflow and documentation lifecycle](features/lean-workflow-refinement/index.md)" in summary
+    assert "decisions/" not in summary
+    assert "Architecture decisions" not in summary
