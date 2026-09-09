@@ -109,7 +109,7 @@ finds actionable drift.
 ## When something is interrupted
 
 Do not create replacement workflow state. Beads and Git remain authoritative after a restart. Start with
-[Recovery](../operations/recovery.md), especially when `dstack worktree` reports `recovery_required`.
+[Interrupted Skill Recovery](../recovery.md), especially when `dstack worktree` reports `recovery_required`.
 
 For exact CLI syntax, see the [CLI reference](../reference/cli.md). For the ownership model, see
 [Architecture](../architecture/index.md).
