@@ -1,16 +1,13 @@
 # Operations
 
-The dStack workflow is opt-in. Normal work does not use Beads. Invoke `/plan-feature`, `/review-plan`, `/implement`,
-`/close-feature`, or `/audit-project` (or explicitly request dStack) to activate it.
+dStack is opt-in. Activate the workflow with `/plan-feature`, `/review-plan`, `/implement`, `/close-feature`,
+`/audit-project`, or an explicit request to use dStack.
 
-When active, use targeted prompts for planning, review, implementation, close, and [project audit](project-audit.md).
-Use dStack for the deterministic operations in the [command contracts](../reference/cli.md). Do not run `bd prime` as a
-generic session hook; hidden skills provide their own workflow context.
+The workflow commands guide semantic work. The `dstack` CLI performs the deterministic operations named by those
+commands. Use the [CLI reference](../reference/cli.md) for exact syntax.
 
-This repository's project-validation contract is:
+For interrupted work, use [Recovery](recovery.md). For repository-wide drift review, use
+[Project audit](project-audit.md).
 
-```bash
-hk check -a
-```
-
-Other target repositories own and document their validation command.
+Target repositories own their own test, lint, build, documentation, and other project-validation commands. dStack does
+not impose this repository's development tooling on them.
