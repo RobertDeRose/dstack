@@ -89,8 +89,8 @@ Review the plan against the current repository:
 /review-plan <feature>
 ```
 
-Review turns the approved intent into bounded implementation tasks and presents the resulting scope, risks, and
-material decisions. Read that result and explicitly approve the proposed scope before implementation begins.
+Review turns the plan into bounded implementation tasks and presents the resulting scope, risks, and material
+decisions. Read that result and explicitly approve the proposed scope before implementation begins.
 
 ### Implement
 
@@ -151,5 +151,6 @@ plan and returns that feature for the usual review, approval, implementation, an
 ## Where to go next
 
 - If work stopped partway through a workflow command, see [Interrupted Skill Recovery](../recovery.md).
-- To understand how Beads, Git, skills, and the CLI divide responsibilities, see [Architecture](../architecture/index.md).
+- To understand how Beads, Git, skills, and the CLI divide responsibilities, see
+  [Architecture](../architecture/index.md).
 - For exact command syntax and options, see the [CLI reference](../reference/cli.md).

@@ -1,7 +1,7 @@
 # Architecture
 
-dStack separates workflow reasoning from deterministic repository mechanics. The four main responsibilities are kept
-small so each source of truth has one clear owner.
+dStack keeps workflow reasoning separate from mechanical repository work. Responsibilities are split between Beads,
+Git, skills, and the CLI.
 
 ## Responsibilities
 
@@ -45,10 +45,6 @@ Skill ------------------- semantic decisions and user questions
              +-- bounded Beads/Git evidence
              `-- feature-document structure
 ```
-
-A workflow command such as `/review-plan` or `/implement` chooses the skill for that stage. The skill decides what the
-work means and what information it needs; Beads and the dStack CLI provide the durable state and deterministic
-operations used to carry it out.
 
 ## Persistent information
 

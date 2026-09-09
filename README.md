@@ -4,7 +4,8 @@
   <img src="docs/src/assets/img/dstack_logo.png" alt="dStack logo">
 </p>
 
-`dStack` helps software-engineering agents plan, review, implement, and close feature work. It pairs Pi workflow commands
+`dStack` helps software-engineering agents plan, review, implement, and close feature work. It pairs Pi workflow
+commands
 such as `/plan-feature` and `/implement` with a small CLI for deterministic repository operations around Beads and Git.
 
 ## Install
