@@ -1,126 +1,192 @@
-# Command contracts
+# CLI reference
 
-Agent-facing operational commands emit deterministic compact JSON on standard output in every terminal. Runtime
-validation failures emit JSON diagnostics on standard error and return a nonzero status. Set
-`DSTACK_OUTPUT_FORMAT=pretty` for standard-library indented JSON. Top-level help, version, unknown-command, and argparse
-output remains human-readable.
+The `dstack` CLI performs deterministic repository setup, validation, Git operations, and feature-documentation
+mechanics for the workflow commands.
 
-The canonical command surface is:
+Use the long option names shown here in documentation and examples. The CLI also accepts `-b` as shorthand for
+`--bead`.
+
+## Output and exit status
+
+Operational commands write JSON to standard output. Validation and runtime errors write JSON to standard error.
+Argument parsing, `--help`, and `--version` remain normal human-readable terminal output.
+
+| Exit status | Meaning |
+| --- | --- |
+| `0` | The command completed successfully. |
+| `4` | A deterministic check completed and found invalid feature, task, or documentation state. |
+| `2` | Usage, environment, filesystem, Git, or Beads operation failed. |
+
+Set `DSTACK_OUTPUT_FORMAT=pretty` when you want indented JSON while inspecting command output manually.
+
+## `dstack install`
+
+```text
+dstack install [--agent-dir PATH]
+```
+
+Install or update dStack's five Pi workflow commands and their stage-specific skills. The default target is
+`PI_CODING_AGENT_DIR` when set, otherwise `~/.pi/agent`.
+
+Installation preflights every managed destination and restores replaced resources if an update fails. If rollback is
+incomplete, the error reports the retained recovery-copy directory.
+
+This command installs agent resources only. Repository policy is installed by `dstack init`.
+
+## `dstack init`
 
 ```text
 dstack init [--root PATH] [--update]
-dstack install skills [--agent-dir PATH]
+```
+
+Set up dStack in a Git repository. The command initializes Beads when needed, installs the packaged feature formula and
+`.beads/PRIME.md`, and validates the resulting repository-local policy.
+
+Initialization is idempotent and does not create feature work. It refuses to replace an existing formula or
+`.beads/PRIME.md` that differs from the package unless `--update` is supplied.
+
+After initialization, review and commit the installed formula, then run `dstack check formula`.
+
+## `dstack check formula`
+
+```text
 dstack check formula [--root PATH]
+```
+
+Verify that the repository's dStack formula and `.beads/PRIME.md` match the installed package and that the formula
+matches committed `HEAD`. New feature planning requires this policy check to pass.
+
+## `dstack check plan`
+
+```text
 dstack check plan --bead ID [--root PATH]
+```
+
+Validate the fixed plan step for a feature before review. `ID` may be the feature root or any issue inside that feature.
+The check validates required Beads fields and the six publishable design sections; semantic questions and product
+choices remain the responsibility of the planning/review workflow.
+
+## `dstack check review`
+
+```text
 dstack check review --bead ID [--root PATH]
-dstack check task --bead ID [--root PATH]
+```
+
+Validate the reviewed feature graph before human approval. `ID` may be the feature root or any issue inside that
+feature.
+
+The check verifies the plan, fixed lifecycle steps, implementation-task fields, approval dependencies, persistent close
+blockers, and that implementation tasks are not ready before approval.
+
+## `dstack check task`
+
+```text
+dstack check task --bead TASK [--root PATH]
+```
+
+Validate one implementation task and its Git evidence. The selected task itself is required; this is intentionally a
+task-level command rather than a feature selector.
+
+The check verifies task structure, approval and close dependencies, delivered-outcome notes, canonical commit ownership
+and paths, and feature-worktree cleanliness. An intentional `No repository change:` task must own no canonical commit.
+
+## `dstack check docs`
+
+```text
 dstack check docs --slug SLUG [--root PATH]
+```
+
+Validate one feature-documentation directory independently of Beads. This structural check uses the feature slug because
+it can run without workflow state.
+
+Target repositories still own their whole-book or project-specific documentation validation.
+
+## `dstack check feature`
+
+```text
+dstack check feature --bead ID [--offset N] [--include-plan] [--require-docs] [--root PATH]
+```
+
+Validate a completed feature and collect bounded evidence for `/close-feature`. `ID` may be the feature root or any issue
+inside that feature.
+
+The check validates all relevant task, Git, ownership, and feature-documentation evidence even when summary output is
+paged. Use:
+
+- `--include-plan` to include the already-loaded feature plan for semantic close review;
+- `--require-docs` after documentation publication to require valid feature documentation and close ownership; and
+- `--offset N` to page task, decision, gate, and commit summaries in groups of 100.
+
+When a result includes `next_offset`, repeat the command with that value to read the next summary page. Use focused Beads
+and Git commands such as `bd show ... --include-comments --json`, `bd history ... --json`, and `git show` when deeper
+detail is needed. dStack does not duplicate those detail interfaces.
+
+## `dstack worktree`
+
+```text
+dstack worktree --bead ID [--root PATH]
+```
+
+Locate the registered `feat/<slug>` worktree for a feature or create it when absent. `ID` may be the feature root or any
+issue inside that feature.
+
+If Git has an interrupted native operation, the command returns `recovery_required` and the existing worktree path
+without repairing it. Follow [Recovery](../operations/recovery.md) before another mutating dStack command.
+
+## `dstack commit`
+
+```text
+dstack commit --bead TASK [--root PATH]
+```
+
+Create or correct the canonical commit for one in-progress implementation task. Implementation notes become ordered
+commit bullets, and the commit receives exactly one `Task:` ownership trailer.
+
+A clean retry is a no-op when the canonical commit already matches. Unpublished corrections update only the owning task
+commit and replay descendants; published or ambiguous ownership is never rewritten automatically.
+
+## `dstack docs export-design`
+
+```text
 dstack docs export-design --bead ID [--scaffold] [--root PATH]
+```
+
+Export the reviewed feature design without rewriting its content. `ID` may be the feature root or any issue inside that
+feature.
+
+`--scaffold` creates only unambiguous missing index sections, the design include, and the `SUMMARY.md` link. Existing
+prose and section order are preserved. Ambiguous structure must be repaired explicitly.
+
+## `dstack docs commit`
+
+```text
 dstack docs commit --bead ID [--root PATH]
-dstack commit -b|--bead ID [--root PATH]
-dstack worktree -b|--bead ID [--root PATH]
-dstack audit --bead ID [--offset N] [--include-plan] [--require-docs] [--root PATH]
 ```
 
-Setup and deterministic checks do not create workflow issues. The workflow is activated only by an explicitly invoked
-workflow skill or an explicit request to use dStack.
+Commit validated feature documentation for close. `ID` may be the feature root or any issue inside that feature.
 
-## Initialization and installation
+The command accepts only the feature-documentation directory and its `SUMMARY.md` entry. When the valid documentation is
+already inherited unchanged from the base branch, it returns `mode: unchanged` with no new commit rather than creating
+an empty documentation commit.
 
-`init` initializes a missing Beads workspace with `--skip-agents`, installs the packaged `dstack-feature` formula and
-scoped `PRIME.md`, then validates the resulting contract. It is idempotent, does not create workflow issues, and refuses
-to replace a different project formula or prime unless `--update` is explicitly supplied. Existing generic Beads
-integrations are not removed.
+## Selector rules
+
+Feature-level commands accept a feature root or any issue inside that feature:
 
 ```text
-dstack install skills [--agent-dir PATH]
+dstack check plan --bead ID
+dstack check review --bead ID
+dstack check feature --bead ID
+dstack worktree --bead ID
+dstack docs export-design --bead ID
+dstack docs commit --bead ID
 ```
 
-`install skills` installs or updates the five hidden dStack skills and public prompts under the configured Pi agent
-directory. It preflights every managed destination and rolls back replacements and stale-resource removal if
-installation fails. Project formula and scoped PRIME installation remain the responsibility of `dstack init`.
-
-## Checks and repository operations
+Task-level commands require the implementation task itself:
 
 ```text
-dstack check formula
-dstack check plan --bead <plan-bead>
-dstack check review --bead <feature-root>
-dstack check task --bead <task>
-dstack check docs --slug <slug>
-dstack docs export-design --bead <feature-root>
-dstack docs commit --bead <feature-root>
-
-dstack worktree --bead <feature-or-descendant>
-dstack commit --bead <task>
+dstack check task --bead TASK
+dstack commit --bead TASK
 ```
 
-Formula checks validate installed policy against the package and committed `HEAD`. Plan checks bind the requested Bead
-to the fixed plan step and require the six level-three publishable sections, allowing nested subsections. They do not
-classify prose keywords or checkbox syntax as unresolved decisions; skills and human gates own that judgment. Review
-checks validate the complete native graph and separate task fields (`description`, `design`, and `acceptance_criteria`)
-before approval. Task checks validate graph membership, approval dependencies, delivered-outcome notes, canonical Git
-ownership and paths, and worktree cleanliness. Audit reuses the same implementation-task evidence validator, so task
-checks and audit cannot drift to different canonical-commit rules. An intentional `No repository change:` task must own
-zero canonical commits. Target repositories own their documented project-validation contract. Standalone
-feature-document checks validate structure and nonempty content; docs commit and audit also compare the exported design
-with the native plan. Repository tooling owns whole-book builds and broader documentation policy. Worktree checks derive
-`feat/<slug>` from native identity and verify its branch, path, repository, and common history with the base. Advancing
-the base does not force a rebase during resume. Titles default to `feat(<slug>)`; an explicit native conventional title
-prefix selects another type. Implementation notes supply the bullets, not planned description or design. Each fragment
-is one line, no more than 96 characters, and preserves technical punctuation. Verb-led wording is writing guidance, not
-an English whitelist. Each commit has exactly one `Task:` trailer; committing requires an in-progress task with at least
-one implementation note. Corrections rewrite the exact owner and replay descendants, leaving unrelated fixups separate.
-Clean retries are no-ops; notes-only changes can reword unpublished evidence. `docs commit` accepts only the feature
-directory and its SUMMARY entry. Both new and reused documentation commits must have permitted paths and the canonical
-`docs(<slug>): <feature title>` message with one close-step `Task:` trailer. With one unpublished close-owned commit and
-a clean worktree, rerunning the command can reword its title. Ambiguous or published evidence stops without rewriting.
-If validated publication is already inherited unchanged from the base, no new commit is required: the result has
-`mode: unchanged` and `commit: null`. dStack does not generate empty publication commits.
-
-`audit --require-docs` requires close ownership when the feature publication changed. It validates exported content
-against the native plan, checks publication paths in each commit, and rejects forbidden Beads state anywhere in the
-feature history, including files later removed. Implementation commit and task checks reject the feature publication
-directory, but still permit ordinary current-documentation changes outside it. Whole-book and project validation remain
-owned by the target repository.
-
-## Publication scaffolding
-
-`docs export-design --scaffold` fills unambiguous missing index sections, the design include, and the SUMMARY link.
-Existing prose and section order are preserved. Duplicate required headings, wrong heading levels, and misplaced or
-noncanonical includes must be repaired explicitly; an ambiguous scaffold fails before any publication file is written.
-Scaffolding does not write product prose or rearrange a document. The agent supplies nonempty Overview and User Impact
-content, then runs structural checks and the repository's mdBook validation. No arbitrary minimum prose length is used.
-
-## Audit
-
-```text
-dstack audit --bead <feature> [--include-plan] [--offset N] [--require-docs]
-```
-
-Audit validates Beads-to-Git and publication evidence, not semantic compliance. Task, decision, gate, and commit
-summaries are bounded to 100 rows per page; all evidence is checked regardless of the page. Error output is capped with
-the total count reported. The already-loaded plan is available through `--include-plan` for semantic close review.
-
-Read task and decision details with `bd show ID --include-comments --json`, issue history with `bd history ID --json`,
-and commit contents with `git show SHA`. Audit does not wrap these native detail interfaces. The former
-`--include-task`, `--include-decision`, `--history-for`, and `--include-commit-paths` options have been removed.
-
-## Selectors, retries, and evidence size
-
-Use `--bead ID` for Bead identity across `worktree`, `commit`, `check review`, `docs export-design`, `docs commit`, and
-`audit`. Use `--slug SLUG` only for the Beads-independent documentation check. dStack intentionally keeps one selector
-vocabulary rather than maintaining parallel aliases.
-
-Audit checks all relevant evidence, regardless of feature size. Summary collections include counts and `next_offset`
-when more rows exist; pass `--offset N` to read that page. `--include-plan` supplies approved intent for close review;
-use focused native reads for task comments, decisions, and history. Missing/truncated native evidence is an error, not
-an empty result. Native Beads lifecycle list reads are deliberately unbounded (`--limit 0`) and include all statuses so
-restart/recovery cannot silently omit older or in-progress work. The Beads v2-default envelope still uses
-`schema_version: 1`; the Beads adapter enables it with `BD_JSON_ENVELOPE=1` only for `bd` commands. Generic process and
-Git execution do not receive Beads-specific environment policy. Unsupported schema versions are rejected.
-
-Task titles default to conventional `feat` commits. A native title such as `fix: Preserve inbound timestamps` selects a
-different type without introducing labels or separate metadata. Notes retain technical punctuation; dStack enforces
-mechanical length/ownership rules, not an English verb whitelist. Clean canonical retries are no-ops; notes-only changes
-can reword unpublished commits. Correcting one task does not autosquash another task's pending fixups.
+`dstack check docs` is independent of Beads and therefore uses `--slug`.
