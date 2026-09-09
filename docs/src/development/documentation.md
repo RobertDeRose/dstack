@@ -7,17 +7,17 @@ Documentation is part of the product and changes with the behavior it describes.
 - **Users:** installation, configuration, usage, operations, and troubleshooting.
 - **Developers:** architecture, interfaces, data flow, invariants, tests, and extension points.
 
-Durable architecture and design rationale belongs in accepted decisions and focused Beads memory rather than a mandatory
-per-task future-agent classification.
+Accepted feature designs are published under [References > Implemented Features](../reference/implemented-features.md).
+Live plans, decisions, blockers, claims, and readiness remain in Beads instead of being copied into Markdown.
 
 ## Current truth
 
 The mdBook under `docs/` is the canonical repository documentation. Getting Started covers onboarding and normal use;
 Interrupted Skill Recovery covers restart procedures; Architecture explains responsibilities and data flow; References
-state exact contracts; and Development and Contributions explains how to change and validate dStack.
+state exact contracts and preserve implemented feature designs; and Development and Contributions explains how to
+change and validate dStack.
 
-Keep live plans, tasks, decisions, blockers, claims, and readiness in Beads instead of copying changing workflow state
-into Markdown. Current documentation and accepted decisions remain the source for current product guidance.
+Current documentation and accepted Beads decisions remain the source for current product guidance.
 
 ## Feature documentation
 
@@ -33,8 +33,8 @@ dstack docs commit --bead <feature>
 ```
 
 The structural documentation check rejects unsafe paths, symlinks, invalid includes, duplicate navigation, and direct
-`SUMMARY.md` links to the design. It does not enforce global book layout, orphan pages, ADR format, unrelated links, or
-an mdBook build. Repository lint and pre-commit workflows own those broader checks.
+`SUMMARY.md` links to the design. It does not enforce global book layout, orphan pages, unrelated links, or an mdBook build. Repository lint and
+pre-commit workflows own those broader checks.
 
 ## Repeatable publication
 
