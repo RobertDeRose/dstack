@@ -19,13 +19,15 @@ The feature formula is:
 plan -> review -> human approval -> implementation tasks -> close
 ```
 
-The controller stores no workflow database, readiness cache, task manifest, feature-check snapshot, or commit mapping. Beads
+The controller stores no workflow database, readiness cache, task manifest, feature-check snapshot, or commit mapping.
+Beads
 relationships and gates determine readiness and completion. Every implementation task is a persistent ordinary
 blocker of the close step; the edge remains after completion so reopening the task blocks close again. Human gates are
 created only for actual approval or material ambiguity. Git trailers provide one-way task evidence when a task commit is
 required.
 
-The installed `PRIME.md` defines only the universal interaction contract: activation, Beads/Git authority, generic dStack
+The installed `PRIME.md` defines only the universal interaction contract: activation, Beads/Git authority, generic
+dStack
 invocation, failure handling, claim ownership, resume/recovery, completion evidence, and memory-write authority. Each
 workflow skill documents only the dStack operations and semantic steps needed by that stage. Exact flags and
 deterministic mechanics belong to the CLI help and command-reference documentation rather than being repeated across

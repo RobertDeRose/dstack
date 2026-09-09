@@ -45,7 +45,9 @@ def test_feature_check_reuses_loaded_plan_and_leaves_detail_reads_to_beads(publi
     assert set(result["details"]) == {"plan"}
 
 
-def test_feature_check_does_not_rehydrate_known_task_blockers_as_gate_candidates(public_feature: FeatureRepository) -> None:
+def test_feature_check_does_not_rehydrate_known_task_blockers_as_gate_candidates(
+    public_feature: FeatureRepository,
+) -> None:
     public_feature.invoke("check", "feature", "--bead", "root")
     calls = [json.loads(line) for line in public_feature.calls.read_text().splitlines()]
     task_reads = [call for call in calls if call[:1] == ["show"] and "task" in call]
@@ -56,7 +58,9 @@ def test_feature_check_does_not_rehydrate_known_task_blockers_as_gate_candidates
 
 
 @pytest.mark.parametrize("field,value", [("status", "open"), ("notes", ""), ("design", "")])
-def test_feature_check_rejects_incomplete_native_task(public_feature: FeatureRepository, field: str, value: str) -> None:
+def test_feature_check_rejects_incomplete_native_task(
+    public_feature: FeatureRepository, field: str, value: str
+) -> None:
     public_feature.data["issues"]["task"][field] = value
     result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert result["checks"]["error_count"] > 0
@@ -70,7 +74,9 @@ def test_feature_check_rejects_incomplete_native_task(public_feature: FeatureRep
         "feat(example): implement behavior\n\nTask: task\nTask: other\n",
     ],
 )
-def test_feature_check_checks_real_noncanonical_and_ambiguous_commits(public_feature: FeatureRepository, message: str) -> None:
+def test_feature_check_checks_real_noncanonical_and_ambiguous_commits(
+    public_feature: FeatureRepository, message: str
+) -> None:
     public_feature.data["issues"]["task"]["notes"] = "Implementation: Implement behavior."
     public_feature.commit(message)
     result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
@@ -79,10 +85,13 @@ def test_feature_check_checks_real_noncanonical_and_ambiguous_commits(public_fea
 
 def test_feature_check_rejects_missing_persistent_close_blocker(public_feature: FeatureRepository) -> None:
     close_step = public_feature.data["issues"]["audit"]
-    close_step["dependencies"] = [dependency for dependency in close_step["dependencies"] if dependency.get("id") != "task"]
+    close_step["dependencies"] = [
+        dependency for dependency in close_step["dependencies"] if dependency.get("id") != "task"
+    ]
     result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert any(
-        "close step must be directly blocked by every implementation task" in error for error in result["checks"]["errors"]
+        "close step must be directly blocked by every implementation task" in error
+        for error in result["checks"]["errors"]
     )
 
 

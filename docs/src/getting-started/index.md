@@ -83,7 +83,8 @@ Run:
 ```
 
 Implementation resumes work already owned by the current agent before claiming another ready task. dStack locates the
-feature worktree, creates or corrects the task's canonical Git commit, and validates task evidence. The target repository
+feature worktree, creates or corrects the task's canonical Git commit, and validates task evidence. The target
+repository
 still owns its test, lint, build, and other project-specific validation commands.
 
 ## 6. Review and close the feature
@@ -100,7 +101,8 @@ closes the workflow.
 
 ## Project-wide review
 
-`/audit-project` is not a lifecycle stage. Use it when you want to compare the current repository with its documentation,
+`/audit-project` is not a lifecycle stage. Use it when you want to compare the current repository with its
+documentation,
 decisions, tests, security guidance, and operational expectations. It creates a normal remediation plan only when it
 finds actionable drift.
 

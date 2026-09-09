@@ -13,7 +13,8 @@ registry, worktree registry, commit map, or coordination protocol.
 
 The dStack workflow is opt-in. Do not infer activation from `.beads`, installed skills, or the availability of `bd`.
 Only use Beads and the dStack feature workflow when the user explicitly invokes `/plan-feature`, `/review-plan`,
-`/implement`, `/close-feature`, or `/audit-project`, or explicitly asks to use dStack. An explicitly requested dStack command may perform
+`/implement`, `/close-feature`, or `/audit-project`, or explicitly asks to use dStack. An explicitly requested dStack
+command may perform
 its documented deterministic mechanics, but it does not activate workflow tracking or create issues.
 
 For all other requests:
@@ -36,10 +37,12 @@ Planning records the request, questions, answers, decisions, rationale, acceptan
 Beads. Ask the user about material product, architecture, operational, security, or compatibility decisions before
 closing the plan.
 
-Review compares the plan with current code, tests, documentation, and decisions. It creates bounded implementation tasks and
+Review compares the plan with current code, tests, documentation, and decisions. It creates bounded implementation
+tasks and
 real dependencies, then presents the reviewed scope for explicit approval.
 
-Implementation claims one ready implementation task. Code, tests, configuration, and current documentation for that outcome
+Implementation claims one ready implementation task. Code, tests, configuration, and current documentation for that
+outcome
 belong together. Close reviews approved intent before claiming the close step, returns defects to implementation, and
 writes feature documentation only after review passes. Project audit creates a normal remediation plan and returns
 it for review.
@@ -61,7 +64,8 @@ work.
 
 ## Memory
 
-`/review-plan` and `/audit-project` may search and recall focused Beads memories. `/close-feature` may propose a reusable
+`/review-plan` and `/audit-project` may search and recall focused Beads memories. `/close-feature` may propose a
+reusable
 memory write, correction, or retirement, but must receive explicit user approval before mutation. Current repository
 documentation and accepted decisions outrank stale memory. Memory is never live workflow state.
 

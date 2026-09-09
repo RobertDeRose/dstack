@@ -22,7 +22,8 @@ workflow. Do not copy those changing facts into Markdown.
 ## Feature documentation
 
 Close writes reader-facing feature documentation under `docs/src/features/<slug>/` only after semantic review passes.
-`index.md` contains a title, meaningful Overview and User Impact sections, and an Implemented Design section with exactly
+`index.md` contains a title, meaningful Overview and User Impact sections, and an Implemented Design section with
+exactly
 one mdBook include targeting `design.md`. The design file is exported verbatim from the feature's plan issue:
 
 ```bash
@@ -42,7 +43,8 @@ index sections, and the single `SUMMARY.md` entry are created mechanically; exis
 Overview and User Impact before validation. The exported design remains exactly the accepted plan design.
 
 `dstack check docs --slug <slug>` is a Beads-independent structural check. `dstack docs commit` and
-`dstack check feature --bead <feature> --require-docs` additionally compare the exported design with the current plan and
+`dstack check feature --bead <feature> --require-docs` additionally compare the exported design with the current plan
+and
 reject stale or hand-edited content. A byte comparison is validation, not approval; changed intent still requires the
 user's agreement.
 

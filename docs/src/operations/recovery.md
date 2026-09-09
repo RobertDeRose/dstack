@@ -30,7 +30,8 @@ repository changes. Updated task titles or notes can reword an unpublished canon
 Staged corrections rewrite only the selected owning commit and replay its descendants; unrelated fixups are not folded
 into it.
 
-If a rebase stops, use `git status` and normal `git rebase --continue` or `git rebase --abort`. Do not run another dStack
+If a rebase stops, use `git status` and normal `git rebase --continue` or `git rebase --abort`. Do not run another
+dStack
 commit during the rebase. An aborted correction retains the correction commit so it can be inspected and recovered
 deliberately. Published commits and ambiguous ownership are not rewritten.
 
