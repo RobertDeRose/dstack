@@ -38,7 +38,7 @@ def test_lower_layers_do_not_import_command_handlers() -> None:
 def test_read_only_validation_does_not_import_git_mutation_layer() -> None:
     package = Path(__file__).parents[2] / "dstack"
     offenders: list[str] = []
-    for name in ("audit.py", "task_validation.py"):
+    for name in ("feature_check.py", "task_validation.py"):
         path = package / name
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):

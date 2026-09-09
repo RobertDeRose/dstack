@@ -262,7 +262,7 @@ Users receive one canonical task commit and one final documentation commit.
         records = run_command(["git", "log", "--format=%B", "main..feat/repository-mechanics"], cwd=worktree).stdout
         assert records.count(f"Task: {close_step['id']}") == 1
 
-        audit = run_dstack(worktree, "audit", "--bead", root, "--require-docs")
+        audit = run_dstack(worktree, "check", "feature", "--bead", root, "--require-docs")
         assert audit["validation"]["project"]["status"] == "external"
         assert audit["validation"]["feature_docs"]["status"] == "ok"
         assert audit["git"]["close_commit"]["commit"] == corrected_docs["commit"]

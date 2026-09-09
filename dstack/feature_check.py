@@ -1,4 +1,4 @@
-"""Bounded, read-only evidence collection for semantic feature audits."""
+"""Bounded, read-only evidence collection for deterministic feature checks."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from .git_state import (
     worktree_status,
 )
 from .workflow import (
-    audit_completion_dependency_errors,
+    close_completion_dependency_errors,
     feature_identity,
     feature_steps,
     implementation_tasks,
@@ -36,7 +36,7 @@ from .policy import (
 from .output import emit
 from .task_validation import validate_implementation_task
 
-MAX_AUDIT_ITEMS = 100
+MAX_FEATURE_CHECK_ITEMS = 100
 
 
 def issue_summary(issue: Mapping[str, Any]) -> dict[str, Any]:
@@ -51,7 +51,7 @@ def issue_summary(issue: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def bounded(items: Sequence[Any], *, limit: int = MAX_AUDIT_ITEMS, offset: int = 0) -> dict[str, Any]:
+def bounded(items: Sequence[Any], *, limit: int = MAX_FEATURE_CHECK_ITEMS, offset: int = 0) -> dict[str, Any]:
     values = list(items)
     return {
         "count": len(values),
@@ -62,7 +62,7 @@ def bounded(items: Sequence[Any], *, limit: int = MAX_AUDIT_ITEMS, offset: int =
     }
 
 
-def collect_audit_evidence(
+def collect_feature_evidence(
     root_path: Path,
     selector: str,
     *,
@@ -71,7 +71,7 @@ def collect_audit_evidence(
     offset: int = 0,
 ) -> dict[str, Any]:
     if offset < 0:
-        raise DstackError("audit offset must be non-negative")
+        raise DstackError("feature-check offset must be non-negative")
     client = client_for(root_path)
     root, slug, base = feature_identity(client, selector)
     steps = feature_steps(client, str(root["id"]))
@@ -91,9 +91,9 @@ def collect_audit_evidence(
         ),
         key=lambda issue: str(issue.get("id") or ""),
     )
-    audit_step = client.show(str(steps["audit"]["id"]))
+    close_step = client.show(str(steps["audit"]["id"]))
     known_non_gates = {*task_ids, str(steps["approval"]["id"])}
-    gate_ids = sorted(set(dependency_targets(audit_step, "blocks")) - known_non_gates)
+    gate_ids = sorted(set(dependency_targets(close_step, "blocks")) - known_non_gates)
     gates = sorted(
         (issue for issue in client.show_many(gate_ids) if issue_type(issue) == "gate"),
         key=lambda issue: str(issue.get("id") or ""),
@@ -106,7 +106,7 @@ def collect_audit_evidence(
 
     task_rows: list[dict[str, Any]] = []
 
-    completion_dependency_errors = audit_completion_dependency_errors(audit_step, implementation)
+    completion_dependency_errors = close_completion_dependency_errors(close_step, implementation)
     errors.extend(completion_dependency_errors)
 
     branch = f"feat/{slug}"
@@ -117,15 +117,15 @@ def collect_audit_evidence(
     }
     records: list[dict[str, Any]] = []
     paths: list[str] = []
-    close_id = str(audit_step["id"])
+    close_id = str(close_step["id"])
     accepted_ids = {*task_ids, close_id}
 
     if not git["branch_present"]:
         errors.append(f"feature branch is missing: {branch}")
     else:
         try:
-            validate_git_revision(client.root, base, name="audit base branch")
-            validate_git_revision(client.root, branch, name="audit feature branch")
+            validate_git_revision(client.root, base, name="feature-check base branch")
+            validate_git_revision(client.root, branch, name="feature-check feature branch")
             require_common_history(client.root, base, branch)
             range_value = f"{base}..{branch}"
             records = commit_records(
@@ -244,8 +244,8 @@ def collect_audit_evidence(
         "checks": {
             "status": "ok" if not errors else "invalid",
             "error_count": len(errors),
-            "errors_truncated": len(errors) > MAX_AUDIT_ITEMS,
-            "errors": errors[:MAX_AUDIT_ITEMS],
+            "errors_truncated": len(errors) > MAX_FEATURE_CHECK_ITEMS,
+            "errors": errors[:MAX_FEATURE_CHECK_ITEMS],
         },
         "feature": issue_summary(root),
         "steps": {name: issue_summary(issue) for name, issue in steps.items()},
@@ -268,8 +268,8 @@ def collect_audit_evidence(
     return payload
 
 
-def cmd_audit_evidence(args: argparse.Namespace) -> int:
-    payload = collect_audit_evidence(
+def cmd_feature_check(args: argparse.Namespace) -> int:
+    payload = collect_feature_evidence(
         args.root,
         args.bead,
         include_plan=args.include_plan,

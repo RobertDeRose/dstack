@@ -16,7 +16,7 @@ Use these dStack commands when remediation is required:
 ```bash
 dstack init
 dstack check formula
-dstack check plan --bead <plan>
+dstack check plan --bead <root>
 ```
 
 Initialization and formula validation must succeed before pouring a new remediation molecule. Run the plan check after
@@ -40,7 +40,7 @@ Resume an explicitly supplied remediation molecule before considering new work. 
 step. Store the audit scope and evidence in description/comments, observable remediation outcomes in acceptance
 criteria, and a publishable six-section design beginning at heading level three.
 
-Resolve material questions, run `dstack check plan --bead <plan>`, then close only the plan step. Do not create
+Resolve material questions, run `dstack check plan --bead <root>`, then close only the plan step. Do not create
 implementation tasks, approve scope, or implement remediation during project audit.
 
 Return the remediation root, findings, decisions, and `/review-plan <root>`.
