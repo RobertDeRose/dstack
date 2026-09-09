@@ -250,8 +250,8 @@ def test_implemented_features_live_under_references_without_adr_navigation() -> 
     root = Path(__file__).resolve().parents[2]
     summary = (root / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
 
-    assert "[Implemented Features](reference/implemented-features.md)" in summary
-    assert "[Beads-native control plane](features/beads-native-control-plane/index.md)" in summary
-    assert "[Lean workflow and documentation lifecycle](features/lean-workflow-refinement/index.md)" in summary
+    assert "  - [Implemented Features](reference/implemented-features.md)" in summary
+    assert "    - [Beads-native control plane](features/beads-native-control-plane/index.md)" in summary
+    assert "    - [Lean workflow and documentation lifecycle](features/lean-workflow-refinement/index.md)" in summary
     assert "decisions/" not in summary
     assert "Architecture decisions" not in summary

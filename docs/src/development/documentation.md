@@ -42,6 +42,10 @@ Use `dstack docs export-design --bead <feature> --scaffold` inside the registere
 index sections, and the single `SUMMARY.md` entry are created mechanically; existing index prose is not replaced. Fill
 Overview and User Impact before validation. The exported design remains exactly the accepted plan design.
 
+In this repository, keep that `SUMMARY.md` entry under **References > Implemented Features**. Scaffolding guarantees a
+single feature link but does not impose a global book layout, so move a newly appended entry into that section before
+publication when necessary.
+
 `dstack check docs --slug <slug>` is a Beads-independent structural check. `dstack docs commit` and
 `dstack check feature --bead <feature> --require-docs` additionally compare the exported design with the current plan
 and
