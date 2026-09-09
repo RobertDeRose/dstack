@@ -255,3 +255,24 @@ def test_implemented_features_live_under_references_without_adr_navigation() -> 
     assert "    - [Lean workflow and documentation lifecycle](features/lean-workflow-refinement/index.md)" in summary
     assert "decisions/" not in summary
     assert "Architecture decisions" not in summary
+
+
+def test_navigation_keeps_security_with_user_docs_and_development_project_focused() -> None:
+    root = Path(__file__).resolve().parents[2]
+    summary = (root / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
+
+    user_nav = "  - [Interrupted Skill Recovery](recovery.md)\n  - [Security](security/index.md)\n- [Architecture]"
+    assert user_nav in summary
+    assert "- [Development](development/index.md)" in summary
+    assert "development/feature-lifecycle.md" not in summary
+    assert "Development and Contributions" not in summary
+
+    development = (root / "docs/src/development/index.md").read_text(encoding="utf-8")
+    tooling = (root / "docs/src/development/tooling.md").read_text(encoding="utf-8")
+    contributing = (root / "docs/src/development/contributing.md").read_text(encoding="utf-8")
+
+    assert "developed with the same dStack workflow" in development
+    assert "[mise](https://mise.jdx.dev/)" in tooling
+    assert "[hk](https://hk.jdx.dev/)" in tooling
+    assert "GitHub pull request" in contributing
+    assert "https://github.com/RobertDeRose/dstack/pulls" in contributing
