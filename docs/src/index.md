@@ -1,11 +1,16 @@
 # dStack
 
-dStack gives software-engineering agents a small, deterministic set of repository operations around a native Beads
-workflow.
+dStack gives software-engineering agents a small set of deterministic repository operations around a Beads-backed
+feature workflow.
 
-The dStack workflow is opt-in: ordinary requests do not invoke Beads or create tasks. When explicitly activated, Beads
-owns workflow state. Git owns repository content and history. Target repositories own their validation contract. Public
-prompts explicitly load hidden skills for semantic decisions, while dStack validates and performs repository mechanics.
+The workflow is opt-in. Beads owns workflow state, Git owns repository content and history, and the target repository
+owns its validation commands. dStack does not add another task database, readiness engine, or recovery journal.
 
-Start with [Getting started](getting-started/index.md), then read the [Architecture](architecture/index.md) and
-[Feature lifecycle](development/feature-lifecycle.md).
+Users interact with two surfaces:
+
+- **workflow commands** such as `/plan-feature` and `/implement`, which load the stage-specific skill and guide semantic
+  work; and
+- **CLI commands** such as `dstack check task`, which validate or perform deterministic mechanics.
+
+Start with [Getting started](getting-started/index.md). Use [Operations](operations/index.md) for day-to-day workflow and
+recovery guidance, and [CLI reference](reference/cli.md) when you need exact command syntax.

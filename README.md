@@ -4,89 +4,80 @@
   <img src="docs/src/assets/img/dstack_logo.png" alt="dStack logo">
 </p>
 
-`dStack` is a deterministic control plane for software-engineering agents.
+`dStack` gives software-engineering agents a small, deterministic set of repository operations around a Beads-backed
+feature workflow.
 
-- **Beads** owns plans, decisions, tasks, dependencies, gates, claims, readiness, and completion.
+- **Beads** owns plans, decisions, tasks, dependencies, claims, readiness, and completion.
 - **Git** owns repository content, branches, worktrees, and history.
-- **hk** runs the repository validation contract.
-- **dStack skills** guide semantic planning, review, implementation, close, and project audit.
-- **dStack commands** perform deterministic repository checks and mutations.
+- **Workflow commands** (`/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`) guide semantic
+  work.
+- **dStack CLI commands** validate policy and perform deterministic repository mechanics.
 
-## Workflow
-
-Each feature uses one native Beads molecule:
-
-```text
-plan -> review -> human approval -> implementation tasks -> close
-```
-
-The implementation step is a structural epic. Review creates each implementation task with a native approval blocker,
-and the final close step waits natively for implementation children. `/close-feature` reviews before claiming that step.
-
-The installed skills are:
-
-```text
-/plan-feature   Record feature intent and material decisions in Beads
-/review-plan    Reconcile memory and repository facts; create implementation tasks
-/implement      Claim and implement native ready work
-/close-feature  Review, document, and close an implemented feature
-/audit-project  Audit current project drift and plan remediation
-```
-
-The workflow is opt-in. Only the targeted skills, or an explicit request to use dStack, activate Beads tracking. dStack
-setup and check commands perform their documented mechanics but do not create workflow issues. Ordinary requests do not
-run `bd`, create Beads issues, or require Beads initialization.
+The workflow is opt-in. Ordinary requests do not create Beads issues or activate dStack tracking.
 
 ## Install
 
-Runtime requirements: Git, Python 3.14, and Beads 1.2.2. This repository additionally uses `uv`, hk, and mdBook for its
-own development and validation.
+Runtime requirements are Git, Python 3.14, and Beads 1.2.2.
 
 ```bash
 uv tool install --python 3.14 /path/to/dstack
-dstack install skills
+dstack install
+```
+
+Then initialize each repository that will use dStack:
+
+```bash
+cd /path/to/repository
 dstack init
 ```
 
-`dstack init` preflights the supported Beads version, initializes Beads with generic agent and hook setup disabled,
-installs the dStack formula and scoped `bd prime` instructions, then validates the resulting workspace. It is idempotent
-and does not create workflow issues. Existing generic integrations are not removed automatically, and an unhealthy
-existing `.beads` workspace is reported rather than replaced. Review and commit the installed formula, then run
-`dstack check formula`; commands that pour new feature work require this committed-policy check to pass.
+Review and commit the installed dStack formula, then verify it:
 
-## Commands
-
-```text
-dstack init [--root PATH] [--update]
-dstack install skills [--agent-dir PATH]
-dstack check formula [--root PATH]
-dstack check plan --bead <plan>
-dstack check review --bead <feature-root>
-dstack check task --bead <task>
-dstack check docs --slug <slug> [--root PATH]
-dstack docs export-design --bead <feature-root> [--root PATH]
-dstack docs commit --bead <feature-root> [--root PATH]
-dstack commit --bead <task>
-dstack worktree --bead <feature-or-descendant>
-dstack audit --bead <feature> [--offset N] [--include-plan] [--require-docs]
+```bash
+dstack check formula
 ```
 
-Agent-facing operational commands emit deterministic JSON. Top-level help, version, unknown-command, and argparse output
-remains human-readable. Beads commands remain the authority for workflow transitions; dStack only validates or performs
-the mechanics required by the skills. The installed `PRIME.md` defines the universal dStack interaction and native
-recovery contract. Each skill adds only its stage-specific dStack commands and examples; exact command syntax remains
-authoritative in CLI help and the command reference.
+See [Getting started](docs/src/getting-started/index.md) for the complete first-run workflow.
+
+## Workflow
+
+A feature moves through four user-facing stages with an explicit approval between review and implementation:
+
+```text
+/plan-feature <request>
+        |
+        v
+/review-plan <feature>
+        |
+        v
+review and approve the proposed scope
+        |
+        v
+/implement <feature>
+        |
+        v
+/close-feature <feature>
+```
+
+`/audit-project` is separate from the feature lifecycle. It reviews current project drift and creates a normal remediation
+plan only when work is needed.
 
 ## Documentation
 
-The canonical documentation is the mdBook under `docs/`. It describes the current architecture, workflow, operations,
-security boundaries, command contracts, and environment. `dstack init` installs the scoped `.beads/PRIME.md`
-instructions together with the project formula.
+The mdBook under [`docs/`](docs/src/index.md) is the canonical documentation:
+
+- [Getting started](docs/src/getting-started/index.md)
+- [Operations](docs/src/operations/index.md)
+- [Architecture](docs/src/architecture/index.md)
+- [CLI reference](docs/src/reference/cli.md)
+- [Recovery](docs/src/operations/recovery.md)
 
 ## Development
 
+This repository uses `uv`, hk, and mdBook for its own validation:
+
 ```bash
-uv run pytest                 # parallel by default (`-n auto`)
+uv run pytest
 uv run pytest tests/acceptance
 hk check -a
 ```
