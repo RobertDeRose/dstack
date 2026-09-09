@@ -15,7 +15,8 @@ Run the complete repository contract with:
 hk check -a
 ```
 
-Fast tests cover stateless adapters and validators. Acceptance tests execute Beads 1.2.2 and verify the Beads formula, readiness, claims, gates, dependencies, worktrees, and Git evidence used by the skills.
+Fast tests cover stateless adapters and validators. Acceptance tests execute Beads 1.2.2 and verify the Beads formula,
+readiness, claims, gates, dependencies, worktrees, and Git evidence used by the skills.
 
 This repository chooses hk as its project-validation contract; dStack does not impose hk on target repositories or run
 it as a CLI runtime dependency. Skills run each target repository's documented validation command. hk owns formatting,
@@ -38,7 +39,8 @@ The Python package keeps external authority and workflow policy separate:
 - `task_validation.py` composes read-only workflow, policy, and Git evidence into the shared implementation-task
   validator used by both `check task` and `check feature`.
 - `git_ops.py` owns state-changing Git commit/correction operations and verifies them against `policy.py` and `docs.py`.
-- `commands.py` and `feature_check.py` orchestrate those lower-level operations; lower-level modules must not import command
+- `commands.py` and `feature_check.py` orchestrate those lower-level operations; lower-level modules must not import
+  command
   handlers.
 
 Keep these boundaries narrow. Do not add repository/service abstractions or duplicate Git/Beads state to make recovery

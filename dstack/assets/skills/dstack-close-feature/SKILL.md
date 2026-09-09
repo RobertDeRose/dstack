@@ -23,8 +23,8 @@ dstack docs commit --bead <root>
 dstack check feature --bead <root> --include-plan --require-docs
 ```
 
-Enter the returned feature worktree before writing documentation. The first feature check collects deterministic evidence
-for semantic review. The final feature check runs after documentation is committed or confirmed unchanged.
+Enter the returned feature worktree before writing documentation. The first feature check collects deterministic
+evidence for semantic review. The final feature check runs after documentation is committed or confirmed unchanged.
 
 ## Review before claiming
 

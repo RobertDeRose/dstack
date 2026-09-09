@@ -19,7 +19,8 @@ memory, and memory mutation always requires explicit user approval.
 
 ### Implemented design
 
-- `dstack init` uses idempotent Beads initialization without generic hooks or agent setup, rejects unhealthy or malformed
+- `dstack init` uses idempotent Beads initialization without generic hooks or agent setup, rejects unhealthy or
+  malformed
   workspace discovery, and installs the packaged feature formula and `.beads/PRIME.md`. New feature work requires the
   installed formula to match committed `HEAD` policy.
 - `dstack install` installs or updates the Pi workflow commands and skills transactionally. It preflights every managed
@@ -27,10 +28,12 @@ memory, and memory mutation always requires explicit user approval.
 - Planning stores the original request in description, a directly publishable design in the Beads design field,
   observable acceptance criteria, and focused questions and answers in comments. Review searches only relevant memory
   and repository facts before creating bounded tasks with direct approval and persistent close blockers.
-- Implementation tasks use concise one-line `Implementation:` notes as canonical commit material. Each fragment names one
+- Implementation tasks use concise one-line `Implementation:` notes as canonical commit material. Each fragment names
+  one
   concrete delivered change and is no more than 96 characters. Task titles default to `feat(feature-slug)` and may
   select another supported Conventional Commit type with an explicit title prefix. Each repository-changing task owns
-  one commit with exactly one `Task:` trailer. An unambiguous unpublished correction rewrites only that owning commit and
+  one commit with exactly one `Task:` trailer. An unambiguous unpublished correction rewrites only that owning commit
+  and
   replays descendants without folding unrelated fixups into it.
 - `/close-feature` performs semantic review before claiming the close step. Reopening any implementation task blocks
   close again because each task remains a persistent ordinary blocker. Close returns owned defects to their task,
@@ -40,7 +43,8 @@ memory, and memory mutation always requires explicit user approval.
   `SUMMARY.md` entry, validates documentation separately from project checks, and uses `dstack docs commit`. New or
   changed feature documentation receives one close-owned `docs(feature-slug): feature title` commit. Valid documentation
   inherited unchanged from the base requires no new commit.
-- `dstack check feature` validates all relevant feature evidence while bounding summary output. Commit paths are read and
+- `dstack check feature` validates all relevant feature evidence while bounding summary output. Commit paths are read
+  and
   checked internally when ownership or documentation boundaries require them; there is no separate path-detail option.
 - Machine output is compact deterministic JSON by default. Human inspection can request indented JSON with
   `DSTACK_OUTPUT_FORMAT=pretty`.

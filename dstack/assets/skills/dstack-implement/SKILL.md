@@ -35,8 +35,8 @@ A clean retry of `dstack commit` may return unchanged.
 
 ## Select work
 
-Inspect workflow position with `bd mol current <root> --json`. For a large graph use `bd mol progress <root> --json` and a
-focused in-progress query:
+Inspect workflow position with `bd mol current <root> --json`. For a large graph use `bd mol progress <root> --json`
+and a focused in-progress query:
 
 ```bash
 bd list --parent <implementation> --status in_progress --label dstack:work:implementation --limit 0 --json

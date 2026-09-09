@@ -27,7 +27,8 @@ Beads fields and six required design sections:
 - Validation
 - Non-goals
 
-The check validates structure, not whether an unresolved product decision remains. The workflow asks the user about those
+The check validates structure, not whether an unresolved product decision remains. The workflow asks the user about
+those
 semantic choices.
 
 ## Review and approval
@@ -41,7 +42,8 @@ the user must explicitly approve the proposed scope before implementation tasks 
 
 ## Implementation
 
-`/implement` resumes implementation work already owned by the current agent before claiming another ready task. It enters
+`/implement` resumes implementation work already owned by the current agent before claiming another ready task. It
+enters
 the registered feature worktree and reads the selected task's accepted fields, notes, comments, decisions, and blockers
 as needed.
 

@@ -1,7 +1,7 @@
 ---
 dstack-managed: true
 name: dstack-review-plan
-description: "Reconcile a completed feature plan with memory and repository facts, then create its implementation tasks."
+description: "Review a feature plan against memory and repository facts, then create implementation tasks."
 disable-model-invocation: true
 ---
 

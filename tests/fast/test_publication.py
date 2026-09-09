@@ -171,7 +171,9 @@ def test_docs_commit_validates_the_resulting_commit_after_hooks(public_feature: 
     assert "Hook mutation." in committed
 
 
-def test_feature_check_validates_committed_publication_not_ignored_working_files(public_feature: FeatureRepository) -> None:
+def test_feature_check_validates_committed_publication_not_ignored_working_files(
+    public_feature: FeatureRepository,
+) -> None:
     exclude = public_feature.repo / ".git/info/exclude"
     exclude.write_text(exclude.read_text(encoding="utf-8") + "docs/src/features/example/design.md\n", encoding="utf-8")
     publication(public_feature)

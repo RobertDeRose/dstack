@@ -12,5 +12,6 @@ Users interact with two surfaces:
   work; and
 - **CLI commands** such as `dstack check task`, which validate or perform deterministic mechanics.
 
-Start with [Getting started](getting-started/index.md). Use [Operations](operations/index.md) for day-to-day workflow and
+Start with [Getting started](getting-started/index.md). Use [Operations](operations/index.md) for day-to-day workflow
+and
 recovery guidance, and [CLI reference](reference/cli.md) when you need exact command syntax.

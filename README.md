@@ -9,7 +9,8 @@ feature workflow.
 
 - **Beads** owns plans, decisions, tasks, dependencies, claims, readiness, and completion.
 - **Git** owns repository content, branches, worktrees, and history.
-- **Workflow commands** (`/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`) guide semantic
+- **Workflow commands** (`/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`) guide
+  semantic
   work.
 - **dStack CLI commands** validate policy and perform deterministic repository mechanics.
 
@@ -59,7 +60,8 @@ review and approve the proposed scope
 /close-feature <feature>
 ```
 
-`/audit-project` is separate from the feature lifecycle. It reviews current project drift and creates a normal remediation
+`/audit-project` is separate from the feature lifecycle. It reviews current project drift and creates a normal
+remediation
 plan only when work is needed.
 
 ## Documentation

@@ -25,7 +25,8 @@ invent flags or alternate command sequences.
 dstack <command> [arguments]
 ```
 
-A nonzero exit means the operation failed. Read the diagnostic and preserve the Git or Beads state it reports. Do not bypass a
+A nonzero exit means the operation failed. Read the diagnostic and preserve the Git or Beads state it reports. Do not
+bypass a
 failed invariant manually and then continue as though dStack succeeded.
 
 ## Resume and recovery

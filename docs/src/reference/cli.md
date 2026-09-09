@@ -107,7 +107,8 @@ Target repositories still own their whole-book or project-specific documentation
 dstack check feature --bead ID [--offset N] [--include-plan] [--require-docs] [--root PATH]
 ```
 
-Validate a completed feature and collect bounded evidence for `/close-feature`. `ID` may be the feature root or any issue
+Validate a completed feature and collect bounded evidence for `/close-feature`. `ID` may be the feature root or any
+issue
 inside that feature.
 
 The check validates all relevant task, Git, ownership, and feature-documentation evidence even when summary output is
@@ -117,7 +118,8 @@ paged. Use:
 - `--require-docs` after documentation publication to require valid feature documentation and close ownership; and
 - `--offset N` to page task, decision, gate, and commit summaries in groups of 100.
 
-When a result includes `next_offset`, repeat the command with that value to read the next summary page. Use focused Beads
+When a result includes `next_offset`, repeat the command with that value to read the next summary page. Use focused
+Beads
 and Git commands such as `bd show ... --include-comments --json`, `bd history ... --json`, and `git show` when deeper
 detail is needed. dStack does not duplicate those detail interfaces.
 

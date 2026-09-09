@@ -94,7 +94,8 @@ def test_worktree_commit_correction_and_task_evidence_use_native_state(real_repo
         "--design",
         TASK_DESIGN,
         "--acceptance",
-        "A reachable canonical commit contains one bullet per implementation note and exactly one matching Task trailer.",
+        "A reachable canonical commit contains one bullet per implementation note "
+        "and exactly one matching Task trailer.",
     )
     task_id = str(task["id"])
     run_command(["bd", "dep", "add", str(steps["audit"]["id"]), task_id, "--type", "blocks"], cwd=real_repo)
