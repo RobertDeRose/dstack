@@ -89,7 +89,7 @@ def test_feature_check_rejects_missing_persistent_close_blocker(public_feature: 
 def test_feature_check_rejects_noncanonical_close_commit(public_feature: FeatureRepository) -> None:
     public_feature.commit("docs(example): Incorrect title\n\nTask: audit\n")
     result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
-    assert "close documentation commit message is not canonical" in result["checks"]["errors"]
+    assert "feature documentation commit message is not canonical" in result["checks"]["errors"]
 
 
 def test_feature_check_checks_raw_git_paths_and_bounds_diff_stat(public_feature: FeatureRepository) -> None:

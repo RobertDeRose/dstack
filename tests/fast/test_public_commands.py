@@ -57,7 +57,7 @@ def test_docs_commit_and_final_feature_check_reject_stale_export(public_feature:
     public_feature.invoke("check", "feature", "--bead", "root", "--include-plan", "--require-docs")
     public_feature.data["issues"]["plan"]["design"] += "\nAccepted clarification.\n"
     rejected = public_feature.invoke("docs", "commit", "--bead", "root", expected=2)
-    assert "differs from the native plan" in rejected["error"]
+    assert "differs from the feature plan" in rejected["error"]
     audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs", expected=4)
     assert audited["validation"]["feature_docs"]["status"] == "invalid"
 

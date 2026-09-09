@@ -10,5 +10,5 @@ Do not put secrets, credentials, private keys, customer data, or unredacted inci
 commit messages, or command output. Keep Beads interaction data subject to the project's retention and redaction policy.
 
 History rewrites, destructive cleanup, memory mutation, and repository delivery require explicit authorization. Resolve
-approval and ambiguity gates only for their documented decision; gate IDs and native blocker relations are security
+approval and ambiguity gates only for their documented decision; gate IDs and Beads blocker relationships are security
 boundaries.

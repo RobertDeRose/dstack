@@ -188,7 +188,7 @@ def collect_feature_evidence(
     elif close_commits and not commit_record_matches_message(
         close_commits[0], canonical_docs_message(root, slug, close_id)
     ):
-        errors.append("close documentation commit message is not canonical")
+        errors.append("feature documentation commit message is not canonical")
 
     invalid_footer_commits = sorted(
         str(record["commit"])
@@ -232,7 +232,7 @@ def collect_feature_evidence(
             }
             if require_docs and not close_commits and publication_changed(client.root, base, branch, slug):
                 errors.append(
-                    f"changed feature publication requires one canonical documentation commit owned by {close_id}"
+                    f"changed feature documentation requires one canonical documentation commit owned by {close_id}"
                 )
         except DstackError as exc:
             feature_docs = {"status": "invalid", "errors": [str(exc)]}

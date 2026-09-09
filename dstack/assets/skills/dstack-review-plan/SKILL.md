@@ -1,7 +1,7 @@
 ---
 dstack-managed: true
 name: dstack-review-plan
-description: "Reconcile a completed feature plan with memory and repository facts, then create its native task graph."
+description: "Reconcile a completed feature plan with memory and repository facts, then create its implementation tasks."
 disable-model-invocation: true
 ---
 
@@ -23,7 +23,7 @@ shape, approval blockers, persistent close blockers, and that implementation wor
 
 Resolve the feature with `bd mol current <root> --json`. Read the plan and review step with
 `bd show <plan> <review> --include-comments --json`. If review is already closed, do not recreate tasks or rerun the
-preapproval check; continue to Approval. Otherwise continue an in-progress review or claim only a native-ready open
+preapproval check; continue to Approval. Otherwise continue an in-progress review or claim only a ready open
 review.
 
 Search `bd memories <focused terms> --json`, then recall only relevant keys. Inspect only relevant source, tests,
@@ -31,15 +31,15 @@ documentation, and decisions. When useful, review independently from implementat
 perspectives, then keep only synthesized findings. Correct clear plan defects; ask the user when authority remains
 materially ambiguous.
 
-Record durable decisions as native decision Beads labeled `decision:<slug>` and link each to the feature root with one
+Record durable decisions as Beads decision issues labeled `decision:<slug>` and link each to the feature root with one
 exact `relates-to` dependency.
 
 ## Create implementation work
 
 Inspect existing implementation children first and reconcile partial review work by ID instead of creating duplicates.
-Create bounded task-shaped outcomes directly under the implementation epic. Use one native `bd create` invocation with
+Create bounded task-shaped outcomes directly under the implementation epic. Use one `bd create` invocation with
 `--parent`, `--no-inherit-labels`, `--labels`, `--description`, `--design`, `--acceptance`, and
-`--deps blocked-by:<approval>` so a new task never temporarily lacks its approval blocker. Immediately make the final
+`--deps blocked-by:<approval>` so a new task never temporarily lacks its approval blocker. Immediately make the close
 step depend on the new task with `bd dep add <close> <task> --type blocks`. Preserve that edge after the task closes so
 a later reopen blocks close again. On resume, repair a missing edge on an existing child before continuing rather than
 creating a replacement task.
@@ -50,18 +50,18 @@ Each task needs:
 - planned scope and non-goals in `description`, not commit prose;
 - accepted approach, invariants, and boundaries in `design`;
 - observable outcomes in `acceptance_criteria`; and
-- real native dependencies, including the direct approval blocker.
+- real Beads dependencies, including the direct approval blocker.
 
 Leave execution notes empty. During implementation, delivered repository work is recorded as ordered
 `Implementation: <completed increment>` notes; `No repository change: <specific reason>` is reserved for an intentional
 no-change task. Do not create commit-type or scope labels. A conventional prefix in the task title may select a
 non-`feat` commit type when appropriate.
 
-Add ordering dependencies only where execution order is real. Every implementation task must remain a direct native
-blocker of the final step; `dstack check review --bead <root>` rejects a task that lacks that completion edge.
+Add ordering dependencies only where execution order is real. Every implementation task must remain a direct Beads
+blocker of the close step; `dstack check review --bead <root>` rejects a task that lacks that completion edge.
 
 No implementation task may be ready before approval. Let Beads validate dependency legality and readiness, including
-cross-feature blockers and native conditional dependencies; unrelated project cycles do not invalidate this feature. Run
+cross-feature blockers and conditional dependencies; unrelated project cycles do not invalidate this feature. Run
 the two dStack checks above, then close the review step and present scope, risks, decisions, and the task graph. Review
 never grants approval.
 

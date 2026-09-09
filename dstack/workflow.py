@@ -102,7 +102,7 @@ def close_completion_dependency_errors(
     close_step: Mapping[str, Any],
     implementation_tasks: Sequence[Mapping[str, Any]],
 ) -> list[str]:
-    """Verify persistent native blockers from every implementation task to close."""
+    """Verify persistent Beads blockers from every implementation task to close."""
 
     errors: list[str] = []
     task_ids = {str(task.get("id") or "") for task in implementation_tasks if task.get("id")}

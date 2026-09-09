@@ -36,7 +36,7 @@ Legacy ownership footers remain readable but are not emitted.
 
 ### Validation
 
-Acceptance exercises commit creation, correction, and close documentation.
+Acceptance exercises commit creation, correction, and feature documentation.
 
 ### Non-goals
 

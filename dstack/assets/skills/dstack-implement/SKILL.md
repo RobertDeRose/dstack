@@ -1,7 +1,7 @@
 ---
 dstack-managed: true
 name: dstack-implement
-description: "Claim and implement native ready work with deterministic worktree, commit, and evidence checks."
+description: "Resume or claim ready implementation work with deterministic worktree, commit, and evidence checks."
 disable-model-invocation: true
 ---
 
@@ -35,7 +35,7 @@ A clean retry of `dstack commit` may return unchanged.
 
 ## Select work
 
-Inspect native position with `bd mol current <root> --json`. For a large graph use `bd mol progress <root> --json` and a
+Inspect workflow position with `bd mol current <root> --json`. For a large graph use `bd mol progress <root> --json` and a
 focused in-progress query:
 
 ```bash
@@ -45,7 +45,7 @@ bd list --parent <implementation> --status in_progress --label dstack:work:imple
 Use the explicitly selected task when supplied. Otherwise continue the in-progress implementation task surfaced by the
 query before claiming new ready work. A closed selected task is verified and reported; do not substitute unrelated work.
 
-For an explicitly selected open task, resolve its canonical ID, confirm it is native-ready, then claim that exact ID:
+For an explicitly selected open task, resolve its canonical ID, confirm it is ready, then claim that exact ID:
 
 ```bash
 bd update <task> --claim --json
@@ -58,13 +58,13 @@ bd ready --parent <implementation> --label dstack:work:implementation --claim --
 bd show <task> --include-comments --json
 ```
 
-If nothing is ready, report native blockers with:
+If nothing is ready, report blockers with:
 
 ```bash
 bd ready --parent <implementation> --label dstack:work:implementation --explain --json
 ```
 
-Never claim the final step.
+Never claim the close step.
 
 ## Implement
 
@@ -73,13 +73,13 @@ relevant decisions and direct blockers only as needed. Implement the smallest co
 tests before production code when practical, then run the repository's documented validation contract. Keep code, tests,
 configuration, and existing current documentation aligned, but leave `docs/src/features/<slug>/` to `/close-feature`.
 
-Use native task notes as the delivered-outcome record. Append one concrete `Implementation:` fragment for each
+Use task notes as the delivered-outcome record. Append one concrete `Implementation:` fragment for each
 meaningful completed increment. Keep it concise, preferably one line and no more than 96 characters. Do not copy planned
-description/design prose into notes. On rework, preserve still-true fragments and replace obsolete ones through native
+description/design prose into notes. On rework, preserve still-true fragments and replace obsolete ones through task
 notes; keep review rationale in comments and durable rationale in linked decisions. Do not place `Task:` or `Beads:`
 ownership footers in note text.
 
-For ambiguity, comment on the task and ask rather than guessing. Separate significant work becomes a native task linked
+For ambiguity, comment on the task and ask rather than guessing. Separate significant work becomes a Beads task linked
 with `discovered-from`.
 
 ## Finish

@@ -206,7 +206,7 @@ def test_preapproval_review_rejects_missing_persistent_close_blocker() -> None:
         ready_task_ids=[],
     )
 
-    assert "audit must be directly blocked by every implementation task; missing blockers: task" in errors
+    assert "close step must be directly blocked by every implementation task; missing blockers: task" in errors
 
 
 def test_preapproval_review_rejects_missing_work_and_false_readiness() -> None:

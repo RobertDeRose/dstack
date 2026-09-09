@@ -1,7 +1,7 @@
 ---
 dstack-managed: true
 name: dstack-plan-feature
-description: "Plan one feature in a native Beads molecule and resolve material intent questions."
+description: "Plan one feature in Beads and resolve material intent questions."
 disable-model-invocation: true
 ---
 
@@ -18,7 +18,7 @@ dstack check plan --bead <root>
 ```
 
 `dstack init` and `dstack check formula` must succeed before pouring new work. Run the plan check after storing the
-completed native plan and before closing the plan step.
+completed plan and before closing the plan step.
 
 ## Start or resume
 
@@ -29,7 +29,7 @@ molecule with `title`, `desc`, `feature_title`, `feature_slug`, and `base_branch
 
 Inspect `bd mol current <root> --json` and `bd show <plan> --include-comments --json`. A closed plan returns
 `/review-plan <root>`; do not reopen it implicitly. Otherwise continue an existing in-progress plan or claim an open
-native-ready plan with:
+ready plan with:
 
 ```bash
 bd ready --parent <root> --label dstack:step:plan --claim --json
@@ -44,7 +44,7 @@ Planning is intent-focused. Read only enough repository identity to choose the b
 investigation or memory search; `/review-plan` owns repository and memory reconciliation.
 
 Ask focused questions for material product, architecture, compatibility, operational, or security choices. Record each
-question and answer as native plan comments. Record `No material questions: <reason>` when none remain. Never silently
+question and answer as plan comments. Record `No material questions: <reason>` when none remain. Never silently
 choose product policy.
 
 ## Store the plan
@@ -61,7 +61,7 @@ fragment beginning at heading level three in the design field. The design contai
 ### Non-goals
 ```
 
-Write design content to a temporary file outside the repository, update the native fields, delete the temporary file,
+Write design content to a temporary file outside the repository, update the Beads fields, delete the temporary file,
 then run `dstack check plan --bead <root>`. Do not create implementation tasks or feature documentation during planning.
 
 After validation, close only the plan step and return the root ID, resolved questions, decisions, and

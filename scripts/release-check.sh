@@ -35,7 +35,7 @@ uv pip install --python "$tmp/venv/bin/python" "$wheel"
 "$tmp/venv/bin/dstack" check --help >/dev/null
 
 agent_dir="$tmp/pi-agent"
-"$tmp/venv/bin/dstack" install --agent-dir "$agent_dir" >"$tmp/install-skills.json"
+"$tmp/venv/bin/dstack" install --agent-dir "$agent_dir" >"$tmp/install-agent-resources.json"
 for skill in \
   dstack-audit-project \
   dstack-close-feature \

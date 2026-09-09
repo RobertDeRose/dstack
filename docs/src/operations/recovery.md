@@ -1,50 +1,66 @@
 # Recovery
 
-Beads is the workflow authority and Git is the repository authority. Recovery reads their native state; dStack has no
-phase journal, commit map, lease database, or replay protocol.
+Beads remains the workflow authority and Git remains the repository authority after an interruption. dStack does not
+keep a phase journal, task cache, commit map, lease database, or replay protocol.
 
-## Interrupted sessions
+## Interrupted implementation
 
-Enter the feature worktree with `dstack worktree --bead <root>`. Its reuse does not require merging every subsequent
-base-branch change. A `recovery_required` result returns the existing path and native Git operation without repairing
-it. Enter that path and resolve the native operation before claiming or committing more work. Arbitrary detached
-checkouts are not adopted as feature worktrees. Inspect `git status`, the selected issue with
-`bd show <task> --include-comments --json`, and native workflow position with `bd mol current <root> --json`. For a
-large graph, prefer `bd mol progress` and a focused
-`bd list --parent <implementation> --status in_progress --label dstack:work:implementation --limit 0 --json` query.
+Locate the feature worktree with:
 
-Resume work owned by the current agent before calling `bd ready --claim`. Ready work excludes in-progress tasks. Never
-steal another claim. One writer may edit or stage in a feature worktree at a time; the CLI mutation lock protects only
-individual deterministic commands, not an agent's entire editing session.
+```text
+dstack worktree --bead <feature>
+```
+
+If the result is `recovery_required`, enter the returned path and inspect `git status`. Finish or deliberately abort the
+reported Git operation before running another mutating dStack command. dStack reports the existing Git state; it does
+not repair it automatically.
+
+Inspect the selected task with `bd show <task> --include-comments --json` and the feature with
+`bd mol current <root> --json`. For a large feature, use `bd mol progress` and focused `bd list` queries rather than
+loading unrelated issues.
+
+Resume work already owned by the current agent before claiming another ready task. Never take another owner's claim.
+Only one agent should edit or stage in a feature worktree at a time; dStack's mutation lock protects individual CLI
+operations, not the entire editing session.
 
 ## Commit retries and corrections
 
-`dstack commit --bead <task>` is a no-op when the canonical commit already matches the notes and there are no changes.
-An updated title or notes can reword an unpublished canonical commit from a clean worktree. Staged corrections rewrite
-only the selected owning commit and replay descendants; unrelated pending fixups are not autosquashed.
+`dstack commit --bead <task>` is a no-op when the canonical commit already matches the task notes and there are no
+repository changes. Updated task titles or notes can reword an unpublished canonical commit from a clean worktree.
+Staged corrections rewrite only the selected owning commit and replay its descendants; unrelated fixups are not folded
+into it.
 
-If rebase stops, use `git status` and native `git rebase --continue` or `git rebase --abort`. Do not invoke another
-dStack commit during the operation. An aborted rebase retains the correction commit: inspect it and recover deliberately
-before retrying. Do not reset away unrelated work. Published commits and ambiguous ownership are not rewritten.
-
-Keep current delivered outcomes in task notes, review findings and correction rationale in comments, and durable
-repository rationale in linked decision Beads. Obsolete notes must not remain as false claims in an amended commit.
+If a rebase stops, use `git status` and normal `git rebase --continue` or `git rebase --abort`. Do not run another dStack
+commit during the rebase. An aborted correction retains the correction commit so it can be inspected and recovered
+deliberately. Published commits and ambiguous ownership are not rewritten.
 
 ## Interrupted close
 
-Repeat semantic review against the approved plan and relevant accepted decisions. Before trusting final-step readiness,
-verify that every implementation child remains a direct native blocker of the final step and repair any missing edge;
-this is sufficient to recover an interruption between task creation and blocker attachment without a dStack-owned
-journal. Resume an owned in-progress final step instead of claiming it again. Enter its registered feature worktree
-before exporting documentation. Re-run `dstack docs export-design --bead <root> --scaffold` to recreate missing
-structure without replacing existing prose. Run documentation validation and
-`dstack audit --bead <root> --include-plan --require-docs` before closing the implementation epic, final step, and root
-in that order. Skip already-closed steps; inspect status rather than inferring completion from an empty ready queue.
-Merge and push require separate authorization.
+Repeat the semantic close review instead of assuming that an earlier session finished it. Verify that every
+implementation child remains a direct blocker of the close step; repair a missing edge before trusting close readiness.
+This recovers interruptions between task creation and blocker attachment without creating dStack-owned recovery state.
 
-## Resource installation
+Resume a close step already owned by the current agent instead of claiming it again. Enter the registered feature
+worktree before writing documentation. Re-run:
 
-If resource installation cannot fully restore its previous files, the error reports retained recovery-copy locations. Do
-not delete that directory until its previous resources have been restored or deliberately retired. A normal install or
-complete rollback removes temporary copies. Initialization updates existing native state rather than pouring or
-recreating feature molecules.
+```text
+dstack docs export-design --bead <root> --scaffold
+```
+
+to recreate unambiguous missing structure without replacing existing prose.
+
+Before completing close, run the repository's validation and:
+
+```text
+dstack check feature --bead <root> --include-plan --require-docs
+```
+
+Then close the implementation epic, close step, and feature root in that order, skipping issues already closed. Verify
+Beads status rather than inferring completion from an empty ready queue. Merge and push still require separate
+authorization.
+
+## Interrupted resource installation
+
+If `dstack install` cannot fully restore the previous agent resources, its error reports the directory containing
+recovery copies. Keep that directory until the previous resources have been restored or deliberately retired. A normal
+installation or complete rollback removes its temporary copies.

@@ -35,7 +35,7 @@ def markdown_links(text: str) -> list[str]:
 
 
 def publication_changed(root: Path, base: str, head: str, slug: str) -> bool:
-    """Report whether this feature publication differs from the inherited base state."""
+    """Report whether this feature documentation differs from the inherited base state."""
 
     changed = run(
         ["git", "diff", "--name-only", "-z", f"{base}...{head}", "--", f"docs/src/features/{slug}"], cwd=root
@@ -106,7 +106,7 @@ def _validate_docs_content(
     if not design.strip():
         errors.append("feature design must not be empty")
     if expected_design is not None and design != expected_design:
-        errors.append("feature design differs from the native plan; export the accepted design again")
+        errors.append("feature design differs from the feature plan; export the accepted design again")
     first_content = next((line.strip() for line in index.splitlines() if line.strip()), "")
     if not re.fullmatch(r"#\s+\S.+", first_content):
         errors.append("feature index must begin with one level-one title")

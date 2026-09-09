@@ -1,28 +1,43 @@
 # Compatibility
 
-dStack supports the tested tool boundary:
+dStack's tested runtime boundary is:
 
 - Python 3.14
 - Beads 1.2.2
 
-This repository uses mdBook 0.5.4 for its own documentation; dStack does not impose it on target repositories.
+This repository uses mdBook 0.5.4 for its own documentation, but dStack does not require target repositories to use
+mdBook or hk.
 
-The native behavior exercised by acceptance tests includes formula parsing and pouring, ready-task claiming, ordinary
-blocking dependencies, human gates, dynamic implementation children, reopen-sensitive close blockers, Beads worktrees,
-JSON output, Beads history, and Git commit behavior through controlled test hooks. The fast suite does not claim
-integration coverage for hk itself.
+## Repository policy
 
-Formula and prime changes are reviewed project configuration. The installed formula and prime must exactly match the
-packaged contract, and `dstack check formula` also requires the formula to match the version committed at `HEAD` before
-feature work begins. The five-step graph retains the internal `audit` step ID and label as its stable final-step
-identity while its public lifecycle role becomes close. Formula version 4 removes reliance on `waits-for` fan-in and
-uses persistent ordinary blocking edges from the final step to each implementation task. Active molecules poured from
-earlier formula versions retain their existing graph; review or close repairs missing direct blockers before proceeding
-rather than rewriting the molecule. Canonical implementation and documentation commits use exactly one `Task:` trailer;
-implementation bodies use ordered native `Implementation:` fragments rather than planned description or design prose.
-Skills guide agents to keep each fragment concise, verb-led, one line, and no more than 96 characters. Commit formatting
-strips surrounding whitespace, preserves technical punctuation, and adds a dash-and-space prefix without wrapping.
-`Beads:` footers are not ownership evidence. `PRIME.md` must preserve the opt-in workflow, native Git/Beads authority,
-generic dStack invocation and recovery rules, and scoped-memory boundaries. Stage-specific dStack command sequences
-belong to the individual skills. Complete all-status Beads reads used for restart/recovery are a compatibility
-requirement rather than optional pagination behavior.
+The installed dStack formula and `.beads/PRIME.md` are reviewed repository policy. `dstack check formula` requires them
+to match the installed package and requires the formula to match committed `HEAD` before new feature work begins.
+
+The close step keeps the stable internal Beads identity `audit` / `dstack:step:audit` so existing molecules remain
+readable while user-facing documentation consistently calls it close.
+
+Formula version 4 replaced dynamic `waits-for` fan-in with persistent ordinary blockers from the close step to each
+implementation task. Features created with older formula versions keep their existing graph; review or close repairs a
+missing direct blocker when encountered instead of rewriting the entire molecule.
+
+## Git evidence
+
+Canonical implementation and documentation commits use exactly one `Task:` trailer. Legacy `Beads:` footers are not
+ownership evidence. Implementation commit bodies come from ordered `Implementation:` task notes rather than planned
+description or design prose.
+
+A task correction may rewrite its unambiguous unpublished canonical commit and replay descendants. Published or
+ambiguous evidence is not rewritten automatically.
+
+## Recovery-sensitive Beads behavior
+
+Restart and recovery depend on complete all-status Beads reads. dStack deliberately uses unbounded lifecycle list reads
+(`--limit 0`) where omission could hide older or in-progress work.
+
+The Beads v2-default JSON envelope currently reports `schema_version: 1`. dStack enables that envelope only for Beads
+subprocesses and rejects unsupported schema versions.
+
+## Agent contract
+
+`.beads/PRIME.md` contains the common opt-in, authority, invocation, ownership, and recovery rules. Each installed skill
+contains only its stage-specific workflow behavior and CLI commands.
