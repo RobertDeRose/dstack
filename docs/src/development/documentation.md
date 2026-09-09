@@ -30,12 +30,11 @@ During close, that accepted design is exported verbatim to `docs/src/features/<s
 <What changed for users, operators, or contributors.>
 
 ## Implemented Design
-
-{{#include design.md}}
 ```
 
-The design is not rewritten during documentation closeout. The Overview and User Impact explain the implemented feature;
-the included design preserves the reviewed implementation contract.
+The `Implemented Design` section uses mdBook to include the sibling `design.md` file. The design is not rewritten during
+documentation closeout. The Overview and User Impact explain the implemented feature; the included design preserves the
+reviewed implementation contract.
 
 Use the dStack documentation commands from the feature worktree:
 
