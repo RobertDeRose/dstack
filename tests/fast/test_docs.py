@@ -257,6 +257,18 @@ def test_implemented_features_live_under_references_without_adr_navigation() -> 
     assert "Architecture decisions" not in summary
 
 
+def test_live_design_includes_only_appear_in_feature_indexes() -> None:
+    root = Path(__file__).resolve().parents[2]
+    docs = root / "docs/src"
+    allowed = {
+        docs / "features/beads-native-control-plane/index.md",
+        docs / "features/lean-workflow-refinement/index.md",
+    }
+
+    actual = {path for path in docs.rglob("*.md") if "{{#include design.md}}" in path.read_text(encoding="utf-8")}
+    assert actual == allowed
+
+
 def test_navigation_keeps_security_with_user_docs_and_development_project_focused() -> None:
     root = Path(__file__).resolve().parents[2]
     summary = (root / "docs/src/SUMMARY.md").read_text(encoding="utf-8")
