@@ -33,8 +33,8 @@ dstack docs commit --bead <feature>
 ```
 
 The structural documentation check rejects unsafe paths, symlinks, invalid includes, duplicate navigation, and direct
-`SUMMARY.md` links to the design. It does not enforce global book layout, orphan pages, unrelated links, or an mdBook build. Repository lint and
-pre-commit workflows own those broader checks.
+`SUMMARY.md` links to the design. It does not enforce global book layout, orphan pages, unrelated links, or an
+mdBook build. Repository lint and pre-commit workflows own those broader checks.
 
 ## Repeatable publication
 

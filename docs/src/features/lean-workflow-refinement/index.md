@@ -2,7 +2,8 @@
 
 ## Overview
 
-This feature established dStack's current feature lifecycle: plan the requested change, review it against the repository,
+This feature established dStack's current feature lifecycle: plan the requested change, review it against the
+repository,
 obtain human approval, implement bounded tasks, and close the completed feature. Project auditing remains a separate
 repository-wide workflow that can create a remediation feature when it finds actionable drift.
 
