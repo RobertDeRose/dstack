@@ -1,14 +1,12 @@
-# Development
+# Development and Contributions
 
-Keep changes aligned with these principles:
+These pages are for changes to dStack itself rather than for using dStack in another repository.
 
-1. **One workflow authority.** Beads determines what exists, what is blocked, and what is ready.
-2. **Ask before encoding policy.** Planning records material decisions before implementation begins.
-3. **Review before approval.** Review checks intent against source, tests, documentation, and decisions.
-4. **Keep documentation current.** Documentation changes with the behavior it describes.
-5. **Close from evidence.** Close compares approved intent with Beads, Git, validation results, and current
-   documentation before publication.
-6. **Automate deterministic mechanics only.** Skills decide; dStack validates and executes mechanical operations.
+- [Feature lifecycle](feature-lifecycle.md) explains the behavior that the workflow commands and Beads formula implement.
+- [Documentation](documentation.md) describes the documentation contract and feature-publication rules.
+- [Testing and tooling](tooling.md) lists the repository validation commands and internal Python module boundaries.
+- [Implemented design: Lean workflow refinement](../features/lean-workflow-refinement/index.md) records the design that
+  led to the current workflow.
 
-Use [Feature lifecycle](feature-lifecycle.md) for workflow behavior and [Testing and tooling](tooling.md) for this
-repository's development commands and internal module boundaries.
+Before submitting a change, run the repository's validation contract described in
+[Testing and tooling](tooling.md).
