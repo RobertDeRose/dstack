@@ -1,5 +1,7 @@
 # dStack
 
+![dStack logo](assets/img/dstack_logo.png#center)
+
 dStack helps software-engineering agents plan, review, implement, and close feature work. It combines workflow commands
 such as `/plan-feature` and `/implement` with a small CLI for deterministic operations around Beads and Git.
 

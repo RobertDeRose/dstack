@@ -214,3 +214,21 @@ def test_docs_scaffold_is_repeatable_without_overwriting_prose(git_repo: Path) -
 def test_markdown_reference_links_and_nested_fences() -> None:
     text = '[real][target]\n\n[target]: docs/a(b).md "Title"\n\n````md\n```\n[hidden](hidden.md)\n```\n````\n'
     assert markdown_links(text) == ["docs/a(b).md"]
+
+
+def test_mdbook_landing_page_keeps_theme_aware_logo() -> None:
+    root = Path(__file__).resolve().parents[2]
+    index = (root / "docs/src/index.md").read_text(encoding="utf-8")
+    book = (root / "docs/book.toml").read_text(encoding="utf-8")
+    css = (root / "docs/src/assets/css/center_images.css").read_text(encoding="utf-8")
+
+    assert "![dStack logo](assets/img/dstack_logo.png#center)" in index
+    assert 'additional-css = ["src/assets/css/center_images.css"]' in book
+    assert 'img[src*="#center"]' in css
+    assert 'html.rust img[src*="dstack_logo.png"]' in css
+    assert 'html.ayu img[src*="dstack_logo.png"]' in css
+    assert 'html.coal img[src*="dstack_logo.png"]' in css
+    assert 'html.navy img[src*="dstack_logo.png"]' in css
+
+    for name in ("dstack_logo.png", "dstack_logo_neon_blue.png", "dstack_logo_neon_orange.png"):
+        assert (root / "docs/src/assets/img" / name).is_file()
