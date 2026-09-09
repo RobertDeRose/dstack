@@ -12,12 +12,12 @@ per-task future-agent classification.
 
 ## Current truth
 
-The mdBook under `docs/` is the canonical repository documentation. Architecture describes the running system;
-operations explain how to use it; reference pages state exact contracts; development pages explain how to change and
-validate it. Current documentation and accepted decisions outrank stale memory.
+The mdBook under `docs/` is the canonical repository documentation. Getting Started covers onboarding and normal use;
+Interrupted Skill Recovery covers restart procedures; Architecture explains responsibilities and data flow; References
+state exact contracts; and Development and Contributions explains how to change and validate dStack.
 
-Use Beads for live plans, tasks, decisions, blockers, claims, and readiness only inside an explicitly activated dStack
-workflow. Do not copy those changing facts into Markdown.
+Keep live plans, tasks, decisions, blockers, claims, and readiness in Beads instead of copying changing workflow state
+into Markdown. Current documentation and accepted decisions remain the source for current product guidance.
 
 ## Feature documentation
 

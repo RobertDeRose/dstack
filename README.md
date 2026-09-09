@@ -4,75 +4,40 @@
   <img src="docs/src/assets/img/dstack_logo.png" alt="dStack logo">
 </p>
 
-`dStack` gives software-engineering agents a small, deterministic set of repository operations around a Beads-backed
-feature workflow.
-
-- **Beads** owns plans, decisions, tasks, dependencies, claims, readiness, and completion.
-- **Git** owns repository content, branches, worktrees, and history.
-- **Workflow commands** (`/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, `/audit-project`) guide
-  semantic
-  work.
-- **dStack CLI commands** validate policy and perform deterministic repository mechanics.
-
-The workflow is opt-in. Ordinary requests do not create Beads issues or activate dStack tracking.
+`dStack` helps software-engineering agents plan, review, implement, and close feature work. It pairs Pi workflow commands
+such as `/plan-feature` and `/implement` with a small CLI for deterministic repository operations around Beads and Git.
 
 ## Install
 
-Runtime requirements are Git, Python 3.14, and Beads 1.2.2.
+Runtime requirements are Git, Python 3.14, Beads 1.2.2, and `uv`.
 
 ```bash
-uv tool install --python 3.14 /path/to/dstack
+uv tool install git+https://github.com/RobertDeRose/dstack
 dstack install
 ```
 
-Then initialize each repository that will use dStack:
+Initialize each repository that will use dStack:
 
 ```bash
 cd /path/to/repository
 dstack init
 ```
 
-Review and commit the installed dStack formula, then verify it:
+Review and commit the generated `.beads/` policy changes, then verify the committed formula:
 
 ```bash
 dstack check formula
 ```
 
-See [Getting started](docs/src/getting-started/index.md) for the complete first-run workflow.
-
-## Workflow
-
-A feature moves through four user-facing stages with an explicit approval between review and implementation:
-
-```text
-/plan-feature <request>
-        |
-        v
-/review-plan <feature>
-        |
-        v
-review and approve the proposed scope
-        |
-        v
-/implement <feature>
-        |
-        v
-/close-feature <feature>
-```
-
-`/audit-project` is separate from the feature lifecycle. It reviews current project drift and creates a normal
-remediation
-plan only when work is needed.
+Continue with [Getting Started](docs/src/getting-started/index.md) for the feature workflow and project auditing.
 
 ## Documentation
 
-The mdBook under [`docs/`](docs/src/index.md) is the canonical documentation:
-
-- [Getting started](docs/src/getting-started/index.md)
+- [Getting Started](docs/src/getting-started/index.md)
 - [Interrupted Skill Recovery](docs/src/recovery.md)
 - [Architecture](docs/src/architecture/index.md)
-- [CLI reference](docs/src/reference/cli.md)
-- [Interrupted Skill Recovery](docs/src/recovery.md)
+- [Development and Contributions](docs/src/development/index.md)
+- [References](docs/src/reference/index.md)
 
 ## Development
 

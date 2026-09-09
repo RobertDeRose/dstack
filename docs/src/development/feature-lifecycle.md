@@ -1,7 +1,7 @@
 # Feature lifecycle
 
-dStack is opt-in. A feature moves through planning, review and approval, implementation, and close. `/audit-project` is
-a separate repository-wide operation that may create a remediation feature when it finds actionable drift.
+A dStack feature moves through planning, review and approval, implementation, and close. Project auditing is a
+separate repository-wide workflow that may create a remediation feature when it finds actionable drift.
 
 ```text
 plan -> review -> human approval -> implementation tasks -> close
