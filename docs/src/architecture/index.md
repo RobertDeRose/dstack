@@ -1,61 +1,65 @@
 # Architecture
 
-## Authority boundaries
+dStack separates workflow reasoning from deterministic repository mechanics. The four main responsibilities are kept
+small so each source of truth has one clear owner.
 
-dStack is an opt-in workflow around two existing authorities:
+## Responsibilities
 
-- **Beads** owns workflow state: features, plans, decisions, tasks, dependencies, gates, claims, readiness, completion,
-  and workflow history.
-- **Git** owns repository state: source, tests, documentation, branches, worktrees, commits, and history.
+### Beads
 
-The target repository owns its own validation commands. dStack does not add another task database, readiness engine,
-branch registry, recovery journal, or project-validation framework.
+Beads stores the feature workflow: plans, decisions, tasks, dependencies, gates, claims, readiness, completion, and
+workflow history.
+
+### Git
+
+Git stores the repository: source, tests, documentation, branches, worktrees, commits, and history.
+
+### Skills
+
+Skills handle semantic work. They clarify intent, review plans against the repository, implement approved tasks, assess
+close findings, and decide when a question needs user input. They use the target repository's own validation commands
+for project-specific checks.
+
+### dStack CLI
+
+The `dstack` CLI handles deterministic operations such as policy validation, worktree discovery, canonical task commits,
+feature checks, and feature-documentation validation. It reads current Beads, Git, and filesystem state for each
+invocation.
+
+## Data flow
 
 ```text
 User request
     |
     v
-Workflow command -------- chooses the stage-specific skill
+Workflow command -------- selects a stage-specific skill
     |
     v
 Skill ------------------- semantic decisions and user questions
     |
-    +-- Beads CLI -------- workflow graph and state
+    +-- Beads CLI -------- workflow state and relationships
     |
-    `-- dStack CLI ------- deterministic checks and repository mechanics
+    `-- dStack CLI ------- deterministic checks and repository operations
              |
              +-- Git and worktrees
              +-- bounded Beads/Git evidence
              `-- feature-document structure
 ```
 
-## Workflow commands and skills
-
-The installed workflow commands are `/plan-feature`, `/review-plan`, `/implement`, `/close-feature`, and
-`/audit-project`. Invoking one loads its corresponding skill. Skills perform semantic work: asking material questions,
-reconciling intent with repository evidence, implementing approved work, reviewing close findings, and assessing project
-drift.
-
-The workflow does not activate merely because Beads, dStack resources, or `.beads/PRIME.md` are present.
-
-## dStack CLI
-
-The CLI reads current Beads, Git, and filesystem facts on every invocation. It performs deterministic operations such as
-policy checks, branch/worktree validation, canonical commit handling, feature checks, and feature-documentation
-validation.
-
-The CLI does not calculate workflow readiness or choose what should happen next. Skills use Beads for those transitions.
-When detailed evidence is needed, they use the existing Beads and Git interfaces rather than a second dStack detail API.
+A workflow command such as `/review-plan` or `/implement` chooses the skill for that stage. The skill decides what the
+work means and what information it needs; Beads and the dStack CLI provide the durable state and deterministic
+operations used to carry it out.
 
 ## Persistent information
 
-| Information | Authority |
+| Information | Stored in |
 | --- | --- |
-| Workflow state and relationships | Beads |
-| Source, tests, documentation, and Git history | Git |
-| Current product guidance | Repository documentation |
-| Project validation | Target repository tooling |
-| Feature workflow policy | Versioned dStack formula and `.beads/PRIME.md` |
+| Feature workflow state and relationships | Beads |
+| Source, tests, documentation, and repository history | Git |
+| Feature workflow policy | `.beads/formulas/dstack-feature.formula.toml` and `.beads/PRIME.md` |
+| Accepted feature intent and implementation tasks | Beads feature issues |
+| Published feature documentation | `docs/src/features/<slug>/` in Git |
+| Project-specific validation behavior | Target repository tooling and documentation |
 
-Current repository documentation and accepted decisions outrank stale memory. Memory is advisory context, never live
-workflow state.
+Current repository documentation and accepted decisions are the source for current product guidance. Beads memory can
+provide useful context, but it is not live workflow state.

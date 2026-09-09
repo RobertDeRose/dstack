@@ -1,6 +1,6 @@
-# Reference
+# References
 
-Use these pages when you need exact syntax or stable implementation contracts:
+Use these pages when you need exact syntax or a compatibility-sensitive contract:
 
 - [CLI reference](cli.md) — commands, selectors, options, output, and exit status
 - [Environment](environment.md) — supported environment variables and repository defaults
