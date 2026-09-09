@@ -10,9 +10,9 @@ from dstack import cli
 def test_parser_exposes_ergonomic_commands() -> None:
     parser = cli.build_parser()
 
-    skills = parser.parse_args(["install", "skills", "--agent-dir", "/tmp/agent"])
-    assert skills.command == "skills"
-    assert skills.agent_dir == Path("/tmp/agent")
+    install = parser.parse_args(["install", "--agent-dir", "/tmp/agent"])
+    assert install.top_command == "install"
+    assert install.agent_dir == Path("/tmp/agent")
 
     formula_check = parser.parse_args(["check", "formula", "--root", "/tmp/project"])
     assert formula_check.command == "formula"
@@ -48,10 +48,12 @@ def test_parser_exposes_ergonomic_commands() -> None:
     worktree = parser.parse_args(["worktree", "--bead", "ds-feature"])
     assert worktree.bead == "ds-feature"
 
-    audit = parser.parse_args(["audit", "--bead", "ds-feature", "--include-plan", "--require-docs"])
-    assert audit.bead == "ds-feature"
-    assert audit.include_plan is True
-    assert audit.require_docs is True
+    feature = parser.parse_args(
+        ["check", "feature", "--bead", "ds-feature", "--include-plan", "--require-docs"]
+    )
+    assert feature.bead == "ds-feature"
+    assert feature.include_plan is True
+    assert feature.require_docs is True
 
 
 def test_legacy_command_names_are_removed() -> None:
@@ -61,6 +63,10 @@ def test_legacy_command_names_are_removed() -> None:
         parser.parse_args(["ctl", "plan", "check", "ds-plan"])
     with pytest.raises(SystemExit):
         parser.parse_args(["install_skills"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["install", "skills"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["audit", "--bead", "ds-root"])
     with pytest.raises(SystemExit):
         parser.parse_args(["commit", "--bead", "ds-task", "--subject", "feat: manual"])
     with pytest.raises(SystemExit):
@@ -79,7 +85,7 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
 
         return command
 
-    monkeypatch.setattr(cli, "cmd_install_skills", record("skills", 11))
+    monkeypatch.setattr(cli, "cmd_install_agent_resources", record("install", 11))
     monkeypatch.setattr(cli, "cmd_formula_check", record("formula-check", 17))
     monkeypatch.setattr(cli, "cmd_plan_check", record("plan", 13))
     monkeypatch.setattr(cli, "cmd_review_check", record("review", 18))
@@ -87,8 +93,9 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "cmd_git_commit_docs", record("docs-commit", 20))
     monkeypatch.setattr(cli, "cmd_git_commit", record("commit", 14))
     monkeypatch.setattr(cli, "cmd_worktree_ensure", record("worktree", 15))
+    monkeypatch.setattr(cli, "cmd_feature_check", record("feature-check", 21))
 
-    assert cli.main(["install", "skills", "--agent-dir", "/tmp/agent"]) == 11
+    assert cli.main(["install", "--agent-dir", "/tmp/agent"]) == 11
     assert cli.main(["check", "formula", "--root", "/tmp/project"]) == 17
     assert cli.main(["check", "plan", "--bead", "ds-plan"]) == 13
     assert cli.main(["check", "review", "--bead", "ds-root"]) == 18
@@ -96,8 +103,9 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cli.main(["docs", "commit", "--bead", "ds-root"]) == 20
     assert cli.main(["commit", "--bead", "ds-task"]) == 14
     assert cli.main(["worktree", "--bead", "ds-feature"]) == 15
+    assert cli.main(["check", "feature", "--bead", "ds-feature"]) == 21
     assert [name for name, _ in calls] == [
-        "skills",
+        "install",
         "formula-check",
         "plan",
         "review",
@@ -105,6 +113,7 @@ def test_root_dispatches_new_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         "docs-commit",
         "commit",
         "worktree",
+        "feature-check",
     ]
 
 
@@ -130,7 +139,17 @@ def test_cli_failure_is_compact_json(git_repo: Path, capsys: pytest.CaptureFixtu
     assert payload["status"] == "error"
 
 
-@pytest.mark.parametrize("command", [["check", "review"], ["docs", "export-design"], ["docs", "commit"]])
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["check", "plan"],
+        ["check", "review"],
+        ["check", "feature"],
+        ["docs", "export-design"],
+        ["docs", "commit"],
+        ["worktree"],
+    ],
+)
 def test_feature_commands_use_one_bead_selector(command: list[str]) -> None:
     parser = cli.build_parser()
     assert parser.parse_args([*command, "--bead", "root"]).bead == "root"
@@ -138,13 +157,13 @@ def test_feature_commands_use_one_bead_selector(command: list[str]) -> None:
         parser.parse_args([*command, "--feature", "root"])
 
 
-def test_docs_slug_and_audit_bead_are_unambiguous(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_docs_slug_and_feature_check_bead_are_unambiguous(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cli.build_parser().parse_args(["check", "docs", "--slug", "example"]).slug == "example"
     captured: list[str] = []
-    monkeypatch.setattr(cli, "cmd_audit_evidence", lambda args: captured.append(args.bead) or 0)
-    assert cli.main(["audit", "--bead", "root"]) == 0
+    monkeypatch.setattr(cli, "cmd_feature_check", lambda args: captured.append(args.bead) or 0)
+    assert cli.main(["check", "feature", "--bead", "root"]) == 0
     assert captured == ["root"]
     with pytest.raises(SystemExit):
-        cli.main(["audit", "root"])
+        cli.main(["check", "feature", "root"])
     with pytest.raises(SystemExit):
-        cli.main(["audit"])
+        cli.main(["check", "feature"])

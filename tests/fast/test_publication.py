@@ -42,7 +42,7 @@ def test_implementation_cannot_commit_feature_publication(public_feature: Featur
     assert run(["git", "diff", "--cached", "--name-only"], cwd=public_feature.worktree).stdout
 
 
-def test_audit_and_task_check_reject_publication_under_a_task_footer(public_feature: FeatureRepository) -> None:
+def test_feature_check_and_task_check_reject_publication_under_a_task_footer(public_feature: FeatureRepository) -> None:
     task = public_feature.data["issues"]["task"]
     task.update(status="in_progress", notes="Implementation: Publish the accepted design.")
     publication(public_feature)
@@ -52,7 +52,7 @@ def test_audit_and_task_check_reject_publication_under_a_task_footer(public_feat
     reused = public_feature.invoke("commit", "--bead", "task", expected=2)
     assert "publication belongs to the close step" in reused["error"]
     task["status"] = "closed"
-    audited = public_feature.invoke("audit", "--bead", "root", "--require-docs", expected=4)
+    audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs", expected=4)
     assert any("requires one canonical documentation commit" in error for error in audited["checks"]["errors"])
     assert audited["git"]["close_commit"] is None
 
@@ -75,7 +75,7 @@ def test_docs_commit_rejects_application_changes_before_creation_or_reuse(
     assert "non-feature paths: application.py" in rejected["error"]
     assert run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout == before
     if already_committed:
-        audited = public_feature.invoke("audit", "--bead", "root", "--require-docs", expected=4)
+        audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs", expected=4)
         assert any("non-feature paths: application.py" in error for error in audited["checks"]["errors"])
 
 
@@ -94,7 +94,7 @@ def test_removed_beads_runtime_is_still_rejected_in_history(
     run(["git", "commit", "-F", "-"], cwd=public_feature.worktree, input_text=canonical_task_message(first, "example"))
     run(["git", "rm", "--", path], cwd=public_feature.worktree)
     run(["git", "commit", "-F", "-"], cwd=public_feature.worktree, input_text=canonical_task_message(second, "example"))
-    result = public_feature.invoke("audit", "--bead", "root", expected=4)
+    result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert result["git"]["changed_path_count"] == 0
     assert sum(path in error for error in result["checks"]["errors"]) == 2
     first["status"] = "in_progress"
@@ -118,7 +118,7 @@ def test_inherited_publication_needs_no_empty_close_commit(public_feature: Featu
     reused = public_feature.invoke("docs", "commit", "--bead", "root")
     assert reused["mode"] == "unchanged" and reused["commit"] is None
     assert run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout == before
-    audited = public_feature.invoke("audit", "--bead", "root", "--require-docs")
+    audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs")
     assert audited["checks"]["status"] == "ok" and audited["git"]["close_commit"] is None
 
 
@@ -135,7 +135,7 @@ def test_new_navigation_needs_close_ownership_even_when_design_was_inherited(pub
     task["status"] = "closed"
     rejected = public_feature.invoke("docs", "commit", "--bead", "root", expected=2)
     assert "without a close-owned commit" in rejected["error"]
-    audited = public_feature.invoke("audit", "--bead", "root", "--require-docs", expected=4)
+    audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs", expected=4)
     assert any("requires one canonical documentation commit" in error for error in audited["checks"]["errors"])
 
 
@@ -171,12 +171,12 @@ def test_docs_commit_validates_the_resulting_commit_after_hooks(public_feature: 
     assert "Hook mutation." in committed
 
 
-def test_audit_validates_committed_publication_not_ignored_working_files(public_feature: FeatureRepository) -> None:
+def test_feature_check_validates_committed_publication_not_ignored_working_files(public_feature: FeatureRepository) -> None:
     exclude = public_feature.repo / ".git/info/exclude"
     exclude.write_text(exclude.read_text(encoding="utf-8") + "docs/src/features/example/design.md\n", encoding="utf-8")
     publication(public_feature)
     message = canonical_docs_message(public_feature.data["issues"]["root"], "example", "audit")
     run(["git", "commit", "-F", "-"], cwd=public_feature.worktree, input_text=message)
-    audited = public_feature.invoke("audit", "--bead", "root", "--require-docs", expected=4)
+    audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs", expected=4)
     assert audited["validation"]["feature_docs"]["status"] == "invalid"
     assert "feature documentation validation failed" in audited["checks"]["errors"]

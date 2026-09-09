@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from dstack.audit import bounded
+from dstack.feature_check import bounded
 from dstack.core import run
 from dstack.policy import canonical_task_message
 
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from conftest import FeatureRepository
 
 
-def test_audit_collects_compact_facts_through_public_cli(public_feature: FeatureRepository) -> None:
-    result = public_feature.invoke("audit", "--bead", "root")
+def test_feature_check_collects_compact_facts_through_public_cli(public_feature: FeatureRepository) -> None:
+    result = public_feature.invoke("check", "feature", "--bead", "root")
     assert result["status"] == "collected"
     assert result["checks"]["status"] == "ok"
     assert result["plan_validation"]["status"] == "ok"
@@ -25,19 +25,19 @@ def test_audit_collects_compact_facts_through_public_cli(public_feature: Feature
     assert [item["id"] for item in result["gates"]["items"]] == ["gate"]
 
 
-def test_audit_reports_missing_branch_and_bad_plan(public_feature: FeatureRepository) -> None:
+def test_feature_check_reports_missing_branch_and_bad_plan(public_feature: FeatureRepository) -> None:
     run(["git", "switch", "--detach"], cwd=public_feature.worktree)
     run(["git", "branch", "-D", "feat/example"], cwd=public_feature.repo)
     public_feature.data["worktrees"] = []
     public_feature.data["issues"]["plan"]["design"] = ""
-    result = public_feature.invoke("audit", "--bead", "root", expected=4)
+    result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert result["git"]["branch_present"] is False
     assert result["plan_validation"]["status"] == "invalid"
     assert result["validation"]["feature_docs"]["status"] == "blocked"
 
 
-def test_audit_reuses_loaded_plan_and_leaves_detail_reads_to_beads(public_feature: FeatureRepository) -> None:
-    result = public_feature.invoke("audit", "--bead", "root", "--include-plan")
+def test_feature_check_reuses_loaded_plan_and_leaves_detail_reads_to_beads(public_feature: FeatureRepository) -> None:
+    result = public_feature.invoke("check", "feature", "--bead", "root", "--include-plan")
     assert result["details"]["plan"]["design"] == public_feature.data["issues"]["plan"]["design"]
     assert result["details"]["plan"]["id"] == "plan"
     calls = [json.loads(line) for line in public_feature.calls.read_text().splitlines()]
@@ -45,8 +45,8 @@ def test_audit_reuses_loaded_plan_and_leaves_detail_reads_to_beads(public_featur
     assert set(result["details"]) == {"plan"}
 
 
-def test_audit_does_not_rehydrate_known_task_blockers_as_gate_candidates(public_feature: FeatureRepository) -> None:
-    public_feature.invoke("audit", "--bead", "root")
+def test_feature_check_does_not_rehydrate_known_task_blockers_as_gate_candidates(public_feature: FeatureRepository) -> None:
+    public_feature.invoke("check", "feature", "--bead", "root")
     calls = [json.loads(line) for line in public_feature.calls.read_text().splitlines()]
     task_reads = [call for call in calls if call[:1] == ["show"] and "task" in call]
     gate_reads = [call for call in calls if call[:1] == ["show"] and "gate" in call]
@@ -56,9 +56,9 @@ def test_audit_does_not_rehydrate_known_task_blockers_as_gate_candidates(public_
 
 
 @pytest.mark.parametrize("field,value", [("status", "open"), ("notes", ""), ("design", "")])
-def test_audit_rejects_incomplete_native_task(public_feature: FeatureRepository, field: str, value: str) -> None:
+def test_feature_check_rejects_incomplete_native_task(public_feature: FeatureRepository, field: str, value: str) -> None:
     public_feature.data["issues"]["task"][field] = value
-    result = public_feature.invoke("audit", "--bead", "root", expected=4)
+    result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert result["checks"]["error_count"] > 0
 
 
@@ -70,29 +70,29 @@ def test_audit_rejects_incomplete_native_task(public_feature: FeatureRepository,
         "feat(example): implement behavior\n\nTask: task\nTask: other\n",
     ],
 )
-def test_audit_checks_real_noncanonical_and_ambiguous_commits(public_feature: FeatureRepository, message: str) -> None:
+def test_feature_check_checks_real_noncanonical_and_ambiguous_commits(public_feature: FeatureRepository, message: str) -> None:
     public_feature.data["issues"]["task"]["notes"] = "Implementation: Implement behavior."
     public_feature.commit(message)
-    result = public_feature.invoke("audit", "--bead", "root", expected=4)
+    result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert any("canonical" in error or "ownership" in error for error in result["checks"]["errors"])
 
 
-def test_audit_rejects_missing_persistent_close_blocker(public_feature: FeatureRepository) -> None:
-    audit = public_feature.data["issues"]["audit"]
-    audit["dependencies"] = [dependency for dependency in audit["dependencies"] if dependency.get("id") != "task"]
-    result = public_feature.invoke("audit", "--bead", "root", expected=4)
+def test_feature_check_rejects_missing_persistent_close_blocker(public_feature: FeatureRepository) -> None:
+    close_step = public_feature.data["issues"]["audit"]
+    close_step["dependencies"] = [dependency for dependency in close_step["dependencies"] if dependency.get("id") != "task"]
+    result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert any(
-        "audit must be directly blocked by every implementation task" in error for error in result["checks"]["errors"]
+        "close step must be directly blocked by every implementation task" in error for error in result["checks"]["errors"]
     )
 
 
-def test_audit_rejects_noncanonical_close_commit(public_feature: FeatureRepository) -> None:
+def test_feature_check_rejects_noncanonical_close_commit(public_feature: FeatureRepository) -> None:
     public_feature.commit("docs(example): Incorrect title\n\nTask: audit\n")
-    result = public_feature.invoke("audit", "--bead", "root", expected=4)
+    result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert "close documentation commit message is not canonical" in result["checks"]["errors"]
 
 
-def test_audit_checks_raw_git_paths_and_bounds_diff_stat(public_feature: FeatureRepository) -> None:
+def test_feature_check_checks_raw_git_paths_and_bounds_diff_stat(public_feature: FeatureRepository) -> None:
     public_feature.commit("chore: Wrong owner\n\nTask: other\n", path=".beads\ttab/config", content="unsafe")
     # .beads-tab is legal, while a control character inside .beads is still forbidden.
     target = public_feature.worktree / ".beads/runtime\tdata"
@@ -100,7 +100,7 @@ def test_audit_checks_raw_git_paths_and_bounds_diff_stat(public_feature: Feature
     target.write_text("runtime\n")
     run(["git", "add", "-f", "--", ".beads/runtime\tdata"], cwd=public_feature.worktree)
     run(["git", "commit", "-m", "chore: Expose runtime\n\nTask: other"], cwd=public_feature.worktree)
-    result = public_feature.invoke("audit", "--bead", "root", expected=4)
+    result = public_feature.invoke("check", "feature", "--bead", "root", expected=4)
     assert result["git"]["changed_path_count"] == 2
     assert any("Beads" in error for error in result["checks"]["errors"])
     assert len(result["git"]["diff_stat"]) <= 4000
@@ -130,8 +130,8 @@ def test_feature_size_limits_bound_output_not_validity(public_feature: FeatureRe
         input_text="docs(example): Example\n\nTask: audit\n",
     ).stdout.strip()
     run(["git", "reset", "--hard", parent], cwd=public_feature.worktree)
-    first = public_feature.invoke("audit", "--bead", "root")
-    second = public_feature.invoke("audit", "--bead", "root", "--offset", "100")
+    first = public_feature.invoke("check", "feature", "--bead", "root")
+    second = public_feature.invoke("check", "feature", "--bead", "root", "--offset", "100")
     assert first["git"]["commit_count"] == 101
     assert len(first["git"]["commits"]["items"]) == 100
     assert len(second["git"]["commits"]["items"]) == 1

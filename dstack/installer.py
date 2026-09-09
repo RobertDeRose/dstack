@@ -223,7 +223,7 @@ def _verify_packaged_manifest(skill_source: Path, prompt_source: Path) -> None:
         )
 
 
-def install_skills(agent_dir: Path) -> dict[str, object]:
+def install_agent_resources(agent_dir: Path) -> dict[str, object]:
     source = asset_root()
     skill_source = source / "skills"
     prompt_source = source / "prompts"
@@ -263,6 +263,6 @@ def install_skills(agent_dir: Path) -> dict[str, object]:
     }
 
 
-def cmd_install_skills(args: argparse.Namespace) -> int:
-    emit(install_skills(args.agent_dir))
+def cmd_install_agent_resources(args: argparse.Namespace) -> int:
+    emit(install_agent_resources(args.agent_dir))
     return 0

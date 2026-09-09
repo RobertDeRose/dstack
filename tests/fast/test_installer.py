@@ -6,7 +6,7 @@ import pytest
 
 from dstack import installer
 from dstack.core import DstackError
-from dstack.installer import CURRENT_PROMPTS, CURRENT_SKILLS, install_skills
+from dstack.installer import CURRENT_PROMPTS, CURRENT_SKILLS, install_agent_resources
 
 EXPECTED_SKILLS = set(CURRENT_SKILLS)
 EXPECTED_PROMPTS = set(CURRENT_PROMPTS)
@@ -21,8 +21,8 @@ def test_installer_is_idempotent_and_leaves_unrelated_agent_files_untouched(tmp_
     unrelated.mkdir(parents=True)
     (unrelated / "SKILL.md").write_text("---\nname: user-skill\n---\nuser\n", encoding="utf-8")
 
-    first = install_skills(target)
-    second = install_skills(target)
+    first = install_agent_resources(target)
+    second = install_agent_resources(target)
 
     assert set(first["skills"]) == EXPECTED_SKILLS
     assert set(first["prompts"]) == EXPECTED_PROMPTS
@@ -59,7 +59,7 @@ def test_installer_removes_stale_owned_resources(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = install_skills(target)
+    result = install_agent_resources(target)
 
     assert not stale_skill.exists()
     assert not retired_skill.exists()
@@ -80,7 +80,7 @@ def test_installer_refuses_to_replace_user_owned_current_skill(tmp_path: Path) -
     (current / "SKILL.md").write_text("---\nname: dstack-plan-feature\n---\nuser\n", encoding="utf-8")
     original = (current / "SKILL.md").read_bytes()
     with pytest.raises(DstackError):
-        install_skills(target)
+        install_agent_resources(target)
     assert (current / "SKILL.md").read_bytes() == original
 
 
@@ -103,7 +103,7 @@ def test_installer_preflights_every_destination_before_changes(tmp_path: Path) -
     before = _file_snapshot(target)
 
     with pytest.raises(DstackError, match="user-owned prompt"):
-        install_skills(target)
+        install_agent_resources(target)
 
     assert _file_snapshot(target) == before
 
@@ -135,7 +135,7 @@ def test_installer_preserves_existing_resources_when_staging_copy_fails(
     monkeypatch.setattr(installer.shutil, "copy2", fail_on_late_prompt)
 
     with pytest.raises(DstackError, match="cannot install dStack agent resources"):
-        install_skills(target)
+        install_agent_resources(target)
 
     assert _file_snapshot(target) == before
 
@@ -173,7 +173,7 @@ def test_installer_rolls_back_when_replacement_fails(tmp_path: Path, monkeypatch
     monkeypatch.setattr(installer.os, "replace", fail_once)
 
     with pytest.raises(DstackError, match="cannot install dStack agent resources"):
-        install_skills(target)
+        install_agent_resources(target)
 
     assert failed is True
     assert _file_snapshot(target) == before
@@ -187,7 +187,7 @@ def test_incomplete_rollback_retains_the_original_resource_and_reports_its_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     target = tmp_path / "agent"
-    install_skills(target)
+    install_agent_resources(target)
     original = target / "skills/dstack-plan-feature"
     content = "---\ndstack-managed: true\nname: dstack-plan-feature\n---\noriginal\n"
     (original / "SKILL.md").write_text(content)
@@ -205,7 +205,7 @@ def test_incomplete_rollback_retains_the_original_resource_and_reports_its_path(
 
     monkeypatch.setattr(installer.os, "replace", fail_install_and_restore)
     with pytest.raises(DstackError, match="recovery copies retained") as caught:
-        install_skills(target)
+        install_agent_resources(target)
 
     assert backup is not None
     assert (backup / "SKILL.md").read_text() == content
@@ -218,6 +218,6 @@ def test_incomplete_rollback_retains_the_original_resource_and_reports_its_path(
 
 def test_successful_install_cleans_temporary_recovery_copies(tmp_path: Path) -> None:
     target = tmp_path / "agent"
-    install_skills(target)
-    install_skills(target)
+    install_agent_resources(target)
+    install_agent_resources(target)
     assert not list(target.glob(".dstack-install-*"))

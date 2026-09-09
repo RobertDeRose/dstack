@@ -36,7 +36,7 @@ def test_prime_owns_only_common_dstack_contract() -> None:
 
     for stage_specific_command in (
         "dstack commit --bead",
-        "dstack audit --bead",
+        "dstack check feature --bead",
         "dstack docs commit --bead",
         "dstack check plan --bead",
     ):
@@ -45,8 +45,8 @@ def test_prime_owns_only_common_dstack_contract() -> None:
 
 def test_each_skill_documents_only_its_required_dstack_surface() -> None:
     expected = {
-        "dstack-plan-feature": ("dstack init", "dstack check formula", "dstack check plan --bead <plan>"),
-        "dstack-review-plan": ("dstack check plan --bead <plan>", "dstack check review --bead <root>"),
+        "dstack-plan-feature": ("dstack init", "dstack check formula", "dstack check plan --bead <root>"),
+        "dstack-review-plan": ("dstack check plan --bead <root>", "dstack check review --bead <root>"),
         "dstack-implement": (
             "dstack worktree --bead <feature-or-descendant>",
             "dstack commit --bead <task>",
@@ -54,13 +54,13 @@ def test_each_skill_documents_only_its_required_dstack_surface() -> None:
         ),
         "dstack-close-feature": (
             "dstack worktree --bead <feature-or-descendant>",
-            "dstack audit --bead <root> --include-plan",
+            "dstack check feature --bead <root> --include-plan",
             "dstack docs export-design --bead <root> --scaffold",
             "dstack check docs --slug <slug>",
             "dstack docs commit --bead <root>",
-            "dstack audit --bead <root> --include-plan --require-docs",
+            "dstack check feature --bead <root> --include-plan --require-docs",
         ),
-        "dstack-audit-project": ("dstack init", "dstack check formula", "dstack check plan --bead <plan>"),
+        "dstack-audit-project": ("dstack init", "dstack check formula", "dstack check plan --bead <root>"),
     }
 
     for name, commands in expected.items():
@@ -94,7 +94,7 @@ def test_review_and_close_skills_preserve_persistent_native_close_blockers() -> 
     review = _semantic_text(_skill("dstack-review-plan"))
     close = _semantic_text(_skill("dstack-close-feature"))
 
-    command = "bd dep add <audit> <task> --type blocks"
+    command = "bd dep add <close> <task> --type blocks"
     assert command in review
     assert command in close
     assert "later reopen blocks close again" in review

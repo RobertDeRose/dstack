@@ -43,7 +43,7 @@ def test_partial_publication_can_be_scaffolded_reviewed_committed_and_audited(
     run(["git", "add", "docs"], cwd=public_feature.worktree)
     created = public_feature.invoke("docs", "commit", "--bead", "root")
     assert created["mode"] == "created"
-    audited = public_feature.invoke("audit", "--bead", "root", "--require-docs")
+    audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs")
     assert audited["checks"]["status"] == "ok"
     assert audited["git"]["close_commit"]["commit"] == created["commit"]
 

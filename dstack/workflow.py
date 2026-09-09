@@ -98,19 +98,19 @@ def implementation_task_graph_errors(task: Mapping[str, Any], steps: Mapping[str
     return errors
 
 
-def audit_completion_dependency_errors(
-    audit: Mapping[str, Any],
+def close_completion_dependency_errors(
+    close_step: Mapping[str, Any],
     implementation_tasks: Sequence[Mapping[str, Any]],
 ) -> list[str]:
     """Verify persistent native blockers from every implementation task to close."""
 
     errors: list[str] = []
     task_ids = {str(task.get("id") or "") for task in implementation_tasks if task.get("id")}
-    blockers = set(dependency_targets(audit, "blocks"))
+    blockers = set(dependency_targets(close_step, "blocks"))
     missing = sorted(task_ids - blockers)
     if missing:
         errors.append(
-            "audit must be directly blocked by every implementation task; missing blockers: " + ", ".join(missing)
+            "close step must be directly blocked by every implementation task; missing blockers: " + ", ".join(missing)
         )
 
     return errors

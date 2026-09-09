@@ -16,15 +16,15 @@ Use these dStack commands in this stage:
 
 ```bash
 dstack worktree --bead <feature-or-descendant>
-dstack audit --bead <root> --include-plan
+dstack check feature --bead <root> --include-plan
 dstack docs export-design --bead <root> --scaffold
 dstack check docs --slug <slug>
 dstack docs commit --bead <root>
-dstack audit --bead <root> --include-plan --require-docs
+dstack check feature --bead <root> --include-plan --require-docs
 ```
 
-Enter the returned feature worktree before publication writes. The first audit collects evidence for semantic review;
-the final audit is required after accepted publication is committed or confirmed unchanged.
+Enter the returned feature worktree before publication writes. The first feature check collects evidence for semantic review; the final feature check runs after accepted documentation
+is committed or confirmed unchanged.
 
 ## Review before claiming
 
@@ -33,18 +33,17 @@ graph. Read the final step with comments and inspect its ownership. Repeat seman
 already in progress. Do not claim the final step merely because native readiness exposes it.
 
 If the final step is already closed, do not rewrite delivered history or rerun publication/claim operations. Run project
-validation and the final dStack audit, then complete only omitted implementation-epic/root closure if those checks pass.
+validation and the final dStack feature check, then complete only omitted implementation-epic/root closure if those checks pass.
 Report failures rather than reopening delivered work.
 
-Before the first audit, inspect every implementation child and ensure the final step directly depends on it with a
-native `blocks` edge. Add any missing edge with `bd dep add <audit> <task> --type blocks`; this also repairs an older
+Before the first feature check, inspect every implementation child and ensure the final step directly depends on it with a
+native `blocks` edge. Add any missing edge with `bd dep add <close> <task> --type blocks`; this also repairs an older
 molecule or an interrupted task-creation sequence without creating replacement workflow state.
 
-Run `dstack audit --bead <root> --include-plan`. Read the approved plan and relevant accepted decisions before comparing
+Run `dstack check feature --bead <root> --include-plan`. Read the approved plan and relevant accepted decisions before comparing
 intent with code. Use focused `bd show`, `bd history`, and `git show` reads for additional detail rather than
-recollecting the whole audit. Follow `next_offset` when a summary is paged. Compare intent, decisions, tasks, canonical
-commits, tests, code, and current documentation. Run the repository's documented validation contract. Audit collection
-is evidence, not semantic approval.
+recollecting the whole feature check. Follow `next_offset` when a summary is paged. Compare intent, decisions, tasks, canonical
+commits, tests, code, and current documentation. Run the repository's documented validation contract. Feature-check output is evidence, not semantic approval.
 
 Do not write feature publication until this review passes.
 
@@ -57,7 +56,7 @@ it, release an in-progress final step through native status/assignee fields if n
 
 For an unowned finding, create one bounded implementation child with `dstack:work:implementation`, planned scope in
 `description`, accepted approach in `design`, observable `acceptance_criteria`, the direct approval blocker, and a
-`discovered-from` link to the close step. Immediately run `bd dep add <audit> <task> --type blocks`; if interrupted
+`discovered-from` link to the close step. Immediately run `bd dep add <close> <task> --type blocks`; if interrupted
 after creation, repair that missing edge on resume before trusting final-step readiness. Leave execution notes empty and
 create at most one correction for each finding.
 
@@ -78,7 +77,7 @@ After semantic review passes and every implementation task is closed, resume or 
 3. Run `dstack check docs --slug <slug>` and the repository's documentation validation.
 4. Stage only the feature publication and its SUMMARY entry, then run `dstack docs commit --bead <root>`. Accept an
    unchanged result when valid publication is inherited from the base; do not create an empty replacement commit.
-5. Run `dstack audit --bead <root> --include-plan --require-docs`.
+5. Run `dstack check feature --bead <root> --include-plan --require-docs`.
 
 Propose reusable memory additions or corrections with exact content when close yields durable guidance.
 

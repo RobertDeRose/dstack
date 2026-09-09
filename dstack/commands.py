@@ -25,7 +25,7 @@ from .formula import check_formula, init_workspace
 from .output import emit
 from .policy import validate_plan_issue, validate_task_issue
 from .workflow import (
-    audit_completion_dependency_errors,
+    close_completion_dependency_errors,
     feature_identity,
     feature_steps,
     implementation_task_graph_errors,
@@ -132,13 +132,9 @@ def cmd_worktree_ensure(args: argparse.Namespace) -> int:
 
 def cmd_plan_check(args: argparse.Namespace) -> int:
     client = client_for(args.root)
-    plan = client.show(args.bead)
     root = feature_identity(client, args.bead)[0]
-    expected = feature_steps(client, str(root["id"]))["plan"]
+    plan = client.show(str(feature_steps(client, str(root["id"]))["plan"]["id"]))
     result = validate_plan_issue(plan)
-    if str(plan.get("id")) != str(expected.get("id")):
-        result["errors"].append(f"plan Bead is not the fixed plan step {expected['id']}")
-        result["status"] = "invalid"
     emit(result)
     return 0 if result["status"] == "ok" else 4
 
@@ -169,8 +165,8 @@ def review_graph_errors(
         validation = validate_task_issue(task)
         errors.extend(f"{task.get('id')}: {error}" for error in validation["errors"])
         errors.extend(implementation_task_graph_errors(task, steps))
-    audit = client.show(str(steps["audit"]["id"]))
-    errors.extend(audit_completion_dependency_errors(audit, tasks))
+    close_step = client.show(str(steps["audit"]["id"]))
+    errors.extend(close_completion_dependency_errors(close_step, tasks))
 
     if ready_task_ids:
         errors.append("implementation tasks are ready before approval: " + ", ".join(sorted(ready_task_ids)))

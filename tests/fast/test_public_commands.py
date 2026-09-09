@@ -35,7 +35,7 @@ def test_commit_retry_reword_and_task_check_use_only_selected_evidence(public_fe
     assert not any(any(arg.startswith("sibling-") for arg in call) for call in calls)
 
 
-def test_docs_commit_and_final_audit_reject_stale_export(public_feature: FeatureRepository) -> None:
+def test_docs_commit_and_final_feature_check_reject_stale_export(public_feature: FeatureRepository) -> None:
     rejected = public_feature.invoke("docs", "export-design", "--bead", "root", primary=True, expected=2)
     assert "registered feature worktree" in rejected["error"]
     assert not (public_feature.repo / "docs").exists()
@@ -54,13 +54,20 @@ def test_docs_commit_and_final_audit_reject_stale_export(public_feature: Feature
     public_feature.invoke("docs", "export-design", "--bead", "root")
     run(["git", "add", "docs"], cwd=public_feature.worktree)
     public_feature.invoke("docs", "commit", "--bead", "root")
-    public_feature.invoke("audit", "--bead", "root", "--include-plan", "--require-docs")
+    public_feature.invoke("check", "feature", "--bead", "root", "--include-plan", "--require-docs")
     public_feature.data["issues"]["plan"]["design"] += "\nAccepted clarification.\n"
     rejected = public_feature.invoke("docs", "commit", "--bead", "root", expected=2)
     assert "differs from the native plan" in rejected["error"]
-    audited = public_feature.invoke("audit", "--bead", "root", "--require-docs", expected=4)
+    audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs", expected=4)
     assert audited["validation"]["feature_docs"]["status"] == "invalid"
 
+
+
+def test_plan_check_accepts_any_issue_in_the_feature(public_feature: FeatureRepository) -> None:
+    root = public_feature.invoke("check", "plan", "--bead", "root")
+    descendant = public_feature.invoke("check", "plan", "--bead", "task")
+    assert root["status"] == descendant["status"] == "ok"
+    assert root["bead"] == descendant["bead"] == "plan"
 
 def test_review_uses_native_dependency_policy_and_hydrates_task_intent(public_feature: FeatureRepository) -> None:
     issues = public_feature.data["issues"]

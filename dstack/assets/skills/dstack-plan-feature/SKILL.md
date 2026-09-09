@@ -14,7 +14,7 @@ Use these dStack commands in this stage:
 ```bash
 dstack init
 dstack check formula
-dstack check plan --bead <plan>
+dstack check plan --bead <root>
 ```
 
 `dstack init` and `dstack check formula` must succeed before pouring new work. Run the plan check after storing the
@@ -62,7 +62,7 @@ fragment beginning at heading level three in the design field. The design contai
 ```
 
 Write design content to a temporary file outside the repository, update the native fields, delete the temporary file,
-then run `dstack check plan --bead <plan>`. Do not create implementation tasks or feature documentation during planning.
+then run `dstack check plan --bead <root>`. Do not create implementation tasks or feature documentation during planning.
 
 After validation, close only the plan step and return the root ID, resolved questions, decisions, and
 `/review-plan <root>`.

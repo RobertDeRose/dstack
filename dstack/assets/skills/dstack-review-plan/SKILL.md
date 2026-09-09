@@ -12,7 +12,7 @@ disable-model-invocation: true
 Use these dStack commands after reconciling the reviewed plan and task graph:
 
 ```bash
-dstack check plan --bead <plan>
+dstack check plan --bead <root>
 dstack check review --bead <root>
 ```
 
@@ -40,7 +40,7 @@ Inspect existing implementation children first and reconcile partial review work
 Create bounded task-shaped outcomes directly under the implementation epic. Use one native `bd create` invocation with
 `--parent`, `--no-inherit-labels`, `--labels`, `--description`, `--design`, `--acceptance`, and
 `--deps blocked-by:<approval>` so a new task never temporarily lacks its approval blocker. Immediately make the final
-step depend on the new task with `bd dep add <audit> <task> --type blocks`. Preserve that edge after the task closes so
+step depend on the new task with `bd dep add <close> <task> --type blocks`. Preserve that edge after the task closes so
 a later reopen blocks close again. On resume, repair a missing edge on an existing child before continuing rather than
 creating a replacement task.
 
