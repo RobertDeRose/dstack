@@ -1,14 +1,11 @@
-# Development and Contributions
+# Development
 
-Use these pages when you want to change or contribute to dStack itself.
+dStack is a Python project developed with the same dStack workflow it provides to other repositories. Maintainers use
+that workflow for feature work, while contributions from other developers are reviewed and merged through GitHub pull
+requests.
 
-- [Feature lifecycle](feature-lifecycle.md) explains the behavior that the workflow commands and Beads formula
-  implement.
-- [Documentation](documentation.md) describes the documentation contract and feature-publication rules.
-- [Testing and tooling](tooling.md) lists the repository validation commands and internal Python module boundaries.
+- [Documentation](documentation.md) describes how the project maintains and publishes its documentation.
+- [Testing and tooling](tooling.md) describes the repository validation and development tools.
 
 Accepted designs for features that shaped the current implementation are kept under
 [References > Implemented Features](../reference/implemented-features.md).
-
-Before submitting a change, run the repository's validation contract described in
-[Testing and tooling](tooling.md).
