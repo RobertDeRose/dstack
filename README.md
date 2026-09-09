@@ -43,4 +43,5 @@ Continue with [Getting Started](docs/src/getting-started/index.md) for the featu
 
 ## Development
 
-See [Development](docs/src/development/index.md) for the repository development and contribution documentation.
+See [Development](docs/src/development/index.md) for local setup, repository tooling, validation, documentation, and
+pull-request contributions.

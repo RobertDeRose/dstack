@@ -1,50 +1,56 @@
-# Testing and tooling
+# Repository tooling
 
-Run the fast suite and real-Beads acceptance suite with:
+The repository keeps development commands in a small number of tools so local work and CI use the same entry points.
+
+## Python and uv
+
+The `dstack` CLI is implemented in Python 3.14. `pyproject.toml` defines the package, runtime dependency, development
+dependencies, pytest configuration, and Ruff settings. `uv.lock` records the resolved Python dependency set.
+
+Use `uv` to synchronize the development environment and run Python commands without maintaining a separate virtualenv
+workflow:
 
 ```bash
-uv run pytest                 # xdist workers are enabled automatically
-uv run pytest tests/acceptance
+uv sync --dev --locked
+uv run pytest
 ```
 
-The default pytest configuration uses `pytest-xdist` with `-n auto`. Pass `-n 0` when a serial run is needed.
+## mise
 
-Run the complete repository contract with:
+[mise](https://mise.jdx.dev/) owns the repository's development tool versions and repeatable tasks. `mise.toml` pins or
+selects the tools used by development and CI, including Python, Beads, hk, mdBook, Ruff, rumdl, ty, and supporting
+linters.
+
+The repository currently defines these tasks:
+
+```text
+docs:build      Build the mdBook site
+docs:serve      Serve the documentation locally
+release-check   Build and verify release artifacts from a clean clone
+```
+
+Run a task with `mise run <task>`, for example:
+
+```bash
+mise run docs:serve
+mise run release-check
+```
+
+## hk
+
+[hk](https://hk.jdx.dev/) owns repository checks and Git-hook orchestration through `hk.pkl`. It runs the configured
+formatting, linting, type checking, structured-configuration, GitHub Actions, and mdBook checks.
+
+The hook configuration also delegates Beads hook behavior at the appropriate Git lifecycle points:
+
+- `pre-commit` runs the configured checks with fixes enabled and then the Beads pre-commit hook.
+- `pre-push` runs the Beads pre-push hook.
+- `post-merge` runs the Beads post-merge hook.
+
+Run the complete hk check directly with:
 
 ```bash
 hk check -a
 ```
 
-Fast tests cover stateless adapters and validators. Acceptance tests execute Beads 1.2.2 and verify the Beads formula,
-readiness, claims, gates, dependencies, worktrees, and Git evidence used by the skills.
-
-This repository chooses hk as its project-validation contract; dStack does not impose hk on target repositories or run
-it as a CLI runtime dependency. Skills run each target repository's documented validation command. hk owns formatting,
-linting, type checking, tests, and documentation validation here. Its Beads hooks integrate through `bd hooks`
-commands.
-
-## Internal boundaries
-
-The Python package keeps external authority and workflow policy separate:
-
-- `core.py` contains generic process and filesystem primitives. It has no Beads environment or workflow policy.
-- `beads.py` is the thin Beads adapter. It injects the supported JSON-envelope environment, performs workspace
-  and version preflight, and uses complete lifecycle reads where recovery requires them.
-- `git_state.py` reads Git/worktree/evidence state and serializes repository mutations. Interrupted operations
-  remain Git state; this layer detects them without creating a recovery journal.
-- `policy.py` owns mechanical plan, task, commit-message, and commit-path policy. Read-only validators consume these
-  rules without depending on the mutating Git command layer.
-- `docs.py` owns feature-publication structure and detects whether publication differs from the inherited base state.
-- `workflow.py` derives feature identity, fixed steps, implementation children, and graph invariants from Beads data.
-- `task_validation.py` composes read-only workflow, policy, and Git evidence into the shared implementation-task
-  validator used by both `check task` and `check feature`.
-- `git_ops.py` owns state-changing Git commit/correction operations and verifies them against `policy.py` and `docs.py`.
-- `commands.py` and `feature_check.py` orchestrate those lower-level operations; lower-level modules must not import
-  command
-  handlers.
-
-Keep these boundaries narrow. Do not add repository/service abstractions or duplicate Git/Beads state to make recovery
-easier. Restartability is reconstructed from Beads and Git.
-
-Fast tests include architectural checks for these import and environment boundaries and shared task-evidence tests. The
-acceptance suite remains responsible for real Beads/Git recovery behavior.
+Tests remain a separate validation step and are run with pytest; see [Testing and validation](validation.md).
