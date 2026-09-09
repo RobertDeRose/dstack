@@ -1,7 +1,7 @@
 ---
 dstack-managed: true
 name: implement
-description: "Resume owned work or implement the next native ready task from a Beads feature molecule"
+description: "Resume owned work or implement the next ready task from a Beads feature"
 ---
 
 <!-- rumdl-disable-file MD041 -->

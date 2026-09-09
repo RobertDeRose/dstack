@@ -1,7 +1,7 @@
 ---
 dstack-managed: true
 name: dstack-audit-project
-description: "Audit current project behavior and documentation, then plan bounded remediation through the normal lifecycle."
+description: "Audit current project behavior and documentation, then plan bounded remediation through the normal feature lifecycle."
 disable-model-invocation: true
 ---
 

@@ -12,7 +12,7 @@ registry, worktree registry, commit map, or coordination protocol.
 ## Workflow scope
 
 The dStack workflow is opt-in. Do not infer activation from `.beads`, installed skills, or the availability of `bd`.
-Only use Beads and the native dStack workflow when the user explicitly invokes `/plan-feature`, `/review-plan`,
+Only use Beads and the dStack feature workflow when the user explicitly invokes `/plan-feature`, `/review-plan`,
 `/implement`, `/close-feature`, or `/audit-project`, or explicitly asks to use dStack. An explicitly requested dStack command may perform
 its documented deterministic mechanics, but it does not activate workflow tracking or create issues.
 
@@ -24,23 +24,23 @@ For all other requests:
 
 ## dStack workflow
 
-When explicitly activated, use the native `dstack-feature` molecule:
+When explicitly activated, use the `dstack-feature` molecule:
 
 ```text
 plan -> review -> human approval -> implementation children -> close
 ```
 
-Query Beads for the next task. Never calculate readiness or override a native blocker.
+Query Beads for the next task. Never calculate readiness or override a Beads blocker.
 
 Planning records the request, questions, answers, decisions, rationale, acceptance criteria, and documentation impact in
 Beads. Ask the user about material product, architecture, operational, security, or compatibility decisions before
 closing the plan.
 
-Review compares the plan with current code, tests, documentation, and decisions. It creates bounded native tasks and
+Review compares the plan with current code, tests, documentation, and decisions. It creates bounded implementation tasks and
 real dependencies, then presents the reviewed scope for explicit approval.
 
-Implementation claims one native ready task. Code, tests, configuration, and current documentation for that outcome
-belong together. Close reviews approved intent before claiming the final step, returns defects to implementation, and
+Implementation claims one ready implementation task. Code, tests, configuration, and current documentation for that outcome
+belong together. Close reviews approved intent before claiming the close step, returns defects to implementation, and
 writes feature documentation only after review passes. Project audit creates a normal remediation plan and returns
 it for review.
 
@@ -56,7 +56,7 @@ dStack commands may:
 - validate feature documentation; and
 - collect bounded close and project-audit facts.
 
-Skills perform semantic judgment and native Beads mutations. The CLI does not choose workflow steps or close Beads
+Skills perform semantic judgment and Beads mutations. The CLI does not choose workflow steps or close Beads
 work.
 
 ## Memory
@@ -82,4 +82,4 @@ hk check -a
 ```
 
 Keep generated Beads runtime data out of implementation changes. Preserve deterministic JSON output, focused functions,
-native Beads operations, and real-Beads acceptance coverage for native behavior.
+Beads operations, and real-Beads acceptance coverage for workflow behavior.

@@ -276,7 +276,7 @@ def cmd_git_commit_docs(args: argparse.Namespace) -> int:
         mode = _correct_or_reuse(root, target, message)
         corrected = _task_evidence(root, base, close_id)
         if len(corrected) != 1:
-            raise DstackError("correction did not leave exactly one close documentation commit")
+            raise DstackError("correction did not leave exactly one feature documentation commit")
         commit = str(corrected[0]["commit"])
     else:
         raise DstackError("close step has multiple reachable commits; refusing ambiguous correction")

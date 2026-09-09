@@ -25,7 +25,7 @@ invent flags or alternate command sequences.
 dstack <command> [arguments]
 ```
 
-A nonzero exit means the operation failed. Read the diagnostic and preserve the native state it reports. Do not bypass a
+A nonzero exit means the operation failed. Read the diagnostic and preserve the Git or Beads state it reports. Do not bypass a
 failed invariant manually and then continue as though dStack succeeded.
 
 ## Resume and recovery
@@ -37,7 +37,7 @@ before another mutating dStack command. dStack may make retries idempotent, but 
 rather than a dStack-owned journal.
 
 Only one agent writes a feature worktree at a time. Preserve existing edits and staged content until ownership is clear.
-Native status is authoritative for completion; an empty ready queue does not by itself prove a task or workflow is
+Beads status is authoritative for completion; an empty ready queue does not by itself prove a task or workflow is
 complete.
 
 ## Memory

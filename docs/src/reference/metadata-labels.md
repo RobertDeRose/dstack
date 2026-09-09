@@ -18,22 +18,25 @@ dstack:step:implementation
 dstack:step:audit
 ```
 
-Implementation tasks use only the discovery label:
+The public lifecycle calls the last step the **close step**. `dstack:step:audit` is its stable internal label for
+compatibility with existing feature molecules.
+
+Implementation tasks use:
 
 ```text
 dstack:work:implementation
 ```
 
-Commit type and scope are derived from the fixed feature contract rather than task metadata. Ordered native
-`Implementation:` notes record delivered work and supply implementation commit bullets. Each note is a concise,
-verb-led, one-line fragment of no more than 96 characters; dStack strips surrounding whitespace while preserving
-technical punctuation before adding a dash-and-space prefix without wrapping. Planned task description and design are
-not commit evidence. Legacy labels may remain on tasks created by a workflow already active during the transition, but
-new tasks do not require them.
+Task notes record delivered repository work as ordered `Implementation:` fragments. Each fragment is one concise line of
+no more than 96 characters. dStack preserves technical punctuation, adds the commit bullet marker, and does not wrap the
+text. Planned task description/design text is not commit evidence.
 
-Decision Beads use the native `decision` type, label `decision:<slug>`, and an exact `relates-to` dependency on the
-feature root. The formula human approval gate has stable await ID `approve-<slug>-plan`. Material ambiguity may create a
-separate human gate that directly blocks the close step; there is no fixed close-review gate.
+Commit type and scope are derived from the feature/task contract rather than separate labels. Legacy labels may remain
+on features created by an older workflow version, but new tasks do not require them.
 
-Workflow state, readiness, claims, approval, worktree paths, commit IDs, validation results, and next actions stay in
-native tools rather than metadata fields.
+Beads decision issues use the `decision` type, label `decision:<slug>`, and an exact `relates-to` dependency on the
+feature root. The formula's human approval gate has await ID `approve-<slug>-plan`. Material ambiguity may create a
+separate human gate that directly blocks the close step.
+
+Workflow status, readiness, claims, worktree paths, commit IDs, validation results, and next actions remain in Beads and
+Git rather than being copied into dStack metadata.

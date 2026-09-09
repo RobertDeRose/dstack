@@ -1,83 +1,82 @@
 # Feature lifecycle
 
-This workflow is opt-in. It starts only when the user invokes `/plan-feature`, `/review-plan`, `/implement`,
-`/close-feature`, `/audit-project`, or explicitly asks to use dStack. dStack setup and deterministic commands perform
-their documented mechanics without creating or updating workflow issues.
-
-## Native molecule
-
-`dstack-feature` has five native steps:
+dStack is opt-in. A feature moves through planning, review and approval, implementation, and close. `/audit-project` is
+a separate repository-wide operation that may create a remediation feature when it finds actionable drift.
 
 ```text
-plan -> review -> approval -> implementation -> close
+plan -> review -> human approval -> implementation tasks -> close
 ```
 
-The implementation step is an epic containing dynamic tasks. Review creates each task with a direct blocker on the
-approval step and then makes that task a persistent direct blocker of the final `audit` step. The formula itself only
-sequences `audit` after approval; there is no fixed close-review gate or `waits-for` fan-in.
+The implementation step is a Beads epic containing the feature's implementation tasks. Each task is blocked by approval
+and remains a persistent blocker of the close step, so reopening a task blocks close again without rebuilding workflow
+state.
 
 ## Planning
 
-`/plan-feature` runs `dstack init` and requires `dstack check formula` to validate committed policy before pouring new
-work. It records the original request in the plan description, a publishable design fragment in the design field,
-observable outcomes in acceptance criteria, and material questions and answers in native comments. The design contains
-exactly six level-three headings: Goals, User-facing behavior, Implemented design, Compatibility and constraints,
-Validation, and Non-goals. Nested subsections are allowed within those sections. Mechanical checks validate fields and
-structure, not whether prose represents an unresolved decision. Planning focuses on user intent; it does not broadly
-inspect the repository or create implementation tasks.
+`/plan-feature` records the original request, observable outcomes, material questions and answers, and a publishable
+design. Planning focuses on user intent rather than broad repository investigation.
 
-Planning closes only after its questions are resolved and `dstack check plan --bead <plan-bead>` succeeds.
+Before new feature work is created, `dstack init` and `dstack check formula` must confirm that repository policy matches
+the installed dStack package. Before the plan step closes, `dstack check plan --bead <feature>` validates the plan's
+Beads fields and six required design sections:
+
+- Goals
+- User-facing behavior
+- Implemented design
+- Compatibility and constraints
+- Validation
+- Non-goals
+
+The check validates structure, not whether an unresolved product decision remains. The workflow asks the user about those
+semantic choices.
 
 ## Review and approval
 
-`/review-plan` first searches targeted project memories, then reconciles the design with relevant current code, tests,
-and documentation. Current documentation and accepted decisions outrank stale memory; memory corrections require user
-approval. It creates bounded implementation tasks with native dependencies. Each task stores planned scope in
-`description`, the accepted approach and invariants in `design`, and observable outcomes in `acceptance_criteria`; it
-does not use commit-type or scope labels. Before presenting the result, review validates fixed steps and task graph
-invariants. Invocation never grants human approval.
+`/review-plan` reconciles the plan with relevant current source, tests, documentation, accepted decisions, and focused
+memory. It creates bounded implementation tasks with planned scope in `description`, accepted approach and invariants in
+`design`, and observable outcomes in `acceptance_criteria`.
+
+`dstack check review --bead <feature>` verifies the reviewed task graph before approval. Review never grants approval;
+the user must explicitly approve the proposed scope before implementation tasks become ready.
 
 ## Implementation
 
-`/implement` enters the registered worktree and resumes owned in-progress work before claiming a new native-ready task.
-It reads the selected task's review comments and accepted fields. Only one agent writes a feature worktree at a time.
-Task notes record current delivered outcomes as ordered one-line `Implementation:` fragments of at most 96 characters.
-Technical punctuation is preserved; there is no English verb whitelist. Review rationale stays in comments and durable
-rationale in linked decision Beads rather than duplicate commit prose.
+`/implement` resumes implementation work already owned by the current agent before claiming another ready task. It enters
+the registered feature worktree and reads the selected task's accepted fields, notes, comments, decisions, and blockers
+as needed.
 
-Run the repository's documented validation before committing. Each repository-changing task owns one canonical commit
-with a `Task:` trailer. An intentional no-repository-change task owns zero canonical commits and records exactly why no
-repository change was required. A conventional native title prefix selects the type; otherwise it defaults to `feat`.
-Reopened corrections revise obsolete notes and amend only the owning unpublished commit, replaying descendants without
-absorbing unrelated fixups. Clean retries are no-ops. `dstack check task --bead <task>` and feature audit use the same
-task-evidence validator for graph policy, delivered-outcome notes, commit ownership, changed paths, and intentional
-no-change evidence. The task check additionally verifies the selected feature worktree is clean without hydrating every
-sibling. Close the task only after all checks pass. Implementation updates current documentation but leaves the feature
-publication under `docs/src/features/<slug>/` to close review.
+Task notes record delivered outcomes as ordered `Implementation:` fragments. Repository-changing tasks own one canonical
+Git commit with exactly one `Task:` trailer. An intentional `No repository change:` task owns no canonical commit.
+
+The target repository's own validation runs before the task is closed. `dstack commit --bead <task>` creates or corrects
+the canonical unpublished task commit, and `dstack check task --bead <task>` validates task structure, Git evidence, and
+worktree cleanliness. Implementation keeps current documentation aligned with behavior but leaves
+`docs/src/features/<slug>/` to close.
 
 ## Close
 
-The public `/close-feature` operation reviews the feature before claiming the final step. Its internal ID and label
-remain `audit` and `dstack:step:audit`. Close collects bounded facts with `dstack audit --bead <root> --include-plan`,
-reads the plan and relevant accepted decisions, compares the delivered repository with approved intent, and returns
-clear defects to their owning task. Unowned findings become one new implementation child; material ambiguity becomes a
-separate native gate that directly blocks the close step without secondary parentage. When the answer changes approved
-intent, close records a decision, updates the plan design and owning task acceptance criteria, and reopens that task for
-`/implement`. An unowned changed outcome instead becomes a bounded correction task.
+`/close-feature` reviews the delivered repository against the approved plan before claiming the close step. It begins
+with:
 
-The close skill reviews before claiming the final step. Each implementation task remains a native blocker of the final
-step even after it closes, so reopening it removes close from ready work again without rebuilding the graph. A new
-correction task receives the same direct blocker immediately after creation. On resume, close repairs any missing
-blocker edge before trusting final-step readiness; this covers interrupted task creation and active molecules poured
-before formula version 4. Once review is clean and every implementation task is closed, close claims or resumes the
-final step.
+```text
+dstack check feature --bead <feature> --include-plan
+```
 
-Only after review passes does close export the design, write the minimal feature documentation, and run feature-document
-validation separately from the repository's own project validation. `dstack docs commit --bead <feature-root>` creates
-the one allowed close-owned `docs(<slug>): <feature title>` commit with no body and a `Task:` trailer for the final
-step. Rerunning it with one unpublished close commit and a clean worktree rewords stale canonical metadata without
-creating duplicate evidence. Valid publication inherited unchanged from the base needs no new or empty close commit.
+The skill reads accepted decisions and focused Beads/Git detail as needed, then compares intent, tasks, commits, tests,
+code, current documentation, and the repository's own validation result. Clear defects return to their implementation
+task. Unowned findings become a bounded correction task. Material ambiguity becomes a human gate that directly blocks
+close.
 
-Close operates in the registered feature worktree. Documentation scaffolding is repeatable and does not replace prose;
-the design export is checked against Beads at commit and final audit. After validation, explicitly close the
-implementation epic, final step, and root, skipping already-closed items on resume. Verify their native statuses.
+Only after semantic review passes does close write feature documentation. The workflow exports the accepted design,
+updates the feature index, runs structural and repository documentation validation, and calls
+`dstack docs commit --bead <feature>`. Valid documentation inherited unchanged from the base needs no new or empty
+commit.
+
+The final deterministic check is:
+
+```text
+dstack check feature --bead <feature> --include-plan --require-docs
+```
+
+After all checks pass, close completes the implementation epic, close step, and feature root, skipping issues that are
+already closed on resume.

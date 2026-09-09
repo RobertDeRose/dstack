@@ -37,7 +37,7 @@ def test_implementation_cannot_commit_feature_publication(public_feature: Featur
     publication(public_feature)
     before = run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout
     rejected = public_feature.invoke("commit", "--bead", "task", expected=2)
-    assert "publication belongs to the close step" in rejected["error"]
+    assert "documentation belongs to the close step" in rejected["error"]
     assert run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout == before
     assert run(["git", "diff", "--cached", "--name-only"], cwd=public_feature.worktree).stdout
 
@@ -48,9 +48,9 @@ def test_feature_check_and_task_check_reject_publication_under_a_task_footer(pub
     publication(public_feature)
     run(["git", "commit", "-F", "-"], cwd=public_feature.worktree, input_text=canonical_task_message(task, "example"))
     checked = public_feature.invoke("check", "task", "--bead", "task", expected=4)
-    assert any("publication belongs to the close step" in error for error in checked["errors"])
+    assert any("documentation belongs to the close step" in error for error in checked["errors"])
     reused = public_feature.invoke("commit", "--bead", "task", expected=2)
-    assert "publication belongs to the close step" in reused["error"]
+    assert "documentation belongs to the close step" in reused["error"]
     task["status"] = "closed"
     audited = public_feature.invoke("check", "feature", "--bead", "root", "--require-docs", expected=4)
     assert any("requires one canonical documentation commit" in error for error in audited["checks"]["errors"])
@@ -166,7 +166,7 @@ def test_docs_commit_validates_the_resulting_commit_after_hooks(public_feature: 
     rejected = public_feature.invoke("docs", "commit", "--bead", "root", expected=2)
     after = run(["git", "rev-parse", "HEAD"], cwd=public_feature.worktree).stdout.strip()
     assert after != before
-    assert "differs from the native plan" in rejected["error"]
+    assert "differs from the feature plan" in rejected["error"]
     committed = run(["git", "show", f"{after}:docs/src/features/example/design.md"], cwd=public_feature.worktree).stdout
     assert "Hook mutation." in committed
 

@@ -257,19 +257,19 @@ def commit_record_matches_message(record: Mapping[str, object], message: str) ->
 
 
 def validate_commit_paths(paths: Sequence[str], slug: str, *, documentation: bool) -> None:
-    """Enforce only the Beads-state exclusion and the feature publication boundary."""
+    """Enforce only the Beads-state exclusion and the feature-documentation boundary."""
 
     reject_beads_paths(paths)
     directory = f"docs/src/features/{slug}"
     if documentation:
         invalid = [path for path in paths if path != "docs/src/SUMMARY.md" and not path.startswith(directory + "/")]
         if invalid:
-            raise DstackError("close documentation commit contains non-feature paths: " + ", ".join(invalid))
+            raise DstackError("feature documentation commit contains non-feature paths: " + ", ".join(invalid))
     else:
         invalid = [path for path in paths if path == directory or path.startswith(directory + "/")]
         if invalid:
             raise DstackError(
-                "feature publication belongs to the close step, not an implementation task: " + ", ".join(invalid)
+                "feature documentation belongs to the close step, not an implementation task: " + ", ".join(invalid)
             )
 
 

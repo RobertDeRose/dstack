@@ -179,7 +179,7 @@ def test_markdown_links_ignore_code_and_keep_balanced_parentheses() -> None:
 @pytest.mark.parametrize("design", ["", "   \n", DESIGN + "changed\n"])
 def test_docs_validate_rejects_empty_or_stale_native_export(tmp_path: Path, design: str) -> None:
     write_feature(tmp_path, design=design)
-    with pytest.raises(DstackError, match="empty|differs from the native plan"):
+    with pytest.raises(DstackError, match="empty|differs from the feature plan"):
         validate_docs(tmp_path, feature="example", expected_design=DESIGN)
 
 
