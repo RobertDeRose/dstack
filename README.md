@@ -69,10 +69,10 @@ plan only when work is needed.
 The mdBook under [`docs/`](docs/src/index.md) is the canonical documentation:
 
 - [Getting started](docs/src/getting-started/index.md)
-- [Operations](docs/src/operations/index.md)
+- [Interrupted Skill Recovery](docs/src/recovery.md)
 - [Architecture](docs/src/architecture/index.md)
 - [CLI reference](docs/src/reference/cli.md)
-- [Recovery](docs/src/operations/recovery.md)
+- [Interrupted Skill Recovery](docs/src/recovery.md)
 
 ## Development
 

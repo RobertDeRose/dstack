@@ -133,7 +133,7 @@ Locate the registered `feat/<slug>` worktree for a feature or create it when abs
 issue inside that feature.
 
 If Git has an interrupted native operation, the command returns `recovery_required` and the existing worktree path
-without repairing it. Follow [Recovery](../operations/recovery.md) before another mutating dStack command.
+without repairing it. Follow [Interrupted Skill Recovery](../recovery.md) before another mutating dStack command.
 
 ## `dstack commit`
 
