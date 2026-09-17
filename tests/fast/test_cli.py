@@ -48,9 +48,7 @@ def test_parser_exposes_ergonomic_commands() -> None:
     worktree = parser.parse_args(["worktree", "--bead", "ds-feature"])
     assert worktree.bead == "ds-feature"
 
-    feature = parser.parse_args(
-        ["check", "feature", "--bead", "ds-feature", "--include-plan", "--require-docs"]
-    )
+    feature = parser.parse_args(["check", "feature", "--bead", "ds-feature", "--include-plan", "--require-docs"])
     assert feature.bead == "ds-feature"
     assert feature.include_plan is True
     assert feature.require_docs is True
@@ -155,6 +153,20 @@ def test_feature_commands_use_one_bead_selector(command: list[str]) -> None:
     assert parser.parse_args([*command, "--bead", "root"]).bead == "root"
     with pytest.raises(SystemExit):
         parser.parse_args([*command, "--feature", "root"])
+
+
+@pytest.mark.parametrize("selectors", [[], ["--all", "--slug", "example"]])
+def test_docs_check_requires_exactly_one_selector(selectors: list[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.build_parser().parse_args(["check", "docs", *selectors])
+    assert exc.value.code == 2
+
+
+def test_docs_check_all_selector() -> None:
+    args = cli.build_parser().parse_args(["check", "docs", "--all"])
+    assert args.all is True
+    assert args.slug is None
+    assert args.func is cli.cmd_docs_validate
 
 
 def test_docs_slug_and_feature_check_bead_are_unambiguous(monkeypatch: pytest.MonkeyPatch) -> None:

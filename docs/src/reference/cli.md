@@ -92,13 +92,24 @@ and paths, and feature-worktree cleanliness. An intentional `No repository chang
 ## `dstack check docs`
 
 ```text
-dstack check docs --slug SLUG [--root PATH]
+dstack check docs (--slug SLUG | --all) [--root PATH]
 ```
 
-Validate one feature-documentation directory independently of Beads. This structural check uses the feature slug because
-it can run without workflow state.
+Validate feature documentation independently of Beads. Choose exactly one selector:
 
-Target repositories still own their whole-book or project-specific documentation validation.
+- `--slug SLUG` checks one feature-documentation directory.
+- `--all` checks every immediate subdirectory of `docs/src/features/`, in sorted order, using its directory name as the
+  slug. It does not discover slugs from Beads, Git, or `SUMMARY.md`, recurse into nested directories, or treat ordinary
+  files as features.
+
+Both modes apply the same structural checks, including required files, sections, and `SUMMARY.md` links. Invalid slugs
+and symlinks are rejected. An empty features directory succeeds; a missing features directory fails. All-feature mode
+reports all feature validation failures together and exits nonzero (`2`). On success, it emits JSON with `status: ok`
+and a `features` array of individual validation results (empty when no feature directories exist).
+
+Use `dstack check docs --all` from the repository root in a pre-commit hook, or specify `--root PATH`. This checks
+working-tree files, not a staged Git snapshot, and requires no Beads initialization. Target repositories still own their
+whole-book or project-specific documentation validation.
 
 ## `dstack check feature`
 
@@ -188,4 +199,4 @@ dstack check task --bead TASK
 dstack commit --bead TASK
 ```
 
-`dstack check docs` is independent of Beads and therefore uses `--slug`.
+`dstack check docs` is independent of Beads and requires either `--slug` or `--all`.

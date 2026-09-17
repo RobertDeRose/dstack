@@ -47,6 +47,18 @@ dstack docs commit --bead <feature>
 In this repository, the finished feature page is placed under **References > Implemented Features** in `SUMMARY.md`. The
 generic scaffold does not impose that navigation choice on repositories that use dStack.
 
+## Pre-commit validation
+
+To validate every feature's documentation without Beads, run this command from the repository root in a pre-commit hook:
+
+```bash
+dstack check docs --all
+```
+
+Each immediate `docs/src/features/` subdirectory name is the slug. All directories are checked in sorted order, and any
+validation failure produces a nonzero exit status. This validates working-tree content, not the staged Git snapshot. Use
+`--root PATH` if the hook runs outside the repository root. An empty features directory passes; a missing one fails.
+
 ## Editing the book
 
 General product, architecture, development, and reference documentation is edited directly under `docs/src/`. Keep each

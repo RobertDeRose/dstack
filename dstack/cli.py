@@ -100,9 +100,13 @@ def build_parser() -> argparse.ArgumentParser:
     _bead(task, "Implementation task Beads issue ID.")
     task.set_defaults(func=cmd_task_check)
 
-    docs_check = _leaf(check_commands, "docs", "Validate one feature's documentation structure.")
+    docs_check = _leaf(check_commands, "docs", "Validate feature documentation structure without Beads.")
     _root(docs_check)
-    docs_check.add_argument("--slug", required=True, help="Kebab-case feature slug.")
+    docs_selector = docs_check.add_mutually_exclusive_group(required=True)
+    docs_selector.add_argument("--slug", help="Kebab-case feature slug.")
+    docs_selector.add_argument(
+        "--all", action="store_true", help="Check every immediate subdirectory of docs/src/features/."
+    )
     docs_check.set_defaults(func=cmd_docs_validate)
 
     feature = _leaf(

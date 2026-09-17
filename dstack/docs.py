@@ -155,6 +155,28 @@ def validate_docs(root: Path, *, feature: str, expected_design: str | None = Non
     )
 
 
+def validate_all_docs(root: Path) -> dict[str, object]:
+    """Validate immediate feature directories, using only directory names as slugs."""
+    repository = root.expanduser().resolve()
+    directory = repository / "docs/src/features"
+    assert_no_symlink_components(directory, purpose="feature documentation root")
+    if not directory.is_dir():
+        raise DstackError(f"feature documentation root must be a directory: {directory}")
+
+    results: list[dict[str, object]] = []
+    errors: list[str] = []
+    for entry in sorted(directory.iterdir(), key=lambda path: path.name):
+        if not entry.is_symlink() and not entry.is_dir():
+            continue
+        try:
+            results.append(validate_docs(repository, feature=entry.name))
+        except DstackError as exc:
+            errors.append(f"{entry.name}: {exc}")
+    if errors:
+        raise DstackError("documentation validation failed: " + "; ".join(errors))
+    return {"status": "ok", "features": results}
+
+
 def _git_text(root: Path, revision: str, path: str, *, purpose: str) -> str:
     entry = run(["git", "ls-tree", "-z", revision, "--", path], cwd=root, check=False)
     if entry.returncode or not entry.stdout:
@@ -313,7 +335,11 @@ def export_design(
 
 
 def cmd_docs_validate(args: object) -> int:
-    emit(validate_docs(Path(getattr(args, "root")), feature=str(getattr(args, "slug"))))
+    root = Path(getattr(args, "root"))
+    if getattr(args, "all", False):
+        emit(validate_all_docs(root))
+    else:
+        emit(validate_docs(root, feature=str(getattr(args, "slug"))))
     return 0
 
 

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from dstack import cli
 from dstack.core import DstackError, run
-from dstack.docs import export_design, markdown_links, validate_docs
+from dstack.docs import export_design, markdown_links, validate_all_docs, validate_docs
 from dstack.policy import PLAN_SECTIONS, markdown_sections
 
 
@@ -58,6 +60,98 @@ def test_validate_docs_accepts_minimal_feature_contract(tmp_path: Path) -> None:
         "index": "docs/src/features/example/index.md",
         "design": "docs/src/features/example/design.md",
     }
+
+
+def test_check_all_docs_uses_only_sorted_immediate_directory_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from dstack import docs
+
+    monkeypatch.setattr(docs, "client_for", lambda *_: pytest.fail("documentation checks must not use Beads"))
+    for slug in ("zebra", "alpha"):
+        feature = write_feature(tmp_path, slug=slug)
+        (feature / "assets").mkdir()
+    (tmp_path / "docs/src/features/README.md").write_text("Not a feature.", encoding="utf-8")
+    (tmp_path / "docs/src/SUMMARY.md").write_text(
+        "# Summary\n\n- [Other title](features/alpha/index.md)\n"
+        "- [Same title](features/zebra/index.md)\n"
+        "- [Not a directory](features/absent/index.md)\n",
+        encoding="utf-8",
+    )
+
+    assert cli.main(["check", "docs", "--all", "--root", str(tmp_path)]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "status": "ok",
+        "features": [validate_docs(tmp_path, feature=slug) for slug in ("alpha", "zebra")],
+    }
+
+
+def test_check_all_docs_reports_every_invalid_feature(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_feature(tmp_path, slug="zebra", design="")
+    feature = write_feature(tmp_path, slug="alpha")
+    (feature / "index.md").unlink()
+
+    assert cli.main(["check", "docs", "--all", "--root", str(tmp_path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["status"] == "error"
+    assert "alpha: feature index must be a regular file" in payload["error"]
+    assert "zebra: documentation validation failed: feature design must not be empty" in payload["error"]
+    assert payload["error"].index("alpha:") < payload["error"].index("zebra:")
+
+
+def test_check_all_docs_allows_empty_directory_and_defaults_to_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "docs/src/features").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+
+    assert cli.main(["check", "docs", "--all"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "ok", "features": []}
+
+
+@pytest.mark.parametrize("as_file", [False, True])
+def test_validate_all_docs_requires_a_features_directory(tmp_path: Path, as_file: bool) -> None:
+    if as_file:
+        directory = tmp_path / "docs/src/features"
+        directory.parent.mkdir(parents=True)
+        directory.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(DstackError, match="feature documentation root must be a directory"):
+        validate_all_docs(tmp_path)
+
+
+def test_validate_all_docs_rejects_invalid_directory_names(tmp_path: Path) -> None:
+    write_feature(tmp_path, slug="Not-a-slug")
+    with pytest.raises(DstackError, match="Not-a-slug: invalid feature slug"):
+        validate_all_docs(tmp_path)
+
+
+@pytest.mark.parametrize("target_exists", [False, True])
+def test_validate_all_docs_rejects_symlink_entries(tmp_path: Path, target_exists: bool) -> None:
+    directory = tmp_path / "docs/src/features"
+    directory.mkdir(parents=True)
+    target = tmp_path / "outside"
+    if target_exists:
+        target.mkdir()
+    (directory / "linked").symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(DstackError, match="linked: .*symlink"):
+        validate_all_docs(tmp_path)
+
+
+@pytest.mark.parametrize("path", ["docs", "docs/src", "docs/src/features"])
+def test_validate_all_docs_rejects_symlink_ancestors(tmp_path: Path, path: str) -> None:
+    target = tmp_path / "outside"
+    target.mkdir()
+    link = tmp_path / path
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(DstackError, match="symlink"):
+        validate_all_docs(tmp_path)
 
 
 def test_validate_docs_rejects_unsafe_slug_symlink_and_empty_sections(tmp_path: Path) -> None:
