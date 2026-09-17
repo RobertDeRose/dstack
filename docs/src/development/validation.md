@@ -19,7 +19,8 @@ uv run pytest tests/fast
 uv run pytest tests/acceptance
 ```
 
-The acceptance suite requires Beads 1.2.2 on `PATH`; `mise install` installs the repository's configured Beads version.
+The acceptance suite requires Beads 1.2.2 or newer on `PATH`; `mise install` installs the repository's configured Beads
+version.
 
 ## Linters, formatters, types, and documentation
 

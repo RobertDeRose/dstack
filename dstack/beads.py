@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .core import CommandResult, DstackError, assert_no_symlink_components, run, truncate_output
 from .git_state import git_root
 
-SUPPORTED_BEADS_VERSION = (1, 2, 2)
+MINIMUM_BEADS_VERSION = (1, 2, 2)
 BEADS_VERSION_PATTERN = re.compile(r"\bbd version (\d+)\.(\d+)\.(\d+)\b")
 
 
@@ -220,9 +221,15 @@ class BeadsClient:
     def check_version(self) -> str:
         raw = self.version()
         observed = parse_beads_version(raw)
-        if observed != SUPPORTED_BEADS_VERSION:
-            supported = ".".join(str(part) for part in SUPPORTED_BEADS_VERSION)
-            raise DstackError(f"dStack requires Beads {supported}; found {raw}")
+        minimum = ".".join(str(part) for part in MINIMUM_BEADS_VERSION)
+        if observed < MINIMUM_BEADS_VERSION:
+            raise DstackError(f"dStack requires Beads >= {minimum}; found {raw}")
+        if observed[0] > MINIMUM_BEADS_VERSION[0]:
+            print(
+                f"warning: Beads major version is newer than the tested major version "
+                f"{MINIMUM_BEADS_VERSION[0]} (minimum {minimum}); found {raw}; continuing",
+                file=sys.stderr,
+            )
         return raw
 
     def show(self, issue_id: str) -> dict[str, Any]:

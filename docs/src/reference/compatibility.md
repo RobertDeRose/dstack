@@ -3,10 +3,15 @@
 dStack's tested runtime boundary is:
 
 - Python 3.14
-- Beads 1.2.2
+- Beads 1.2.2 (minimum)
 
-This repository uses mdBook 0.5.4 for its own documentation, but dStack does not require target repositories to use
-mdBook or hk.
+Beads versions at or above the minimum are accepted. A higher major version emits a non-blocking warning to stderr;
+newer minor and patch versions are accepted silently. Older or unparseable versions are rejected. Warnings do not alter
+JSON output, and native command failures and unsupported JSON schemas still fail normally.
+
+This repository pins development tools in `mise.toml` for installation, not as runtime compatibility requirements. It
+uses mdBook 0.5.4 for its own documentation without an exact-version check. dStack does not require target repositories
+to use mdBook or hk.
 
 ## Repository policy
 

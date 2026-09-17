@@ -10,7 +10,7 @@ and Git.
 
 ## Install
 
-Runtime requirements are Git, Python 3.14, Beads 1.2.2, and `uv`.
+Runtime requirements are Git, Python 3.14, Beads 1.2.2 or newer, and `uv`.
 
 ```bash
 uv tool install git+https://github.com/RobertDeRose/dstack

@@ -163,13 +163,42 @@ def test_truncated_command_output_preserves_root_cause_and_tail() -> None:
     assert "output truncated" in observed
 
 
-def test_beads_client_requires_exact_tested_version(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from dstack import beads as subject
+@pytest.mark.parametrize("version", ["0.99.99", "1.1.99", "1.2.1"])
+def test_beads_client_rejects_versions_below_minimum(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    client = BeadsClient(git_repo)
+    monkeypatch.setattr(client, "version", lambda: f"bd version {version} (test)")
 
-    client = subject.BeadsClient(git_repo)
-    monkeypatch.setattr(client, "version", lambda: "bd version 1.3.0 (future)")
+    with pytest.raises(DstackError, match=r"requires Beads >= 1\.2\.2"):
+        client.check_version()
 
-    with pytest.raises(DstackError):
+
+@pytest.mark.parametrize("version", ["1.2.2", "1.2.3", "1.3.0", "1.10.0", "2.0.0", "10.0.0"])
+def test_beads_client_accepts_minimum_and_newer_versions(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], version: str
+) -> None:
+    client = BeadsClient(git_repo)
+    raw = f"bd version {version} (test)"
+    monkeypatch.setattr(client, "version", lambda: raw)
+
+    assert client.check_version() == raw
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    if int(version.split(".")[0]) > 1:
+        assert "warning:" in captured.err
+        assert "tested major version 1" in captured.err
+        assert raw in captured.err
+        assert "continuing" in captured.err
+    else:
+        assert captured.err == ""
+
+
+def test_beads_client_rejects_unparseable_version(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = BeadsClient(git_repo)
+    monkeypatch.setattr(client, "version", lambda: "beads unknown")
+
+    with pytest.raises(DstackError, match="cannot parse Beads version"):
         client.check_version()
 
 

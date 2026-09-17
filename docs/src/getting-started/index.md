@@ -6,7 +6,7 @@ Before installing dStack, make sure you have:
 
 - Git
 - [uv](https://docs.astral.sh/uv/)
-- Beads 1.2.2
+- Beads 1.2.2 or newer
 - Pi, if you want to use the packaged workflow commands and skills
 
 The dStack package requires Python 3.14. `uv` can manage that interpreter for the installed tool.
